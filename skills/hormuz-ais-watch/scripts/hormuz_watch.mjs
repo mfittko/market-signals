@@ -254,11 +254,17 @@ function parseConfig() {
 
   const f = (name, def) => {
     const v = env(name);
-    return v === undefined ? def : Number(v);
+    if (v === undefined) return def;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new Error(`invalid ${name}="${v}": expected a number`);
+    return n;
   };
   const i = (name, def) => {
     const v = env(name);
-    return v === undefined ? def : parseInt(v, 10);
+    if (v === undefined) return def;
+    const n = Number(v);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) throw new Error(`invalid ${name}="${v}": expected an integer`);
+    return n;
   };
 
   return {
@@ -278,5 +284,29 @@ function parseConfig() {
   };
 }
 
-const cfg = parseConfig();
-await runOnce(cfg);
+async function cli() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`hormuz-ais-watch — watch Strait of Hormuz AIS traffic via aisstream.io and print alerts.
+
+Configured via environment variables (no CLI flags):
+  AISSTREAM_API_KEY (required)
+  HORMUZ_LAT_MIN/HORMUZ_LAT_MAX/HORMUZ_LON_MIN/HORMUZ_LON_MAX (bounding box)
+  MIN_SOG (default 1.5), WINDOW_SECONDS (default 90)
+  RETRY_MAX_ATTEMPTS, RETRY_BASE_MS, RETRY_MAX_MS, WS_CONNECT_TIMEOUT_MS
+  STATE_FILE, WORKSPACE_DIR, NO_DEDUPE=1
+`);
+    return;
+  }
+  const strayFlag = argv.find((a) => a.startsWith('-'));
+  if (strayFlag) {
+    throw new Error(`unknown flag ${strayFlag} (this script is configured via environment variables; run --help)`);
+  }
+  const cfg = parseConfig();
+  await runOnce(cfg);
+}
+
+cli().catch((error) => {
+  process.stderr.write(`hormuz-ais-watch error: ${String(error?.message ?? error)}\n`);
+  process.exitCode = 1;
+});

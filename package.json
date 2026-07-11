@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Agent skills for market analysis and market-moving signal watching.",
   "scripts": {
-    "verify": "node scripts/verify-packaging.mjs"
+    "verify": "node scripts/verify-packaging.mjs",
+    "test": "node --test test/*.test.mjs"
   }
 }

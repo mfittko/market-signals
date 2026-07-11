@@ -1,0 +1,21 @@
+name: Smoke (live)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+  schedule:
+    - cron: '17 6 * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Live smoke tests
+        run: node scripts/smoke-skills.mjs
+      - name: Instrument catalog drift check
+        run: node scripts/detect-instruments.mjs --check

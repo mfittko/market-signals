@@ -54,6 +54,7 @@ function parseArgs(argv) {
       solana: 'cc-solana',
     },
   };
+  const unknown = [];
 
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -64,7 +65,8 @@ function parseArgs(argv) {
     const val = hasValue ? next : null;
     if (hasValue) i++;
 
-    if (key === 'locale' && val) out.locale = val;
+    if (key === 'help' || key === 'h') continue;
+    else if (key === 'locale' && val) out.locale = val;
     else if (key === 'tz' && val) out.tz = val;
     else if (key === 'hours' && val) out.hours = Number(val);
     else if (key === 'commodities' && val)
@@ -81,8 +83,10 @@ function parseArgs(argv) {
         if (slug && tag) out.tags[slug.trim()] = tag.trim();
       }
     }
+    else unknown.push(`--${key}`);
   }
 
+  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
   if (!out.hours || !Number.isFinite(out.hours) || out.hours <= 0) out.hours = null;
   if (!Number.isFinite(out.maxItems) || out.maxItems <= 0) out.maxItems = 6;
   if (!Number.isFinite(out.pageSize) || out.pageSize <= 0) out.pageSize = 50;
@@ -336,7 +340,27 @@ function formatArticleMarkdownLink(article) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`fxempire_articles — fetch recent FXEmpire news articles for tracked instruments.
+
+Options:
+  --locale <code>          locale segment (default: en)
+  --tz <zone>              timezone for the default window (default: ${DEFAULT_TZ})
+  --hours <n>              lookback window in hours
+  --commodities <csv>      instrument slugs to fetch
+  --max-items <n>          max articles to emit (default: 6)
+  --page-size <n>          API page size (default: 50)
+  --max-pages <n>          max API pages (default: 10)
+  --json                   emit JSON instead of text
+  --full-text              fetch article full text
+  --max-text-chars <n>     cap on full-text length (default: 12000)
+  --tags <slug=tag,...>    override slug→tag mapping
+  -h, --help               show this help (no network)
+`);
+    return;
+  }
+  const args = parseArgs(argv);
   const now = new Date();
   const hours = args.hours ?? windowHoursFor(now, args.tz);
   const cutoff = new Date(now.getTime() - hours * 3600 * 1000);

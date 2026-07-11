@@ -17,3 +17,5 @@ jobs:
         run: npm run verify
       - name: Syntax-check skill scripts
         run: find skills -name '*.mjs' -print -exec node --check {} +
+      - name: Unit tests
+        run: npm test
