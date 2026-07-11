@@ -83,7 +83,7 @@ async function fetchJson(url, timeoutMs) {
       method: 'GET',
       headers: {
         accept: 'application/json,*/*',
-        'user-agent': 'Mozilla/5.0 (OpenClaw; fxempire-live-data)',
+        'user-agent': 'Mozilla/5.0 (market-signals; fxempire-live-data)',
       },
       signal: controller.signal,
       redirect: 'follow',

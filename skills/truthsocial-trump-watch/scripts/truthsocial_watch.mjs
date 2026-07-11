@@ -559,8 +559,9 @@ async function main() {
   const navTimeoutMs = intEnv('NAV_TIMEOUT_MS', 30000);
   const acceptLanguage = env('TRUTHSOCIAL_ACCEPT_LANGUAGE', 'en-US,en;q=0.9');
   const sourceTimeZone = env('TRUTHSOCIAL_SOURCE_TIMEZONE', 'America/New_York');
-  const stateFile = env('STATE_FILE', '/home/node/.openclaw/workspace/state/truthsocial-trump-watch/state.json');
-  const postsFile = env('TRUTHSOCIAL_POSTS_FILE', '/home/node/.openclaw/workspace/state/truthsocial-trump-watch/latest-posts.json');
+  const workspaceDir = env('WORKSPACE_DIR', `${process.env.HOME || '.'}/.market-signals/workspace`);
+  const stateFile = env('STATE_FILE', path.join(workspaceDir, 'state/truthsocial-trump-watch/state.json'));
+  const postsFile = env('TRUTHSOCIAL_POSTS_FILE', path.join(workspaceDir, 'state/truthsocial-trump-watch/latest-posts.json'));
   const uaSettings = resolveUserAgentSettings();
 
   const state = readState(stateFile);

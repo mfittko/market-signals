@@ -13,7 +13,7 @@ Use `scripts/publish_briefing.mjs` to publish a local markdown report into a Git
 ```bash
 export GH_TOKEN="..."  # repo scope
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file /home/node/.openclaw/workspace/market/fxempire-market-analysis-24h.md \
+  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
   --series market
 ```
 
@@ -40,7 +40,7 @@ Market pulse (flat series path):
 
 ```bash
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file /home/node/.openclaw/workspace/market/fxempire-market-analysis-24h.md \
+  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
   --series market
 ```
 
@@ -48,7 +48,7 @@ Hourly market pulse (same series, more files):
 
 ```bash
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file /home/node/.openclaw/workspace/market/fxempire-market-analysis-24h.md \
+  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
   --series market
 ```
 
@@ -56,7 +56,7 @@ Sentinel updates:
 
 ```bash
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file /home/node/.openclaw/workspace/sentinel/sentinel-briefing.md \
+  --input-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md \
   --series sentinel/hourly
 ```
 

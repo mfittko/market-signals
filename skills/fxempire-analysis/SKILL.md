@@ -28,7 +28,7 @@ Write the report directly to a markdown file (while still returning markdown on 
 node skills/fxempire-analysis/scripts/fxempire_enrich.mjs \
   --hours 24 \
   --commodities brent-crude-oil,wti-crude-oil,natural-gas,gold,silver,platinum \
-  --output-file /home/node/.openclaw/workspace/state/fxempire/market-analysis-24h.md
+  --output-file $WORKSPACE_DIR/state/fxempire/market-analysis-24h.md
 ```
 
 Run concern-specific scripts directly:

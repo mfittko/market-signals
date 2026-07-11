@@ -110,7 +110,7 @@ async function fetchText(url, { timeoutMs = 20000 } = {}) {
   try {
     const res = await fetch(url, {
       headers: {
-        'user-agent': 'Mozilla/5.0 (OpenClaw; fxempire-articles)',
+        'user-agent': 'Mozilla/5.0 (market-signals; fxempire-articles)',
         accept: '*/*',
       },
       redirect: 'follow',

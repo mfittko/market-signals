@@ -5,7 +5,7 @@ description: Poll Truth Social profile @realDonaldTrump via the in-pod Chrome CD
 
 # Truth Social Trump watch
 
-Use `scripts/truthsocial_watch.mjs` for deterministic polling from OpenClaw cron.
+Use `scripts/truthsocial_watch.mjs` for deterministic polling from cron.
 
 ## Quick start
 
@@ -35,8 +35,8 @@ Behavior:
 - `MAX_POSTS` (default `8`)
 - `WAIT_AFTER_LOAD_MS` (default `3500`)
 - `NAV_TIMEOUT_MS` (default `30000`)
-- `STATE_FILE` (default `/home/node/.openclaw/workspace/state/truthsocial-trump-watch/state.json`)
-- `TRUTHSOCIAL_POSTS_FILE` (default `/home/node/.openclaw/workspace/state/truthsocial-trump-watch/latest-posts.json`)
+- `STATE_FILE` (default `$WORKSPACE_DIR/state/truthsocial-trump-watch/state.json`)
+- `TRUTHSOCIAL_POSTS_FILE` (default `$WORKSPACE_DIR/state/truthsocial-trump-watch/latest-posts.json`)
 
 ## Cron usage pattern
 

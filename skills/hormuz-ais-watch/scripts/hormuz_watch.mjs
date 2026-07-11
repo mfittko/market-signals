@@ -13,7 +13,7 @@
  * - RETRY_BASE_MS (optional, default 1000)
  * - RETRY_MAX_MS (optional, default 8000)
  * - WS_CONNECT_TIMEOUT_MS (optional, default 15000)
- * - STATE_FILE (optional; default is OpenClaw-workspace friendly)
+ * - STATE_FILE (optional; default under $WORKSPACE_DIR)
  * - NO_DEDUPE=1 (optional)
  */
 
@@ -273,7 +273,7 @@ function parseConfig() {
     retryBaseMs: i('RETRY_BASE_MS', 1000),
     retryMaxMs: i('RETRY_MAX_MS', 8000),
     wsConnectTimeoutMs: i('WS_CONNECT_TIMEOUT_MS', 15000),
-    stateFile: env('STATE_FILE', '/home/node/.openclaw/workspace/state/hormuz-ais-watch/seen_vessels.json'),
+    stateFile: env('STATE_FILE', path.join(env('WORKSPACE_DIR', `${process.env.HOME || '.'}/.market-signals/workspace`), 'state/hormuz-ais-watch/seen_vessels.json')),
     noDedupe: env('NO_DEDUPE', '0') === '1',
   };
 }

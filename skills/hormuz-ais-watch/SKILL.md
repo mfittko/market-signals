@@ -1,6 +1,6 @@
 ---
 name: hormuz-ais-watch
-description: Monitor AIS traffic in/around the Strait of Hormuz using aisstream.io (WebSocket stream). Use to set up an OpenClaw cron-friendly watcher that connects for a short window, prints any new matching vessels to stdout, and dedupes alerts via a persistent state file in the OpenClaw workspace.
+description: Monitor AIS traffic in/around the Strait of Hormuz using aisstream.io (WebSocket stream). Use to set up a cron-friendly watcher that connects for a short window, prints any new matching vessels to stdout, and dedupes alerts via a persistent state file under `$WORKSPACE_DIR`.
 ---
 
 # Hormuz AIS watch
@@ -17,7 +17,7 @@ export AISSTREAM_API_KEY="..."
 node skills/hormuz-ais-watch/scripts/hormuz_watch.mjs
 ```
 
-Wire the stdout from your OpenClaw cron job to Discord (your existing channel) at the cron/platform layer.
+Wire the stdout from your cron job to Discord (your existing channel) at the cron/platform layer.
 
 ## Configuration
 
@@ -31,11 +31,11 @@ Configure via environment variables:
   - `MIN_SOG` (default 1.5 knots)
 - **Runtime / state**
   - `WINDOW_SECONDS` (default 90; how long to stay connected per cron run)
-  - `STATE_FILE` (default `/home/node/.openclaw/workspace/state/hormuz-ais-watch/seen_vessels.json`)
+  - `STATE_FILE` (default `$WORKSPACE_DIR/state/hormuz-ais-watch/seen_vessels.json`)
   - `NO_DEDUPE=1` (disable state file; alert every time a vessel matches)
 
 ## Operational notes
 
 - For stream details, read `references/aisstream-notes.md`.
-- The default `STATE_FILE` path is already absolute and OpenClaw-workspace-friendly.
+- The default `STATE_FILE` path is already absolute and workspace-relative.
 - If you want “entering/leaving” logic (geofence crossing) instead of “first seen in box”, extend the state file to store last position + last-seen timestamp.

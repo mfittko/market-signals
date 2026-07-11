@@ -13,14 +13,14 @@ Use a direct command prompt, for example:
 
 ```text
 Run this command and return only JSON:
-node /home/node/.openclaw/workspace/skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode candles --provider oanda --instrument NAS100/USD --granularity M1 --count 200 --alignmentTimezone Europe/Berlin
+node $WORKSPACE_DIR/skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode candles --provider oanda --instrument NAS100/USD --granularity M1 --count 200 --alignmentTimezone Europe/Berlin
 ```
 
 When you want no commentary/caveats, use this stricter chat prompt:
 
 ```text
 Run this command and return only the JSON output (no note, no explanation):
-node /home/node/.openclaw/workspace/skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode candles --provider oanda --instrument NAS100/USD --granularity M1 --count 200 --alignmentTimezone Europe/Berlin --pretty false
+node $WORKSPACE_DIR/skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode candles --provider oanda --instrument NAS100/USD --granularity M1 --count 200 --alignmentTimezone Europe/Berlin --pretty false
 ```
 
 Routing rule for chat:
