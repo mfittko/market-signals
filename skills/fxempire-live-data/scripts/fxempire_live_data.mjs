@@ -7,6 +7,33 @@
  * - rates: FXEmpire rates APIs for commodities/indices/currencies/crypto-coin
  */
 
+const USAGE_FXEMPIRE_LIVE = `fxempire-live-data — fetch candles or rates from FXEmpire/Oanda.
+
+Usage:
+  node fxempire_live_data.mjs [options]
+
+Options:
+  --mode candles|rates            (default: candles)
+  --provider fxempire|oanda       (candles; default: fxempire)
+  --market commodities|indices|currencies|crypto-coin  (default: indices)
+  --instrument <value>            (candles; default: NAS100/USD)
+  --slugs <csv>                   (rates; required)
+  --granularity <M1|M5|H1|...>    (default: M5)
+  --from <unix-seconds>           (fxempire candles)
+  --to <unix-seconds>             (oanda candles)
+  --count <n>                     (default: 500)
+  --timeoutMs <ms>                (default: 25000)
+  --raw true|false, --pretty true|false, --json true|false
+  -h, --help                      show this help (no network)
+`;
+
+function requireNum(name, raw, { integer = false } = {}) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`invalid ${name} "${raw}": expected a number`);
+  if (integer && !Number.isInteger(n)) throw new Error(`invalid ${name} "${raw}": expected an integer`);
+  return n;
+}
+
 function parseBool(value, defaultValue = false) {
   if (value === undefined || value === null || value === '') return defaultValue;
   const normalized = String(value).trim().toLowerCase();
@@ -38,7 +65,9 @@ function parseArgv(argv) {
     raw: false,
     json: true,
     pretty: true,
+    help: false,
   };
+  const unknown = [];
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
@@ -60,16 +89,22 @@ function parseArgv(argv) {
       }
     }
 
+    if (key === 'help' || key === 'h') { out.help = true; continue; }
     if (key in out) out[key] = value;
+    else unknown.push(`--${key}`);
   }
+
+  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
 
   out.includeFullData = parseBool(out.includeFullData, true);
   out.includeSparkLines = parseBool(out.includeSparkLines, false);
   out.raw = parseBool(out.raw, false);
   out.json = parseBool(out.json, true);
   out.pretty = parseBool(out.pretty, true);
-  out.timeoutMs = Number(out.timeoutMs) || 25000;
-  out.count = Number(out.count) || 500;
+  out.timeoutMs = requireNum('--timeoutMs', out.timeoutMs, { integer: true });
+  out.count = requireNum('--count', out.count, { integer: true });
+  if (out.from !== '') requireNum('--from', out.from, { integer: true });
+  if (out.to !== '') requireNum('--to', out.to, { integer: true });
 
   return out;
 }
@@ -135,7 +170,7 @@ function buildRatesUrl(opts) {
     .filter(Boolean)
     .join(',');
 
-  if (!slugs) throw new Error('rates mode requires --slugs <csv>');
+  if (!slugs) throw new Error('rates mode requires --slugs <csv> (note: --instrument is ignored in rates mode — pass instruments via --slugs, e.g. --slugs spx,tech100-usd,us30-usd)');
 
   const base = `https://www.fxempire.com/api/v1/${opts.locale}`;
   if (opts.market === 'currencies') {
@@ -205,7 +240,12 @@ function printResult(result, pretty) {
 }
 
 async function main() {
-  const opts = parseArgv(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(USAGE_FXEMPIRE_LIVE);
+    return;
+  }
+  const opts = parseArgv(argv);
 
   if (!['candles', 'rates'].includes(opts.mode)) {
     throw new Error(`unsupported --mode ${opts.mode}; use candles|rates`);

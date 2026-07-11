@@ -32,6 +32,7 @@ function parseArgs(argv) {
     fullText: true,
     maxTextChars: 12000,
   };
+  const unknown = [];
 
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -42,7 +43,8 @@ function parseArgs(argv) {
     const val = hasValue ? next : null;
     if (hasValue) i++;
 
-    if (key === 'locale' && val) out.locale = val;
+    if (key === 'help' || key === 'h') continue;
+    else if (key === 'locale' && val) out.locale = val;
     else if (key === 'tz' && val) out.tz = val;
     else if (key === 'hours' && val) out.hours = Number(val);
     else if (key === 'commodities' && val)
@@ -57,8 +59,10 @@ function parseArgs(argv) {
     else if (key === 'full-text') out.fullText = true;
     else if (key === 'no-full-text') out.fullText = false;
     else if (key === 'max-text-chars' && val) out.maxTextChars = Number(val);
+    else unknown.push(`--${key}`);
   }
 
+  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
   if (!Number.isFinite(out.maxTextChars) || out.maxTextChars <= 0) out.maxTextChars = 12000;
   return out;
 }
@@ -274,7 +278,29 @@ async function runNodeJson(scriptPath, args) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`fxempire_enrich — build an enriched commodity market analysis from FXEmpire rates + articles.
+
+Options:
+  --locale <code>          locale segment (default: en)
+  --tz <zone>              timezone (default: Europe/Berlin)
+  --hours <n>              lookback window in hours
+  --commodities <csv>      instrument slugs to fetch
+  --focus <slug>           primary instrument to headline (default: brent-crude-oil)
+  --max-items <n>          max articles to emit (default: 6)
+  --page-size <n>          API page size (default: 50)
+  --max-pages <n>          max API pages (default: 10)
+  --tags <slug=tag,...>    override slug→tag mapping
+  --json                   emit JSON instead of markdown
+  --output-file <path>     write output to a file
+  --full-text / --no-full-text   toggle article full-text fetch (default: on)
+  --max-text-chars <n>     cap on full-text length (default: 12000)
+  -h, --help               show this help (no network)
+`);
+    return;
+  }
+  const args = parseArgs(argv);
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);

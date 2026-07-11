@@ -12,6 +12,7 @@ function parseArgs(argv) {
     commodities: ['brent-crude-oil', 'natural-gas', 'gold', 'silver'],
     json: false,
   };
+  const unknown = [];
 
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -22,12 +23,15 @@ function parseArgs(argv) {
     const val = hasValue ? next : null;
     if (hasValue) i++;
 
-    if (key === 'locale' && val) out.locale = val;
+    if (key === 'help' || key === 'h') continue;
+    else if (key === 'locale' && val) out.locale = val;
     else if (key === 'commodities' && val)
       out.commodities = val.split(',').map((s) => s.trim()).filter(Boolean);
     else if (key === 'json') out.json = true;
+    else unknown.push(`--${key}`);
   }
 
+  if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
   if (!out.commodities.length) out.commodities = ['brent-crude-oil'];
   return out;
 }
@@ -152,7 +156,19 @@ async function fetchCryptoUsdSnapshot(base, slug) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`fxempire_rates — fetch FXEmpire rates for a set of instruments.
+
+Options:
+  --locale <code>          locale segment (default: en)
+  --commodities <csv>      instrument slugs to fetch (default: brent-crude-oil,natural-gas,gold,silver)
+  --json                   emit JSON instead of text
+  -h, --help               show this help (no network)
+`);
+    return;
+  }
+  const args = parseArgs(argv);
   const base = `https://www.fxempire.com/api/v1/${args.locale}`;
 
   const groups = {

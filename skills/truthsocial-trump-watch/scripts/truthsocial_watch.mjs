@@ -549,6 +549,28 @@ function formatAlert(posts, profileUrl) {
 }
 
 async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) {
+    process.stdout.write(`truthsocial-trump-watch — poll @realDonaldTrump and alert on new posts.
+
+Configured via environment variables (no CLI flags):
+  TRUTHSOCIAL_SOURCE_MODE   node (default) | cdp
+  TRUTHSOCIAL_PROFILE_URL   override profile/archive URL
+  TRUTHSOCIAL_USERNAME      default realDonaldTrump
+  CDP_BASE_URL              CDP endpoint for cdp mode (default http://localhost:9222)
+  MAX_POSTS, WAIT_AFTER_LOAD_MS, NAV_TIMEOUT_MS  numeric tuning
+  STATE_FILE, TRUTHSOCIAL_POSTS_FILE, WORKSPACE_DIR  paths
+
+Output: prints HEARTBEAT_OK when a page was fetched with posts and none are new;
+prints an alert when new posts appear; exits non-zero with TRUTHSOCIAL_WATCH_ERROR
+when it cannot connect/scrape (no posts found).
+`);
+    return;
+  }
+  const strayFlag = argv.find((a) => a.startsWith('-'));
+  if (strayFlag) {
+    throw new Error(`unknown flag ${strayFlag} (this script is configured via environment variables; run --help)`);
+  }
   const sourceMode = String(env('TRUTHSOCIAL_SOURCE_MODE', 'node')).trim().toLowerCase();
   const defaultProfileUrl = sourceMode === 'node' ? 'https://www.trumpstruth.org/' : 'https://truthsocial.com/@realDonaldTrump';
   const profileUrl = env('TRUTHSOCIAL_PROFILE_URL', defaultProfileUrl);
@@ -607,17 +629,9 @@ async function main() {
     }
   }
 
-  const updatedSeen = scraped.posts.map((p) => p.id);
-  const nextState = {
-    seenPostIds: updatedSeen,
-    latestPostId: currentLatestId,
-    latestPostUrl: currentLatestPost?.url ?? null,
-    lastPollAt: scraped.polledAt,
-    lastSeenAt: newest.length > 0 ? new Date().toISOString() : state.lastSeenAt,
-    lastTitle: scraped.title,
-  };
-  writeState(stateFile, nextState);
+  const scrapeFailed = scraped.posts.length === 0;
 
+  // Always persist the debug snapshot, even on a failed scrape.
   writePostsSnapshot(postsFile, {
     profileUrl: scraped.href || profileUrl,
     profileUser: username,
@@ -635,6 +649,29 @@ async function main() {
   if (challengeDetected) {
     throw new Error('TRUTHSOCIAL_CHALLENGE_PAGE: blocked by anti-bot challenge page (title/body indicates Cloudflare interstitial)');
   }
+
+  // A1 fail-loud: zero scraped posts means we could not connect/scrape (dead CDP
+  // endpoint, broken page structure, or an error/captive page) — this is NOT
+  // "connected, no new posts". A monitoring watcher must never emit HEARTBEAT_OK
+  // here, or it silently stops alerting when the in-pod browser dies.
+  // ponytail: the watched profile always has posts, so 0 posts == a failed scrape.
+  if (scrapeFailed) {
+    throw new Error(`no posts scraped from ${scraped.href || profileUrl} — treating as a connect/scrape failure (page title: ${JSON.stringify(scraped.title || '')})`);
+  }
+
+  // Only advance state after a successful scrape (>=1 post), so a failure never
+  // clobbers the last-known-good baseline (which would suppress alerts for posts
+  // that arrive during the outage).
+  const updatedSeen = scraped.posts.map((p) => p.id);
+  const nextState = {
+    seenPostIds: updatedSeen,
+    latestPostId: currentLatestId,
+    latestPostUrl: currentLatestPost?.url ?? null,
+    lastPollAt: scraped.polledAt,
+    lastSeenAt: newest.length > 0 ? new Date().toISOString() : state.lastSeenAt,
+    lastTitle: scraped.title,
+  };
+  writeState(stateFile, nextState);
 
   if (newest.length === 0) {
     process.stdout.write('HEARTBEAT_OK\n');
