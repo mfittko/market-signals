@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      # No deps to install (stdlib only) — run the checks directly.
+      - name: Packaging smoke check
+        run: npm run verify
+      - name: Syntax-check skill scripts
+        run: find skills -name '*.mjs' -print -exec node --check {} +
