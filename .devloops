@@ -1,14 +1,4 @@
 version: 1
 
-# Fresh repo: CI is not set up yet. Deactivate the CI prerequisite on both gates
-# so the loop can run end-to-end without checks that don't exist.
-#
-# - draft.requireCi: honored today.
-# - preApproval.requireCi: currently accepted-but-ignored (preApproval hard-requires
-#   CI). Becomes effective once mfittko/dev-loops#1337 lands; kept here so this repo
-#   is correct the moment it does.
-gates:
-  draft:
-    requireCi: false
-  preApproval:
-    requireCi: false
+# CI is set up (.github/workflows/ci.yml), so the dev-loop CI gate is back in
+# force with shipped defaults (both gates require green CI). No overrides needed.
