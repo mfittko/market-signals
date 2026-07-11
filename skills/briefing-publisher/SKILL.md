@@ -1,4 +1,3 @@
-````skill
 ---
 name: briefing-publisher
 description: Publish generated markdown briefings to a GitHub Pages repository with sortable UTC timestamp paths and a stable latest.md pointer. Use for hourly/daily/custom cadence by setting series path (for example market, sentinel, geopolitics).
@@ -89,4 +88,3 @@ Prints JSON with:
 - `archivePath`, `latestPath`, `indexPath`
 - `archiveUrl`, `latestUrl`
 
-````

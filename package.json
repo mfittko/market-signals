@@ -1,0 +1,10 @@
+{
+  "name": "market-signals",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent skills for market analysis and market-moving signal watching.",
+  "scripts": {
+    "verify": "node scripts/verify-packaging.mjs"
+  }
+}

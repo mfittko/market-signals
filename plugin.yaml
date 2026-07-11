@@ -1,0 +1,14 @@
+# Pi / harness-agnostic extension manifest.
+# Declarative skill bundle: points at the canonical skills/ directory in this
+# repo (single source of truth). Each entry maps to skills/<name>/SKILL.md.
+# No skill bodies or scripts are duplicated here.
+name: market-signals
+version: 0.1.0
+description: Agent skills for market analysis and market-moving signal watching.
+author: mfittko
+provides_skills:
+  - briefing-publisher
+  - fxempire-analysis
+  - fxempire-live-data
+  - hormuz-ais-watch
+  - truthsocial-trump-watch

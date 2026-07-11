@@ -1,0 +1,9 @@
+{
+  "name": "market-signals",
+  "version": "0.1.0",
+  "description": "Agent skills for market analysis and market-moving signal watching. Bundles fxempire-analysis, fxempire-live-data, briefing-publisher, hormuz-ais-watch, and truthsocial-trump-watch.",
+  "author": {
+    "name": "mfittko",
+    "url": "https://github.com/mfittko"
+  }
+}
