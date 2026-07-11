@@ -27,6 +27,41 @@ node skills/fxempire-live-data/scripts/fxempire_live_data.mjs \
   --granularity M1 --count 500 --alignmentTimezone Europe/Berlin
 ```
 
+## Backtest: Truth Social posts → market impact
+
+A 2-week event-study harness (issue #7) that measures how high-signal Trump
+Truth Social posts move markets. Post sourcing uses the free CNN-hosted archive.
+Pipeline scripts under `scripts/` (stdlib only):
+
+| Script | Role |
+|--------|------|
+| `fetch-trump-posts.mjs` | Pull + normalize the CNN archive for a window (dedupe by id, strip HTML). |
+| `classify-post.mjs` | Rule-based high-signal classifier + **per-instrument routing** (F1). |
+| `event-study.mjs` | **Single-feed** (F2) pre/post impact of one event, market-hours aware (next-open roll). |
+| `backtest.mjs` | Ingest → classify → event-study each post on its mapped instruments → markdown/CSV report. |
+
+Three load-bearing methodology rules are enforced:
+
+- **F1 — per-instrument routing.** Geopolitical/oil posts route to Brent/WTI,
+  Fed to indices+gold, tariff to indices. Aggregates are per-instrument; a broad
+  index proxy hides the strongest signal (Trump Iran posts → oil while equities dip).
+- **F2 — single-feed windows.** Pre and post candles come from ONE provider
+  (fxempire `--from T−pre`, split at the first candle ≥ T). Mixing feeds
+  (oanda-pre + fxempire-post) produced a sign-flipped artifact.
+- **F3 — validated candle symbols.** `config/candle-symbols.json` holds the
+  candle symbols that actually return data (NAS100/USD, BCO/USD, XAU/USD, …),
+  distinct from the rates slugs in `config/instruments.yaml`.
+
+```bash
+# Fetch the last 2 weeks, then run the backtest (live; smoke-only in CI).
+node scripts/fetch-trump-posts.mjs --since 2026-06-27T00:00:00Z --until 2026-07-11T00:00:00Z --out posts.json
+node scripts/backtest.mjs --posts posts.json --since 2026-06-27T00:00:00Z --until 2026-07-11T00:00:00Z --format markdown
+```
+
+Unit tests (`npm test`) cover the classifier, the F2 pre/post split + next-open
+roll, and ingestion normalization with fixtures — no live calls. Live paths run
+only in the smoke workflow.
+
 ## Install as a plugin / extension
 
 The same `skills/` directory is the single source of truth for both packagings —

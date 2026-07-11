@@ -1,0 +1,16 @@
+{
+  "note": "Validated FXEmpire candle symbols per market (issue #7 F3). DISTINCT from the rates slugs in config/instruments.yaml — candle fetches need these symbols, not slugs. Coverage is patchy; only symbols proven to return candles are listed. Crypto candles 404 and FX candles come back empty on this endpoint, so they are out of scope.",
+  "markets": {
+    "indices": [
+      { "symbol": "NAS100/USD", "name": "Nasdaq 100" },
+      { "symbol": "US30/USD", "name": "Dow Jones 30" }
+    ],
+    "commodities": [
+      { "symbol": "XAU/USD", "name": "Gold" },
+      { "symbol": "XAG/USD", "name": "Silver" },
+      { "symbol": "NATGAS/USD", "name": "Natural Gas" },
+      { "symbol": "BCO/USD", "name": "Brent Crude" },
+      { "symbol": "WTICO/USD", "name": "WTI Crude" }
+    ]
+  }
+}

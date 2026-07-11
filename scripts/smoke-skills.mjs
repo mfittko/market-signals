@@ -24,6 +24,8 @@ const FXEMPIRE_LIVE = S('skills/fxempire-live-data/scripts/fxempire_live_data.mj
 const FXEMPIRE_ENRICH = S('skills/fxempire-analysis/scripts/fxempire_enrich.mjs');
 const TRUTHSOCIAL = S('skills/truthsocial-trump-watch/scripts/truthsocial_watch.mjs');
 const HORMUZ = S('skills/hormuz-ais-watch/scripts/hormuz_watch.mjs');
+const FETCH_POSTS = S('scripts/fetch-trump-posts.mjs');
+const EVENT_STUDY = S('scripts/event-study.mjs');
 
 const failures = [];
 
@@ -122,6 +124,24 @@ async function main() {
     assert.equal(res.status, 0, `enrich exited ${res.status}: ${res.stderr}`);
     assert.ok(res.stdout.includes('# Commodity Market Analysis'), 'enrich missing heading');
     assert.ok(res.stdout.length > 500, 'enrich output too short');
+  });
+
+  // 4b. CNN Trump archive ingestion (issue #7 component 1) pulls a real window.
+  await check('fetch-trump-posts CNN archive', () => {
+    const res = run(FETCH_POSTS, ['--since', '2026-06-01T00:00:00Z', '--until', '2026-07-01T00:00:00Z'], { timeout: 90000 });
+    const out = parseJson(res, 'fetch-trump-posts');
+    assert.ok(Array.isArray(out) && out.length > 0, 'archive returned zero posts in window');
+    const p = out[0];
+    for (const k of ['id', 'createdAtISO', 'text']) assert.ok(p[k], `post missing ${k}`);
+    assert.ok(!/[<>]/.test(p.text), 'text still contains HTML tags');
+  });
+
+  // 4c. Event study runs single-feed (F2) and returns a status without throwing.
+  await check('event-study single-feed', () => {
+    const res = run(EVENT_STUDY, ['--at', '2026-07-08T14:35:00Z', '--instrument', 'NAS100/USD', '--market', 'indices', '--pre', '5', '--post', '15'], { timeout: 60000 });
+    const out = parseJson(res, 'event-study');
+    assert.ok(typeof out.status === 'string', 'event-study missing status');
+    assert.equal(out.symbol, 'NAS100/USD');
   });
 
   // 5. truthsocial FAIL-LOUD (A1) — dead CDP endpoint, no creds needed.
