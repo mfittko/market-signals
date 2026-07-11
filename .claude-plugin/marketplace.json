@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "market-signals",
+  "description": "Agent skills for market analysis and market-moving signal watching.",
+  "owner": {
+    "name": "mfittko",
+    "url": "https://github.com/mfittko"
+  },
+  "plugins": [
+    {
+      "name": "market-signals",
+      "description": "Five skills for market analysis and signal watching, sourced from this repo's skills/ directory.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

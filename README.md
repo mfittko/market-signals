@@ -26,3 +26,33 @@ node skills/fxempire-live-data/scripts/fxempire_live_data.mjs \
   --mode candles --provider oanda --instrument NAS100/USD \
   --granularity M1 --count 500 --alignmentTimezone Europe/Berlin
 ```
+
+## Install as a plugin / extension
+
+The same `skills/` directory is the single source of truth for both packagings —
+no skill bodies or scripts are duplicated. A smoke check keeps the manifests in
+sync with `skills/`:
+
+```bash
+npm run verify
+```
+
+### Claude Code plugin
+
+Manifests live in `.claude-plugin/` (`plugin.json` + `marketplace.json`), with
+this repo root as the plugin source. Add the marketplace and install:
+
+```bash
+/plugin marketplace add mfittko/market-signals
+/plugin install market-signals@market-signals
+```
+
+The five skills then surface as `/`-invocable skills. (Local checkout:
+`/plugin marketplace add /path/to/market-signals`.)
+
+### Pi extension
+
+`plugin.yaml` at the repo root is the harness-agnostic manifest; its
+`provides_skills:` list points at the `skills/` directory. Install by referencing
+this repo/checkout from your Pi extensions config, then invoke a skill with
+`/skill:<name>` (e.g. `/skill:fxempire-analysis`).
