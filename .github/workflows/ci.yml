@@ -15,7 +15,7 @@ jobs:
       # No deps to install (stdlib only) — run the checks directly.
       - name: Packaging smoke check
         run: npm run verify
-      - name: Syntax-check skill scripts
-        run: find skills -name '*.mjs' -print -exec node --check {} +
+      - name: Syntax-check skill and repo scripts
+        run: find skills scripts -name '*.mjs' -print -exec node --check {} +
       - name: Unit tests
         run: npm test
