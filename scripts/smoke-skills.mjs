@@ -123,7 +123,11 @@ async function main() {
     ]);
     assert.equal(res.status, 0, `enrich exited ${res.status}: ${res.stderr}`);
     assert.ok(res.stdout.includes('# Commodity Market Analysis'), 'enrich missing heading');
-    assert.ok(res.stdout.length > 500, 'enrich output too short');
+    // Structural, not length-based: a valid rates/snapshot report can be short when
+    // the upstream news feed is dry (articles are best-effort enrichment — see #11).
+    // Assert the core pipeline rendered: the snapshot table + the focus commodity's rate.
+    assert.ok(res.stdout.includes('## Market Snapshot'), 'enrich missing market snapshot');
+    assert.ok(/Brent Oil/.test(res.stdout), 'enrich missing focus commodity rate');
   });
 
   // 4b. CNN Trump archive ingestion (issue #7 component 1) pulls a real window.
