@@ -33,13 +33,19 @@ function normalize(candles) {
     .sort((a, b) => a.ms - b.ms);
 }
 
+// Default event-study horizons (minutes): headline reactivity is measured at
+// each, all sliced from the SAME single feed (F2).
+export const DEFAULT_HORIZONS = [1, 5, 15, 60];
+
 // F2 fetch plan: ONE fxempire request that spans pre+post. No oanda leg.
-export function buildFetchPlan(T, { preMin, postMin, margin = 5 } = {}) {
+// stepMin is the candle granularity in minutes (M1=1, M5=5, H1=60) so `count`
+// covers the widened post window regardless of granularity.
+export function buildFetchPlan(T, { preMin, postMin, stepMin = 1, margin = 5 } = {}) {
   const tSec = Math.floor(T / 1000);
   return {
     provider: 'fxempire', // single feed — never oanda for the pre leg
     from: tSec - preMin * 60,
-    count: preMin + postMin + margin,
+    count: Math.ceil((preMin + postMin) / stepMin) + margin,
   };
 }
 
@@ -51,10 +57,28 @@ export function splitAtAnchor(candles, T) {
   return { series: s, postStartIdx, preIdx: postStartIdx - 1 };
 }
 
+// Signed close-move + max-excursion of a candle slice, relative to preClose.
+function measure(slice, preClose) {
+  const last = slice[slice.length - 1].close;
+  const hi = Math.max(...slice.map((c) => c.high));
+  const lo = Math.min(...slice.map((c) => c.low));
+  return {
+    move: ((last - preClose) / preClose) * 100,       // secondary: signed close
+    maxUp: ((hi - preClose) / preClose) * 100,        // primary: up excursion
+    maxDn: ((lo - preClose) / preClose) * 100,        // primary: down excursion
+  };
+}
+
 // computeStudy(candles, T, opts) -> impact of the event at T using ONE feed.
+// Emits max-excursion (maxUp/maxDn) as the PRIMARY reactivity measure plus the
+// signed close-move at each horizon in `horizons` (minutes). Every horizon is
+// sliced from the SAME single-feed series (F2) — we just widen the post window
+// to cover the longest horizon and cut at anchor + h.
 // gapMs: if the first post candle is more than this after T, the market was
 // closed at T and we label the study `next-open`.
-export function computeStudy(candles, T, { postMin = 15, gapMs = 60 * 60 * 1000 } = {}) {
+export function computeStudy(candles, T, { horizons = DEFAULT_HORIZONS, postMin, gapMs = 60 * 60 * 1000 } = {}) {
+  const hs = [...horizons].sort((a, b) => a - b);
+  const fullMin = postMin ?? hs[hs.length - 1]; // widen to cover the longest horizon
   const { series, postStartIdx, preIdx } = splitAtAnchor(candles, T);
   if (postStartIdx === -1) return { status: 'closed/no-data', n: series.length };
   if (preIdx < 0) return { status: 'no-pre', n: series.length };
@@ -64,43 +88,58 @@ export function computeStudy(candles, T, { postMin = 15, gapMs = 60 * 60 * 1000 
   const gap = anchor.ms - T;
   const mode = gap > gapMs ? 'next-open' : 'in-session';
 
-  const windowEnd = anchor.ms + postMin * 60 * 1000;
+  const windowEnd = anchor.ms + fullMin * 60 * 1000;
   const post = series.slice(postStartIdx).filter((c) => c.ms <= windowEnd);
   if (post.length < 2) return { status: 'closed/no-data', mode, n: series.length };
 
-  const last = post[post.length - 1].close;
-  const hi = Math.max(...post.map((c) => c.high));
-  const lo = Math.min(...post.map((c) => c.low));
-  const vol = post.reduce((a, c) => a + c.volume, 0);
+  // Per-horizon slices from the one feed: cut the same post series at anchor + h.
+  const perHorizon = {};
+  for (const h of hs) {
+    const slice = post.filter((c) => c.ms <= anchor.ms + h * 60 * 1000);
+    if (slice.length < 2) continue; // horizon reaches past available data
+    perHorizon[h] = { minutes: h, ...measure(slice, pre.close) };
+  }
+
+  const full = measure(post, pre.close);
   return {
     status: 'ok',
     mode,
     preClose: pre.close,
-    postClose: last,
-    move: ((last - pre.close) / pre.close) * 100,
-    maxUp: ((hi - pre.close) / pre.close) * 100,
-    maxDn: ((lo - pre.close) / pre.close) * 100,
-    volume: vol,
+    postClose: post[post.length - 1].close,
+    // Primary reactivity: max-excursion over the full window.
+    maxUp: full.maxUp,
+    maxDn: full.maxDn,
+    // Secondary: full-window signed close (back-compat) + per-horizon breakdown.
+    move: full.move,
+    horizons: perHorizon,
+    volume: post.reduce((a, c) => a + c.volume, 0),
     n: post.length,
     anchorTime: new Date(anchor.ms).toISOString(),
   };
 }
 
 // Live fetch of a single-feed series. Not exercised by unit tests (network).
-export async function fetchSeries(market, symbol, plan, { execFile } = {}) {
+export async function fetchSeries(market, symbol, plan, { execFile } = {}, granularity = 'M1') {
   const run = execFile || (await import('node:child_process')).execFileSync;
   const out = run('node', [LIVE_DATA, '--mode', 'candles', '--provider', plan.provider,
-    '--market', market, '--instrument', symbol, '--granularity', 'M1',
+    '--market', market, '--instrument', symbol, '--granularity', granularity,
     '--count', String(plan.count), '--from', String(plan.from), '--pretty', 'false'],
     { encoding: 'utf8', timeout: 30000 });
   return JSON.parse(out).candles || [];
 }
 
-export async function runStudy({ at, market, symbol, preMin = 5, postMin = 15 }) {
+const STEP_MIN = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
+
+export async function runStudy({ at, market, symbol, preMin = 5, horizons = DEFAULT_HORIZONS, granularity = 'M1', postMin }) {
   const T = typeof at === 'number' ? at : Date.parse(at);
-  const plan = buildFetchPlan(T, { preMin, postMin });
-  const candles = await fetchSeries(market, symbol, plan);
-  return { at: new Date(T).toISOString(), market, symbol, preMin, postMin, ...computeStudy(candles, T, { postMin }) };
+  const fullMin = postMin ?? Math.max(...horizons); // widen the ONE fetch to cover 60m
+  const stepMin = STEP_MIN[granularity] ?? 1;
+  const plan = buildFetchPlan(T, { preMin, postMin: fullMin, stepMin });
+  const candles = await fetchSeries(market, symbol, plan, {}, granularity);
+  return {
+    at: new Date(T).toISOString(), market, symbol, preMin, postMin: fullMin, granularity, horizons,
+    ...computeStudy(candles, T, { horizons, postMin: fullMin }),
+  };
 }
 
 async function main(argv) {
@@ -109,7 +148,7 @@ async function main(argv) {
     if (argv[i].startsWith('--')) args.set(argv[i].slice(2), argv[i + 1]?.startsWith('--') ? true : argv[++i]);
   }
   if (args.has('help') || !args.has('at') || !args.has('instrument')) {
-    process.stdout.write('event-study — single-feed (F2) market impact of an event.\n  --at <ISO>          event timestamp (required)\n  --instrument <SYM>  candle symbol, e.g. BCO/USD (required)\n  --market <m>        indices|commodities (default: from catalog)\n  --pre <min>         pre window (default 5)\n  --post <min>        post window (default 15)\n');
+    process.stdout.write('event-study — single-feed (F2) multi-horizon market impact of an event.\n  --at <ISO>          event timestamp (required)\n  --instrument <SYM>  candle symbol, e.g. BCO/USD (required)\n  --market <m>        indices|commodities (default: from catalog)\n  --pre <min>         pre window (default 5)\n  --horizons <list>   comma-separated post horizons in minutes (default 1,5,15,60)\n  --granularity <g>   M1|M5|H1 (default M1)\n');
     return;
   }
   const symbol = String(args.get('instrument'));
@@ -117,9 +156,13 @@ async function main(argv) {
   const known = idx.get(symbol);
   const market = String(args.get('market') || known?.market || 'indices');
   if (!known) process.stderr.write(`warning: ${symbol} not in candle catalog (F3); proceeding\n`);
+  const horizons = args.has('horizons')
+    ? String(args.get('horizons')).split(',').map(Number).filter((n) => n > 0)
+    : DEFAULT_HORIZONS;
   const res = await runStudy({
     at: String(args.get('at')), market, symbol,
-    preMin: Number(args.get('pre') ?? 5), postMin: Number(args.get('post') ?? 15),
+    preMin: Number(args.get('pre') ?? 5), horizons,
+    granularity: String(args.get('granularity') || 'M1'),
   });
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
 }
