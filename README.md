@@ -58,6 +58,34 @@ node scripts/fetch-trump-posts.mjs --since 2026-06-27T00:00:00Z --until 2026-07-
 node scripts/backtest.mjs --posts posts.json --since 2026-06-27T00:00:00Z --until 2026-07-11T00:00:00Z --format markdown
 ```
 
+### First-party source: truthbrush ingestion (issue #8)
+
+The CNN archive is a third-party mirror. `scripts/ingest-truthbrush.mjs` is a
+first-party pull: it shells out to the [`truthbrush`](https://github.com/stanfordio/truthbrush)
+Python CLI and **upserts by post `id`** into a durable JSON store, so history no
+longer depends on the mirror.
+
+```bash
+# Backfill a window, then keep an incremental tail (cron-friendly). Live pull is
+# credential-gated (env only, never committed); fails loud if truthbrush/creds absent.
+export TRUTHSOCIAL_USERNAME=... TRUTHSOCIAL_PASSWORD=...   # or TRUTHSOCIAL_TOKEN, or --no-auth
+node scripts/ingest-truthbrush.mjs --since 2026-06-27T00:00:00Z --until 2026-07-11T00:00:00Z
+node scripts/ingest-truthbrush.mjs --tail                 # pull newest-stored → now
+node scripts/ingest-truthbrush.mjs --tail --interval 900  # scheduled worker (every 15m)
+
+# The store IS a normalized post array — feed it to the backtest unchanged:
+node scripts/backtest.mjs --posts data/truth-posts.json --since 2026-06-27T00:00:00Z --until 2026-07-11T00:00:00Z
+```
+
+Both sources emit the **same normalized schema** (`{id, createdAtISO, text, url,
+engagement}`), and the backtest already consumes a normalized array via
+`--posts`. That existing seam is the source abstraction: CNN
+(`fetch-trump-posts --out`) or truthbrush (`ingest-truthbrush --store`) — the
+backtest runs unchanged against either. Persistence is idempotent (id-keyed
+upsert: re-ingesting a window is a no-op, late edits update in place), which is
+the load-bearing, unit-tested behavior. Deployment/health-endpoint infra is out
+of scope — a cron/systemd-timer running `--tail` is the scheduled worker.
+
 Unit tests (`npm test`) cover the classifier, the F2 pre/post split + next-open
 roll, and ingestion normalization with fixtures — no live calls. Live paths run
 only in the smoke workflow.
