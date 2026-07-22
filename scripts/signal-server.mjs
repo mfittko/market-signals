@@ -572,7 +572,7 @@ const PAGE = /* html */ `<!doctype html>
 <p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
-<table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
+<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
 </main>
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
@@ -674,6 +674,8 @@ function selectors(d) {
   };
 }
 
+const localHm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const localFull = (iso) => new Date(iso).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/,\s*/, ' ');
 function quoteStrip(q) {
   const el = document.getElementById('quote');
   if (!q) { el.hidden = true; return; }
@@ -689,7 +691,7 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
-    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(q.time.slice(11, 16)) + ' candle forming' : esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)');
 }
 
 function verdict(s) {
@@ -697,7 +699,7 @@ function verdict(s) {
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
   el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
-    ' — ' + esc(s.time) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
+    ' — ' + esc(localFull(s.time)) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%';
 }
@@ -708,7 +710,7 @@ function history(list) {
     const tr = document.createElement('tr');
     tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
     const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-    tr.innerHTML = '<td>' + esc(s.time) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
       '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + '</td><td>' + esc(out) + '</td>';
     tb.appendChild(tr);
   }
