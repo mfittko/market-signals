@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const DEFAULT_TZ = 'Europe/Berlin';
 
@@ -19,6 +20,7 @@ function parseArgs(argv) {
     tz: DEFAULT_TZ,
     hours: null,
     cache: 'data/articles-cache.json',
+    db: 'data/candles.db',
     commodities: [
       'brent-crude-oil',
       'wti-crude-oil',
@@ -76,6 +78,7 @@ function parseArgs(argv) {
     else if (key === 'commodities' && val)
       out.commodities = val.split(',').map((s) => s.trim()).filter(Boolean);
     else if (key === 'max-items' && val) out.maxItems = Number(val);
+    else if (key === 'db') out.db = val || '';
     else if (key === 'page-size' && val) out.pageSize = Number(val);
     else if (key === 'max-pages' && val) out.maxPages = Number(val);
     else if (key === 'json') out.json = true;
@@ -343,6 +346,32 @@ function formatArticleMarkdownLink(article) {
   return { label: `[${title}](${markdownLinkUrl(url)})`, hasLink: true };
 }
 
+export function archiveArticles(dbPath, articles, fetchedAt) {
+  if (!fs.existsSync(path.dirname(dbPath))) return 0;
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS articles (
+      id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      slug TEXT,
+      title TEXT,
+      url TEXT,
+      published_at INTEGER,
+      fetched_at INTEGER,
+      PRIMARY KEY (id, type)
+    )`);
+    const ins = db.prepare('INSERT OR IGNORE INTO articles (id, type, slug, title, url, published_at, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    let added = 0;
+    for (const a of articles) {
+      if (!a.id) continue;
+      added += ins.run(a.id, a.type || 'news', a.commodity, a.title || null, a.fullUrl || null, a.timestamp || null, fetchedAt).changes;
+    }
+    return added;
+  } finally {
+    db.close();
+  }
+}
+
 export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
   return hubArticles
     .map((a) => {
@@ -512,6 +541,7 @@ Options:
   --commodities <csv>      instrument slugs to fetch
   --max-items <n>          max articles to emit (default: 6)
   --cache <path>           page-fetch cache with 5-min TTL (default: data/articles-cache.json, "" disables)
+  --db <path>              persist fetched articles into an archive table (default: data/candles.db, "" disables)
   --page-size <n>          API page size (default: 50)
   --max-pages <n>          max API pages (default: 10)
   --json                   emit JSON instead of text
@@ -624,6 +654,10 @@ Options:
   const norm = normalizeArticles(hubArticles, { cutoffTs, nowTs });
 
   const dedup = uniqBy(norm, (a) => `${a.id}:${a.type}`).sort((a, b) => b.timestamp - a.timestamp);
+
+  if (args.db) {
+    try { archiveArticles(args.db, dedup, nowTs); } catch { /* archive is best-effort */ }
+  }
 
   const capped = [];
   const counts = new Map();

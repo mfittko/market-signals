@@ -142,3 +142,26 @@ test('SSR articles derive news vs forecasts type from their URL', () => {
   assert.equal(typed.find((a) => a.id === 1612117)._type, 'forecasts', 'forecasts URL → forecasts type');
   assert.equal(typed.find((a) => a.id === 1612050)._type, 'news');
 });
+
+test('archiveArticles: creates table, dedups on (id,type), survives re-run', async () => {
+  const { archiveArticles } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  const { DatabaseSync } = await import('node:sqlite');
+  const os = await import('node:os');
+  const pth = await import('node:path');
+  const dir = fs.mkdtempSync(pth.join(os.tmpdir(), 'artdb-'));
+  const dbPath = pth.join(dir, 'archive.db');
+  const arts = [
+    { id: 1, type: 'news', commodity: 'gold', title: 'a', fullUrl: 'https://x/1', timestamp: 100 },
+    { id: 1, type: 'forecasts', commodity: 'gold', title: 'a2', fullUrl: 'https://x/1f', timestamp: 100 },
+    { id: 2, type: 'news', commodity: 'crude-oil', title: 'b', fullUrl: 'https://x/2', timestamp: 200 },
+    { id: null, type: 'news' },
+  ];
+  assert.equal(archiveArticles(dbPath, arts, 999), 3, 'three rows inserted, null id skipped');
+  assert.equal(archiveArticles(dbPath, arts, 1000), 0, 're-run inserts nothing');
+  const db = new DatabaseSync(dbPath);
+  const rows = db.prepare('SELECT id, type, slug, fetched_at FROM articles ORDER BY id, type').all();
+  db.close();
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].fetched_at, 999, 'first-seen fetched_at preserved');
+  assert.equal(rows[2].slug, 'crude-oil');
+});
