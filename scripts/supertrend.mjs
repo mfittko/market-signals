@@ -80,10 +80,11 @@ function updateSignal(dbPath, instrument, granularity, time, verdict, reason, no
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
 // joined from the accumulated candles table — the filter's track record.
-export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20 } = {}) {
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null } = {}) {
   return withDb(dbPath, (db) => {
-    const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-      .all(instrument, granularity, limit);
+    const sigs = time
+      ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?').all(instrument, granularity, time)
+      : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
     return sigs.map((s) => {
       const c = after.get(instrument, granularity, s.time, horizonBars - 1);

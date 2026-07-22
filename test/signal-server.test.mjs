@@ -184,3 +184,19 @@ test('clearing port via empty string deletes it instead of 400', async () => {
     assert.equal(got.port, undefined);
   });
 });
+
+test('deep link to a signal older than the history window still resolves', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // 60 newer signals push the old one out of the 50-row history window.
+    const old = series([100], Date.parse('2026-07-01T00:00:00Z'))[0];
+    storeCandles(dbPath, INSTRUMENT, 'M5', series(Array(10).fill(100), Date.parse('2026-07-01T00:00:00Z')));
+    recordSignal(dbPath, INSTRUMENT, 'M5', { time: old.time, signal: 'buy', price: 100 }, 10);
+    for (let i = 0; i < 60; i++) {
+      recordSignal(dbPath, INSTRUMENT, 'M5', { time: new Date(Date.parse('2026-07-21T00:00:00Z') + i * 300000).toISOString(), signal: 'sell', price: 90 }, 10);
+    }
+    const d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(old.time)}`)).json();
+    assert.ok(d.signal, 'old signal found via direct lookup');
+    assert.equal(d.signal.time, old.time);
+    assert.equal(d.signal.signal, 'buy');
+  });
+});

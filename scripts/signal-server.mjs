@@ -94,7 +94,10 @@ export function chartData(dbPath, instrument, { t = null, count = 120, granulari
     flips = detectFlips(candles, st);
   }
   const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
-  const signal = t ? signals.find((s) => s.time === t) ?? null : signals[0] ?? null;
+  // Deep-linked signals older than the history window are looked up directly.
+  const signal = t
+    ? signals.find((s) => s.time === t) ?? signalOutcomes(dbPath, instrument, granularity, { time: t })[0] ?? null
+    : signals[0] ?? null;
   return { instrument, granularity, candles, supertrend, flips, signal, signals };
 }
 
@@ -233,7 +236,7 @@ async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');
   f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label>' + k + '</label>' + (kind === 'select'
-    ? '<select name="' + k + '">' + opts.map(o => '<option' + (s[k] === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
+    ? '<select name="' + k + '">' + (opts.includes(s[k] ?? '') ? opts : [...opts, s[k]]).map(o => '<option' + ((s[k] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
     : '<input name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
