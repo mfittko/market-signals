@@ -352,7 +352,7 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const ctx = JSON.parse(messages[0].context);
     assert.equal(ctx.view.instrument, INSTRUMENT, 'context snapshot attached');
     assert.ok(ctx.viewCandles.length >= 60, 'full current-view candles in context, not a tail slice');
-    assert.equal(ctx.view.candleTimesAreUTC, true);
+    assert.equal(ctx.view.candleTimesAreLocal, true);
     assert.equal(ctx.view.traderTimezone, 'UTC', 'tz defaults to UTC when client omits it');
     assert.ok(ctx.quote && typeof ctx.quote.last === 'number', 'quote in context');
     assert.equal(typeof ctx.traderNotes, 'string', 'notes tail attached to context');
@@ -373,6 +373,31 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     assert.equal(gone.threads.length, 0);
     const emptied = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
     assert.equal(emptied.messages.length, 0, 'messages cascade-deleted');
+  });
+});
+
+test('chat context transmits localized timestamps (#34): tz applied, invalid tz falls back to UTC', async () => {
+  const { localTimeFormatters } = await import('../scripts/supertrend.mjs');
+  const f = localTimeFormatters('Etc/GMT-2'); // fixed UTC+2, DST-free
+  assert.equal(f.hm('2026-07-22T18:17:00Z'), '20:17', 'chart-axis time, not UTC');
+  assert.equal(f.full('2026-07-22T18:17:00Z'), '22/07 20:17', 'single shared DD/MM HH:MM encoding');
+  assert.equal(localTimeFormatters('No/Such_Zone').tz, 'UTC', 'invalid tz falls back');
+
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, '#!/bin/sh\necho ok\n');
+    chmodSync(piBin, 0o755);
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ provider: 'pi', piBin }) });
+    const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'time check', tz: 'Etc/GMT-2', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const done = sseEvents(await res.text()).find((e) => e.type === 'done');
+    const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
+    const ctx = JSON.parse(messages[0].context);
+    assert.equal(ctx.view.candleTimesAreLocal, true);
+    assert.equal(ctx.view.traderTimezone, 'Etc/GMT-2');
+    assert.equal(ctx.viewCandles[0].t, '10:00', 'first fixture candle 08:00Z shown as 10:00 local');
+    assert.match(ctx.signal.time, /^22\/07 \d{2}:\d{2}$/, 'signal time carries date + local time (DD/MM)');
+    assert.match(ctx.signalHistory[0].time, /^22\/07 /, 'history localized with date part');
   });
 });
 
