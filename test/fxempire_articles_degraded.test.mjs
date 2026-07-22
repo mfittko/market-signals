@@ -70,6 +70,9 @@ test('SSR articles flow through normalizeArticles with recency filtering', () =>
   const norm = normalizeArticles(extractSsrArticles(ssrHtml).map((a) => ({ ...a, _type: 'news', _tag: 'ssr:test', _slug: 'wti-crude-oil' })), { cutoffTs, nowTs });
   assert.equal(norm.length, 2, 'ancient article filtered out');
   assert.ok(norm.every((a) => a.fullUrl.startsWith('https://www.fxempire.com/')));
+  const gold = norm.find((a) => a.id === 1612117);
+  const wti = norm.find((a) => a.id === 1612050);
+  assert.ok(gold && wti);
 });
 
 test('mangled SSR page degrades to empty (hub fallback path), never throws', () => {
@@ -131,4 +134,11 @@ test('article page cache: roundtrip, TTL expiry, atomic write', async () => {
   assert.equal(cacheGet(back, '/news', ARTICLE_CACHE_TTL_MS, now + ARTICLE_CACHE_TTL_MS + 1), null, 'expired');
   assert.equal(cacheGet(back, '/other'), null, 'unknown key');
   assert.deepEqual(readArticleCache(pth.join(dir, 'missing.json')), {}, 'missing file is empty cache');
+});
+
+test('SSR articles derive news vs forecasts type from their URL', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  const typed = arts.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news' }));
+  assert.equal(typed.find((a) => a.id === 1612117)._type, 'forecasts', 'forecasts URL → forecasts type');
+  assert.equal(typed.find((a) => a.id === 1612050)._type, 'news');
 });

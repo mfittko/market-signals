@@ -610,7 +610,7 @@ Options:
       await delay(120);
     }
     if (batch.length) {
-      batch = batch.map((a) => ({ ...a, _type: 'news', _tag: `ssr:${slug}` }));
+      batch = batch.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news', _tag: `ssr:${slug}` }));
     } else {
       const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
       batch = [...n, ...f];
