@@ -109,6 +109,7 @@ export function unrealized(pos, mark) {
 // --- mutations (module-internal to the bot; never wire to a POST route) -----
 
 export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null, spreadsPath } = {}) {
+  if (typeof instrument !== 'string' || !instrument.trim()) throw new Error('instrument required');
   if (side !== 'long' && side !== 'short') throw new Error('side must be long|short');
   if (!(notional > 0) || !(price > 0)) throw new Error('notional and price must be > 0');
   return pdb(dbPath, cfg, (db) => {
@@ -141,6 +142,7 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
 
 export function closePosition(dbPath, cfg, positionId, price, closeReason, context = null) {
   if (!(price > 0)) throw new Error('close price must be > 0');
+  if (typeof closeReason !== 'string' || !closeReason.trim()) throw new Error('closeReason required');
   return pdb(dbPath, cfg, (db) => closeInDb(db, cfg, positionId, price, closeReason, context));
 }
 

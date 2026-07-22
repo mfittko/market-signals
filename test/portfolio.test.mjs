@@ -100,6 +100,8 @@ test('guards: max positions, insufficient margin, risk budget, bad input', () =>
   assert.throws(() => openPosition(db2, botConfig({ bot: { riskPct: 1 } }), { instrument: WTI, side: 'long', notional: 5000, price: 87 }), /risk budget/);
   assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'up', notional: 100, price: 87 }), /side/);
   assert.throws(() => closePosition(db2, CFG, 999, 87, 'x'), /unknown position/);
+  assert.throws(() => openPosition(db2, CFG, { side: 'long', notional: 100, price: 87 }), /instrument required/);
+  assert.throws(() => closePosition(db2, CFG, 1, 87), /closeReason required/);
 });
 
 test('commission: charged exactly once (at open), precondition covers it, cache keyed per spreads path', () => {
@@ -147,7 +149,9 @@ test('invariant: equity == starting + Σrealized + Σunrealized over random sequ
         if (act < 0.4) openPosition(db, cfg, { instrument: WTI, side: rnd() < 0.5 ? 'long' : 'short', notional: 200 + rnd() * 800, price });
         else if (act < 0.6 && v.positions.length) closePosition(db, cfg, v.positions[0].id, price, 'bot-close');
         else markToMarket(db, cfg, { [WTI]: price });
-      } catch { /* guard rejections are fine mid-sequence */ }
+      } catch (err) {
+        if (!/max \d|insufficient cash|risk budget|halted/.test(String(err.message))) throw err;
+      }
     }
     const v = portfolioView(db, cfg);
     const realized = v.trades.reduce((s, t) => s + t.realized, 0);
