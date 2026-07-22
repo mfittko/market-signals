@@ -655,6 +655,29 @@ async function runOne(opts) {
     store,
   };
   result.notify = await processSignal(opts, result, candles);
+
+  // Trading bot (issue #23): deterministic fills every run, LLM only on events.
+  // Lazy imports avoid a static cycle (bot/server both import from this module).
+  if (opts.db) {
+    try {
+      const settings = readSettings(opts.settings);
+      if (settings.bot?.enabled === true) {
+        const { runBot } = await import('./bot.mjs');
+        const { CHAT_TOOLS, execChatTool } = await import('./signal-server.mjs');
+        const freshFlip = result.signal?.fresh && !String(result.notify?.reason || '').includes('duplicate') ? result.signal : null;
+        result.bot = await runBot(opts.db, settings, {
+          instrument: opts.instrument, granularity: opts.granularity,
+          candle: last, quote: { last: last.close }, freshFlip,
+          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest },
+          toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+          execTool: execChatTool,
+        });
+      }
+    } catch (err) {
+      dbg(`bot run failed (alerts unaffected): ${err.message}`);
+      result.bot = { error: err.message };
+    }
+  }
   return result;
 }
 
