@@ -292,6 +292,15 @@ function serveVendor(res, name) {
   return true;
 }
 
+// CSRF guard for the localhost API: browsers attach an Origin header to
+// cross-site requests; anything not from this host is rejected. Non-browser
+// clients (curl, scripts) send no Origin and pass.
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+
 // Multibyte-safe request body accumulation with the shared 64KB cap.
 async function readBody(req, res) {
   const dec = new TextDecoder();
@@ -317,6 +326,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      if (req.method !== 'GET' && !sameOrigin(req)) {
+        return json(res, 403, { ok: false, error: 'cross-origin requests are not allowed' });
+      }
       if (url.pathname === '/api/chart') {
         const cfg = readSettings(settingsPath);
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;

@@ -437,3 +437,18 @@ test('chat tools: registry executes with clamped args, rejects unknown tools and
     assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
   }
 });
+
+test('mutating routes reject cross-origin requests (CSRF guard), same-origin and CLI pass', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'x' }), headers: { origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }), headers: { origin: 'http://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/threads?id=1`, { method: 'DELETE', headers: { origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'x' }), headers: { origin: 'http://127.0.0.1:8787' } });
+    assert.equal(res.status, 200, 'same-origin passes');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'y' }) });
+    assert.equal(res.status, 200, 'no-origin CLI passes');
+  });
+});
