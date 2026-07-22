@@ -42,6 +42,7 @@ test('exactly-one-active enforced at write; archived cannot activate; archiving 
   assert.equal(activeStrategy(db).id, b.id);
   archiveStrategy(db, a.id);
   assert.throws(() => activateStrategy(db, a.id), /archived/);
+  assert.equal(activeStrategy(db).id, b.id, 'failed activation of an archived target leaves the current active untouched');
   assert.throws(() => activateStrategy(db, 999), /unknown/);
   activateStrategy(db, b.id);
   archiveStrategy(db, b.id);
