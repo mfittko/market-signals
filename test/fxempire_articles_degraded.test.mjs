@@ -82,7 +82,7 @@ test('mangled SSR page degrades to empty (hub fallback path), never throws', () 
   assert.deepEqual(extractSsrArticles('<html>no data at all</html>'), []);
 });
 
-test('slugMarket resolves from catalog or builtin, defaults to commodities', () => {
+test('slugMarket resolves from builtin map, defaults to commodities', () => {
   assert.equal(slugMarket('spx'), 'indices');
   assert.equal(slugMarket('bitcoin'), 'crypto');
   assert.equal(slugMarket('wti-crude-oil'), 'commodities');

@@ -409,24 +409,10 @@ const BUILTIN_SLUG_MARKETS = {
   bitcoin: 'crypto', ethereum: 'crypto', solana: 'crypto',
 };
 
-let slugMarketCache = null;
+// ponytail: static map + default covers every configured slug; parse
+// config/instruments.yaml here only if slugs start arriving from config.
 export function slugMarket(slug) {
-  if (slugMarketCache) return slugMarketCache.get(slug) || BUILTIN_SLUG_MARKETS[slug] || 'commodities';
-  try {
-    const yml = fs.readFileSync(path.join(process.cwd(), 'config', 'instruments.yaml'), 'utf8');
-    let market = null;
-    for (const line of yml.split('\n')) {
-      const m = line.match(/^  (\w[\w-]*):/);
-      if (m) { market = m[1]; continue; }
-      const sm = line.match(/- slug: (\S+)/);
-      if (sm && market) {
-        if (!slugMarketCache) slugMarketCache = new Map();
-        slugMarketCache.set(sm[1], market === 'crypto-coin' ? 'crypto' : market);
-      }
-    }
-  } catch { /* no catalog in cwd */ }
-  if (!slugMarketCache) slugMarketCache = new Map();
-  return slugMarketCache.get(slug) || BUILTIN_SLUG_MARKETS[slug] || 'commodities';
+  return BUILTIN_SLUG_MARKETS[slug] || 'commodities';
 }
 
 // Tag-based relevance: SSR pages embed a site-wide article mix; an article
