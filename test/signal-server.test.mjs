@@ -665,5 +665,14 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.equal(okSet.ok, undefined === undefined && okSet.error === undefined, 'bot object accepted');
     const badSet = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { evil: 1 } }) });
     assert.equal(badSet.status, 400, 'unknown bot keys rejected');
+    // deep-merge: partial bot saves keep stored keys the form doesn't carry
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': 12 }, maxPositions: 5 } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { riskPct: 3 } }) });
+    const merged = JSON.parse(readFileSync(settingsPath, 'utf8')).bot;
+    assert.equal(merged.riskPct, 3);
+    assert.equal(merged.maxPositions, 5, 'partial save preserves maxPositions');
+    assert.deepEqual(merged.leverage, { 'WTICO/USD': 12 }, 'partial save preserves the leverage map');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { maxPositions: null } }) });
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).bot.maxPositions, undefined, 'null deletes a bot key');
   });
 });

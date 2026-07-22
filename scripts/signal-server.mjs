@@ -76,7 +76,16 @@ export function writeSettings(settingsPath, patch) {
   for (const [k, v] of Object.entries(patch)) {
     if (SECRET_KEYS.includes(k) && v === MASK) continue; // masked = unchanged
     if (v === '' || v === null) delete next[k];
-    else next[k] = v;
+    else if (k === 'bot') {
+      // deep-merge: a partial bot patch must not drop stored keys the UI form
+      // doesn't carry (leverage map, maxPositions, reviewTriggerPct, ...)
+      const merged = { ...(typeof current.bot === 'object' && current.bot ? current.bot : {}) };
+      for (const [bk, bv] of Object.entries(v)) {
+        if (bv === '' || bv === null) delete merged[bk];
+        else merged[bk] = bv;
+      }
+      next.bot = merged;
+    } else next[k] = v;
   }
   mkdirSync(dirname(settingsPath), { recursive: true });
   const tmp = `${settingsPath}.tmp`;
