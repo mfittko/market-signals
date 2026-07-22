@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
+import { baselines, botPerformanceSummary, decisionAudit, strategyScoreboard } from './evaluation.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -336,7 +337,7 @@ export function extractThreadTitle(reply) {
   return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -455,6 +456,22 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { activateStrategy(dbPath, id); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
         return json(res, 200, { ok: true, activeId: id });
       }
+      if (url.pathname === '/api/evaluation') {
+        // Read-only like every portfolio surface (#22 guarantee).
+        if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'evaluation is read-only over HTTP' });
+        const cfgS = readSettings(settingsPath);
+        const bcfg = botConfig(cfgS);
+        const inst = url.searchParams.get('instrument') || cfgS.instrument || DEFAULT_INSTRUMENT;
+        const gran = url.searchParams.get('granularity') || cfgS.granularity || 'M5';
+        const sid = Number(url.searchParams.get('strategy'));
+        const board = strategyScoreboard(dbPath, bcfg.startingBalance);
+        return json(res, 200, {
+          ok: true,
+          scoreboard: board,
+          baselines: baselines(dbPath, inst, gran, { fromTime: board[0]?.firstTrade ?? null }),
+          audit: decisionAudit(dbPath, { strategyId: Number.isInteger(sid) && sid > 0 ? sid : null, limit: 50 }),
+        });
+      }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
         // Bot-only mutations: these surfaces are strictly read-only (#22/#24).
         if (req.method !== 'GET') return json(res, 405, { ok: false, error: `${url.pathname.slice(5)} is read-only over HTTP (bot-only trades)` });
@@ -508,6 +525,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           signal: view.signal ? { ...view.signal, time: localFull(view.signal.time) } : view.signal,
           signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
           traderNotes: notes,
+          botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
@@ -611,6 +629,11 @@ const PAGE = /* html */ `<!doctype html>
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
+  #pfTabs { display: flex; gap: 6px; margin: 10px 0; }
+  #pfTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
+  .audit-entry .meta { color: #8b949e; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
@@ -648,9 +671,15 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="pfdlg">
   <h2>virtual portfolio <small>(bot-only — view)</small></h2>
   <div id="pfHead"></div>
-  <div id="pfPositions"></div>
-  <h2>closed trades</h2>
-  <table id="pfTrades"><thead><tr><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
+  <div id="pfTabs">
+    <button data-tab="positions" class="on">positions</button><button data-tab="trades">trades</button><button data-tab="performance">performance</button><button data-tab="audit">audit</button>
+  </div>
+  <div id="tab-positions"><div id="pfPositions"></div></div>
+  <div id="tab-trades" hidden>
+    <table id="pfTrades"><thead><tr><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div id="tab-performance" hidden></div>
+  <div id="tab-audit" hidden></div>
   <form method="dialog"><button>close</button></form>
 </dialog>
 <div class="verdict" id="verdict">loading…</div>
@@ -747,6 +776,32 @@ function sparkline(pf) {
   g.stroke();
 }
 document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); });
+document.getElementById('pfTabs').addEventListener('click', async (e) => {
+  const tab = e.target.dataset?.tab;
+  if (!tab) return;
+  for (const b of document.querySelectorAll('#pfTabs button')) b.classList.toggle('on', b === e.target);
+  for (const name of ['positions', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
+  if (tab === 'performance' || tab === 'audit') renderEvaluation();
+});
+async function renderEvaluation() {
+  const r = await (await fetch('/api/evaluation?' + new URLSearchParams({ instrument: qs.get('instrument') || '', granularity: qs.get('granularity') || '' }))).json();
+  if (!r.ok) return;
+  const perf = document.getElementById('tab-performance');
+  const rowsHtml = r.scoreboard.map(s =>
+    '<tr><td>' + esc(s.strategyName ?? ('hash ' + (s.strategyVersion || '—'))) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + s.trades +
+    '</td><td>' + esc(s.winRatePct ?? '—') + '%</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
+    '</td><td>' + esc(s.profitFactor === null ? '—' : (s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2))) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
+  const b = r.baselines;
+  perf.innerHTML = '<table><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th>PF</th><th>max DD</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="6">no attributed trades yet</td></tr>') + '</tbody></table>' +
+    (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + esc(b.flipFollowing.winRatePct ?? '—') + '% win / ' + esc(b.flipFollowing.totalReturnPct ?? '—') + '% return (' + esc(b.flipFollowing.trades ?? 0) + ' trades) · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
+  document.getElementById('tab-audit').innerHTML = r.audit.map(a =>
+    '<div class="audit-entry"><div class="meta">' + esc(localFull(a.at)) + ' · ' + esc(a.action) + (a.event ? ' · ' + esc(a.event) : '') + (a.instrument ? ' · ' + esc(a.instrument) : '') +
+    (a.strategyName ? ' · ' + esc(a.strategyName) + (a.strategyDbVersion ? ' v' + esc(a.strategyDbVersion) : '') : '') + '</div>' +
+    (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(a.decision.notional ?? '') : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
+    (a.reason ? '<div>' + esc(a.reason) + '</div>' : '') +
+    (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
+    '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
+}
 let chart = null;
 function draw(d) {
   const cs = d.candles; if (!cs.length) return;

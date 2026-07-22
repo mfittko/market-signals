@@ -676,3 +676,18 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).bot.maxPositions, undefined, 'null deletes a bot key');
   });
 });
+
+test('evaluation endpoint (#26): read-only, serves scoreboard+baselines+audit; page ships the tabs', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const r = await (await fetch(base + '/api/evaluation')).json();
+    assert.equal(r.ok, true);
+    assert.ok(Array.isArray(r.scoreboard) && Array.isArray(r.audit));
+    assert.ok(r.baselines && r.baselines.flipFollowing, 'baselines computed from the fixture candles');
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      assert.equal((await fetch(base + '/api/evaluation', { method, body: '{}' })).status, 405, method + ' rejected');
+    }
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="pfTabs"'), 'portfolio modal tab bar present');
+    assert.ok(html.includes('data-tab="audit"') && html.includes('data-tab="performance"'), 'performance + audit tabs present');
+  });
+});
