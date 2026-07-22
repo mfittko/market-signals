@@ -407,6 +407,8 @@ const PAGE = /* html */ `<!doctype html>
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
     #msgs { max-height: 45vh; min-height: 120px; }
     #wrap { height: 320px !important; }
+    #cfgbtn { float: none; display: inline-block; margin-top: 6px; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
