@@ -253,6 +253,22 @@ function serveVendor(res, name) {
   return true;
 }
 
+// Multibyte-safe request body accumulation with the shared 64KB cap.
+async function readBody(req, res) {
+  const dec = new TextDecoder();
+  let raw = '';
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > 64 * 1024) {
+      json(res, 413, { ok: false, error: 'body too large' });
+      return null;
+    }
+    raw += dec.decode(chunk, { stream: true });
+  }
+  return raw + dec.decode();
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -279,13 +295,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, maskedSettings(settingsPath));
       }
       if (url.pathname === '/api/settings' && req.method === 'POST') {
-        let raw = '';
-        let bytes = 0;
-        for await (const chunk of req) {
-          bytes += chunk.length;
-          if (bytes > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
-          raw += chunk;
-        }
+        const raw = await readBody(req, res);
+        if (raw === null) return;
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
@@ -306,13 +317,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, { ok: true, messages: listMessages(dbPath, id) });
       }
       if (url.pathname === '/api/chat' && req.method === 'POST') {
-        let raw = '';
-        let bytes = 0;
-        for await (const chunk of req) {
-          bytes += chunk.length;
-          if (bytes > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
-          raw += chunk;
-        }
+        const raw = await readBody(req, res);
+        if (raw === null) return;
         let body;
         try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         const message = typeof body.message === 'string' ? body.message.trim() : '';
@@ -324,12 +330,15 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const instrument = body.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
         const granularity = body.granularity || cfg.granularity || 'M5';
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
+        let notes = '';
+        try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
         const context = {
           view: { instrument, granularity },
           quote: view.quote,
           recentCandles: view.candles.slice(-24).map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null })),
           signal: view.signal,
           signalHistory: view.signals.slice(0, 10).map((x) => ({ time: x.time, signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
+          traderNotes: notes,
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;

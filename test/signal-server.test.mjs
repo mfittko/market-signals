@@ -348,10 +348,11 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const ctx = JSON.parse(messages[0].context);
     assert.equal(ctx.view.instrument, INSTRUMENT, 'context snapshot attached');
     assert.ok(ctx.quote && typeof ctx.quote.last === 'number', 'quote in context');
+    assert.equal(typeof ctx.traderNotes, 'string', 'notes tail attached to context');
     assert.equal(messages[1].role, 'assistant');
 
     // Follow-up in the same thread includes history and persists more rows.
-    const res2 = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: done.threadId, message: 'and the stop?' }) });
+    const res2 = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: done.threadId, message: 'and the stop? \u{1F4C9} \u00e9\u00e9' }) });
     sseEvents(await res2.text());
     const after = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
     assert.equal(after.messages.length, 4);

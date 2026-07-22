@@ -188,6 +188,7 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
     const stream = Boolean(onDelta) && !schema;
     const body = {
       model: settings.model || 'gpt-5.4-mini',
+      max_completion_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
