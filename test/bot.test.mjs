@@ -218,3 +218,22 @@ test('deliberation survives a throwing tool executor (pi path: tools never invok
   });
   assert.equal(r.decision.action, 'hold', 'deliberation survives a throwing tool executor');
 });
+
+test('strategy scoping (#25): spaced combos normalize; no-active-strategy pauses deliberation', async () => {
+  const { saveStrategy, activateStrategy, archiveStrategy } = await import('../scripts/strategies.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'bot-'));
+  const db = join(dir, 'bot.sqlite');
+  const settings = fakeProvider(dir, '{"action":"hold","reasoning":"scoped"}');
+  // spaced combo CSV (natural copy from the watchers field) must still match
+  const st = saveStrategy(db, { name: 'scoped-strat', prompt: 'Hold unless the setup is textbook clean with volume confirmation.', instruments: 'WTICO/USD | M5' });
+  activateStrategy(db, st.id);
+  const r = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r.deliberated, true, 'spaces around the pipe do not silently unscope the combo');
+  const r2 = await runBot(db, settings, { instrument: 'SPX500/USD', granularity: 'M5', candle: candle(5000, 5001, 4999, 5000), quote: { last: 5000 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r2.skipped, 'combo not in active strategy scope');
+  // strategies exist but none active: pause, never trade the default prompt
+  archiveStrategy(db, st.id);
+  const r3 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r3.skipped, 'no active strategy');
+  assert.equal(r3.deliberated, false);
+});

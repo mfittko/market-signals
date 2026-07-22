@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  saveStrategy, activateStrategy, archiveStrategy, deactivateStrategies, deleteStrategy,
+  saveStrategy, activateStrategy, archiveStrategy, deleteStrategy,
   listStrategies, activeStrategy, ensureSeedStrategy, SEED_STRATEGY,
 } from '../scripts/strategies.mjs';
 import { withDb } from '../scripts/supertrend.mjs';
@@ -30,7 +30,7 @@ test('versioning: saves append versions, never rewrite; validation guards inputs
   assert.equal(typeof listStrategies(db).find((x) => x.id === num.id).instruments, 'string', 'instruments normalized to string before insert');
 });
 
-test('exactly-one-active enforced at write; archived cannot activate; deactivate clears', () => {
+test('exactly-one-active enforced at write; archived cannot activate; archiving clears active', () => {
   const db = fresh();
   const a = saveStrategy(db, { name: 'strat-a', prompt: PROMPT });
   const b = saveStrategy(db, { name: 'strat-b', prompt: PROMPT });
@@ -43,8 +43,9 @@ test('exactly-one-active enforced at write; archived cannot activate; deactivate
   archiveStrategy(db, a.id);
   assert.throws(() => activateStrategy(db, a.id), /archived/);
   assert.throws(() => activateStrategy(db, 999), /unknown/);
-  deactivateStrategies(db);
-  assert.equal(activeStrategy(db), null, 'deactivate clears the active flag');
+  activateStrategy(db, b.id);
+  archiveStrategy(db, b.id);
+  assert.equal(activeStrategy(db), null, 'archiving the active strategy clears the active flag');
 });
 
 test('delete blocked with journal references (archive instead); free versions delete', () => {

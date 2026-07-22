@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy } from './strategies.mjs';
+import { activeStrategy, listStrategies } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -238,9 +238,18 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   // Active strategy scoping: an instruments CSV on the active strategy limits
   // deliberation to those combos (deterministic fills always run).
   let strategyRow = null;
-  try { strategyRow = activeStrategy(dbPath); } catch { /* strategies table optional */ }
+  let anyStrategies = false;
+  try {
+    strategyRow = activeStrategy(dbPath);
+    anyStrategies = strategyRow != null || listStrategies(dbPath).length > 0;
+  } catch { /* strategies table optional */ }
+  // Strategies exist but none is active: the operator turned them off — pause
+  // deliberation rather than silently trading the hardcoded default prompt.
+  if (!strategyRow && anyStrategies) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
   if (strategyRow?.instruments) {
-    const combos = strategyRow.instruments.split(',').map((x) => x.trim()).filter(Boolean);
+    // normalize each combo the same way the watchers parser does — spaces
+    // around the pipe must not silently unscope a combo
+    const combos = strategyRow.instruments.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x !== '|' && x);
     if (!combos.includes(`${instrument}|${granularity}`)) return { fills, halted: false, deliberated: false, skipped: 'combo not in active strategy scope' };
   }
 

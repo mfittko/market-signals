@@ -85,10 +85,6 @@ export function activateStrategy(dbPath, id) {
   });
 }
 
-export function deactivateStrategies(dbPath) {
-  sdb(dbPath, (db) => db.prepare('UPDATE strategies SET active=0 WHERE active=1').run());
-}
-
 // Deleting versions that decisions reference would orphan the audit trail —
 // those are archived instead (hidden from selectors, kept for the journal).
 export function archiveStrategy(dbPath, id) {
@@ -127,6 +123,3 @@ export function activeStrategy(dbPath) {
   return sdb(dbPath, (db) => db.prepare('SELECT * FROM strategies WHERE active=1 LIMIT 1').get() ?? null);
 }
 
-export function getStrategy(dbPath, id) {
-  return sdb(dbPath, (db) => db.prepare('SELECT * FROM strategies WHERE id=?').get(id) ?? null);
-}

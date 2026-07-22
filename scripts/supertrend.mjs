@@ -674,7 +674,9 @@ async function runOne(opts) {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
           ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest },
-          toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+          // read-only tools for the trading loop: the bot must never write
+          // strategy drafts (or anything else) as a side effect of deciding
+          toolDefs: CHAT_TOOLS.filter((t) => t.name !== 'save_strategy').map(({ name, description, input_schema }) => ({ name, description, input_schema })),
           execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db }),
         });
       }
