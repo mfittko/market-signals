@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
-  botConfig, instrumentLeverage, openPosition, closePosition, markToMarket, portfolioView,
+  botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
