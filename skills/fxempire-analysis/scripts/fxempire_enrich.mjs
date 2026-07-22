@@ -246,6 +246,13 @@ function buildDetailedMarkdown(payload, analyses) {
     );
   }
 
+  if (payload.meta.degraded) {
+    lines.push('');
+    lines.push('## Articles');
+    lines.push('');
+    lines.push(`> Supporting articles unavailable (best-effort enrichment degraded). ${payload.meta.degradedReason || ''}`.trim());
+  }
+
   for (const a of analyses) {
     lines.push('');
     lines.push(`## ${mdEscape(a.name)} (${a.slug})`);
@@ -332,6 +339,8 @@ Options:
       hours: articles?.meta?.hours || null,
       tz: articles?.meta?.tz || args.tz,
       locale: args.locale,
+      degraded: articles?.meta?.degraded || false,
+      degradedReason: articles?.meta?.degradedReason || null,
     },
     ratesUrl: rates?.ratesUrl || null,
     prices: rates?.prices || [],

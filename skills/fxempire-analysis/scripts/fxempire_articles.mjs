@@ -7,6 +7,8 @@
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_TZ = 'Europe/Berlin';
 
@@ -339,6 +341,57 @@ function formatArticleMarkdownLink(article) {
   return { label: `[${title}](${markdownLinkUrl(url)})`, hasLink: true };
 }
 
+export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
+  return hubArticles
+    .map((a) => {
+      const ts = articleTs(a);
+      return {
+        id: a.id,
+        title: a.title,
+        slug: a.slug,
+        description: a.description || null,
+        excerpt: a.excerpt || null,
+        tags: a.tags || [],
+        type: a._type,
+        tag: a._tag,
+        commodity: a._slug || null,
+        timestamp: ts,
+        iso: ts ? new Date(ts).toISOString() : null,
+        author: a.author?.name || null,
+        articleUrl: a.articleUrl || null,
+        fullUrl: resolveArticleUrl(a),
+      };
+    })
+    .filter((a) => Number.isFinite(a.timestamp) && a.timestamp >= cutoffTs && a.timestamp <= nowTs);
+}
+
+// Articles are best-effort enrichment. Classify whether the upstream feed
+// yielded anything usable so the report can signal degradation instead of a
+// silent 0. See issue #11 (frozen/mis-tagged upstream news hub).
+// Single timestamp-parse rule for upstream article objects.
+export function articleTs(a) {
+  return typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
+}
+
+export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffTs }) {
+  if (emittedCount > 0) return { degraded: false, reason: null };
+  if (!rawCount) {
+    return { degraded: true, reason: 'FXEmpire news feed returned no items (upstream unavailable).' };
+  }
+  const start = new Date(cutoffTs).toISOString().slice(0, 10);
+  if (!Number.isFinite(newestRawTs)) {
+    return {
+      degraded: true,
+      reason: `FXEmpire news feed returned ${rawCount} item(s) but none carried a parseable timestamp, so recency could not be assessed. See issue #11.`,
+    };
+  }
+  const newest = new Date(newestRawTs).toISOString().slice(0, 10);
+  return {
+    degraded: true,
+    reason: `FXEmpire news feed returned ${rawCount} item(s) but none passed recency/relevance filtering (newest ${newest} predates window start ${start}; upstream tag filter appears ignored). See issue #11.`,
+  };
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -396,7 +449,7 @@ Options:
       out.push(...items.map((a) => ({ ...a, _type: type, _tag: tag })));
 
       const ts = items
-        .map((a) => (typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date)))
+        .map((a) => articleTs(a))
         .filter((x) => Number.isFinite(x));
       if (ts.length) {
         const min = Math.min(...ts);
@@ -423,27 +476,9 @@ Options:
     hubArticles.push(...n, ...f);
   }
 
-  const norm = hubArticles
-    .map((a) => {
-      const ts = typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
-      return {
-        id: a.id,
-        title: a.title,
-        slug: a.slug,
-        description: a.description || null,
-        excerpt: a.excerpt || null,
-        tags: a.tags || [],
-        type: a._type,
-        tag: a._tag,
-        commodity: a._slug || null,
-        timestamp: ts,
-        iso: ts ? new Date(ts).toISOString() : null,
-        author: a.author?.name || null,
-        articleUrl: a.articleUrl || null,
-        fullUrl: resolveArticleUrl(a),
-      };
-    })
-    .filter((a) => Number.isFinite(a.timestamp) && a.timestamp >= cutoff.getTime() && a.timestamp <= now.getTime());
+  const cutoffTs = cutoff.getTime();
+  const nowTs = now.getTime();
+  const norm = normalizeArticles(hubArticles, { cutoffTs, nowTs });
 
   const dedup = uniqBy(norm, (a) => `${a.id}:${a.type}`).sort((a, b) => b.timestamp - a.timestamp);
 
@@ -456,6 +491,17 @@ Options:
     counts.set(key, c + 1);
     capped.push(a);
   }
+
+  const rawTimestamps = hubArticles
+    .map((a) => articleTs(a))
+    .filter((x) => Number.isFinite(x));
+  const newestRawTs = rawTimestamps.length ? Math.max(...rawTimestamps) : null;
+  const feed = assessArticleFeed({
+    rawCount: hubArticles.length,
+    emittedCount: capped.length,
+    newestRawTs,
+    cutoffTs,
+  });
 
   const idsNeedingDetails = capped
     .filter((a) => !a.articleUrl || (!a.description && !a.excerpt))
@@ -520,6 +566,10 @@ Options:
       tz: args.tz,
       locale: args.locale,
       commodities: args.commodities,
+      degraded: feed.degraded,
+      degradedReason: feed.reason,
+      rawArticleCount: hubArticles.length,
+      newestRawArticle: newestRawTs ? new Date(newestRawTs).toISOString() : null,
     },
     articles: capped,
   };
@@ -531,6 +581,10 @@ Options:
 
   const lines = [];
   lines.push(`## FXEmpire articles — last ${hours}h (${args.tz})`);
+  if (feed.degraded) {
+    lines.push('');
+    lines.push(`> Articles degraded/unavailable: ${feed.reason}`);
+  }
   for (const slug of args.commodities) {
     const items = capped.filter((a) => a.commodity === slug);
     if (!items.length) continue;
@@ -555,7 +609,11 @@ Options:
   process.stdout.write(lines.join('\n') + '\n');
 }
 
-main().catch((e) => {
-  process.stderr.write(`fxempire_articles error: ${e.message}\n`);
-  process.exitCode = 1;
-});
+const invokedDirectly =
+  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (invokedDirectly) {
+  main().catch((e) => {
+    process.stderr.write(`fxempire_articles error: ${e.message}\n`);
+    process.exitCode = 1;
+  });
+}
