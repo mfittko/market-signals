@@ -71,6 +71,7 @@ test('lifecycle closes: stop, target, margin force-close, halt — all journaled
   const v = portfolioView(db, cfg);
   const actions = v.journal.map((j) => j.action);
   assert.ok(actions.includes('open') && actions.includes('close'), 'every mutation journaled');
+  assert.equal(v.journal[v.journal.length - 1].action, 'init', 'portfolio seeding itself is journaled');
   const reasons = v.trades.map((t) => t.close_reason).sort();
   assert.deepEqual(reasons, ['margin', 'stop', 'target']);
 });
@@ -102,6 +103,8 @@ test('guards: max positions, insufficient margin, risk budget, bad input', () =>
   assert.throws(() => closePosition(db2, CFG, 999, 87, 'x'), /unknown position/);
   assert.throws(() => openPosition(db2, CFG, { side: 'long', notional: 100, price: 87 }), /instrument required/);
   assert.throws(() => closePosition(db2, CFG, 1, 87), /closeReason required/);
+  assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87, stop: '86.5' }), /stop must be/);
+  assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87, target: NaN }), /target must be/);
 });
 
 test('commission: charged exactly once (at open), precondition covers it, cache keyed per spreads path', () => {

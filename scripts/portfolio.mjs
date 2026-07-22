@@ -90,8 +90,9 @@ export function instrumentLeverage(cfg, instrument) {
 function pdb(dbPath, cfg, fn) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
-    db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
+    const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
+    if (seeded.changes > 0) journal(db, 'init', null, 'portfolio seeded', { startingBalance: cfg.startingBalance });
     return fn(db);
   });
 }
@@ -112,6 +113,9 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
   if (typeof instrument !== 'string' || !instrument.trim()) throw new Error('instrument required');
   if (side !== 'long' && side !== 'short') throw new Error('side must be long|short');
   if (!(notional > 0) || !(price > 0)) throw new Error('notional and price must be > 0');
+  for (const [name, v] of [['stop', stop], ['target', target]]) {
+    if (v != null && !(Number.isFinite(v) && v > 0)) throw new Error(`${name} must be a positive number when set`);
+  }
   return pdb(dbPath, cfg, (db) => {
     const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
     if (p.halted) throw new Error('portfolio halted');
