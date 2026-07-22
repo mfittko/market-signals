@@ -79,6 +79,7 @@ function parseArgs(argv) {
       out.commodities = val.split(',').map((s) => s.trim()).filter(Boolean);
     else if (key === 'max-items' && val) out.maxItems = Number(val);
     else if (key === 'db') out.db = val || '';
+    else if (key === 'cache') out.cache = val || '';
     else if (key === 'page-size' && val) out.pageSize = Number(val);
     else if (key === 'max-pages' && val) out.maxPages = Number(val);
     else if (key === 'json') out.json = true;
