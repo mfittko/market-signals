@@ -401,7 +401,13 @@ export function slugMarket(slug) {
 // Tag-based relevance: SSR pages embed a site-wide article mix; an article
 // belongs to a slug when one of its tags carries it (co-/c-/i-/cc- prefixes).
 export function articleMatchesSlug(a, slug) {
-  return (a.tags || []).some((t) => String(t).toLowerCase().includes(String(slug).toLowerCase()));
+  const want = String(slug).toLowerCase();
+  return (a.tags || []).some((t) => {
+    const tag = String(t).toLowerCase();
+    if (tag === want) return true;
+    const m = tag.match(/^(?:co|cc|c|i|s)-(.+)$/);
+    return m ? m[1] === want : false;
+  });
 }
 
 export function extractNextData(html) {

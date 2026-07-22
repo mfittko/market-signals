@@ -51,10 +51,9 @@ test('no parseable timestamps yields an accurate degraded reason (not "newest un
 });
 
 // --- SSR news-page source (issue #28) ---
-import { readFileSync as rf } from 'node:fs';
 import { extractSsrArticles, extractNextData, slugMarket, articleMatchesSlug } from '../skills/fxempire-analysis/scripts/fxempire_articles.mjs';
 
-const ssrHtml = rf(new URL('./fixtures/fxempire_ssr_news_page.html', import.meta.url), 'utf8');
+const ssrHtml = fs.readFileSync(new URL('./fixtures/fxempire_ssr_news_page.html', import.meta.url), 'utf8');
 
 test('extractSsrArticles pulls id-keyed articles from __NEXT_DATA__, skipping non-article entries', () => {
   const arts = extractSsrArticles(ssrHtml);
@@ -74,7 +73,7 @@ test('SSR articles flow through normalizeArticles with recency filtering', () =>
 });
 
 test('mangled SSR page degrades to empty (hub fallback path), never throws', () => {
-  const mangled = rf(new URL('./fixtures/fxempire_ssr_mangled.html', import.meta.url), 'utf8');
+  const mangled = fs.readFileSync(new URL('./fixtures/fxempire_ssr_mangled.html', import.meta.url), 'utf8');
   assert.equal(extractNextData(mangled), null);
   assert.deepEqual(extractSsrArticles(mangled), []);
   assert.deepEqual(extractSsrArticles('<html>no data at all</html>'), []);
@@ -97,6 +96,11 @@ test('articleMatchesSlug: tag-prefix convention attribution', () => {
   assert.equal(wti.length, 1);
   assert.equal(wti[0].id, 1612050);
   assert.equal(arts.filter((a) => articleMatchesSlug(a, 'bitcoin')).length, 0, 'untagged instruments get nothing from the mix');
+  // Prefix-exact semantics: partial containment must not match.
+  assert.equal(articleMatchesSlug({ tags: ['co-golden-cross'] }, 'gold'), false, 'no substring misattribution');
+  assert.equal(articleMatchesSlug({ tags: ['co-gold'] }, 'gold'), true);
+  assert.equal(articleMatchesSlug({ tags: ['i-spx'] }, 'spx'), true);
+  assert.equal(articleMatchesSlug({ tags: ['spx'] }, 'spx'), true, 'bare exact tag matches');
 });
 
 
