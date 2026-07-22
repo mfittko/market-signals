@@ -188,9 +188,10 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 function chatDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(CHAT_DDL);
-    // Pre-#30 dbs lack the view columns; ALTER errors when they already exist.
-    try { db.exec('ALTER TABLE chat_threads ADD COLUMN instrument TEXT'); } catch { /* exists */ }
-    try { db.exec('ALTER TABLE chat_threads ADD COLUMN granularity TEXT'); } catch { /* exists */ }
+    // Pre-#30 dbs lack the view columns.
+    const cols = new Set(db.prepare('PRAGMA table_info(chat_threads)').all().map((c) => c.name));
+    if (!cols.has('instrument')) db.exec('ALTER TABLE chat_threads ADD COLUMN instrument TEXT');
+    if (!cols.has('granularity')) db.exec('ALTER TABLE chat_threads ADD COLUMN granularity TEXT');
     return fn(db);
   });
 }
