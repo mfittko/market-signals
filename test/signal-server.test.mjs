@@ -348,6 +348,9 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     assert.equal(messages[0].role, 'user');
     const ctx = JSON.parse(messages[0].context);
     assert.equal(ctx.view.instrument, INSTRUMENT, 'context snapshot attached');
+    assert.ok(ctx.viewCandles.length >= 60, 'full current-view candles in context, not a tail slice');
+    assert.equal(ctx.view.candleTimesAreUTC, true);
+    assert.equal(ctx.view.traderTimezone, 'UTC', 'tz defaults to UTC when client omits it');
     assert.ok(ctx.quote && typeof ctx.quote.last === 'number', 'quote in context');
     assert.equal(typeof ctx.traderNotes, 'string', 'notes tail attached to context');
     assert.equal(messages[1].role, 'assistant');

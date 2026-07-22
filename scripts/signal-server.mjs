@@ -248,7 +248,7 @@ export function execChatTool(name, input) {
   return String(tool.run(input ?? {})).slice(0, 8000);
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Answer concisely with concrete levels; you provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Candle timestamps in the context are UTC, but the trader reads the chart axis in their local timezone (view.traderTimezone) — when they mention a time, assume their local zone, and quote times as local (with UTC in parentheses when precision matters). Answer concisely with concrete levels; you provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -386,10 +386,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
         let notes = '';
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
+        const tz = typeof body.tz === 'string' && /^[A-Za-z_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
         const context = {
-          view: { instrument, granularity },
+          view: { instrument, granularity, traderTimezone: tz, candleTimesAreUTC: true },
           quote: view.quote,
-          recentCandles: view.candles.slice(-24).map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null })),
+          viewCandles: view.candles.map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null, partial: k.partial || undefined })),
           signal: view.signal,
           signalHistory: view.signals.slice(0, 10).map((x) => ({ time: x.time, signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
           traderNotes: notes,
@@ -761,7 +762,7 @@ document.getElementById('chatForm').onsubmit = async (e) => {
   const bubble = appendMsg('assistant', '…');
   try {
     const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({
-      threadId: chat.threadId, message,
+      threadId: chat.threadId, message, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
       instrument: qs.get('instrument') || undefined, granularity: qs.get('granularity') || undefined,
     }) });
     if (!res.ok) { bubble.className = 'msg error'; bubble.textContent = (await res.json()).error; chat.pending = false; return; }
