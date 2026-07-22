@@ -782,26 +782,32 @@ function draw(d) {
 // segment/scatter datasets).
 function fullColumnTooltip(c) {
   const canvas = c.canvas;
+  // draw() rebuilds the chart every refresh on the same canvas: attach once,
+  // always act on the live module-level chart binding.
+  if (canvas.dataset.fullColTooltip) return;
+  canvas.dataset.fullColTooltip = '1';
   canvas.addEventListener('mousemove', (e) => {
+    const c2 = chart;
+    if (!c2) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    const a = c.chartArea;
-    const clear = () => { if (c.tooltip.getActiveElements().length) { c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.tooltip.update(true); c.draw(); } };
+    const a = c2.chartArea;
+    const clear = () => { if (c2.tooltip.getActiveElements().length) { c2.tooltip.setActiveElements([], { x: 0, y: 0 }); c2.tooltip.update(true); c2.draw(); } };
     if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return clear();
-    const data = c.data.datasets[0].data;
+    const data = c2.data.datasets[0].data;
     if (!data.length) return clear();
-    const xVal = c.scales.x.getValueForPixel(x);
+    const xVal = c2.scales.x.getValueForPixel(x);
     // candles are time-sorted: binary-search the insertion point, compare neighbors
     let lo = 0, hi = data.length - 1;
     while (lo < hi) { const mid = (lo + hi) >> 1; if (data[mid].x < xVal) lo = mid + 1; else hi = mid; }
     const best = lo > 0 && Math.abs(data[lo - 1].x - xVal) <= Math.abs(data[lo].x - xVal) ? lo - 1 : lo;
-    const cur = c.tooltip.getActiveElements();
+    const cur = c2.tooltip.getActiveElements();
     if (cur.length === 1 && cur[0].index === best) return;
-    c.tooltip.setActiveElements([{ datasetIndex: 0, index: best }], { x, y });
-    c.tooltip.update(true);
-    c.draw();
+    c2.tooltip.setActiveElements([{ datasetIndex: 0, index: best }], { x, y });
+    c2.tooltip.update(true);
+    c2.draw();
   });
-  canvas.addEventListener('mouseleave', () => { c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.tooltip.update(true); c.draw(); });
+  canvas.addEventListener('mouseleave', () => { const c2 = chart; if (!c2) return; c2.tooltip.setActiveElements([], { x: 0, y: 0 }); c2.tooltip.update(true); c2.draw(); });
 }
 
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
