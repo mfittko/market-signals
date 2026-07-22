@@ -28,6 +28,13 @@ uiReview:
       steps:
         - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5", name: threads-wti-m5 }
         - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M1", name: threads-wti-m1 }
+    # portfolio modal needs a seeded portfolio; the declarative flow only loads
+    # the page (section hidden on a fresh db is valid) — the modal drive runs in
+    # the manual seeded UI-review pass documented on the PR.
+    - name: portfolio-view
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/portfolio.mjs"]
+      steps:
+        - { action: goto, path: "/", name: portfolio-section }
     - name: settings-roundtrip
       pathPatterns: ["scripts/signal-server.mjs"]
       steps:

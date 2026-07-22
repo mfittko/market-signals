@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, portfolioView } from './portfolio.mjs';
+import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -415,9 +415,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
-      if (url.pathname === '/api/portfolio') {
-        // Bot-only mutations: this surface is strictly read-only (#22).
-        if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'portfolio is read-only over HTTP (bot-only trades)' });
+      if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
+        // Bot-only mutations: these surfaces are strictly read-only (#22/#24).
+        if (req.method !== 'GET') return json(res, 405, { ok: false, error: `${url.pathname.slice(5)} is read-only over HTTP (bot-only trades)` });
+        if (url.pathname === '/api/bot-trades') {
+          const raw = Number(url.searchParams.get('limit'));
+          const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 500) : 50;
+          return json(res, 200, { ok: true, trades: botTrades(dbPath, botConfig(readSettings(settingsPath)), limit) });
+        }
         return json(res, 200, { ok: true, portfolio: portfolioView(dbPath, botConfig(readSettings(settingsPath))) });
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
@@ -557,6 +562,15 @@ const PAGE = /* html */ `<!doctype html>
     table { display: block; overflow-x: auto; white-space: nowrap; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
+  #pf { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
+  #pf summary { cursor: pointer; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+  #pf summary button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+  #pfChips b, #pfChips span { margin-right: 12px; }
+  #pfSpark { max-width: 100%; height: 46px; display: block; }
+  .pfcard { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
+  .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
+  #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
+  .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
@@ -587,6 +601,18 @@ const PAGE = /* html */ `<!doctype html>
 <h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div class="quote" id="quote" hidden></div>
+<details id="pf" hidden>
+  <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
+  <canvas id="pfSpark" width="560" height="46"></canvas>
+</details>
+<dialog id="pfdlg">
+  <h2>virtual portfolio <small>(bot-only — view)</small></h2>
+  <div id="pfHead"></div>
+  <div id="pfPositions"></div>
+  <h2>closed trades</h2>
+  <table id="pfTrades"><thead><tr><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
+  <form method="dialog"><button>close</button></form>
+</dialog>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
 <h2>Watcher &amp; filter settings</h2>
@@ -613,7 +639,73 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
+  portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
+const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
+const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
+async function portfolio() {
+  const r = await (await fetch('/api/portfolio')).json();
+  if (!r.ok) return;
+  const pf = r.portfolio;
+  const el = document.getElementById('pf');
+  const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
+  el.hidden = !hasActivity;
+  if (!hasActivity) return;
+  const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
+  const today = new Date().toDateString();
+  const dayPnl = pf.trades.filter(t => new Date(t.close_time).toDateString() === today).reduce((a, t) => a + t.realized, 0) + pf.unrealized;
+  const status = pf.halted ? '<span class="halted">halted</span>' : '<span class="active">active</span>';
+  document.getElementById('pfChips').innerHTML =
+    '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b>' +
+    '<span>cash ' + esc(pf.cash.toFixed(2)) + '</span>' +
+    '<span class="' + pnlCls(realized + pf.unrealized) + '">P&L ' + esc(money(realized + pf.unrealized)) + '</span>' +
+    '<span class="' + pnlCls(dayPnl) + '">day ' + esc(money(dayPnl)) + '</span>' +
+    '<span>' + pf.positions.length + ' pos</span>' + status;
+  sparkline(pf);
+  document.getElementById('pfHead').innerHTML =
+    '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b> · cash ' + esc(pf.cash.toFixed(2)) +
+    ' · margin ' + esc(pf.marginLocked.toFixed(2)) +
+    ' · unrealized <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> · ' + status;
+  document.getElementById('pfPositions').innerHTML = pf.positions.map(p => {
+    const age = Math.round((Date.now() - Date.parse(p.entry_time)) / 60000);
+    const stopD = p.stop != null ? ' · stop ' + esc(p.stop) + ' (' + esc((Math.abs(p.last_mark - p.stop) / p.last_mark * 100).toFixed(2)) + '%)' : '';
+    const tgtD = p.target != null ? ' · target ' + esc(p.target) + ' (' + esc((Math.abs(p.target - p.last_mark) / p.last_mark * 100).toFixed(2)) + '%)' : '';
+    return '<div class="pfcard"><b>' + esc(p.instrument) + '</b> <span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
+      ' ' + esc(p.notional) + ' @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
+      ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD + ' · ' + age + 'm' +
+      (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
+      '</div>';
+  }).join('') || '<div class="pfcard">no open positions</div>';
+  const tb = document.querySelector('#pfTrades tbody');
+  tb.innerHTML = '';
+  for (const t of pf.trades) {
+    const tr = document.createElement('tr');
+    tr.style.cursor = 'pointer';
+    tr.onclick = () => { location.search = '?' + new URLSearchParams({ instrument: t.instrument, granularity: qs.get('granularity') || 'M5', t: t.entry_time }); };
+    tr.innerHTML = '<td>' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
+      '</td><td class="' + pnlCls(t.realized) + '">' + esc(money(t.realized)) + '</td><td>' + esc(t.close_reason) + '</td>';
+    tb.appendChild(tr);
+  }
+}
+function sparkline(pf) {
+  const c = document.getElementById('pfSpark');
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  // trades arrive newest-first; the curve runs oldest → newest realized equity
+  const pts = pf.trades.slice().reverse().reduce((acc, t) => { acc.push(acc[acc.length - 1] + t.realized); return acc; }, [pf.startingBalance]);
+  if (pts.length < 2) pts.push(pts[0]);
+  const min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+  g.strokeStyle = pts[pts.length - 1] >= pts[0] ? '#3fb950' : '#f85149';
+  g.lineWidth = 1.5;
+  g.beginPath();
+  pts.forEach((v, i) => {
+    const x = (i / (pts.length - 1)) * (c.width - 8) + 4;
+    const y = c.height - 6 - ((v - min) / span) * (c.height - 12);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  });
+  g.stroke();
+}
+document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); });
 let chart = null;
 function draw(d) {
   const cs = d.candles; if (!cs.length) return;
@@ -647,6 +739,7 @@ function draw(d) {
     },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
+      events: [], // hover is fully owned by fullColumnTooltip (nearest-by-x, full chart height)
       scales: {
         x: { type: 'timeseries', ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18 },
              grid: { color: 'rgba(48,54,61,0.5)' }, time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } } },
@@ -656,6 +749,7 @@ function draw(d) {
       plugins: {
         legend: { display: false },
         tooltip: {
+          animation: false,
           backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#e6edf3',
           filter: (item) => item.datasetIndex === 0,
           callbacks: {
@@ -675,6 +769,42 @@ function draw(d) {
       },
     },
   });
+  fullColumnTooltip(chart);
+}
+
+// Full-column tooltip target (operator UX request): hovering anywhere at an x
+// snaps the tooltip to that candle — no need to hit the body. Implemented as a
+// manual nearest-by-x lookup activating ONLY the candle dataset (axis-x
+// interaction modes crash the vendored bundle's hover-style resolution on the
+// segment/scatter datasets).
+function fullColumnTooltip(c) {
+  const canvas = c.canvas;
+  // draw() rebuilds the chart every refresh on the same canvas: attach once,
+  // always act on the live module-level chart binding.
+  if (canvas.dataset.fullColTooltip) return;
+  canvas.dataset.fullColTooltip = '1';
+  canvas.addEventListener('mousemove', (e) => {
+    const c2 = chart;
+    if (!c2) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const a = c2.chartArea;
+    const clear = () => { if (c2.tooltip.getActiveElements().length) { c2.tooltip.setActiveElements([], { x: 0, y: 0 }); c2.tooltip.update(true); c2.draw(); } };
+    if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return clear();
+    const data = c2.data.datasets[0].data;
+    if (!data.length) return clear();
+    const xVal = c2.scales.x.getValueForPixel(x);
+    // candles are time-sorted: binary-search the insertion point, compare neighbors
+    let lo = 0, hi = data.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (data[mid].x < xVal) lo = mid + 1; else hi = mid; }
+    const best = lo > 0 && Math.abs(data[lo - 1].x - xVal) <= Math.abs(data[lo].x - xVal) ? lo - 1 : lo;
+    const cur = c2.tooltip.getActiveElements();
+    if (cur.length === 1 && cur[0].index === best) return;
+    c2.tooltip.setActiveElements([{ datasetIndex: 0, index: best }], { x, y });
+    c2.tooltip.update(true);
+    c2.draw();
+  });
+  canvas.addEventListener('mouseleave', () => { const c2 = chart; if (!c2) return; c2.tooltip.setActiveElements([], { x: 0, y: 0 }); c2.tooltip.update(true); c2.draw(); });
 }
 
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];

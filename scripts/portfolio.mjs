@@ -199,9 +199,17 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
 
 // --- read side (the only thing the HTTP layer may use) ----------------------
 
+const TRADES_QUERY = 'SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?';
+
+export function botTrades(dbPath, cfg, limit = 50) {
+  return pdb(dbPath, cfg, (db) => db.prepare(TRADES_QUERY).all(limit));
+}
+
 function viewInDb(db) {
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
-  const positions = db.prepare('SELECT * FROM positions ORDER BY id').all().map((pos) => ({
+  const positions = db.prepare(`SELECT p.*,
+      (SELECT reason FROM bot_journal j WHERE j.position_id = p.id AND j.action = 'open' ORDER BY j.id LIMIT 1) AS reason
+    FROM positions p ORDER BY p.id`).all().map((pos) => ({
     ...pos, unrealized: unrealized(pos, pos.last_mark), stale: !!pos.stale,
   }));
   const marginLocked = positions.reduce((s, x) => s + x.margin, 0);
@@ -220,7 +228,7 @@ function viewInDb(db) {
 export function portfolioView(dbPath, cfg) {
   return pdb(dbPath, cfg, (db) => ({
     ...viewInDb(db),
-    trades: db.prepare('SELECT * FROM bot_trades ORDER BY id DESC LIMIT 50').all(),
+    trades: db.prepare(TRADES_QUERY).all(50),
     journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
   }));
 }
