@@ -223,8 +223,84 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
   }
 }
 
+// Tool-use loop for the API providers: runs custom tools via execTool until the
+// model stops asking. Non-streaming rounds; emits status deltas so the UI shows
+// progress, then the final text as one delta.
+async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+  const tools = [
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 3 },
+    ...toolDefs.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+  ];
+  const messages = [{ role: 'user', content: user }];
+  for (let round = 0; round < 8; round++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: settings.model || 'claude-opus-4-8', max_tokens: maxTokens, system, tools, messages }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    const data = await res.json();
+    if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
+    if (data.stop_reason === 'pause_turn') {
+      messages.push({ role: 'assistant', content: data.content });
+      continue;
+    }
+    if (data.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content: data.content });
+      const results = [];
+      for (const block of data.content.filter((b) => b.type === 'tool_use')) {
+        if (onDelta) onDelta(`[${block.name}…]\n`);
+        let out;
+        let isError = false;
+        try { out = await execTool(block.name, block.input); } catch (err) { out = err.message; isError = true; }
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: String(out).slice(0, 8000), is_error: isError });
+      }
+      messages.push({ role: 'user', content: results });
+      continue;
+    }
+    const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    if (onDelta) onDelta(text);
+    return text;
+  }
+  throw new Error('tool loop exceeded 8 rounds');
+}
+
+async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+  const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+  for (let round = 0; round < 8; round++) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    const msg = (await res.json()).choices[0].message;
+    if (msg.tool_calls?.length) {
+      messages.push(msg);
+      for (const call of msg.tool_calls) {
+        if (onDelta) onDelta(`[${call.function.name}…]\n`);
+        let out;
+        try { out = await execTool(call.function.name, JSON.parse(call.function.arguments || '{}')); } catch (err) { out = `error: ${err.message}`; }
+        messages.push({ role: 'tool', tool_call_id: call.id, content: String(out).slice(0, 8000) });
+      }
+      continue;
+    }
+    if (onDelta) onDelta(msg.content ?? '');
+    return msg.content ?? '';
+  }
+  throw new Error('tool loop exceeded 8 rounds');
+}
+
 // Free-form ask against the configured provider (used by the chat sidebar).
-export async function llmChat(settings, system, user, { onDelta = null } = {}) {
+export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null } = {}) {
+  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool };
+  if (toolDefs && execTool && settings.provider !== 'pi' && settings.provider !== 'none') {
+    if (settings.ANTHROPIC_API_KEY) return anthropicToolLoop(settings, system, user, opts);
+    if (settings.OPENAI_API_KEY) return openaiToolLoop(settings, system, user, opts);
+  }
   return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, tools: true });
 }
 

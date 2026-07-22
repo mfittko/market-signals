@@ -410,3 +410,14 @@ test('chat: unknown threadId is rejected, provider errors stay short (no prompt 
     assert.ok(!errEv.error.includes('context:'), 'prompt not leaked into the error');
   });
 });
+
+test('served page <script> parses as valid JS (template-literal escape guard)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const src = html.match(/<script>([\s\S]*)<\/script>/)[1];
+    const dir = mkdtempSync(join(tmpdir(), 'ss-page-'));
+    writeFileSync(join(dir, 'page.js'), src);
+    const res = spawnSync('node', ['--check', join(dir, 'page.js')], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `served page JS is broken:\n${res.stderr.slice(0, 400)}`);
+  });
+});

@@ -663,12 +663,12 @@ async function selectThread(id) {
 }
 function md(t) {
   let h = esc(t);
-  h = h.replace(/\x60\x60\x60[a-z]*\n?([\s\S]*?)\x60\x60\x60/g, '<pre><code>$1</code></pre>');
-  h = h.replace(/\x60([^\x60\n]+)\x60/g, '<code>$1</code>');
-  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
-  h = h.replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
+  h = h.replace(/\\x60\\x60\\x60[a-z]*\\n?([\\s\\S]*?)\\x60\\x60\\x60/g, '<pre><code>$1</code></pre>');
+  h = h.replace(/\\x60([^\\x60\\n]+)\\x60/g, '<code>$1</code>');
+  h = h.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
+  h = h.replace(/(^|\\s)\\*([^*\\n]+)\\*(?=\\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
   h = h.replace(/^#{1,4} (.*)$/gm, '<b>$1</b>');
-  h = h.replace(/^[-*] /gm, '• ');
+  h = h.replace(/^[-*] /gm, '\u2022 ');
   return h;
 }
 
