@@ -344,7 +344,7 @@ function formatArticleMarkdownLink(article) {
 export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
   return hubArticles
     .map((a) => {
-      const ts = typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
+      const ts = articleTs(a);
       return {
         id: a.id,
         title: a.title,
@@ -368,6 +368,11 @@ export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
 // Articles are best-effort enrichment. Classify whether the upstream feed
 // yielded anything usable so the report can signal degradation instead of a
 // silent 0. See issue #11 (frozen/mis-tagged upstream news hub).
+// Single timestamp-parse rule for upstream article objects.
+export function articleTs(a) {
+  return typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
+}
+
 export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffTs }) {
   if (emittedCount > 0) return { degraded: false, reason: null };
   if (!rawCount) {
@@ -444,7 +449,7 @@ Options:
       out.push(...items.map((a) => ({ ...a, _type: type, _tag: tag })));
 
       const ts = items
-        .map((a) => (typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date)))
+        .map((a) => articleTs(a))
         .filter((x) => Number.isFinite(x));
       if (ts.length) {
         const min = Math.min(...ts);
@@ -488,7 +493,7 @@ Options:
   }
 
   const rawTimestamps = hubArticles
-    .map((a) => (typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date)))
+    .map((a) => articleTs(a))
     .filter((x) => Number.isFinite(x));
   const newestRawTs = rawTimestamps.length ? Math.max(...rawTimestamps) : null;
   const feed = assessArticleFeed({

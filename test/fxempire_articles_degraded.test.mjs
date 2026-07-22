@@ -43,8 +43,7 @@ test('empty upstream feed is flagged degraded with an unavailable reason', () =>
   assert.match(feed.reason, /no items/);
 });
 
-test('no parseable timestamps yields an accurate degraded reason (not "newest unknown predates")', async () => {
-  const { assessArticleFeed } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+test('no parseable timestamps yields an accurate degraded reason (not "newest unknown predates")', () => {
   const r = assessArticleFeed({ rawCount: 7, emittedCount: 0, newestRawTs: null, cutoffTs: Date.parse('2026-07-22T00:00:00Z') });
   assert.equal(r.degraded, true);
   assert.match(r.reason, /parseable timestamp/);
