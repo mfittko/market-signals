@@ -532,3 +532,29 @@ test('chat threads are view-scoped: stamped on create, filtered per view, legacy
     assert.deepEqual(dflt.threads.map((t) => t.title).sort(), ['legacy', 'wti-m5'], 'no params scopes to settings-default view');
   });
 });
+
+test('thread titles evolve from the model annotation (#38): stripped, applied on change, SSE event, no-op without it', async () => {
+  const { extractThreadTitle } = await import('../scripts/signal-server.mjs');
+  assert.deepEqual(extractThreadTitle('Answer text.\n<!--title: WTI short setup-->'), { text: 'Answer text.', title: 'WTI short setup' });
+  assert.deepEqual(extractThreadTitle('No annotation here'), { text: 'No annotation here', title: null });
+  assert.equal(extractThreadTitle('x\n<!--title: ' + 'y'.repeat(90) + '-->').title.length, 48, 'clamped');
+  assert.equal(extractThreadTitle('mid <!--title: nope--> stream').title, null, 'only a trailing annotation counts');
+
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, '#!/bin/sh\ncat > /dev/null\nprintf "Floor holds.\\n<!--title: floor check-->\\n"\n');
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'does the floor hold?', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const events = sseEvents(await res.text());
+    const done = events.find((e) => e.type === 'done');
+    assert.equal(done.reply, 'Floor holds.', 'annotation stripped from the reply');
+    const titleEv = events.find((e) => e.type === 'title');
+    assert.equal(titleEv.title, 'floor check', 'title event emitted');
+    const { threads } = await (await fetch(base + '/api/threads?instrument=' + encodeURIComponent(INSTRUMENT) + '&granularity=M5')).json();
+    assert.equal(threads[0].title, 'floor check', 'thread renamed');
+    const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
+    assert.ok(!messages[1].content.includes('<!--title'), 'persisted assistant message is clean');
+  });
+});
