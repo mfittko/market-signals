@@ -417,13 +417,17 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
         // Bot-only mutations: these surfaces are strictly read-only (#22/#24).
-        if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'portfolio is read-only over HTTP (bot-only trades)' });
-        const pf = portfolioView(dbPath, botConfig(readSettings(settingsPath)));
+        if (req.method !== 'GET') return json(res, 405, { ok: false, error: `${url.pathname.slice(5)} is read-only over HTTP (bot-only trades)` });
         if (url.pathname === '/api/bot-trades') {
-          const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 500);
-          return json(res, 200, { ok: true, trades: pf.trades.slice(0, limit) });
+          const raw = Number(url.searchParams.get('limit'));
+          const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 500) : 50;
+          const trades = withDb(dbPath, (db) => {
+            db.exec('CREATE TABLE IF NOT EXISTS bot_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, position_id INTEGER NOT NULL, instrument TEXT NOT NULL, side TEXT NOT NULL, notional REAL NOT NULL, units REAL NOT NULL, entry_price REAL NOT NULL, entry_time TEXT NOT NULL, close_price REAL NOT NULL, close_time TEXT NOT NULL, leverage REAL NOT NULL, realized REAL NOT NULL, close_reason TEXT NOT NULL)');
+            return db.prepare('SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?').all(limit);
+          });
+          return json(res, 200, { ok: true, trades });
         }
-        return json(res, 200, { ok: true, portfolio: pf });
+        return json(res, 200, { ok: true, portfolio: portfolioView(dbPath, botConfig(readSettings(settingsPath))) });
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
         const cfg = readSettings(settingsPath);
@@ -672,6 +676,7 @@ async function portfolio() {
     return '<div class="pfcard"><b>' + esc(p.instrument) + '</b> <span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
       ' ' + esc(p.notional) + ' @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
       ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD + ' · ' + age + 'm' +
+      (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
       '</div>';
   }).join('') || '<div class="pfcard">no open positions</div>';
   const tb = document.querySelector('#pfTrades tbody');

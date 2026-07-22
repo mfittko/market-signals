@@ -581,23 +581,26 @@ test('served client stripTitleTail behaves correctly as DELIVERED (escape-drift 
 });
 
 test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L agrees with the engine to the cent', async () => {
-  const { botConfig, openPosition, closePosition } = await import('../scripts/portfolio.mjs');
+  const { botConfig, instrumentSpread, openPosition, closePosition } = await import('../scripts/portfolio.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, dbPath }) => {
     const cfg = botConfig({ bot: { riskPct: 100 } });
-    const id = openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 1000, price: 87, stop: 85, target: 90 });
+    const id = openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 1000, price: 87, stop: 85, target: 90, reason: 'flip long on **volume**' });
     closePosition(dbPath, cfg, id, 88, 'target');
-    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'short', notional: 500, price: 88 });
+    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'short', notional: 500, price: 88, reason: 'rejection at **resistance**' });
 
     const pf = (await (await fetch(base + '/api/portfolio')).json()).portfolio;
-    const expectedRealized = (88 - 87.06) * (1000 / 87);
+    const expectedRealized = (88 - (87 + instrumentSpread(cfg, INSTRUMENT))) * (1000 / 87);
     assert.ok(Math.abs(pf.trades[0].realized - expectedRealized) < 0.005, 'realized matches engine to the cent');
     assert.ok(Math.abs(pf.equity - (pf.cash + pf.marginLocked + pf.unrealized)) < 1e-9, 'equity identity holds in the API payload');
 
+    assert.equal(pf.positions[0].reason, 'rejection at **resistance**', 'open position exposes its journaled opening reasoning');
     const tr = await (await fetch(base + '/api/bot-trades?limit=1')).json();
     assert.equal(tr.trades.length, 1);
     assert.equal(tr.trades[0].close_reason, 'target');
-    for (const method of ['POST', 'PUT', 'DELETE']) {
+    const zero = await fetch(base + '/api/bot-trades?limit=0');
+    assert.equal((await zero.json()).trades.length, 1, 'limit=0 falls back to default, not zero rows');
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
       assert.equal((await fetch(base + '/api/bot-trades', { method, body: '{}' })).status, 405, method + ' rejected');
     }
 

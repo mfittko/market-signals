@@ -201,7 +201,9 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
 
 function viewInDb(db) {
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
-  const positions = db.prepare('SELECT * FROM positions ORDER BY id').all().map((pos) => ({
+  const positions = db.prepare(`SELECT p.*,
+      (SELECT reason FROM bot_journal j WHERE j.position_id = p.id AND j.action = 'open' ORDER BY j.id LIMIT 1) AS reason
+    FROM positions p ORDER BY p.id`).all().map((pos) => ({
     ...pos, unrealized: unrealized(pos, pos.last_mark), stale: !!pos.stale,
   }));
   const marginLocked = positions.reduce((s, x) => s + x.margin, 0);
