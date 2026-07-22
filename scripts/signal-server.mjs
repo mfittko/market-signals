@@ -122,9 +122,11 @@ export function buildServer({ dbPath, settingsPath }) {
       }
       if (url.pathname === '/api/settings' && req.method === 'POST') {
         let raw = '';
+        let bytes = 0;
         for await (const chunk of req) {
+          bytes += chunk.length;
+          if (bytes > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
           raw += chunk;
-          if (raw.length > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
         }
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
