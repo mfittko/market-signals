@@ -172,7 +172,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
 const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  instrument TEXT,
+  granularity TEXT
 );
 CREATE TABLE IF NOT EXISTS chat_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,13 +188,35 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 function chatDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(CHAT_DDL);
+    // Pre-#30 dbs lack the view columns. Another process (watcher CLI) can win
+    // the same ALTER between our PRAGMA check and exec; only that loss is benign.
+    const addColumn = (ddl) => {
+      try { db.exec(ddl); } catch (err) {
+        if (!/duplicate column/i.test(String(err?.message))) throw err;
+      }
+    };
+    const cols = new Set(db.prepare('PRAGMA table_info(chat_threads)').all().map((c) => c.name));
+    if (!cols.has('instrument')) addColumn('ALTER TABLE chat_threads ADD COLUMN instrument TEXT');
+    if (!cols.has('granularity')) addColumn('ALTER TABLE chat_threads ADD COLUMN granularity TEXT');
     return fn(db);
   });
 }
 
-export function listThreads(dbPath) {
+// The one validator for a requested view, shared by every chat surface:
+// untrusted input falls back to the settings-default view.
+export function resolveView(cfg, inst, gran) {
+  return {
+    instrument: typeof inst === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(inst) ? inst : (cfg.instrument || DEFAULT_INSTRUMENT),
+    granularity: typeof gran === 'string' && /^[MH]\d{1,2}$/.test(gran) ? gran : (cfg.granularity || 'M5'),
+  };
+}
+
+// Threads are view-bound (issue #30). The scope filters to that view plus legacy
+// NULL-scoped threads (pre-migration history stays reachable from every view).
+export function listThreads(dbPath, scope) {
   return chatDb(dbPath, (db) => db.prepare(
-    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id GROUP BY t.id ORDER BY t.id DESC').all());
+    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id WHERE t.instrument IS NULL OR (t.instrument = ? AND t.granularity = ?) GROUP BY t.id ORDER BY t.id DESC')
+    .all(scope.instrument, scope.granularity));
 }
 
 export function deleteThread(dbPath, id) {
@@ -380,7 +404,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
-        return json(res, 200, { ok: true, threads: listThreads(dbPath) });
+        const cfg = readSettings(settingsPath);
+        const scope = resolveView(cfg, url.searchParams.get('instrument'), url.searchParams.get('granularity'));
+        return json(res, 200, { ok: true, threads: listThreads(dbPath, scope) });
       }
       if (url.pathname === '/api/threads' && req.method === 'DELETE') {
         const id = Number(url.searchParams.get('id'));
@@ -405,10 +431,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           return json(res, 400, { ok: false, error: 'no chat provider: set provider to "pi", or leave it on auto and add an ANTHROPIC/OPENAI API key ("none" disables chat)' });
         }
 
-        const instrument = typeof body.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument)
-          ? body.instrument : (cfg.instrument || DEFAULT_INSTRUMENT);
-        const granularity = typeof body.granularity === 'string' && /^[MH]\d{1,2}$/.test(body.granularity)
-          ? body.granularity : (cfg.granularity || 'M5');
+        const { instrument, granularity } = resolveView(cfg, body.instrument, body.granularity);
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
         let notes = '';
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
@@ -423,13 +446,18 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
-        if (threadId != null && !chatDb(dbPath, (db) => db.prepare('SELECT id FROM chat_threads WHERE id=?').get(threadId))) {
-          return json(res, 404, { ok: false, error: 'unknown thread' });
+        if (threadId != null) {
+          const thread = chatDb(dbPath, (db) => db.prepare('SELECT id, instrument, granularity FROM chat_threads WHERE id=?').get(threadId));
+          if (!thread) return json(res, 404, { ok: false, error: 'unknown thread' });
+          // Legacy NULL-scoped threads continue from any view; stamped threads only from their own.
+          if (thread.instrument != null && (thread.instrument !== instrument || thread.granularity !== granularity)) {
+            return json(res, 409, { ok: false, error: `thread belongs to ${thread.instrument} ${thread.granularity}` });
+          }
         }
         let createdThread = null;
         if (threadId == null) {
-          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)')
-            .run(message.slice(0, 60), new Date().toISOString()).lastInsertRowid);
+          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at, instrument, granularity) VALUES (?,?,?,?)')
+            .run(message.slice(0, 60), new Date().toISOString(), instrument, granularity).lastInsertRowid);
           createdThread = { id: Number(threadId), title: message.slice(0, 60) };
         }
         addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
@@ -705,7 +733,10 @@ async function cfg() {
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
-  const { threads } = await (await fetch('/api/threads')).json();
+  const scope = new URLSearchParams();
+  if (qs.get('instrument')) scope.set('instrument', qs.get('instrument'));
+  if (qs.get('granularity')) scope.set('granularity', qs.get('granularity'));
+  const { threads } = await (await fetch('/api/threads?' + scope)).json();
   const bar = document.getElementById('threadBar');
   const opt = (t) => '<option value="' + t.id + '"' + (t.id === chat.threadId ? ' selected' : '') + '>' +
     esc((t.created_at || '').slice(5, 16).replace('T', ' ')) + ' · ' + esc(t.title.slice(0, 34)) + '</option>';

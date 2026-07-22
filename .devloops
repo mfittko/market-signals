@@ -23,6 +23,11 @@ uiReview:
       pathPatterns: ["scripts/signal-server.mjs", "scripts/supertrend.mjs"]
       steps:
         - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5&t=2026-07-22T10%3A15%3A00.000000000Z", name: deep-linked-signal }
+    - name: chat-threads-view-scope
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5", name: threads-wti-m5 }
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M1", name: threads-wti-m1 }
     - name: settings-roundtrip
       pathPatterns: ["scripts/signal-server.mjs"]
       steps:
