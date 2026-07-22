@@ -168,10 +168,15 @@ export function sendNotification(msg, deepLink, settings = {}) {
     : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];
   const notifier = candidates.find((p) => existsSync(p));
   if (notifier) {
-    execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
-  } else {
-    execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+    try {
+      execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
+      return;
+    } catch (err) {
+      // A present-but-broken notifier install must not cost the alert.
+      dbg(`terminal-notifier failed (${err.message.split('\n')[0]}); falling back to osascript`);
+    }
   }
+  execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
 }
 
 export async function processSignal(opts, result, candles) {
