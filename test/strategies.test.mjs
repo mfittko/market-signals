@@ -50,6 +50,11 @@ test('delete blocked with journal references (archive instead); free versions de
       .run(new Date().toISOString(), 'decision', JSON.stringify({ strategyId: a.id, decision: { action: 'hold' } }));
   });
   assert.throws(() => deleteStrategy(db, a.id), /archive instead/);
+  // token-exact matching: a journal ref to strategy 12 must not block deleting id 1
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, context) VALUES (?,?,?)')
+    .run(new Date().toISOString(), 'decision', JSON.stringify({ strategyId: Number(String(a.id) + '2'), decision: { action: 'hold' } })));
+  const unref = saveStrategy(db, { name: 'strat-unref', prompt: PROMPT });
+  assert.equal(deleteStrategy(db, unref.id).deleted, true, 'longer-id references never false-positive-block');
   const free = saveStrategy(db, { name: 'strat-free', prompt: PROMPT });
   assert.equal(deleteStrategy(db, free.id).deleted, true);
   assert.equal(archiveStrategy(db, a.id).archived, true);

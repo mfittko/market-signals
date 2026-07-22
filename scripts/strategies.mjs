@@ -77,8 +77,8 @@ export function activateStrategy(dbPath, id) {
     const row = db.prepare('SELECT id, archived FROM strategies WHERE id=?').get(id);
     if (!row) throw new Error('unknown strategy');
     if (row.archived) throw new Error('cannot activate an archived strategy');
-    db.prepare('UPDATE strategies SET active=0 WHERE active=1').run();
-    db.prepare('UPDATE strategies SET active=1 WHERE id=?').run(id);
+    // single statement: exactly-one-active can never interleave
+    db.prepare('UPDATE strategies SET active = CASE WHEN id=? THEN 1 ELSE 0 END').run(id);
     return { id: Number(id) };
   });
 }
@@ -102,7 +102,10 @@ export function deleteStrategy(dbPath, id) {
   return sdb(dbPath, (db) => {
     const referenced = db.prepare(
       "SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='bot_journal'").get().c
-      ? db.prepare("SELECT COUNT(*) c FROM bot_journal WHERE context LIKE ?").get(`%\"strategyId\":${id}%`).c
+      // exact JSON number token: id must be terminated by , or } so id=12 never
+      // matches "strategyId":123
+      ? db.prepare('SELECT COUNT(*) c FROM bot_journal WHERE context LIKE ? OR context LIKE ?')
+        .get(`%"strategyId":${id},%`, `%"strategyId":${id}}%`).c
       : 0;
     if (referenced > 0) throw new Error('strategy has journal references — archive instead');
     db.prepare('DELETE FROM strategies WHERE id=?').run(id);
