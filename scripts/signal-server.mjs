@@ -16,7 +16,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -39,14 +40,6 @@ try {
 const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
-
-export function resolveProvider(cfg) {
-  if (cfg.provider === 'pi') return 'pi';
-  if (cfg.provider === 'none') return 'none';
-  if (cfg.ANTHROPIC_API_KEY) return 'anthropic';
-  if (cfg.OPENAI_API_KEY) return 'openai';
-  return 'none';
-}
 
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
@@ -219,8 +212,8 @@ function addMessage(dbPath, threadId, role, content, context = null) {
 }
 
 // Repo skills exposed to the chat as tools. Executors shell out to the skill
-// scripts with clamped args and bounded output; pi gets the same catalog via
-// the system prompt (it runs them itself over bash).
+// scripts with clamped args and bounded output — the entire tool surface for
+// the API providers' native tool-calling (pi chat is tool-less).
 const clampInt = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo && v <= hi ? v : dflt);
 export const CHAT_TOOLS = [
   {
@@ -459,6 +452,7 @@ const PAGE = /* html */ `<!doctype html>
   .msg.error { background: #f8514922; border: 1px solid #f8514955; align-self: flex-start; }
   .msg code { background: #010409; border: 1px solid #21262d; border-radius: 3px; padding: 0 4px; font-size: 12px; }
   .msg pre { background: #010409; border: 1px solid #21262d; border-radius: 5px; padding: 8px; overflow-x: auto; margin: 6px 0; }
+  .msg table { margin: 6px 0; font-size: 12px; } .msg td { padding: 2px 8px; border-bottom: 1px solid #21262d; }
   #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
   #chatForm input { flex: 1; }
   #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
@@ -707,7 +701,26 @@ function md(t) {
   h = h.replace(/(^|\\s)\\*([^*\\n]+)\\*(?=\\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
   h = h.replace(/^#{1,4} (.*)$/gm, '<b>$1</b>');
   h = h.replace(/^[-*] /gm, '\u2022 ');
-  return h;
+  const lines = h.split('\\n');
+  const out = [];
+  let rows = [];
+  const flush = () => {
+    if (!rows.length) return;
+    out.push('<table>' + rows.map((r) => '<tr>' + r.map((c) => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</table>');
+    rows = [];
+  };
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.startsWith('|') && t.endsWith('|')) {
+      if (/^\\|[\\s:|-]+\\|$/.test(t)) continue; // header separator row
+      rows.push(t.slice(1, -1).split('|').map((c) => c.trim()));
+    } else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+  return out.join('\\n');
 }
 
 function renderMsgs(list) {

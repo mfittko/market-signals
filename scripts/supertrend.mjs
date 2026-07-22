@@ -107,6 +107,15 @@ const VERDICT_SCHEMA = {
 // Provider picked by settings: {"provider": "pi"} shells out to the pi coding
 // agent (its own provider/key config applies); else by which API key is present
 // (ANTHROPIC wins if both).
+// Single source of provider precedence: explicit pi/none, else key-based.
+export function resolveProvider(settings) {
+  if (settings.provider === 'pi') return 'pi';
+  if (settings.provider === 'none') return 'none';
+  if (settings.ANTHROPIC_API_KEY) return 'anthropic';
+  if (settings.OPENAI_API_KEY) return 'openai';
+  return 'none';
+}
+
 // Streaming SSE reader shared by both API providers: calls extract(json) per
 // `data:` event, invokes onDelta with each text piece, returns the full text.
 async function readSse(res, extract, onDelta) {
@@ -147,12 +156,13 @@ async function readSse(res, extract, onDelta) {
 
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
-async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, tools = false } = {}) {
-  if (settings.provider === 'pi') {
+// Always tool-less: the chat's tool surface lives in the dedicated tool loops.
+async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null } = {}) {
+  const provider = resolveProvider(settings);
+  if (provider === 'none') throw new Error('no provider configured');
+  if (provider === 'pi') {
     // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
-    // tools=true lets pi use its own agent tools (bash/read/web) — chat only;
-    // verdicts stay tool-less and deterministic.
-    const args = ['-p', '--no-session', ...(tools ? [] : ['--no-tools']), '--system-prompt', system];
+    const args = ['-p', '--no-session', '--no-tools', '--system-prompt', system];
     if (settings.model) args.push('--model', settings.model);
     args.push(user);
     let out;
@@ -171,7 +181,7 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
     if (onDelta) onDelta(out); // pi cannot stream: one whole delta
     return out;
   }
-  if (settings.ANTHROPIC_API_KEY) {
+  if (provider === 'anthropic') {
     const stream = Boolean(onDelta) && !schema;
     const body = {
       model: settings.model || 'claude-opus-4-8',
@@ -180,7 +190,6 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
       messages: [{ role: 'user', content: user }],
     };
     if (schema) body.output_config = { format: { type: 'json_schema', schema } };
-    if (tools && !schema) body.tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3 }];
     if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -296,14 +305,13 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
 
 // Free-form ask against the configured provider (used by the chat sidebar).
 export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null } = {}) {
+  const provider = resolveProvider(settings);
   const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool };
-  if (toolDefs && execTool && settings.provider !== 'pi' && settings.provider !== 'none') {
-    if (settings.ANTHROPIC_API_KEY) return anthropicToolLoop(settings, system, user, opts);
-    if (settings.OPENAI_API_KEY) return openaiToolLoop(settings, system, user, opts);
-  }
-  // pi (and no-tool fallbacks) run without agent tools: the only tool surface
-  // is the clamped skill registry via the API providers' native tool-calling.
-  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, tools: false });
+  if (toolDefs && execTool && provider === 'anthropic') return anthropicToolLoop(settings, system, user, opts);
+  if (toolDefs && execTool && provider === 'openai') return openaiToolLoop(settings, system, user, opts);
+  // pi (and tool-less fallbacks): context only — the sole tool surface is the
+  // clamped skill registry via the API providers' native tool-calling.
+  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta });
 }
 
 async function llmVerdict(settings, payload) {
@@ -371,8 +379,7 @@ export async function processSignal(opts, result, candles) {
       settings.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     }
   }
-  const hasFilter = settings.provider !== 'none'
-    && Boolean(settings.provider === 'pi' || settings.OPENAI_API_KEY || settings.ANTHROPIC_API_KEY);
+  const hasFilter = resolveProvider(settings) !== 'none';
   dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
 
   let verdict = null;

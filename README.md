@@ -62,8 +62,9 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   SSE streaming, markdown rendering, and per-message context (current view,
   quote, candles, signal history, notes). The copilot can expand its context
   via tools: FXEmpire news articles, Trump Truth Social posts, and live rates
-  (Anthropic/OpenAI via a tool-use loop; pi runs the same scripts itself with
-  its own agent tools, plus web search).
+  (Anthropic gets the tools plus server-side web search, OpenAI the tools, via
+  native tool-use loops; pi answers from the provided context — no provider
+  gets shell access, and the clamped tool registry is the entire surface).
 
 ```bash
 node scripts/signal-server.mjs [--port 8787] [--db data/candles.db] [--settings data/settings.json]
