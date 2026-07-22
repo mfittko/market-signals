@@ -52,7 +52,7 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
 )`;
 
 // Every DB access goes through here: schema ensured on open, handle always closed.
-function withDb(dbPath, fn) {
+export function withDb(dbPath, fn) {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
@@ -80,10 +80,11 @@ function updateSignal(dbPath, instrument, granularity, time, verdict, reason, no
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
 // joined from the accumulated candles table — the filter's track record.
-export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20 } = {}) {
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null } = {}) {
   return withDb(dbPath, (db) => {
-    const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-      .all(instrument, granularity, limit);
+    const sigs = time
+      ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?').all(instrument, granularity, time)
+      : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
     return sigs.map((s) => {
       const c = after.get(instrument, granularity, s.time, horizonBars - 1);
@@ -94,7 +95,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
   });
 }
 
-const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
 
 const VERDICT_SCHEMA = {
   type: 'object',
@@ -158,16 +159,50 @@ async function llmVerdict(settings, payload) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+export function readSettings(settingsPath) {
+  try { return JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { return {}; }
+}
+
+// Delivery: terminal-notifier when installed (the notification itself opens the
+// deep link), else osascript (not clickable). Both bounded by a 10s timeout.
+export function sendNotification(msg, deepLink, settings = {}) {
+  const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  const candidates = settings.notifierBin
+    ? [settings.notifierBin]
+    : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];
+  const notifier = candidates.find((p) => existsSync(p));
+  if (notifier) {
+    try {
+      execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
+      return;
+    } catch (err) {
+      // A present-but-broken notifier install must not cost the alert.
+      dbg(`terminal-notifier failed (${err.message.split('\n')[0]}); falling back to osascript`);
+    }
+  }
+  execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+}
+
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
   if (!opts.db) return { sent: false, reason: 'signal persistence requires --db' };
+  const granMs = (() => { const m = /^([MH])(\d+)$/.exec(opts.granularity); return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000; })();
+  const sigMs = Date.parse(sig.time);
+  const nearby = signalOutcomes(opts.db, opts.instrument, opts.granularity, { limit: 10 })
+    .find((s) => s.time !== sig.time && Math.abs(Date.parse(s.time) - sigMs) <= 3 * granMs);
   const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, result.backtest.winRatePct);
   if (!isNew) return { sent: false, reason: 'already processed' };
+  if (nearby) {
+    // Same flip re-detected on a shifted candle window: lock in the original,
+    // record this row for audit, never notify twice.
+    updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, 'duplicate', `re-detection of ${nearby.time}`, 0);
+    dbg(`suppressed duplicate of ${nearby.time} (flip re-detected at ${sig.time})`);
+    return { sent: false, reason: `duplicate of ${nearby.time}`, verdictSource: 'cooldown' };
+  }
   if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
-  let settings = {};
-  try { settings = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no file — fall through to defaults */ }
+  const settings = readSettings(opts.settings);
   if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
     // Default: pi coding agent if installed, else env API keys, else no filter.
     if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
@@ -191,7 +226,13 @@ export async function processSignal(opts, result, candles) {
       verdict = await llmVerdict(settings, {
         current: { ...sig, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
         backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
-        recentCandles: candles.slice(-12).map((c) => ({ t: c.time.slice(11, 16), o: c.open, h: c.high, l: c.low, c: c.close })),
+        recentCandles: candles.slice(-12).map((c) => ({ t: c.time.slice(11, 16), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
+        volumeContext: (() => {
+          const flip = candles[sig.index] ?? candles[candles.length - 1];
+          const win = candles.slice(-21, -1).map((c) => c.volume || 0);
+          const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
+          return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
+        })(),
         pastSignals30mOutcomes: history.map((s) => ({ time: s.time.slice(0, 16), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
         traderNotes: notes,
       });
@@ -214,8 +255,11 @@ export async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
+  const portNum = Number(settings.port);
+  const port = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 8787;
+  const deepLink = `http://127.0.0.1:${port}/?instrument=${encodeURIComponent(opts.instrument)}&granularity=${encodeURIComponent(opts.granularity)}&t=${encodeURIComponent(sig.time)}`;
   try {
-    execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ')}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+    sendNotification(msg, deepLink, settings);
   } catch (err) {
     // Non-macOS or osascript failure: still record the verdict so the signal isn't lost.
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 0);
@@ -336,7 +380,7 @@ export function backtestFlips(candles, flips) {
   };
 }
 
-async function fetchCandles({ instrument, granularity, count }) {
+export async function fetchCandles({ instrument, granularity, count }) {
   const url = new URL('https://p.fxempire.com/oanda/candles/latest');
   url.searchParams.set('instrument', instrument);
   url.searchParams.set('granularity', granularity);
@@ -383,11 +427,18 @@ function parseArgs(argv) {
   return out;
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
-  const opts = parseArgs(argv);
+// settings.watchers CSV ("WTICO/USD|M5, XAU/USD|M15") → combo list; falls back
+// to the single flag/settings-configured instrument+granularity.
+export function parseWatchers(cfg, fallback) {
+  const raw = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const combos = raw.map((entry) => {
+    const [instrument, granularity = 'M5'] = entry.split('|').map((x) => x.trim());
+    return { instrument, granularity };
+  }).filter((c) => c.instrument);
+  return combos.length ? combos : [fallback];
+}
 
+async function runOne(opts) {
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
   const store = opts.db ? storeCandles(opts.db, opts.instrument, opts.granularity, candles) : null;
@@ -418,7 +469,34 @@ async function main() {
     store,
   };
   result.notify = await processSignal(opts, result, candles);
-  process.stdout.write(`${JSON.stringify(result, null, opts.pretty ? 2 : 0)}\n`);
+  return result;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
+  const opts = parseArgs(argv);
+
+  // Watcher fields set on the config page win over baked defaults but lose to
+  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  const cfg = readSettings(opts.settings);
+  for (const k of ['instrument', 'granularity', 'freshBars']) {
+    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
+    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
+  }
+
+  const combos = parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
+  const results = [];
+  for (const combo of combos) {
+    try {
+      results.push(await runOne({ ...opts, ...combo }));
+    } catch (err) {
+      dbg(`watcher ${combo.instrument} ${combo.granularity} failed: ${err.message}`);
+      results.push({ ok: false, ...combo, error: err.message });
+    }
+  }
+  const out = results.length === 1 ? results[0] : results;
+  process.stdout.write(`${JSON.stringify(out, null, opts.pretty ? 2 : 0)}\n`);
 }
 
 const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
