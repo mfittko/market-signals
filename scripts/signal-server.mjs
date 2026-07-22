@@ -786,15 +786,15 @@ function fullColumnTooltip(c) {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     const a = c.chartArea;
-    if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return;
+    const clear = () => { if (c.tooltip.getActiveElements().length) { c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.tooltip.update(true); c.draw(); } };
+    if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return clear();
     const data = c.data.datasets[0].data;
-    if (!data.length) return;
+    if (!data.length) return clear();
     const xVal = c.scales.x.getValueForPixel(x);
-    let best = 0, bestD = Infinity;
-    for (let i = 0; i < data.length; i++) {
-      const d = Math.abs(data[i].x - xVal);
-      if (d < bestD) { bestD = d; best = i; }
-    }
+    // candles are time-sorted: binary-search the insertion point, compare neighbors
+    let lo = 0, hi = data.length - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (data[mid].x < xVal) lo = mid + 1; else hi = mid; }
+    const best = lo > 0 && Math.abs(data[lo - 1].x - xVal) <= Math.abs(data[lo].x - xVal) ? lo - 1 : lo;
     const cur = c.tooltip.getActiveElements();
     if (cur.length === 1 && cur[0].index === best) return;
     c.tooltip.setActiveElements([{ datasetIndex: 0, index: best }], { x, y });
