@@ -81,7 +81,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
   let liveTail = null;
-  const fetchKey = `${instrument}|${granularity}`;
+  const fetchKey = `${dbPath}|${instrument}|${granularity}`;
   const gate = lastLiveFetch.get(fetchKey);
   if (fetcher && (!gate || Date.now() - gate.at > 55000)) {
     try {
@@ -93,7 +93,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     } catch {
       lastLiveFetch.set(fetchKey, { at: Date.now(), tail: null }); // failed: back off, stale view beats none
     }
-  } else if (gate) {
+  } else if (fetcher && gate) {
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
   }
   const { candles, recent } = withDb(dbPath, (db) => {
