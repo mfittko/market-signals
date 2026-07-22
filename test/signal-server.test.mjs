@@ -390,8 +390,8 @@ test('chat context transmits localized timestamps (#34): tz applied, invalid tz 
     chmodSync(piBin, 0o755);
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ provider: 'pi', piBin }) });
     const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'time check', tz: 'Etc/GMT-2', instrument: INSTRUMENT, granularity: 'M5' }) });
-    sseEvents(await res.text());
-    const { messages } = await (await fetch(base + '/api/messages?thread=' + JSON.parse((await (await fetch(base + '/api/threads?instrument=' + encodeURIComponent(INSTRUMENT) + '&granularity=M5')).text())).threads[0].id)).json();
+    const done = sseEvents(await res.text()).find((e) => e.type === 'done');
+    const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
     const ctx = JSON.parse(messages[0].context);
     assert.equal(ctx.view.candleTimesAreLocal, true);
     assert.equal(ctx.view.traderTimezone, 'Etc/GMT-2');
