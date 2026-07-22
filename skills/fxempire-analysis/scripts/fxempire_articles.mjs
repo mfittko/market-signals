@@ -8,7 +8,9 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 const DEFAULT_TZ = 'Europe/Berlin';
 
@@ -17,6 +19,8 @@ function parseArgs(argv) {
     locale: 'en',
     tz: DEFAULT_TZ,
     hours: null,
+    cache: 'data/articles-cache.json',
+    db: 'data/candles.db',
     commodities: [
       'brent-crude-oil',
       'wti-crude-oil',
@@ -74,6 +78,8 @@ function parseArgs(argv) {
     else if (key === 'commodities' && val)
       out.commodities = val.split(',').map((s) => s.trim()).filter(Boolean);
     else if (key === 'max-items' && val) out.maxItems = Number(val);
+    else if (key === 'db') out.db = val || '';
+    else if (key === 'cache') out.cache = val || '';
     else if (key === 'page-size' && val) out.pageSize = Number(val);
     else if (key === 'max-pages' && val) out.maxPages = Number(val);
     else if (key === 'json') out.json = true;
@@ -341,6 +347,32 @@ function formatArticleMarkdownLink(article) {
   return { label: `[${title}](${markdownLinkUrl(url)})`, hasLink: true };
 }
 
+export function archiveArticles(dbPath, articles, fetchedAt) {
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS articles (
+      id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      slug TEXT,
+      title TEXT,
+      url TEXT,
+      published_at INTEGER,
+      fetched_at INTEGER,
+      PRIMARY KEY (id, type)
+    )`);
+    const ins = db.prepare('INSERT OR IGNORE INTO articles (id, type, slug, title, url, published_at, fetched_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    let added = 0;
+    for (const a of articles) {
+      if (!a.id) continue;
+      added += ins.run(a.id, a.type || 'news', a.commodity, a.title || null, a.fullUrl || null, a.timestamp || null, fetchedAt).changes;
+    }
+    return added;
+  } finally {
+    db.close();
+  }
+}
+
 export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
   return hubArticles
     .map((a) => {
@@ -365,12 +397,104 @@ export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
     .filter((a) => Number.isFinite(a.timestamp) && a.timestamp >= cutoffTs && a.timestamp <= nowTs);
 }
 
+// --- SSR news-page source (issue #28) -------------------------------------
+// The JSON hub API froze upstream (issue #11); the site's server-rendered
+// news pages stay fresh and embed an id-keyed article map in __NEXT_DATA__.
+// Pages follow /{market}/{slug}/news (probed across all four markets).
+
+const BUILTIN_SLUG_MARKETS = {
+  spx: 'indices', 'tech100-usd': 'indices', 'us30-usd': 'indices',
+  'de30-eur': 'indices', 'uk100-gbp': 'indices', 'jp225-usd': 'indices',
+  'eur-usd': 'currencies', 'usd-jpy': 'currencies',
+  bitcoin: 'crypto', ethereum: 'crypto', solana: 'crypto',
+};
+
+// ponytail: static map + default covers every configured slug; parse
+// config/instruments.yaml here only if slugs start arriving from config.
+export function slugMarket(slug) {
+  return BUILTIN_SLUG_MARKETS[slug] || 'commodities';
+}
+
+// Tag-based relevance: SSR pages embed a site-wide article mix; an article
+// belongs to a slug when one of its tags carries it (co-/c-/i-/cc- prefixes).
+export function articleMatchesSlug(a, slug) {
+  const want = String(slug).toLowerCase();
+  return (a.tags || []).some((t) => {
+    const tag = String(t).toLowerCase();
+    if (tag === want) return true;
+    const m = tag.match(/^(?:co|cc|c|i|s)-(.+)$/);
+    return m ? m[1] === want : false;
+  });
+}
+
+// Page-level fetch cache (issue #28 follow-up): repeated runs within the TTL
+// (e.g. successive chat-tool calls) reuse extracted articles instead of
+// re-fetching identical pages. File lives under gitignored data/.
+export const ARTICLE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function readArticleCache(cachePath) {
+  try { return JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch { return {}; }
+}
+
+export function cacheGet(cache, key, ttlMs = ARTICLE_CACHE_TTL_MS, nowMs = Date.now()) {
+  const hit = cache?.[key];
+  return hit && nowMs - hit.at <= ttlMs ? hit.articles : null;
+}
+
+export function writeArticleCache(cachePath, cache) {
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  const tmp = `${cachePath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(cache));
+  fs.renameSync(tmp, cachePath);
+}
+
+export function extractNextData(html) {
+  const m = String(html).match(/<script[^>]*\bid="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+// Walk __NEXT_DATA__ for id-keyed article objects ({title, url, date, ...}).
+export function extractSsrArticles(html) {
+  const data = extractNextData(html);
+  if (!data) return [];
+  const out = new Map();
+  const walk = (o, depth) => {
+    if (!o || typeof o !== 'object' || depth > 16) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && /^\d+$/.test(k)
+        && typeof v.title === 'string' && typeof v.url === 'string' && (v.date || typeof v.timestamp === 'number')) {
+        out.set(Number(k), {
+          id: Number(k),
+          title: v.title,
+          date: v.date ?? null,
+          timestamp: typeof v.timestamp === 'number' ? v.timestamp : parseUpstreamDate(v.date),
+          articleUrl: v.url,
+          tags: (Array.isArray(v.tags) ? v.tags : []).map((t) => (typeof t === 'string' ? t : t?.slug)).filter(Boolean),
+        });
+      } else if (v && typeof v === 'object') {
+        walk(v, depth + 1);
+      }
+    }
+  };
+  walk(data, 0);
+  return [...out.values()];
+}
+
 // Articles are best-effort enrichment. Classify whether the upstream feed
 // yielded anything usable so the report can signal degradation instead of a
 // silent 0. See issue #11 (frozen/mis-tagged upstream news hub).
+// Upstream date strings are UTC but carry no timezone suffix (verified: hub
+// items' epoch timestamps equal Date.parse(date + 'Z')). Parse them as UTC so
+// recency filtering is machine-timezone independent.
+export function parseUpstreamDate(d) {
+  if (typeof d !== 'string' || !d) return NaN;
+  return Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(d) ? d : `${d}Z`);
+}
+
 // Single timestamp-parse rule for upstream article objects.
 export function articleTs(a) {
-  return typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
+  return typeof a.timestamp === 'number' ? a.timestamp : parseUpstreamDate(a.date);
 }
 
 export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffTs }) {
@@ -403,6 +527,8 @@ Options:
   --hours <n>              lookback window in hours
   --commodities <csv>      instrument slugs to fetch
   --max-items <n>          max articles to emit (default: 6)
+  --cache <path>           page-fetch cache with 5-min TTL (default: data/articles-cache.json, "" disables)
+  --db <path>              persist fetched articles into an archive table (default: data/candles.db, "" disables)
   --page-size <n>          API page size (default: 50)
   --max-pages <n>          max API pages (default: 10)
   --json                   emit JSON instead of text
@@ -469,11 +595,45 @@ Options:
     .map((slug) => ({ slug, tag: args.tags[slug] }))
     .filter((x) => x.tag);
 
+  const cache = args.cache ? readArticleCache(args.cache) : null;
+  let cacheDirty = false;
+  async function fetchSsrPage(pagePath) {
+    const cached = cache && cacheGet(cache, pagePath);
+    if (cached) return cached;
+    try {
+      const r = await fetchText(`https://www.fxempire.com${pagePath}`, { timeoutMs: 20000 });
+      if (!r.ok) return [];
+      const articles = extractSsrArticles(r.text);
+      if (cache && articles.length) {
+        cache[pagePath] = { at: Date.now(), articles };
+        cacheDirty = true;
+      }
+      return articles;
+    } catch {
+      return [];
+    }
+  }
+
+  // SSR news pages are the live source (issue #28): one global fetch, articles
+  // attributed to slugs by tag match; a per-instrument page is fetched only for
+  // slugs the global mix missed; the frozen hub API is the last-resort fallback
+  // so a markup change degrades instead of breaking.
+  const globalSsr = await fetchSsrPage('/news');
   let hubArticles = [];
   for (const { slug, tag } of tagsUsed) {
-    const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
-    for (const a of [...n, ...f]) a._slug = slug;
-    hubArticles.push(...n, ...f);
+    let batch = globalSsr.filter((a) => articleMatchesSlug(a, slug));
+    if (!batch.length) {
+      batch = (await fetchSsrPage(`/${slugMarket(slug)}/${slug}/news`)).filter((a) => articleMatchesSlug(a, slug));
+      await delay(120);
+    }
+    if (batch.length) {
+      batch = batch.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news', _tag: `ssr:${slug}` }));
+    } else {
+      const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
+      batch = [...n, ...f];
+    }
+    for (const a of batch) a._slug = slug;
+    hubArticles.push(...batch);
   }
 
   const cutoffTs = cutoff.getTime();
@@ -481,6 +641,10 @@ Options:
   const norm = normalizeArticles(hubArticles, { cutoffTs, nowTs });
 
   const dedup = uniqBy(norm, (a) => `${a.id}:${a.type}`).sort((a, b) => b.timestamp - a.timestamp);
+
+  if (args.db) {
+    try { archiveArticles(args.db, dedup, nowTs); } catch { /* archive is best-effort */ }
+  }
 
   const capped = [];
   const counts = new Map();
@@ -573,6 +737,10 @@ Options:
     },
     articles: capped,
   };
+
+  if (cache && cacheDirty) {
+    try { writeArticleCache(args.cache, cache); } catch { /* cache is best-effort */ }
+  }
 
   if (args.json) {
     process.stdout.write(JSON.stringify(payload, null, 2));

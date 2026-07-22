@@ -49,3 +49,119 @@ test('no parseable timestamps yields an accurate degraded reason (not "newest un
   assert.match(r.reason, /parseable timestamp/);
   assert.ok(!r.reason.includes('unknown predates'), 'misleading phrasing gone');
 });
+
+// --- SSR news-page source (issue #28) ---
+import { extractSsrArticles, extractNextData, slugMarket, articleMatchesSlug } from '../skills/fxempire-analysis/scripts/fxempire_articles.mjs';
+
+const ssrHtml = fs.readFileSync(new URL('./fixtures/fxempire_ssr_news_page.html', import.meta.url), 'utf8');
+
+test('extractSsrArticles pulls id-keyed articles from __NEXT_DATA__, skipping non-article entries', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  assert.equal(arts.length, 3, 'three article-shaped entries (the tag object skipped)');
+  const wti = arts.find((a) => a.id === 1612050);
+  assert.equal(wti.title, 'WTI Slides as Hormuz Premium Fades');
+  assert.ok(Number.isFinite(wti.timestamp));
+  assert.equal(wti.articleUrl, '/news/article/wti-slides-1612050');
+});
+
+test('SSR articles flow through normalizeArticles with recency filtering', () => {
+  const nowTs = Date.parse('2026-07-22T17:00:00Z');
+  const cutoffTs = Date.parse('2026-07-22T05:00:00Z');
+  const norm = normalizeArticles(extractSsrArticles(ssrHtml).map((a) => ({ ...a, _type: 'news', _tag: 'ssr:test', _slug: 'wti-crude-oil' })), { cutoffTs, nowTs });
+  assert.equal(norm.length, 2, 'ancient article filtered out');
+  assert.ok(norm.every((a) => a.fullUrl.startsWith('https://www.fxempire.com/')));
+  const gold = norm.find((a) => a.id === 1612117);
+  const wti = norm.find((a) => a.id === 1612050);
+  assert.ok(gold && wti);
+});
+
+test('mangled SSR page degrades to empty (hub fallback path), never throws', () => {
+  const mangled = fs.readFileSync(new URL('./fixtures/fxempire_ssr_mangled.html', import.meta.url), 'utf8');
+  assert.equal(extractNextData(mangled), null);
+  assert.deepEqual(extractSsrArticles(mangled), []);
+  assert.deepEqual(extractSsrArticles('<html>no data at all</html>'), []);
+});
+
+test('slugMarket resolves from builtin map, defaults to commodities', () => {
+  assert.equal(slugMarket('spx'), 'indices');
+  assert.equal(slugMarket('bitcoin'), 'crypto');
+  assert.equal(slugMarket('wti-crude-oil'), 'commodities');
+  assert.equal(slugMarket('never-heard-of-it'), 'commodities');
+});
+
+
+test('articleMatchesSlug: tag-prefix convention attribution', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  const gold = arts.filter((a) => articleMatchesSlug(a, 'gold'));
+  const wti = arts.filter((a) => articleMatchesSlug(a, 'wti-crude-oil'));
+  assert.equal(gold.length, 1);
+  assert.equal(gold[0].id, 1612117);
+  assert.equal(wti.length, 1);
+  assert.equal(wti[0].id, 1612050);
+  assert.equal(arts.filter((a) => articleMatchesSlug(a, 'bitcoin')).length, 0, 'untagged instruments get nothing from the mix');
+  // Prefix-exact semantics: partial containment must not match.
+  assert.equal(articleMatchesSlug({ tags: ['co-golden-cross'] }, 'gold'), false, 'no substring misattribution');
+  assert.equal(articleMatchesSlug({ tags: ['co-gold'] }, 'gold'), true);
+  assert.equal(articleMatchesSlug({ tags: ['i-spx'] }, 'spx'), true);
+  assert.equal(articleMatchesSlug({ tags: ['spx'] }, 'spx'), true, 'bare exact tag matches');
+});
+
+
+test('upstream dates parse as UTC regardless of machine timezone; explicit offsets respected', async () => {
+  const { parseUpstreamDate } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  assert.equal(parseUpstreamDate('2026-04-30T10:24:35'), 1777544675000, 'matches the hub epoch pair');
+  assert.equal(parseUpstreamDate('2026-04-30T10:24:35Z'), 1777544675000);
+  assert.equal(parseUpstreamDate('2026-04-30T12:24:35+02:00'), 1777544675000);
+  assert.ok(Number.isNaN(parseUpstreamDate(null)));
+});
+
+test('extractNextData tolerates attribute reordering and extra attributes', () => {
+  const wrapped = '<script type="application/json" nonce="abc" id="__NEXT_DATA__" crossorigin>{"a":1}</script>';
+  assert.deepEqual(extractNextData(wrapped), { a: 1 });
+});
+
+test('article page cache: roundtrip, TTL expiry, atomic write', async () => {
+  const { readArticleCache, writeArticleCache, cacheGet, ARTICLE_CACHE_TTL_MS } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  const os = await import('node:os');
+  const pth = await import('node:path');
+  const dir = fs.mkdtempSync(pth.join(os.tmpdir(), 'artcache-'));
+  const cachePath = pth.join(dir, 'nested', 'cache.json');
+  const now = Date.now();
+  const cache = { '/news': { at: now, articles: [{ id: 1, title: 'x' }] } };
+  writeArticleCache(cachePath, cache);
+  const back = readArticleCache(cachePath);
+  assert.deepEqual(cacheGet(back, '/news', ARTICLE_CACHE_TTL_MS, now + 1000)[0].id, 1, 'fresh hit');
+  assert.equal(cacheGet(back, '/news', ARTICLE_CACHE_TTL_MS, now + ARTICLE_CACHE_TTL_MS + 1), null, 'expired');
+  assert.equal(cacheGet(back, '/other'), null, 'unknown key');
+  assert.deepEqual(readArticleCache(pth.join(dir, 'missing.json')), {}, 'missing file is empty cache');
+});
+
+test('SSR articles derive news vs forecasts type from their URL', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  const typed = arts.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news' }));
+  assert.equal(typed.find((a) => a.id === 1612117)._type, 'forecasts', 'forecasts URL → forecasts type');
+  assert.equal(typed.find((a) => a.id === 1612050)._type, 'news');
+});
+
+test('archiveArticles: creates table, dedups on (id,type), survives re-run', async () => {
+  const { archiveArticles } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  const { DatabaseSync } = await import('node:sqlite');
+  const os = await import('node:os');
+  const pth = await import('node:path');
+  const dir = fs.mkdtempSync(pth.join(os.tmpdir(), 'artdb-'));
+  const dbPath = pth.join(dir, 'fresh', 'nested', 'archive.db');
+  const arts = [
+    { id: 1, type: 'news', commodity: 'gold', title: 'a', fullUrl: 'https://x/1', timestamp: 100 },
+    { id: 1, type: 'forecasts', commodity: 'gold', title: 'a2', fullUrl: 'https://x/1f', timestamp: 100 },
+    { id: 2, type: 'news', commodity: 'crude-oil', title: 'b', fullUrl: 'https://x/2', timestamp: 200 },
+    { id: null, type: 'news' },
+  ];
+  assert.equal(archiveArticles(dbPath, arts, 999), 3, 'three rows inserted, null id skipped');
+  assert.equal(archiveArticles(dbPath, arts, 1000), 0, 're-run inserts nothing');
+  const db = new DatabaseSync(dbPath);
+  const rows = db.prepare('SELECT id, type, slug, fetched_at FROM articles ORDER BY id, type').all();
+  db.close();
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].fetched_at, 999, 'first-seen fetched_at preserved');
+  assert.equal(rows[2].slug, 'crude-oil');
+});

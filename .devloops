@@ -31,3 +31,8 @@ uiReview:
         - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
+
+# Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
+queue:
+  board:
+    number: 5
