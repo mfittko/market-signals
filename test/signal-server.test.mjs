@@ -488,6 +488,18 @@ test('mutating routes reject cross-origin requests (CSRF guard), same-origin and
   });
 });
 
+test('portfolio endpoint is GET-only: reads serve, every mutation verb is rejected', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const ok = await (await fetch(base + '/api/portfolio')).json();
+    assert.equal(ok.ok, true);
+    assert.equal(ok.portfolio.equity, 10000, 'fresh virtual portfolio at starting balance');
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const r = await fetch(base + '/api/portfolio', { method, body: '{}' });
+      assert.equal(r.status, 405, method + ' rejected: bot-only trades');
+    }
+  });
+});
+
 test('chat threads are view-scoped: stamped on create, filtered per view, legacy NULL threads visible everywhere', async () => {
   const { listThreads, resolveView } = await import('../scripts/signal-server.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
