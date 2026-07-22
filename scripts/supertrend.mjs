@@ -319,6 +319,8 @@ export async function llmChat(settings, system, user, { onDelta = null, toolDefs
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const LOCAL_HM = new Intl.DateTimeFormat('en-GB', { timeZone: LOCAL_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
 export const localHm = (iso) => LOCAL_HM.format(new Date(iso));
+const LOCAL_FULL = new Intl.DateTimeFormat('en-GB', { timeZone: LOCAL_TZ, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+export const localFull = (iso) => LOCAL_FULL.format(new Date(iso)).replace(/,\s*/, ' ');
 
 async function llmVerdict(settings, payload) {
   const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
@@ -406,7 +408,7 @@ export async function processSignal(opts, result, candles) {
           const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
           return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
         })(),
-        pastSignals30mOutcomes: history.map((s) => ({ time: s.time.slice(0, 16), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
+        pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
         traderNotes: notes,
       });
       verdictSource = 'llm';

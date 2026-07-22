@@ -452,7 +452,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const tz = typeof body.tz === 'string' && /^[A-Za-z0-9_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
         const fmts = localTimeFormatters(tz);
         const localHm = (iso) => fmts.hm.format(new Date(iso));
-        const localFull = (iso) => fmts.full.format(new Date(iso)).replace(',', '');
+        const localFull = (iso) => fmts.full.format(new Date(iso)).replace(/,\s*/, ' ');
         const context = {
           view: { instrument, granularity, traderTimezone: fmts.tz, candleTimesAreLocal: true },
           quote: view.quote,
