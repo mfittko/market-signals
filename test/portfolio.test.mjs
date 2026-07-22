@@ -105,6 +105,12 @@ test('guards: max positions, insufficient margin, risk budget, bad input', () =>
   assert.throws(() => closePosition(db2, CFG, 1, 87), /closeReason required/);
   assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87, stop: '86.5' }), /stop must be/);
   assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87, target: NaN }), /target must be/);
+  const db3 = fresh();
+  const circular = {}; circular.self = circular;
+  const cid = openPosition(db3, botConfig({ bot: { riskPct: 100 } }), { instrument: WTI, side: 'long', notional: 100, price: 87, context: circular });
+  const jrow = portfolioView(db3, CFG).journal.find((j) => j.action === 'open');
+  assert.equal(jrow.context, '{"unserializable":true}', 'unserializable context never aborts a mutation');
+  assert.ok(cid > 0, 'position opened despite circular context');
 });
 
 test('commission: charged exactly once (at open), precondition covers it, cache keyed per spreads path', () => {

@@ -76,7 +76,7 @@ export function resetSpreadCache() { spreadsCache.clear(); }
 
 export function botConfig(settings = {}) {
   const bot = settings.bot || {};
-  const cfg = { ...BOT_DEFAULTS, ...Object.fromEntries(Object.entries(bot).filter(([k, v]) => k in BOT_DEFAULTS && Number.isFinite(v) && v > 0)) };
+  const cfg = { ...BOT_DEFAULTS, ...Object.fromEntries(Object.entries(bot).filter(([k, v]) => Object.hasOwn(BOT_DEFAULTS, k) && Number.isFinite(v) && v > 0)) };
   cfg.leverage = bot.leverage && typeof bot.leverage === 'object' ? bot.leverage : {};
   return cfg;
 }
@@ -98,8 +98,12 @@ function pdb(dbPath, cfg, fn) {
 }
 
 function journal(db, action, positionId, reason, context) {
+  let ctx = null;
+  if (context) {
+    try { ctx = JSON.stringify(context); } catch { ctx = '{"unserializable":true}'; }
+  }
   db.prepare('INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,?,?,?)')
-    .run(new Date().toISOString(), action, positionId ?? null, reason ?? null, context ? JSON.stringify(context) : null);
+    .run(new Date().toISOString(), action, positionId ?? null, reason ?? null, ctx);
 }
 
 export function unrealized(pos, mark) {
