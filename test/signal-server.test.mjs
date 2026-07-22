@@ -429,4 +429,11 @@ test('chat tools: registry executes with clamped args, rejects unknown tools and
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
   assert.throws(() => execChatTool('live_rates', { market: 'evil', slugs: 'gold' }), /invalid market/);
+  // Regression: the executors spawn via execFileSync/process.execPath — a tool
+  // whose spawn path is broken must throw a real spawn error, not ReferenceError.
+  try {
+    execChatTool('fxempire_articles', { hours: 1, maxItems: 1 });
+  } catch (err) {
+    assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
+  }
 });
