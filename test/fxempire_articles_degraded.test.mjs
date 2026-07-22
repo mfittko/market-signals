@@ -49,3 +49,52 @@ test('no parseable timestamps yields an accurate degraded reason (not "newest un
   assert.match(r.reason, /parseable timestamp/);
   assert.ok(!r.reason.includes('unknown predates'), 'misleading phrasing gone');
 });
+
+// --- SSR news-page source (issue #28) ---
+import { readFileSync as rf } from 'node:fs';
+import { extractSsrArticles, extractNextData, slugMarket, articleMatchesSlug } from '../skills/fxempire-analysis/scripts/fxempire_articles.mjs';
+
+const ssrHtml = rf(new URL('./fixtures/fxempire_ssr_news_page.html', import.meta.url), 'utf8');
+
+test('extractSsrArticles pulls id-keyed articles from __NEXT_DATA__, skipping non-article entries', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  assert.equal(arts.length, 3, 'three article-shaped entries (the tag object skipped)');
+  const wti = arts.find((a) => a.id === 1612050);
+  assert.equal(wti.title, 'WTI Slides as Hormuz Premium Fades');
+  assert.ok(Number.isFinite(wti.timestamp));
+  assert.equal(wti.articleUrl, '/news/article/wti-slides-1612050');
+});
+
+test('SSR articles flow through normalizeArticles with recency filtering', () => {
+  const nowTs = Date.parse('2026-07-22T17:00:00');
+  const cutoffTs = Date.parse('2026-07-22T05:00:00');
+  const norm = normalizeArticles(extractSsrArticles(ssrHtml).map((a) => ({ ...a, _type: 'news', _tag: 'ssr:test', _slug: 'wti-crude-oil' })), { cutoffTs, nowTs });
+  assert.equal(norm.length, 2, 'ancient article filtered out');
+  assert.ok(norm.every((a) => a.fullUrl.startsWith('https://www.fxempire.com/')));
+});
+
+test('mangled SSR page degrades to empty (hub fallback path), never throws', () => {
+  const mangled = rf(new URL('./fixtures/fxempire_ssr_mangled.html', import.meta.url), 'utf8');
+  assert.equal(extractNextData(mangled), null);
+  assert.deepEqual(extractSsrArticles(mangled), []);
+  assert.deepEqual(extractSsrArticles('<html>no data at all</html>'), []);
+});
+
+test('slugMarket resolves from catalog or builtin, defaults to commodities', () => {
+  assert.equal(slugMarket('spx'), 'indices');
+  assert.equal(slugMarket('bitcoin'), 'crypto');
+  assert.equal(slugMarket('wti-crude-oil'), 'commodities');
+  assert.equal(slugMarket('never-heard-of-it'), 'commodities');
+});
+
+
+test('articleMatchesSlug: tag-prefix convention attribution', () => {
+  const arts = extractSsrArticles(ssrHtml);
+  const gold = arts.filter((a) => articleMatchesSlug(a, 'gold'));
+  const wti = arts.filter((a) => articleMatchesSlug(a, 'wti-crude-oil'));
+  assert.equal(gold.length, 1);
+  assert.equal(gold[0].id, 1612117);
+  assert.equal(wti.length, 1);
+  assert.equal(wti[0].id, 1612050);
+  assert.equal(arts.filter((a) => articleMatchesSlug(a, 'bitcoin')).length, 0, 'untagged instruments get nothing from the mix');
+});

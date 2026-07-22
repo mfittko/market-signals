@@ -8,6 +8,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_TZ = 'Europe/Berlin';
@@ -365,6 +366,71 @@ export function normalizeArticles(hubArticles, { cutoffTs, nowTs }) {
     .filter((a) => Number.isFinite(a.timestamp) && a.timestamp >= cutoffTs && a.timestamp <= nowTs);
 }
 
+// --- SSR news-page source (issue #28) -------------------------------------
+// The JSON hub API froze upstream (issue #11); the site's server-rendered
+// news pages stay fresh and embed an id-keyed article map in __NEXT_DATA__.
+// Pages follow /{market}/{slug}/news (probed across all four markets).
+
+const BUILTIN_SLUG_MARKETS = {
+  spx: 'indices', 'tech100-usd': 'indices', 'us30-usd': 'indices',
+  'de30-eur': 'indices', 'uk100-gbp': 'indices', 'jp225-usd': 'indices',
+  'eur-usd': 'currencies', 'usd-jpy': 'currencies',
+  bitcoin: 'crypto', ethereum: 'crypto', solana: 'crypto',
+};
+
+export function slugMarket(slug) {
+  try {
+    const yml = fs.readFileSync(path.join(process.cwd(), 'config', 'instruments.yaml'), 'utf8');
+    let market = null;
+    for (const line of yml.split('\n')) {
+      const m = line.match(/^  (\w[\w-]*):/);
+      if (m) { market = m[1]; continue; }
+      const sm = line.match(/- slug: (\S+)/);
+      if (sm && sm[1] === slug && market) return market === 'crypto-coin' ? 'crypto' : market;
+    }
+  } catch { /* no catalog in cwd */ }
+  return BUILTIN_SLUG_MARKETS[slug] || 'commodities';
+}
+
+// Tag-based relevance: SSR pages embed a site-wide article mix; an article
+// belongs to a slug when one of its tags carries it (co-/c-/i-/cc- prefixes).
+export function articleMatchesSlug(a, slug) {
+  return (a.tags || []).some((t) => String(t).toLowerCase().includes(String(slug).toLowerCase()));
+}
+
+export function extractNextData(html) {
+  const m = String(html).match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+// Walk __NEXT_DATA__ for id-keyed article objects ({title, url, date, ...}).
+export function extractSsrArticles(html) {
+  const data = extractNextData(html);
+  if (!data) return [];
+  const out = new Map();
+  const walk = (o, depth) => {
+    if (!o || typeof o !== 'object' || depth > 16) return;
+    for (const [k, v] of Object.entries(o)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && /^\d+$/.test(k)
+        && typeof v.title === 'string' && typeof v.url === 'string' && (v.date || typeof v.timestamp === 'number')) {
+        out.set(Number(k), {
+          id: Number(k),
+          title: v.title,
+          date: v.date ?? null,
+          timestamp: typeof v.timestamp === 'number' ? v.timestamp : Date.parse(v.date),
+          articleUrl: v.url,
+          tags: (Array.isArray(v.tags) ? v.tags : []).map((t) => (typeof t === 'string' ? t : t?.slug)).filter(Boolean),
+        });
+      } else if (v && typeof v === 'object') {
+        walk(v, depth + 1);
+      }
+    }
+  };
+  walk(data, 0);
+  return [...out.values()];
+}
+
 // Articles are best-effort enrichment. Classify whether the upstream feed
 // yielded anything usable so the report can signal degradation instead of a
 // silent 0. See issue #11 (frozen/mis-tagged upstream news hub).
@@ -469,11 +535,36 @@ Options:
     .map((slug) => ({ slug, tag: args.tags[slug] }))
     .filter((x) => x.tag);
 
+  async function fetchSsrPage(pagePath) {
+    try {
+      const r = await fetchText(`https://www.fxempire.com${pagePath}`, { timeoutMs: 20000 });
+      if (!r.ok) return [];
+      return extractSsrArticles(r.text);
+    } catch {
+      return [];
+    }
+  }
+
+  // SSR news pages are the live source (issue #28): one global fetch, articles
+  // attributed to slugs by tag match; a per-instrument page is fetched only for
+  // slugs the global mix missed; the frozen hub API is the last-resort fallback
+  // so a markup change degrades instead of breaking.
+  const globalSsr = await fetchSsrPage('/news');
   let hubArticles = [];
   for (const { slug, tag } of tagsUsed) {
-    const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
-    for (const a of [...n, ...f]) a._slug = slug;
-    hubArticles.push(...n, ...f);
+    let batch = globalSsr.filter((a) => articleMatchesSlug(a, slug));
+    if (!batch.length) {
+      batch = (await fetchSsrPage(`/${slugMarket(slug)}/${slug}/news`)).filter((a) => articleMatchesSlug(a, slug));
+      await delay(120);
+    }
+    if (batch.length) {
+      batch = batch.map((a) => ({ ...a, _type: 'news', _tag: `ssr:${slug}` }));
+    } else {
+      const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
+      batch = [...n, ...f];
+    }
+    for (const a of batch) a._slug = slug;
+    hubArticles.push(...batch);
   }
 
   const cutoffTs = cutoff.getTime();
