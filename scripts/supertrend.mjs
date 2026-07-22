@@ -356,6 +356,7 @@ async function fetchCandles({ instrument, granularity, count }) {
       high: Number(r?.mid?.h),
       low: Number(r?.mid?.l),
       close: Number(r?.mid?.c),
+      volume: Number(r?.volume ?? 0),
       complete: Boolean(r?.complete),
     }))
     .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite));
