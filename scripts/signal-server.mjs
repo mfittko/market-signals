@@ -321,7 +321,7 @@ function draw(d) {
   const volColor = cs.map(k => k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)');
   const buys = (d.flips || []).filter(f => f.signal === 'buy').map(f => ({ x: P(f.time), y: cs[f.index] ? cs[f.index].low - (cs[f.index].high - cs[f.index].low) : f.price }));
   const sells = (d.flips || []).filter(f => f.signal === 'sell').map(f => ({ x: P(f.time), y: cs[f.index] ? cs[f.index].high + (cs[f.index].high - cs[f.index].low) : f.price }));
-  const t = qs.get('t') || (d.signal && d.signal.time);
+  const t = (d.signal && d.signal.time) || qs.get('t');
   const sigCandle = cs.find(k => k.time === t);
   const marker = sigCandle ? [{ x: P(sigCandle.time), y: sigCandle.close }] : [];
 
