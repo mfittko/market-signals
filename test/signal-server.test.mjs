@@ -402,6 +402,8 @@ test('chat: unknown threadId is rejected, provider errors stay short (no prompt 
     writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
     let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: 999, message: 'hi' }) });
     assert.equal(res.status, 404);
+    assert.equal((await fetch(`${base}/api/threads`, { method: 'DELETE' })).status, 400, 'DELETE without id rejected');
+    assert.equal((await fetch(`${base}/api/messages`)).status, 400, 'messages without thread rejected');
     res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
     const errEv = sseEvents(await res.text()).find((e) => e.type === 'error');
     assert.ok(errEv.error.length < 250, 'sanitized error');

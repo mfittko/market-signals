@@ -315,13 +315,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       }
       if (url.pathname === '/api/threads' && req.method === 'DELETE') {
         const id = Number(url.searchParams.get('id'));
-        if (!Number.isInteger(id)) return json(res, 400, { ok: false, error: 'id required' });
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
         deleteThread(dbPath, id);
         return json(res, 200, { ok: true });
       }
       if (url.pathname === '/api/messages' && req.method === 'GET') {
         const id = Number(url.searchParams.get('thread'));
-        if (!Number.isInteger(id)) return json(res, 400, { ok: false, error: 'thread required' });
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'thread required' });
         return json(res, 200, { ok: true, messages: listMessages(dbPath, id) });
       }
       if (url.pathname === '/api/chat' && req.method === 'POST') {

@@ -230,6 +230,12 @@ export async function llmChat(settings, system, user, { onDelta = null } = {}) {
 
 async function llmVerdict(settings, payload) {
   const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+  // API providers return pure JSON under schema mode; regex is the pi fallback
+  // (its output may wrap the JSON in prose) and can't handle braces in reason.
+  try {
+    const whole = JSON.parse(out);
+    if (typeof whole.alert === 'boolean') return whole;
+  } catch { /* fall through */ }
   const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
   if (!m) throw new Error('no verdict JSON in provider output');
   return JSON.parse(m[0]);
