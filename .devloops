@@ -2,3 +2,31 @@ version: 1
 
 # CI is set up (.github/workflows/ci.yml), so the dev-loop CI gate is back in
 # force with shipped defaults (both gates require green CI). No overrides needed.
+
+# UI-review recipe (issue #18 web app). The signal-server has no auth, so no
+# login recipe; flows are the explicit allowlist for /loop-review-ui.
+worktree:
+  entries:
+    - path: data
+      mode: copy
+uiReview:
+  run:
+    command: "node scripts/signal-server.mjs --port 4123"
+    readyUrl: "http://127.0.0.1:4123/"
+    readyTimeoutMs: 60000
+  flows:
+    - name: chart-latest
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/", name: latest-signal-chart }
+    - name: chart-deep-link
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/supertrend.mjs"]
+      steps:
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5&t=2026-07-22T10%3A15%3A00.000000000Z", name: deep-linked-signal }
+    - name: settings-roundtrip
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
+        - { action: click, selector: "#cfg button", name: save-settings }
+        - { action: goto, path: "/", name: reload-after-save }
