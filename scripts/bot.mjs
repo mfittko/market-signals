@@ -241,7 +241,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   let anyStrategies = false;
   try {
     strategyRow = activeStrategy(dbPath);
-    anyStrategies = strategyRow != null || listStrategies(dbPath).length > 0;
+    anyStrategies = strategyRow != null || listStrategies(dbPath, { includeArchived: true }).length > 0;
   } catch { /* strategies table optional */ }
   // Strategies exist but none is active: the operator turned them off — pause
   // deliberation rather than silently trading the hardcoded default prompt.
