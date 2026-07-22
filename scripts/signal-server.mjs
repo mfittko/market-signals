@@ -215,12 +215,38 @@ function addMessage(dbPath, threadId, role, content, context = null) {
 // scripts with clamped args and bounded output — the entire tool surface for
 // the API providers' native tool-calling (pi chat is tool-less).
 const clampInt = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo && v <= hi ? v : dflt);
+// Validated rate slugs per market from config/instruments.yaml (never guess slugs).
+function loadRateSlugs() {
+  try {
+    const yml = readFileSync('config/instruments.yaml', 'utf8');
+    const out = {};
+    let market = null;
+    for (const line of yml.split('\n')) {
+      const m = line.match(/^  (\w[\w-]*):/);
+      if (m) { market = m[1]; out[market] = []; continue; }
+      const sm = line.match(/- slug: (\S+)/);
+      if (sm && market) out[market].push(sm[1]);
+    }
+    return out;
+  } catch { return {}; }
+}
+const RATE_SLUGS = loadRateSlugs();
+const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
 export const CHAT_TOOLS = [
   {
     name: 'fxempire_articles',
-    description: 'Fetch recent FXEmpire news articles for tracked instruments (oil, gold, indices, FX). Use for "any news driving this move?" questions.',
+    description: 'Fetch recent FXEmpire news articles for tracked instruments. NOTE: the upstream feed is often stale; if it returns none, fall back to web search rather than retrying.',
     input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max articles (1-20, default 6)' } }, additionalProperties: false },
-    run: (a) => execFileSync(process.execPath, ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 20, 6)), '--json'], { encoding: 'utf8', timeout: 45000 }),
+    run: (a) => {
+      const out = execFileSync(process.execPath, ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 20, 6)), '--json'], { encoding: 'utf8', timeout: 45000 });
+      try {
+        const parsed = JSON.parse(out);
+        if (!parsed.articles?.length) {
+          return JSON.stringify({ ...parsed, note: 'No articles in the window. The FXEmpire news hub has been stale upstream for months — do not retry with wider windows; use web search for current market news instead.' });
+        }
+      } catch { /* pass raw through */ }
+      return out;
+    },
   },
   {
     name: 'truthsocial_posts',
@@ -233,7 +259,7 @@ export const CHAT_TOOLS = [
   },
   {
     name: 'live_rates',
-    description: 'Live last/change/percent rates for instrument slugs via FXEmpire. markets: commodities|indices|currencies|crypto-coin; slugs e.g. wti-crude-oil,gold.',
+    description: `Live last/change/percent rates for instrument slugs via FXEmpire. Use ONLY these validated slugs (others 404; no DXY available) — ${RATE_SLUGS_HINT || 'wti-crude-oil, gold'}. market must match the slug group.`,
     input_schema: { type: 'object', properties: { market: { type: 'string', enum: ['commodities', 'indices', 'currencies', 'crypto-coin'] }, slugs: { type: 'string', description: 'csv of rate slugs' } }, required: ['market', 'slugs'], additionalProperties: false },
     run: (a) => {
       if (!/^[a-z0-9,-]{2,120}$/.test(a?.slugs ?? '')) throw new Error('invalid slugs');
