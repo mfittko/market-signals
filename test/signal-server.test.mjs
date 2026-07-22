@@ -139,3 +139,25 @@ test('signal-server --help exits 0 with usage, no listen', () => {
   assert.equal(res.status, 0, res.stderr);
   assert.ok(res.stdout.includes('signal-server'), res.stdout);
 });
+
+test('watcher fields round-trip and oversize body gets 413', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ instrument: 'BCO/USD', granularity: 'M5', freshBars: 2 }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.instrument, 'BCO/USD');
+    assert.equal(got.freshBars, 2);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ freshBars: -1 }) });
+    assert.equal(res.status, 400);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: `{"model":"${'x'.repeat(70 * 1024)}"}` });
+    assert.equal(res.status, 413);
+  });
+});
+
+test('page escapes db-backed fields (no raw script injection vector)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('const esc ='), 'esc helper present');
+    assert.ok(!html.includes("+ s.reason +"), 'reason interpolations go through esc()');
+  });
+});

@@ -30,7 +30,7 @@ const DEFAULT_INSTRUMENT = 'WTICO/USD';
 const GRANULARITY = 'M5';
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -56,6 +56,9 @@ export function writeSettings(settingsPath, patch) {
   if (unknown.length) throw new Error(`unknown settings key(s): ${unknown.join(', ')}`);
   if (patch.port !== undefined && (!Number.isInteger(patch.port) || patch.port < 1 || patch.port > 65535)) {
     throw new Error('port must be an integer 1-65535');
+  }
+  if (patch.freshBars !== undefined && patch.freshBars !== '' && patch.freshBars !== null && (!Number.isInteger(patch.freshBars) || patch.freshBars < 0)) {
+    throw new Error('freshBars must be a non-negative integer');
   }
   const current = readSettings(settingsPath);
   const next = { ...current };
@@ -117,7 +120,7 @@ export function buildServer({ dbPath, settingsPath }) {
         let raw = '';
         for await (const chunk of req) {
           raw += chunk;
-          if (raw.length > 64 * 1024) { req.destroy(); return; }
+          if (raw.length > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
         }
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
@@ -164,6 +167,7 @@ const PAGE = /* html */ `<!doctype html>
 <table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
 <script>
 const qs = new URLSearchParams(location.search);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 async function load() {
   const p = new URLSearchParams();
   if (qs.get('instrument')) p.set('instrument', qs.get('instrument'));
@@ -206,30 +210,30 @@ function verdict(s) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-  el.innerHTML = '<b class="' + s.signal + '">' + s.signal.toUpperCase() + '</b> @ ' + s.price +
-    ' — ' + s.time + ' · verdict: <b>' + (s.verdict || 'unfiltered') + '</b>' +
-    (s.reason ? ' — ' + s.reason : '') + ' · 30-min outcome: <b>' + out + '</b>' +
-    ' · window win rate at signal: ' + (s.win_rate ?? '?') + '%';
+  el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
+    ' — ' + esc(s.time) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
+    (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
+    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%';
 }
 function history(list) {
   const tb = document.querySelector('#hist tbody');
   tb.innerHTML = '';
   for (const s of list) {
     const tr = document.createElement('tr');
-    tr.onclick = () => { qs.set('t', s.time); location.search = qs; };
+    tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
     const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-    tr.innerHTML = '<td>' + s.time + '</td><td class="' + s.signal + '">' + s.signal + '</td><td>' + s.price +
-      '</td><td>' + (s.verdict || '—') + '</td><td>' + (s.reason || '') + '</td><td>' + out + '</td>';
+    tr.innerHTML = '<td>' + esc(s.time) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+      '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + '</td><td>' + esc(out) + '</td>';
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
+const FIELDS = [['instrument', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');
   f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label>' + k + '</label>' + (kind === 'select'
-    ? '<select name="' + k + '">' + opts.map(o => '<option' + (s[k] === o ? ' selected' : '') + '>' + o + '</option>').join('') + '</select>'
-    : '<input name="' + k + '" type="' + kind + '" value="' + (s[k] ?? '') + '">')).join('') +
+    ? '<select name="' + k + '">' + opts.map(o => '<option' + (s[k] === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
+    : '<input name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
     e.preventDefault();

@@ -162,8 +162,11 @@ async function llmVerdict(settings, payload) {
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
 export function sendNotification(msg, deepLink, settings = {}) {
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
-  const notifier = settings.notifierBin || '/opt/homebrew/bin/terminal-notifier';
-  if (existsSync(notifier)) {
+  const candidates = settings.notifierBin
+    ? [settings.notifierBin]
+    : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];
+  const notifier = candidates.find((p) => existsSync(p));
+  if (notifier) {
     execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
   } else {
     execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
@@ -400,6 +403,15 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
   const opts = parseArgs(argv);
+
+  // Watcher fields set on the config page win over baked defaults but lose to
+  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  let cfg = {};
+  try { cfg = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no settings file */ }
+  for (const k of ['instrument', 'granularity', 'freshBars']) {
+    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
+    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
+  }
 
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
