@@ -344,6 +344,7 @@ async function fetchCandles({ instrument, granularity, count }) {
   url.searchParams.set('alignmentTimezone', 'UTC');
   const res = await fetch(url, {
     headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },
+    signal: AbortSignal.timeout(25000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const payload = await res.json();
@@ -366,8 +367,10 @@ function parseArgs(argv) {
     const m = argv[i].match(/^--([^=]+)(?:=(.*))?$/);
     if (!m) continue;
     const key = m[1];
-    const value = m[2] ?? ((argv[i + 1] && !argv[i + 1].startsWith('--')) ? argv[++i] : 'true');
     if (!(key in out)) throw new Error(`unknown flag --${key} (run --help)`);
+    const bareOk = ['pretty', 'notify'].includes(key);
+    const value = m[2] ?? ((argv[i + 1] && !argv[i + 1].startsWith('--')) ? argv[++i] : (bareOk ? 'true' : undefined));
+    if (value === undefined) throw new Error(`--${key} requires a value`);
     out[key] = ['count', 'period', 'freshBars'].includes(key) ? Number.parseInt(value, 10)
       : key === 'multiplier' ? Number(value)
       : ['pretty', 'notify'].includes(key) ? value !== 'false'
