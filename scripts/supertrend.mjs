@@ -15,7 +15,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const USAGE = `supertrend — Supertrend flip signals + inline backtest.
@@ -113,7 +114,7 @@ async function llmVerdict(settings, payload) {
     args.push(JSON.stringify(payload));
     const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: 90000 });
     const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
-    if (!m) throw new Error(`pi output had no verdict JSON: ${out.slice(0, 120)}`);
+    if (!m) throw new Error('pi output had no verdict JSON');
     return JSON.parse(m[0]);
   }
   if (settings.ANTHROPIC_API_KEY) {
@@ -160,9 +161,10 @@ async function llmVerdict(settings, payload) {
 async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
-  if (!opts.db) return { sent: false, reason: '--notify requires --db' };
+  if (!opts.db) return { sent: false, reason: 'signal persistence requires --db' };
   const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, result.backtest.winRatePct);
   if (!isNew) return { sent: false, reason: 'already processed' };
+  if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
   let settings = {};
   try { settings = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no file — fall through to defaults */ }
@@ -411,11 +413,11 @@ async function main() {
     backtest,
     store,
   };
-  if (opts.notify) result.notify = await processSignal(opts, result, candles);
+  result.notify = await processSignal(opts, result, candles);
   process.stdout.write(`${JSON.stringify(result, null, opts.pretty ? 2 : 0)}\n`);
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (invokedDirectly) {
   main().catch((err) => {
     process.stderr.write(`supertrend error: ${err.message}\n`);
