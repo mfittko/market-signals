@@ -330,7 +330,7 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     chmodSync(piBin, 0o755);
     writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
 
-    const res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'worth re-entering short here?' }) });
+    const res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'worth re-entering short here?', instrument: INSTRUMENT, granularity: 'M5' }) });
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/event-stream/);
     const events = sseEvents(await res.text());
@@ -340,7 +340,8 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const threadEv = events.find((e) => e.type === 'thread');
     assert.equal(threadEv.title, 'worth re-entering short here?');
 
-    const { threads } = await (await fetch(`${base}/api/threads`)).json();
+    const scopeQs = `instrument=${encodeURIComponent(INSTRUMENT)}&granularity=M5`;
+    const { threads } = await (await fetch(`${base}/api/threads?${scopeQs}`)).json();
     assert.equal(threads.length, 1);
     assert.equal(threads[0].messages, 2, 'user + assistant persisted');
 
@@ -362,7 +363,7 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     assert.equal(after.messages.length, 4);
 
     await fetch(`${base}/api/threads?id=${done.threadId}`, { method: 'DELETE' });
-    const gone = await (await fetch(`${base}/api/threads`)).json();
+    const gone = await (await fetch(`${base}/api/threads?${scopeQs}`)).json();
     assert.equal(gone.threads.length, 0);
     const emptied = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
     assert.equal(emptied.messages.length, 0, 'messages cascade-deleted');
