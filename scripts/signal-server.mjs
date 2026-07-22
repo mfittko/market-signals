@@ -12,10 +12,10 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, signalOutcomes, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, readSettings, signalOutcomes, withDb } from './supertrend.mjs';
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -32,10 +32,6 @@ const DEFAULT_INSTRUMENT = 'WTICO/USD';
 const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
-
-export function readSettings(settingsPath) {
-  try { return JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { return {}; }
-}
 
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);

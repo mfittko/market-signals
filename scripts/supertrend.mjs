@@ -159,6 +159,10 @@ async function llmVerdict(settings, payload) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+export function readSettings(settingsPath) {
+  try { return JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { return {}; }
+}
+
 // Delivery: terminal-notifier when installed (the notification itself opens the
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
 export function sendNotification(msg, deepLink, settings = {}) {
@@ -187,8 +191,7 @@ export async function processSignal(opts, result, candles) {
   if (!isNew) return { sent: false, reason: 'already processed' };
   if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
-  let settings = {};
-  try { settings = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no file — fall through to defaults */ }
+  const settings = readSettings(opts.settings);
   if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
     // Default: pi coding agent if installed, else env API keys, else no filter.
     if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
@@ -412,8 +415,7 @@ async function main() {
 
   // Watcher fields set on the config page win over baked defaults but lose to
   // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
-  let cfg = {};
-  try { cfg = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no settings file */ }
+  const cfg = readSettings(opts.settings);
   for (const k of ['instrument', 'granularity', 'freshBars']) {
     const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
     if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
