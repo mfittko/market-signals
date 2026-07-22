@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, portfolioView } from './portfolio.mjs';
+import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -421,11 +421,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (url.pathname === '/api/bot-trades') {
           const raw = Number(url.searchParams.get('limit'));
           const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 500) : 50;
-          const trades = withDb(dbPath, (db) => {
-            const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='bot_trades'").get();
-            return exists ? db.prepare('SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?').all(limit) : [];
-          });
-          return json(res, 200, { ok: true, trades });
+          return json(res, 200, { ok: true, trades: botTrades(dbPath, botConfig(readSettings(settingsPath)), limit) });
         }
         return json(res, 200, { ok: true, portfolio: portfolioView(dbPath, botConfig(readSettings(settingsPath))) });
       }
