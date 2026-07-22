@@ -579,3 +579,33 @@ test('served client stripTitleTail behaves correctly as DELIVERED (escape-drift 
     assert.equal(stripTitleTail('ends with <e'), 'ends with <e', 'non-prefix tails untouched');
   });
 });
+
+test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L agrees with the engine to the cent', async () => {
+  const { botConfig, openPosition, closePosition } = await import('../scripts/portfolio.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    const cfg = botConfig({ bot: { riskPct: 100 } });
+    const id = openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 1000, price: 87, stop: 85, target: 90 });
+    closePosition(dbPath, cfg, id, 88, 'target');
+    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'short', notional: 500, price: 88 });
+
+    const pf = (await (await fetch(base + '/api/portfolio')).json()).portfolio;
+    const expectedRealized = (88 - 87.06) * (1000 / 87);
+    assert.ok(Math.abs(pf.trades[0].realized - expectedRealized) < 0.005, 'realized matches engine to the cent');
+    assert.ok(Math.abs(pf.equity - (pf.cash + pf.marginLocked + pf.unrealized)) < 1e-9, 'equity identity holds in the API payload');
+
+    const tr = await (await fetch(base + '/api/bot-trades?limit=1')).json();
+    assert.equal(tr.trades.length, 1);
+    assert.equal(tr.trades[0].close_reason, 'target');
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      assert.equal((await fetch(base + '/api/bot-trades', { method, body: '{}' })).status, 405, method + ' rejected');
+    }
+
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('<details id="pf"'), 'collapsible portfolio section present');
+    assert.ok(html.includes('<dialog id="pfdlg"'), 'portfolio modal present');
+    assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
+    const script = html.slice(html.indexOf('<script>'));
+    assert.ok(!/fetch\('\/api\/(?:portfolio|bot-trades)'[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes');
+  });
+});
