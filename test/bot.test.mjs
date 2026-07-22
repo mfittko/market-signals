@@ -90,7 +90,8 @@ test('decisions execute: open then close via fake provider; journal carries vers
   const jd = JSON.parse(v.journal.find((j) => j.action === 'decision').context);
   assert.equal(jd.strategyVersion, strategyVersion(botLoopConfig(open_).strategy), 'strategy version journaled');
   assert.ok(Array.isArray(jd.toolTrace), 'tool trace journaled');
-  assert.ok(jd.snapshot.equity > 0, 'context snapshot journaled');
+  assert.ok(jd.snapshot.equity > 0 && Array.isArray(jd.snapshot.positions), 'full portfolio snapshot journaled');
+  assert.equal(jd.instrumentContext.close, 87, 'instrument context journaled');
 
   const close_ = { ...fakeProvider(dir, `{"action":"close","positionId":${v.positions[0].id},"reasoning":"take profit"}`) };
   const r2 = await runBot(db, close_, { instrument: WTI, granularity: 'M5', candle: candle(88, 88.1, 87.9, 88), quote: { last: 88 }, freshFlip: { signal: 'sell' } });

@@ -159,7 +159,8 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   }
   journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
     instrument, granularity, event, decision, executed, error,
-    strategyVersion: version, toolTrace, snapshot: { equity: view.equity, positions: view.positions.length },
+    strategyVersion: version, toolTrace, instrumentContext: ctx,
+    snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
   });
   return { decision, executed, error };
 }
@@ -189,7 +190,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
     setHalted(dbPath, cfg, true);
     journalBot(dbPath, cfg, 'halt', `kill-switch: drawdown ${drawdownPct.toFixed(1)}% > ${loop.killSwitchDrawdownPct}%`, { peak, equity: marked.equity });
     try {
-      sendNotification(`bot halted — drawdown ${drawdownPct.toFixed(1)}% (equity ${marked.equity.toFixed(2)})`, settings, null);
+      sendNotification(`bot halted — drawdown ${drawdownPct.toFixed(1)}% (equity ${marked.equity.toFixed(2)})`, null, settings);
     } catch { /* notification is best-effort */ }
     return { fills, halted: true, drawdownPct };
   }

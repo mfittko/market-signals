@@ -664,7 +664,12 @@ async function runOne(opts) {
       if (settings.bot?.enabled === true) {
         const { runBot } = await import('./bot.mjs');
         const { CHAT_TOOLS, execChatTool } = await import('./signal-server.mjs');
-        const freshFlip = result.signal?.fresh && !String(result.notify?.reason || '').includes('duplicate') ? result.signal : null;
+        // A flip is a bot event only the run that records it: alert sent, filter
+        // suppression, notify-off recording, or notification failure — never on
+        // 'already processed' / 'duplicate' re-sightings of the same flip.
+        const newThisRun = result.notify?.sent === true
+          || /^(suppressed by filter|recorded \(notify off\)|notification failed)/.test(result.notify?.reason || '');
+        const freshFlip = result.signal?.fresh && newThisRun ? result.signal : null;
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
