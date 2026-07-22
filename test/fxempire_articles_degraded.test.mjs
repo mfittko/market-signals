@@ -116,3 +116,19 @@ test('extractNextData tolerates attribute reordering and extra attributes', () =
   const wrapped = '<script type="application/json" nonce="abc" id="__NEXT_DATA__" crossorigin>{"a":1}</script>';
   assert.deepEqual(extractNextData(wrapped), { a: 1 });
 });
+
+test('article page cache: roundtrip, TTL expiry, atomic write', async () => {
+  const { readArticleCache, writeArticleCache, cacheGet, ARTICLE_CACHE_TTL_MS } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  const os = await import('node:os');
+  const pth = await import('node:path');
+  const dir = fs.mkdtempSync(pth.join(os.tmpdir(), 'artcache-'));
+  const cachePath = pth.join(dir, 'nested', 'cache.json');
+  const now = Date.now();
+  const cache = { '/news': { at: now, articles: [{ id: 1, title: 'x' }] } };
+  writeArticleCache(cachePath, cache);
+  const back = readArticleCache(cachePath);
+  assert.deepEqual(cacheGet(back, '/news', ARTICLE_CACHE_TTL_MS, now + 1000)[0].id, 1, 'fresh hit');
+  assert.equal(cacheGet(back, '/news', ARTICLE_CACHE_TTL_MS, now + ARTICLE_CACHE_TTL_MS + 1), null, 'expired');
+  assert.equal(cacheGet(back, '/other'), null, 'unknown key');
+  assert.deepEqual(readArticleCache(pth.join(dir, 'missing.json')), {}, 'missing file is empty cache');
+});

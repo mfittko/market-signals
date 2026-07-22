@@ -18,6 +18,7 @@ function parseArgs(argv) {
     locale: 'en',
     tz: DEFAULT_TZ,
     hours: null,
+    cache: 'data/articles-cache.json',
     commodities: [
       'brent-crude-oil',
       'wti-crude-oil',
@@ -410,6 +411,27 @@ export function articleMatchesSlug(a, slug) {
   });
 }
 
+// Page-level fetch cache (issue #28 follow-up): repeated runs within the TTL
+// (e.g. successive chat-tool calls) reuse extracted articles instead of
+// re-fetching identical pages. File lives under gitignored data/.
+export const ARTICLE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+export function readArticleCache(cachePath) {
+  try { return JSON.parse(fs.readFileSync(cachePath, 'utf8')); } catch { return {}; }
+}
+
+export function cacheGet(cache, key, ttlMs = ARTICLE_CACHE_TTL_MS, nowMs = Date.now()) {
+  const hit = cache?.[key];
+  return hit && nowMs - hit.at <= ttlMs ? hit.articles : null;
+}
+
+export function writeArticleCache(cachePath, cache) {
+  fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+  const tmp = `${cachePath}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(cache));
+  fs.renameSync(tmp, cachePath);
+}
+
 export function extractNextData(html) {
   const m = String(html).match(/<script[^>]*\bid="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) return null;
@@ -489,6 +511,7 @@ Options:
   --hours <n>              lookback window in hours
   --commodities <csv>      instrument slugs to fetch
   --max-items <n>          max articles to emit (default: 6)
+  --cache <path>           page-fetch cache with 5-min TTL (default: data/articles-cache.json, "" disables)
   --page-size <n>          API page size (default: 50)
   --max-pages <n>          max API pages (default: 10)
   --json                   emit JSON instead of text
@@ -555,11 +578,20 @@ Options:
     .map((slug) => ({ slug, tag: args.tags[slug] }))
     .filter((x) => x.tag);
 
+  const cache = args.cache ? readArticleCache(args.cache) : null;
+  let cacheDirty = false;
   async function fetchSsrPage(pagePath) {
+    const cached = cache && cacheGet(cache, pagePath);
+    if (cached) return cached;
     try {
       const r = await fetchText(`https://www.fxempire.com${pagePath}`, { timeoutMs: 20000 });
       if (!r.ok) return [];
-      return extractSsrArticles(r.text);
+      const articles = extractSsrArticles(r.text);
+      if (cache && articles.length) {
+        cache[pagePath] = { at: Date.now(), articles };
+        cacheDirty = true;
+      }
+      return articles;
     } catch {
       return [];
     }
@@ -684,6 +716,10 @@ Options:
     },
     articles: capped,
   };
+
+  if (cache && cacheDirty) {
+    try { writeArticleCache(args.cache, cache); } catch { /* cache is best-effort */ }
+  }
 
   if (args.json) {
     process.stdout.write(JSON.stringify(payload, null, 2));
