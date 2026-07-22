@@ -373,8 +373,14 @@ export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffT
   if (!rawCount) {
     return { degraded: true, reason: 'FXEmpire news feed returned no items (upstream unavailable).' };
   }
-  const newest = Number.isFinite(newestRawTs) ? new Date(newestRawTs).toISOString().slice(0, 10) : 'unknown';
   const start = new Date(cutoffTs).toISOString().slice(0, 10);
+  if (!Number.isFinite(newestRawTs)) {
+    return {
+      degraded: true,
+      reason: `FXEmpire news feed returned ${rawCount} item(s) but none carried a parseable timestamp, so recency could not be assessed. See issue #11.`,
+    };
+  }
+  const newest = new Date(newestRawTs).toISOString().slice(0, 10);
   return {
     degraded: true,
     reason: `FXEmpire news feed returned ${rawCount} item(s) but none passed recency/relevance filtering (newest ${newest} predates window start ${start}; upstream tag filter appears ignored). See issue #11.`,
@@ -570,7 +576,10 @@ Options:
 
   const lines = [];
   lines.push(`## FXEmpire articles — last ${hours}h (${args.tz})`);
-  if (feed.degraded) lines.push(`\n> Articles degraded/unavailable: ${feed.degradedReason}`);
+  if (feed.degraded) {
+    lines.push('');
+    lines.push(`> Articles degraded/unavailable: ${feed.reason}`);
+  }
   for (const slug of args.commodities) {
     const items = capped.filter((a) => a.commodity === slug);
     if (!items.length) continue;
