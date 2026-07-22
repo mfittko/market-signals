@@ -15,7 +15,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, readSettings, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, readSettings, recordSignal, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -136,6 +136,19 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     const reachesPresent = tailMs > lastMs && tailMs - lastMs <= 2 * granularityMs(granularity);
     if ((!t && (!candles.length || tailMs > lastMs)) || (t && reachesPresent)) candles.push(tail);
     if (!recent.length || Date.parse(tail.time) > Date.parse(recent[recent.length - 1].time)) recent.push(tail);
+  }
+  // Lazy backfill: persist historical flips for whatever combo is being viewed
+  // so history/outcomes populate beyond the watcher's own instrument. Flips
+  // newer than the watcher's fresh+cooldown horizon are left to the watcher —
+  // backfilling them would make its dedup swallow the live notification.
+  const horizonMs = 6 * granularityMs(granularity);
+  for (const f of flips.slice(-20)) {
+    if (Date.now() - Date.parse(f.time) <= horizonMs) continue;
+    const { isNew } = recordSignal(dbPath, instrument, granularity, { time: f.time, signal: f.signal, price: f.price }, null);
+    if (isNew) {
+      withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=?')
+        .run('backfill', instrument, granularity, f.time));
+    }
   }
   const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
   // Deep-linked signals older than the history window are looked up directly.

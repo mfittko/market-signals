@@ -168,6 +168,28 @@ test('signal-server --help exits 0 with usage, no listen', () => {
   assert.ok(res.stdout.includes('signal-server'), res.stdout);
 });
 
+test('viewing a combo lazily backfills historical flips, sparing the watcher-fresh window', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // Fresh M15 series with a crash old enough to be historical.
+    const closes = [...Array(20).fill(50), ...Array.from({ length: 20 }, (_, i) => 50 - i)];
+    const start = Date.now() - 40 * 900000; // 40 M15 bars ago
+    storeCandles(dbPath, INSTRUMENT, 'M15', closes.map((c, i) => ({
+      time: new Date(start + i * 900000).toISOString(), open: c, high: c + 0.2, low: c - 0.2, close: c, volume: 5, complete: true,
+    })));
+    const d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    assert.ok(d.flips.length >= 1, 'fixture produces flips');
+    assert.ok(d.signals.length >= 1, 'flips backfilled into signal history');
+    assert.equal(d.signals[0].verdict, 'backfill');
+    assert.equal(typeof d.signals[0].outcomePct, 'number', 'outcome computed from stored candles');
+    // Idempotent: second view adds nothing.
+    const d2 = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    assert.equal(d2.signals.length, d.signals.length);
+    // Any flip inside the fresh+cooldown horizon must NOT be backfilled (watcher owns it).
+    const horizon = Date.now() - 6 * 900000;
+    assert.ok(d.signals.every((s) => Date.parse(s.time) < horizon), 'fresh window left to the watcher');
+  });
+});
+
 test('configured instruments CSV drives the selector list', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ instruments: 'WTICO/USD, BCO/USD , XAU/USD' }) });
