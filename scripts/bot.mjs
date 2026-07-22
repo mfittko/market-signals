@@ -124,7 +124,16 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   const version = strategyVersion(loop.strategy);
   const toolTrace = [];
   const tracedExec = execTool
-    ? async (name, args) => { const out = await execTool(name, args); toolTrace.push({ name, args }); return out; }
+    ? async (name, args) => {
+      try {
+        const out = await execTool(name, args);
+        toolTrace.push({ name, args, ok: true });
+        return out;
+      } catch (err) {
+        toolTrace.push({ name, args, ok: false, error: String(err.message || err).slice(0, 120) });
+        throw err;
+      }
+    }
     : null;
   let decision = null;
   let error = null;
