@@ -446,8 +446,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
-        if (threadId != null && !chatDb(dbPath, (db) => db.prepare('SELECT id FROM chat_threads WHERE id=?').get(threadId))) {
-          return json(res, 404, { ok: false, error: 'unknown thread' });
+        if (threadId != null) {
+          const thread = chatDb(dbPath, (db) => db.prepare('SELECT id, instrument, granularity FROM chat_threads WHERE id=?').get(threadId));
+          if (!thread) return json(res, 404, { ok: false, error: 'unknown thread' });
+          // Legacy NULL-scoped threads continue from any view; stamped threads only from their own.
+          if (thread.instrument != null && (thread.instrument !== instrument || thread.granularity !== granularity)) {
+            return json(res, 409, { ok: false, error: `thread belongs to ${thread.instrument} ${thread.granularity}` });
+          }
         }
         let createdThread = null;
         if (threadId == null) {

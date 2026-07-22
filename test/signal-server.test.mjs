@@ -364,6 +364,10 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const after = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
     assert.equal(after.messages.length, 4);
 
+    // A stamped thread cannot be continued from a different view; legacy NULL threads can.
+    const cross = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: done.threadId, message: 'wrong view', instrument: INSTRUMENT, granularity: 'M1' }) });
+    assert.equal(cross.status, 409, 'cross-view thread reuse rejected');
+
     await fetch(`${base}/api/threads?id=${done.threadId}`, { method: 'DELETE' });
     const gone = await (await fetch(`${base}/api/threads?${scopeQs}`)).json();
     assert.equal(gone.threads.length, 0);
