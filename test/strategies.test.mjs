@@ -24,6 +24,8 @@ test('versioning: saves append versions, never rewrite; validation guards inputs
   assert.throws(() => saveStrategy(db, { name: 'Bad Name!', prompt: PROMPT }), /kebab-case/);
   assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: 'too short' }), /20-4000/);
   assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, instruments: ';;drop' }), /combo CSV/);
+  assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, createdBy: 'robot' }), /seed\|chat\|manual/);
+  assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, spec: [1, 2] }), /plain object/);
 });
 
 test('exactly-one-active enforced at write; archived cannot activate; deactivate clears', () => {

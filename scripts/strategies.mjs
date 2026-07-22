@@ -52,8 +52,9 @@ export function saveStrategy(dbPath, { name, prompt, spec = null, instruments = 
   if (typeof prompt !== 'string' || prompt.trim().length < 20 || prompt.length > 4000) {
     throw new Error('prompt must be 20-4000 chars');
   }
+  if (!['seed', 'chat', 'manual'].includes(createdBy)) throw new Error('createdBy must be seed|chat|manual');
   if (spec != null) {
-    if (typeof spec !== 'object') throw new Error('spec must be an object when set');
+    if (typeof spec !== 'object' || Array.isArray(spec)) throw new Error('spec must be a plain object when set');
     spec = JSON.stringify(spec);
   }
   if (instruments != null && !/^[A-Za-z0-9/|, ]{3,200}$/.test(String(instruments))) {
