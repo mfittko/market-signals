@@ -301,7 +301,9 @@ export async function llmChat(settings, system, user, { onDelta = null, toolDefs
     if (settings.ANTHROPIC_API_KEY) return anthropicToolLoop(settings, system, user, opts);
     if (settings.OPENAI_API_KEY) return openaiToolLoop(settings, system, user, opts);
   }
-  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, tools: true });
+  // pi (and no-tool fallbacks) run without agent tools: the only tool surface
+  // is the clamped skill registry via the API providers' native tool-calling.
+  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, tools: false });
 }
 
 async function llmVerdict(settings, payload) {
