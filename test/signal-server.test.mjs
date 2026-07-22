@@ -57,6 +57,7 @@ test('GET /api/chart returns candles, supertrend, and the deep-linked signal', a
     const d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(sigTime)}`)).json();
     assert.equal(d.instrument, INSTRUMENT);
     assert.ok(d.candles.length > 30, 'window around the signal');
+    assert.ok(Date.parse(d.candles[d.candles.length - 1].time) >= Date.parse(sigTime) + 19 * 300000, 'deep-link window extends to the newest stored candle, not signal+36 bars');
     assert.ok(d.supertrend.length > 0, 'supertrend overlay computed');
     assert.equal(d.signal.time, sigTime);
     assert.equal(d.signal.signal, 'sell');

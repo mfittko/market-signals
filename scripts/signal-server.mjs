@@ -94,11 +94,12 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   const { candles, recent } = withDb(dbPath, (db) => {
     let windowed;
     if (t) {
-      // Window around the signal: bars up to and past t.
+      // Deep-link window: context before the signal, then everything through
+      // the present (capped) so an open view is never frozen at signal+36 bars.
       const before = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time <= ? ORDER BY time DESC LIMIT ?')
         .all(instrument, granularity, t, Math.ceil(count * 0.7)).reverse();
-      const after = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT ?')
-        .all(instrument, granularity, t, Math.floor(count * 0.3));
+      const after = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 320')
+        .all(instrument, granularity, t);
       windowed = [...before, ...after];
     } else {
       windowed = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
@@ -119,7 +120,10 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   if (liveTail) {
     const tail = { ...liveTail, partial: true };
-    if (!t && (!candles.length || Date.parse(tail.time) > Date.parse(candles[candles.length - 1].time))) candles.push(tail);
+    const lastMs = candles.length ? Date.parse(candles[candles.length - 1].time) : 0;
+    const tailMs = Date.parse(tail.time);
+    const reachesPresent = tailMs > lastMs && tailMs - lastMs <= 2 * granularityMs(granularity);
+    if ((!t && (!candles.length || tailMs > lastMs)) || (t && reachesPresent)) candles.push(tail);
     if (!recent.length || Date.parse(tail.time) > Date.parse(recent[recent.length - 1].time)) recent.push(tail);
   }
   const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
