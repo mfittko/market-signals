@@ -348,7 +348,7 @@ function formatArticleMarkdownLink(article) {
 }
 
 export function archiveArticles(dbPath, articles, fetchedAt) {
-  if (!fs.existsSync(path.dirname(dbPath))) return 0;
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS articles (

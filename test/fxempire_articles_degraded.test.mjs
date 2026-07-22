@@ -149,7 +149,7 @@ test('archiveArticles: creates table, dedups on (id,type), survives re-run', asy
   const os = await import('node:os');
   const pth = await import('node:path');
   const dir = fs.mkdtempSync(pth.join(os.tmpdir(), 'artdb-'));
-  const dbPath = pth.join(dir, 'archive.db');
+  const dbPath = pth.join(dir, 'fresh', 'nested', 'archive.db');
   const arts = [
     { id: 1, type: 'news', commodity: 'gold', title: 'a', fullUrl: 'https://x/1', timestamp: 100 },
     { id: 1, type: 'forecasts', commodity: 'gold', title: 'a2', fullUrl: 'https://x/1f', timestamp: 100 },
