@@ -235,14 +235,14 @@ const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.
 export const CHAT_TOOLS = [
   {
     name: 'fxempire_articles',
-    description: 'Fetch recent FXEmpire news articles for tracked instruments. NOTE: the upstream feed is often stale; if it returns none, fall back to web search rather than retrying.',
+    description: 'Fetch recent FXEmpire news articles for tracked instruments (live SSR source since #28). If it returns none for the window, fall back to web search rather than retrying with wider windows.',
     input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max articles (1-20, default 6)' } }, additionalProperties: false },
     run: (a) => {
       const out = execFileSync(process.execPath, ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 20, 6)), '--json'], { encoding: 'utf8', timeout: 45000 });
       try {
         const parsed = JSON.parse(out);
         if (!parsed.articles?.length) {
-          return JSON.stringify({ ...parsed, note: 'No articles in the window. The FXEmpire news hub has been stale upstream for months — do not retry with wider windows; use web search for current market news instead.' });
+          return JSON.stringify({ ...parsed, note: 'No articles in the window from either the live SSR source or the legacy hub. Use web search for current market news instead of retrying.' });
         }
       } catch { /* pass raw through */ }
       return out;
