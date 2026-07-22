@@ -51,6 +51,18 @@ test('simulateFills: stop at level, gap-through at open, target fills, shorts mi
   assert.equal(closed[0].closeReason, 'stop');
   assert.equal(portfolioView(db, CFG).trades[0].close_price, 85.9, 'gap fills at the open');
 
+  // both-touched with a gap ABOVE the target: the take-profit executed at t=0,
+  // before price could ever travel down to the stop — must fill as target@open.
+  openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 500, price: 100, stop: 95, target: 105 });
+  closed = simulateFills(db, CFG, WTI, candle(106, 107, 94, 96));
+  assert.equal(closed[0].closeReason, 'target', 'gap-through-target beats a later intrabar stop touch');
+  assert.equal(portfolioView(db, CFG).trades[0].close_price, 106);
+
+  // intrabar both-touched WITHOUT a gap: ambiguous ordering → stop (pessimistic)
+  openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 500, price: 100, stop: 95, target: 105 });
+  closed = simulateFills(db, CFG, WTI, candle(100, 106, 94, 98));
+  assert.equal(closed[0].closeReason, 'stop', 'no-gap both-touched resolves pessimistically');
+
   // target on a short: price gaps DOWN through it → open fill
   openPosition(db, CFG, { instrument: WTI, side: 'short', notional: 500, price: 87, target: 86 });
   closed = simulateFills(db, CFG, WTI, candle(85.8, 86.1, 85.6, 86.0));
@@ -127,6 +139,15 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   assert.equal(r4.decision.action, 'hold');
   assert.match(r4.error, /wrong side/);
   assert.equal(portfolioView(db, botConfig(wrongStop)).positions.length, 0);
+
+  // cross-instrument close: position exists on another instrument → rejected hold
+  const cfgX = botConfig({ bot: { riskPct: 100 } });
+  const otherId = openPosition(db, cfgX, { instrument: 'SPX500/USD', side: 'long', notional: 500, price: 5000 });
+  const crossClose = fakeProvider(dir, `{"action":"close","positionId":${otherId},"reasoning":"closing the wrong thing"}`);
+  const r5 = await runBot(db, crossClose, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r5.decision.action, 'hold');
+  assert.match(r5.error, /belongs to SPX500/);
+  assert.equal(portfolioView(db, cfgX).positions.length, 1, 'foreign position untouched');
 });
 
 test('kill-switch: drawdown past threshold halts, notifies once, stays halted until operator reset', async () => {

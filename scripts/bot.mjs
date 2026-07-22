@@ -51,15 +51,16 @@ export function simulateFills(dbPath, cfg, instrument, candle) {
   const positions = portfolioView(dbPath, cfg).positions.filter((p) => p.instrument === instrument);
   for (const pos of positions) {
     const long = pos.side === 'long';
+    // Gap-at-open events execute at t=0, BEFORE any intrabar level can trade —
+    // evaluate them first or a both-touched candle inverts a win into a loss.
+    // In the intrabar both-touched case (no gap) the stop wins: pessimistic fill.
+    const gapStop = pos.stop != null && (long ? candle.open <= pos.stop : candle.open >= pos.stop);
+    const gapTarget = pos.target != null && (long ? candle.open >= pos.target : candle.open <= pos.target);
     let fill = null;
-    if (pos.stop != null) {
-      if (long ? candle.open <= pos.stop : candle.open >= pos.stop) fill = { price: candle.open, reason: 'stop' };
-      else if (long ? candle.low <= pos.stop : candle.high >= pos.stop) fill = { price: pos.stop, reason: 'stop' };
-    }
-    if (!fill && pos.target != null) {
-      if (long ? candle.open >= pos.target : candle.open <= pos.target) fill = { price: candle.open, reason: 'target' };
-      else if (long ? candle.high >= pos.target : candle.low <= pos.target) fill = { price: pos.target, reason: 'target' };
-    }
+    if (gapStop) fill = { price: candle.open, reason: 'stop' };
+    else if (gapTarget) fill = { price: candle.open, reason: 'target' };
+    else if (pos.stop != null && (long ? candle.low <= pos.stop : candle.high >= pos.stop)) fill = { price: pos.stop, reason: 'stop' };
+    else if (pos.target != null && (long ? candle.high >= pos.target : candle.low <= pos.target)) fill = { price: pos.target, reason: 'target' };
     if (fill) closed.push(closePosition(dbPath, cfg, pos.id, fill.price, fill.reason, { candleTime: candle.time }));
   }
   return closed;
@@ -103,7 +104,7 @@ export function parseDecision(text) {
   return d;
 }
 
-export function buildDecisionPrompt(loop, view, ctx) {
+function buildDecisionPrompt(loop, view, ctx) {
   return [
     `strategy (version ${strategyVersion(loop.strategy)}):\n${loop.strategy}`,
     `portfolio:\n${JSON.stringify({ equity: view.equity, cash: view.cash, halted: view.halted, positions: view.positions })}`,
@@ -163,6 +164,12 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
       executed = { opened: id };
     } else if (decision.action === 'close') {
       const price = ctx.quote?.last ?? ctx.close;
+      // Clamp closes to the triggering instrument: the prompt shows the whole
+      // portfolio (and tool output feeds it), so a hallucinated or injected
+      // cross-instrument positionId must never close at this instrument's price.
+      const target_ = view.positions.find((pp) => pp.id === decision.positionId);
+      if (!target_) throw new Error(`unknown position ${decision.positionId}`);
+      if (target_.instrument !== instrument) throw new Error(`position ${decision.positionId} belongs to ${target_.instrument}, not ${instrument}`);
       executed = closePosition(dbPath, cfg, decision.positionId, price, 'bot-close', { strategyVersion: version });
     }
   } catch (err) {
