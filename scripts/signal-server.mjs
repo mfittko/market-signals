@@ -27,7 +27,6 @@ Options:
 `;
 
 const DEFAULT_INSTRUMENT = 'WTICO/USD';
-const GRANULARITY = 'M5';
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
 const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
@@ -54,7 +53,7 @@ export function writeSettings(settingsPath, patch) {
   if (typeof patch !== 'object' || patch === null || Array.isArray(patch)) throw new Error('settings must be a JSON object');
   const unknown = Object.keys(patch).filter((k) => !SETTINGS_KEYS.includes(k));
   if (unknown.length) throw new Error(`unknown settings key(s): ${unknown.join(', ')}`);
-  if (patch.port !== undefined && (!Number.isInteger(patch.port) || patch.port < 1 || patch.port > 65535)) {
+  if (patch.port !== undefined && patch.port !== '' && patch.port !== null && (!Number.isInteger(patch.port) || patch.port < 1 || patch.port > 65535)) {
     throw new Error('port must be an integer 1-65535');
   }
   if (patch.freshBars !== undefined && patch.freshBars !== '' && patch.freshBars !== null && (!Number.isInteger(patch.freshBars) || patch.freshBars < 0)) {
@@ -74,18 +73,18 @@ export function writeSettings(settingsPath, patch) {
   return maskedSettings(settingsPath);
 }
 
-export function chartData(dbPath, instrument, { t = null, count = 120 } = {}) {
+export function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5' } = {}) {
   const candles = withDb(dbPath, (db) => {
     if (t) {
       // Window around the signal: bars up to and past t.
       const before = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time <= ? ORDER BY time DESC LIMIT ?')
-        .all(instrument, GRANULARITY, t, Math.ceil(count * 0.7)).reverse();
+        .all(instrument, granularity, t, Math.ceil(count * 0.7)).reverse();
       const after = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT ?')
-        .all(instrument, GRANULARITY, t, Math.floor(count * 0.3));
+        .all(instrument, granularity, t, Math.floor(count * 0.3));
       return [...before, ...after];
     }
     return db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-      .all(instrument, GRANULARITY, count).reverse();
+      .all(instrument, granularity, count).reverse();
   });
   let supertrend = [];
   let flips = [];
@@ -94,9 +93,9 @@ export function chartData(dbPath, instrument, { t = null, count = 120 } = {}) {
     supertrend = st.map((s, i) => s && { time: candles[i].time, value: Number(s.supertrend.toFixed(4)), trend: s.trend }).filter(Boolean);
     flips = detectFlips(candles, st);
   }
-  const signals = signalOutcomes(dbPath, instrument, GRANULARITY, { limit: 50 });
+  const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
   const signal = t ? signals.find((s) => s.time === t) ?? null : signals[0] ?? null;
-  return { instrument, granularity: GRANULARITY, candles, supertrend, flips, signal, signals };
+  return { instrument, granularity, candles, supertrend, flips, signal, signals };
 }
 
 function json(res, status, body) {
@@ -109,9 +108,10 @@ export function buildServer({ dbPath, settingsPath }) {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (url.pathname === '/api/chart') {
-        const instrument = url.searchParams.get('instrument') || DEFAULT_INSTRUMENT;
+        const instrument = url.searchParams.get('instrument') || readSettings(settingsPath).instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
-        return json(res, 200, chartData(dbPath, instrument, { t }));
+        const granularity = url.searchParams.get('granularity') || readSettings(settingsPath).granularity || 'M5';
+        return json(res, 200, chartData(dbPath, instrument, { t, granularity }));
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
         return json(res, 200, maskedSettings(settingsPath));
@@ -172,6 +172,7 @@ async function load() {
   const p = new URLSearchParams();
   if (qs.get('instrument')) p.set('instrument', qs.get('instrument'));
   if (qs.get('t')) p.set('t', qs.get('t'));
+  if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   const d = await (await fetch('/api/chart?' + p)).json();
   document.getElementById('inst').textContent = d.instrument + ' ' + d.granularity;
   draw(d); verdict(d.signal); history(d.signals);

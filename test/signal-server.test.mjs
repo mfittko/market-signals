@@ -161,3 +161,26 @@ test('page escapes db-backed fields (no raw script injection vector)', async () 
     assert.ok(!html.includes("+ s.reason +"), 'reason interpolations go through esc()');
   });
 });
+
+test('granularity flows: query param and settings default reach queries and response', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    storeCandles(dbPath, INSTRUMENT, 'M15', series(Array(20).fill(50)));
+    let d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    assert.equal(d.granularity, 'M15');
+    assert.equal(d.candles.length, 20, 'M15 candles served');
+    // settings default picks up the configured watcher granularity
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ granularity: 'M15' }) });
+    d = await (await fetch(`${base}/api/chart`)).json();
+    assert.equal(d.granularity, 'M15');
+  });
+});
+
+test('clearing port via empty string deletes it instead of 400', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ port: 9000 }) });
+    const res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ port: '' }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.port, undefined);
+  });
+});

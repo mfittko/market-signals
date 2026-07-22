@@ -229,7 +229,7 @@ export async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
-  const deepLink = `http://127.0.0.1:${settings.port || 8787}/?instrument=${encodeURIComponent(opts.instrument)}&t=${encodeURIComponent(sig.time)}`;
+  const deepLink = `http://127.0.0.1:${settings.port || 8787}/?instrument=${encodeURIComponent(opts.instrument)}&granularity=${encodeURIComponent(opts.granularity)}&t=${encodeURIComponent(sig.time)}`;
   try {
     sendNotification(msg, deepLink, settings);
   } catch (err) {
