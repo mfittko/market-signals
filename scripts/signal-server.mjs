@@ -831,9 +831,12 @@ function appendMsg(role, text) {
   el.scrollTop = el.scrollHeight;
   return div;
 }
-// A complete or still-streaming trailing title annotation must never flash in
-// the bubble; the done event carries the server-stripped reply.
-const stripTitleTail = (t) => t.replace(/\\n?<!--(?:(?!-->)[\\s\\S])*(?:-->)?\\s*$/, '');
+// A complete, still-streaming, or partially-arrived trailing TITLE annotation
+// must never flash in the bubble — but legit trailing HTML comments render.
+// The second replace strips only prefixes of "<!--title:".
+const stripTitleTail = (t) => t
+  .replace(/\\n?<!--\\s*title:[\\s\\S]*$/, '')
+  .replace(/\\n?<(?:!(?:-(?:-(?:\\s*(?:t(?:i(?:t(?:l(?:e(?::)?)?)?)?)?)?)?)?)?)?$/, '');
 document.getElementById('chatForm').onsubmit = async (e) => {
   e.preventDefault();
   if (chat.pending) return;
