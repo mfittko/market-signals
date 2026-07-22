@@ -217,7 +217,44 @@ function addMessage(dbPath, threadId, role, content, context = null) {
     .run(threadId, role, content, context, new Date().toISOString()).lastInsertRowid);
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Answer concisely with concrete levels; you provide analysis, never order execution. If you have agent tools, you run in the repo root and may expand your context: run \`node skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode rates --market <commodities|indices|currencies|crypto-coin> --slugs <csv>\` for live rates, query \`sqlite3 data/candles.db\` (tables: candles, signals), read \`data/notes.md\`, or web-search for market-moving news. Prefer the provided context; fetch only what is missing.`;
+// Repo skills exposed to the chat as tools. Executors shell out to the skill
+// scripts with clamped args and bounded output; pi gets the same catalog via
+// the system prompt (it runs them itself over bash).
+const clampInt = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo && v <= hi ? v : dflt);
+export const CHAT_TOOLS = [
+  {
+    name: 'fxempire_articles',
+    description: 'Fetch recent FXEmpire news articles for tracked instruments (oil, gold, indices, FX). Use for "any news driving this move?" questions.',
+    input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max articles (1-20, default 6)' } }, additionalProperties: false },
+    run: (a) => execFileSync('node', ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 20, 6)), '--json'], { encoding: 'utf8', timeout: 45000 }),
+  },
+  {
+    name: 'truthsocial_posts',
+    description: 'Fetch recent Trump Truth Social posts from the archive (market-moving statements). Use for "did Trump post anything?" questions.',
+    input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-336, default 24)' } }, additionalProperties: false },
+    run: (a) => {
+      const since = new Date(Date.now() - clampInt(a?.hours, 1, 336, 24) * 3600000).toISOString();
+      return execFileSync('node', ['scripts/fetch-trump-posts.mjs', '--since', since], { encoding: 'utf8', timeout: 45000 });
+    },
+  },
+  {
+    name: 'live_rates',
+    description: 'Live last/change/percent rates for instrument slugs via FXEmpire. markets: commodities|indices|currencies|crypto-coin; slugs e.g. wti-crude-oil,gold.',
+    input_schema: { type: 'object', properties: { market: { type: 'string', enum: ['commodities', 'indices', 'currencies', 'crypto-coin'] }, slugs: { type: 'string', description: 'csv of rate slugs' } }, required: ['market', 'slugs'], additionalProperties: false },
+    run: (a) => {
+      if (!/^[a-z0-9,-]{2,120}$/.test(a?.slugs ?? '')) throw new Error('invalid slugs');
+      if (!['commodities', 'indices', 'currencies', 'crypto-coin'].includes(a?.market)) throw new Error('invalid market');
+      return execFileSync('node', ['skills/fxempire-live-data/scripts/fxempire_live_data.mjs', '--mode', 'rates', '--market', a.market, '--slugs', a.slugs, '--pretty', 'false'], { encoding: 'utf8', timeout: 30000 });
+    },
+  },
+];
+export function execChatTool(name, input) {
+  const tool = CHAT_TOOLS.find((t) => t.name === name);
+  if (!tool) throw new Error(`unknown tool ${name}`);
+  return String(tool.run(input ?? {})).slice(0, 8000);
+}
+
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Answer concisely with concrete levels; you provide analysis, never order execution. If you have agent tools, you run in the repo root and may expand your context: run \`node skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode rates --market <commodities|indices|currencies|crypto-coin> --slugs <csv>\` for live rates, query \`sqlite3 data/candles.db\` (tables: candles, signals), read \`data/notes.md\`, run \`node skills/fxempire-analysis/scripts/fxempire_articles.mjs --hours 12 --max-items 6 --json\` for recent market news articles, run \`node scripts/fetch-trump-posts.mjs --since <ISO>\` for recent Trump Truth Social posts, or web-search for market-moving news. Prefer the provided context; fetch only what is missing.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -372,7 +409,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
-          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }) });
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: execChatTool });
           addMessage(dbPath, threadId, 'assistant', reply);
           send({ type: 'done', threadId: Number(threadId), reply });
         } catch (err) {

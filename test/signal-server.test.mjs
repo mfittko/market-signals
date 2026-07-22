@@ -421,3 +421,12 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
     assert.equal(res.status, 0, `served page JS is broken:\n${res.stderr.slice(0, 400)}`);
   });
 });
+
+test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
+  const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates']);
+  for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
+  assert.throws(() => execChatTool('nope', {}), /unknown tool/);
+  assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
+  assert.throws(() => execChatTool('live_rates', { market: 'evil', slugs: 'gold' }), /invalid market/);
+});
