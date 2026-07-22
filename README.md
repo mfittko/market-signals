@@ -42,6 +42,9 @@ Pipeline scripts under `scripts/` (stdlib only):
 | `supertrend.mjs` | Supertrend(10,3) flip signals on live M5 candles + inline flip-following backtest; upserts candles **and every fresh flip** into `data/candles.db` (node:sqlite) — past signals get realized 30-min outcomes computed from stored candles. `--notify true` sends a macOS notification on a fresh flip (deduped via the `signals` table). Opt-in LLM filter: create `data/settings.json` with `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `{"provider": "pi"}` (shells out to the pi coding agent CLI; optional `model`, `notesFile`, `piBin`) and each flip is judged against signal history + `data/notes.md` before alerting; fail-open on errors. Runs as a LaunchAgent: `~/Library/LaunchAgents/com.market-signals.supertrend.plist` (every 5 min, logs to `data/supertrend-launchd.log`). Notifications use `terminal-notifier` when installed (`brew install terminal-notifier`) so clicking opens the signal chart deep link; falls back to non-clickable osascript. |
 | `signal-server.mjs` | Local web app on `http://127.0.0.1:8787` (stdlib http, binds localhost only): candle chart with supertrend overlay + signal marker, filter verdict/outcome panel, signal history, and a watcher/filter settings form (atomic writes to `data/settings.json`, API keys masked). Deep link `/?instrument=WTICO/USD&t=<flip-time>` is the notification click target. Run as a KeepAlive LaunchAgent: `~/Library/LaunchAgents/com.market-signals.signal-server.plist`. |
 
+Full LaunchAgent setup (both plists, candle-aligned scheduling, install/manage
+commands): [docs/launch-agents.md](docs/launch-agents.md).
+
 Three load-bearing methodology rules are enforced:
 
 - **F1 — per-instrument routing.** Geopolitical/oil posts route to Brent/WTI,
