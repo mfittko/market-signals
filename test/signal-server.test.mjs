@@ -544,6 +544,7 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
   assert.equal(extractThreadTitle('x\n<!--title: never closed').title, null, 'missing --> is a silent no-op');
   assert.equal(extractThreadTitle('x\n<!--title: line one\nline two-->').title, null, 'multiline title is a silent no-op');
   assert.equal(extractThreadTitle('x\n<!--title: -->').title, null, 'empty title is a no-op');
+  assert.equal(extractThreadTitle('hard break  \n<!--title: t-->').text, 'hard break  ', 'markdown hard-break spaces survive extraction');
 
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
