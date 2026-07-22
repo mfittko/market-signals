@@ -52,7 +52,7 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
 )`;
 
 // Every DB access goes through here: schema ensured on open, handle always closed.
-export function withDb(dbPath, fn) {
+function withDb(dbPath, fn) {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
@@ -80,11 +80,10 @@ function updateSignal(dbPath, instrument, granularity, time, verdict, reason, no
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
 // joined from the accumulated candles table — the filter's track record.
-export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null } = {}) {
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20 } = {}) {
   return withDb(dbPath, (db) => {
-    const sigs = time
-      ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?').all(instrument, granularity, time)
-      : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
+    const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+      .all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
     return sigs.map((s) => {
       const c = after.get(instrument, granularity, s.time, horizonBars - 1);
@@ -159,30 +158,6 @@ async function llmVerdict(settings, payload) {
   return JSON.parse(data.choices[0].message.content);
 }
 
-export function readSettings(settingsPath) {
-  try { return JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { return {}; }
-}
-
-// Delivery: terminal-notifier when installed (the notification itself opens the
-// deep link), else osascript (not clickable). Both bounded by a 10s timeout.
-export function sendNotification(msg, deepLink, settings = {}) {
-  const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
-  const candidates = settings.notifierBin
-    ? [settings.notifierBin]
-    : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];
-  const notifier = candidates.find((p) => existsSync(p));
-  if (notifier) {
-    try {
-      execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
-      return;
-    } catch (err) {
-      // A present-but-broken notifier install must not cost the alert.
-      dbg(`terminal-notifier failed (${err.message.split('\n')[0]}); falling back to osascript`);
-    }
-  }
-  execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
-}
-
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
@@ -191,7 +166,8 @@ export async function processSignal(opts, result, candles) {
   if (!isNew) return { sent: false, reason: 'already processed' };
   if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
-  const settings = readSettings(opts.settings);
+  let settings = {};
+  try { settings = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no file — fall through to defaults */ }
   if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
     // Default: pi coding agent if installed, else env API keys, else no filter.
     if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
@@ -238,9 +214,8 @@ export async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
-  const deepLink = `http://127.0.0.1:${settings.port || 8787}/?instrument=${encodeURIComponent(opts.instrument)}&granularity=${encodeURIComponent(opts.granularity)}&t=${encodeURIComponent(sig.time)}`;
   try {
-    sendNotification(msg, deepLink, settings);
+    execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ')}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
   } catch (err) {
     // Non-macOS or osascript failure: still record the verdict so the signal isn't lost.
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 0);
@@ -412,14 +387,6 @@ async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
   const opts = parseArgs(argv);
-
-  // Watcher fields set on the config page win over baked defaults but lose to
-  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
-  const cfg = readSettings(opts.settings);
-  for (const k of ['instrument', 'granularity', 'freshBars']) {
-    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
-    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
-  }
 
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
