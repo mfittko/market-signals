@@ -57,8 +57,9 @@ export function saveStrategy(dbPath, { name, prompt, spec = null, instruments = 
     if (typeof spec !== 'object' || Array.isArray(spec)) throw new Error('spec must be a plain object when set');
     spec = JSON.stringify(spec);
   }
-  if (instruments != null && !/^[A-Za-z0-9/|, ]{3,200}$/.test(String(instruments))) {
-    throw new Error('instruments must be a combo CSV');
+  if (instruments != null) {
+    instruments = String(instruments).trim();
+    if (!/^[A-Za-z0-9/|, ]{3,200}$/.test(instruments)) throw new Error('instruments must be a combo CSV');
   }
   return sdb(dbPath, (db) => {
     const last = db.prepare('SELECT version FROM strategies WHERE name=? ORDER BY version DESC LIMIT 1').get(name);

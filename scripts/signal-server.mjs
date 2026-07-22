@@ -920,7 +920,7 @@ async function botCfg(s) {
     '<label>kill-switch DD %</label><input type="number" step="1" id="botKill" value="' + esc(bot.killSwitchDrawdownPct ?? 20) + '">' +
     '<label>bot watchers</label><input type="text" id="botWatchers" placeholder="WTICO/USD|M5, ..." value="' + esc(bot.watchers ?? '') + '">' +
     '<label>strategy</label><select id="stratSel">' +
-    strategies.map(st => '<option value="' + st.id + '"' + (st.id === activeId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + (st.id === activeId ? ' (active)' : '') + (st.created_by === 'chat' ? ' · chat draft' : '') + '</option>').join('') +
+    strategies.map(st => '<option value="' + st.id + '"' + (st.id === activeId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + (st.id === activeId ? ' (active)' : '') + (st.created_by === 'chat' && st.id !== activeId ? ' · chat draft' : '') + '</option>').join('') +
     '</select>' +
     '<label></label><span><button type="button" id="stratActivate">activate selected</button> <button type="button" id="botSave">save bot config</button> <span id="botSaved"></span></span>';
   el.querySelector('#stratActivate').onclick = async () => {

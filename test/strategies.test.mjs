@@ -26,6 +26,8 @@ test('versioning: saves append versions, never rewrite; validation guards inputs
   assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, instruments: ';;drop' }), /combo CSV/);
   assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, createdBy: 'robot' }), /seed\|chat\|manual/);
   assert.throws(() => saveStrategy(db, { name: 'ok-name', prompt: PROMPT, spec: [1, 2] }), /plain object/);
+  const num = saveStrategy(db, { name: 'num-instruments', prompt: PROMPT, instruments: 123456 });
+  assert.equal(typeof listStrategies(db).find((x) => x.id === num.id).instruments, 'string', 'instruments normalized to string before insert');
 });
 
 test('exactly-one-active enforced at write; archived cannot activate; deactivate clears', () => {
