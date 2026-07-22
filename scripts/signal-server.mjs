@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -298,7 +298,7 @@ export function execChatTool(name, input) {
   return String(tool.run(input ?? {})).slice(0, 8000);
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Candle timestamps in the context are UTC, but the trader reads the chart axis in their local timezone (view.traderTimezone) — when they mention a time, assume their local zone, and quote times as local (with UTC in parentheses when precision matters). Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -435,13 +435,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
         let notes = '';
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
-        const tz = typeof body.tz === 'string' && /^[A-Za-z_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
+        const tz = typeof body.tz === 'string' && /^[A-Za-z0-9_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
+        const fmts = localTimeFormatters(tz);
+        const localHm = fmts.hm;
+        const localFull = fmts.full;
         const context = {
-          view: { instrument, granularity, traderTimezone: tz, candleTimesAreUTC: true },
+          view: { instrument, granularity, traderTimezone: fmts.tz, candleTimesAreLocal: true },
           quote: view.quote,
-          viewCandles: view.candles.map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null, partial: k.partial || undefined })),
-          signal: view.signal,
-          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: x.time, signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
+          viewCandles: view.candles.map((k) => ({ t: localHm(k.time), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null, partial: k.partial || undefined })),
+          signal: view.signal ? { ...view.signal, time: localFull(view.signal.time) } : view.signal,
+          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
           traderNotes: notes,
         };
 
@@ -569,7 +572,7 @@ const PAGE = /* html */ `<!doctype html>
 <p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
-<table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
+<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
 </main>
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
@@ -671,6 +674,8 @@ function selectors(d) {
   };
 }
 
+const localHm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const localFull = (iso) => new Date(iso).toLocaleString('en-GB', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/[,\\s]+/, ' ');
 function quoteStrip(q) {
   const el = document.getElementById('quote');
   if (!q) { el.hidden = true; return; }
@@ -686,7 +691,7 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
-    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(q.time.slice(11, 16)) + ' candle forming' : esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)');
 }
 
 function verdict(s) {
@@ -694,7 +699,7 @@ function verdict(s) {
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
   el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
-    ' — ' + esc(s.time) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
+    ' — ' + esc(localFull(s.time)) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%';
 }
@@ -705,7 +710,7 @@ function history(list) {
     const tr = document.createElement('tr');
     tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
     const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-    tr.innerHTML = '<td>' + esc(s.time) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
       '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + '</td><td>' + esc(out) + '</td>';
     tb.appendChild(tr);
   }

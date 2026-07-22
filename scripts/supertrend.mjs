@@ -95,7 +95,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
   });
 }
 
-const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
 
 const VERDICT_SCHEMA = {
   type: 'object',
@@ -314,6 +314,25 @@ export async function llmChat(settings, system, user, { onDelta = null, toolDefs
   return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta });
 }
 
+// Watcher runs on the trader's machine: state times in the machine's local
+// zone so filter reasons and notifications match the chart axis (#34).
+const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+// The one encoding of "trader-local time" for LLM transmission (#34): HH:MM for
+// candles, DD/MM HH:MM for signals. Server passes the browser tz; watcher the
+// machine tz. Invalid tz falls back to UTC.
+export function localTimeFormatters(tz) {
+  try {
+    const hmF = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+    const fullF = new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    return { tz, hm: (iso) => hmF.format(new Date(iso)), full: (iso) => fullF.format(new Date(iso)).replace(/,\s*/, ' ') };
+  } catch {
+    return localTimeFormatters('UTC');
+  }
+}
+const LOCAL_FMT = localTimeFormatters(LOCAL_TZ);
+export const localHm = LOCAL_FMT.hm;
+export const localFull = LOCAL_FMT.full;
+
 async function llmVerdict(settings, payload) {
   const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
   // API providers return pure JSON under schema mode; regex is the pi fallback
@@ -391,16 +410,16 @@ export async function processSignal(opts, result, candles) {
     dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
     try {
       verdict = await llmVerdict(settings, {
-        current: { ...sig, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
+        current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
         backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
-        recentCandles: candles.slice(-12).map((c) => ({ t: c.time.slice(11, 16), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
+        recentCandles: candles.slice(-12).map((c) => ({ t: localHm(c.time), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
         volumeContext: (() => {
           const flip = candles[sig.index] ?? candles[candles.length - 1];
           const win = candles.slice(-21, -1).map((c) => c.volume || 0);
           const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
           return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
         })(),
-        pastSignals30mOutcomes: history.map((s) => ({ time: s.time.slice(0, 16), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
+        pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
         traderNotes: notes,
       });
       verdictSource = 'llm';
@@ -421,7 +440,7 @@ export async function processSignal(opts, result, candles) {
   const wr = result.backtest.winRatePct;
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
-  const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
+  const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${localHm(sig.time)}, win rate ${wr ?? '?'}%${lowConf}${extra}`;
   const portNum = Number(settings.port);
   const port = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 8787;
   const deepLink = `http://127.0.0.1:${port}/?instrument=${encodeURIComponent(opts.instrument)}&granularity=${encodeURIComponent(opts.granularity)}&t=${encodeURIComponent(sig.time)}`;
