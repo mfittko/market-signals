@@ -146,7 +146,7 @@ export function botPerformanceSummary(dbPath, startingBalance = 10000) {
     trades,
     totalRealized: Math.round(total * 100) / 100,
     perStrategy: board.map((s) => ({
-      name: s.strategyName ?? `hash ${s.strategyVersion}`,
+      name: s.strategyName ?? (s.strategyVersion ? `hash ${s.strategyVersion}` : 'unattributed'),
       version: s.strategyDbVersion,
       trades: s.trades,
       winRatePct: s.winRatePct,

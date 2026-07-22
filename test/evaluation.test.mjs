@@ -71,6 +71,15 @@ test('botPerformanceSummary is null before any trades (no chat noise)', () => {
   assert.equal(botPerformanceSummary(fresh(), 10000), null);
 });
 
+test('unattributed trades label as "unattributed", never "hash null"', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  closePosition(db, cfg, id, 88, 'target');
+  const summary = botPerformanceSummary(db, 10000);
+  assert.equal(summary.perStrategy[0].name, 'unattributed');
+});
+
 test('baselines run over the stored-candle window with warm-up context', () => {
   const db = fresh();
   const closes = [...Array(30).fill(100), ...Array.from({ length: 30 }, (_, i) => 100 - i)];
