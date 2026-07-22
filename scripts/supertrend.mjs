@@ -130,6 +130,18 @@ async function readSse(res, extract, onDelta) {
       }
     }
   }
+  // Flush the decoder and any final line without a trailing newline.
+  buf += dec.decode();
+  const tail = buf.trim();
+  if (tail.startsWith('data:')) {
+    try {
+      const piece = extract(JSON.parse(tail.slice(5).trim()));
+      if (piece) {
+        full += piece;
+        if (onDelta) onDelta(piece);
+      }
+    } catch { /* not a data event */ }
+  }
   return full;
 }
 

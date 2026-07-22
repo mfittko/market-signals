@@ -387,6 +387,7 @@ test('page ships the chat sidebar', async () => {
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('<aside>'), 'sidebar present');
     assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
+    assert.ok(html.includes('threadSel') && html.includes('delThread'), 'timestamped thread select + delete-after-selection');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
   });

@@ -327,8 +327,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const hasProvider = cfg.provider === 'pi' || (cfg.provider !== 'none' && (cfg.OPENAI_API_KEY || cfg.ANTHROPIC_API_KEY));
         if (!hasProvider) return json(res, 400, { ok: false, error: 'no chat provider configured (settings: provider/API keys)' });
 
-        const instrument = body.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
-        const granularity = body.granularity || cfg.granularity || 'M5';
+        const instrument = typeof body.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument)
+          ? body.instrument : (cfg.instrument || DEFAULT_INSTRUMENT);
+        const granularity = typeof body.granularity === 'string' && /^[MH]\d{1,2}$/.test(body.granularity)
+          ? body.granularity : (cfg.granularity || 'M5');
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
         let notes = '';
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
@@ -401,8 +403,8 @@ const PAGE = /* html */ `<!doctype html>
   aside { border-left: 1px solid #30363d; display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
   #threadBar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
   #threadBar button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
-  #threadBar button.active { background: #1f6feb; border-color: #1f6feb; }
-  #threadBar .del { padding: 3px 6px; color: #8b949e; }
+  #threadBar select { flex: 1; min-width: 0; background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px; font-size: 12px; }
+  #threadBar button:disabled { opacity: 0.4; cursor: default; }
   #msgs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
   .msg { border-radius: 8px; padding: 7px 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; max-width: 95%; }
   .msg.user { background: #1f6feb22; border: 1px solid #1f6feb55; align-self: flex-end; }
@@ -622,14 +624,22 @@ const chat = { threadId: null, pending: false };
 async function loadThreads() {
   const { threads } = await (await fetch('/api/threads')).json();
   const bar = document.getElementById('threadBar');
-  bar.innerHTML = '<button id="newThread">+ new</button>' + threads.map(t =>
-    '<button data-id="' + t.id + '" class="' + (t.id === chat.threadId ? 'active' : '') + '">' + esc(t.title.slice(0, 22)) + '</button>' +
-    '<button class="del" data-del="' + t.id + '" title="delete thread">✕</button>').join('');
+  const opt = (t) => '<option value="' + t.id + '"' + (t.id === chat.threadId ? ' selected' : '') + '>' +
+    esc((t.created_at || '').slice(5, 16).replace('T', ' ')) + ' · ' + esc(t.title.slice(0, 34)) + '</option>';
+  bar.innerHTML = '<button id="newThread">+ new</button>' +
+    '<select id="threadSel"><option value=""' + (chat.threadId == null ? ' selected' : '') + '>— new thread —</option>' +
+    threads.map(opt).join('') + '</select>' +
+    '<button id="delThread" title="delete selected thread"' + (chat.threadId == null ? ' disabled' : '') + '>🗑</button>';
   bar.querySelector('#newThread').onclick = () => { chat.threadId = null; renderMsgs([]); loadThreads(); };
-  for (const b of bar.querySelectorAll('button[data-id]')) b.onclick = () => selectThread(Number(b.dataset.id));
-  for (const b of bar.querySelectorAll('button[data-del]')) b.onclick = async () => {
-    await fetch('/api/threads?id=' + b.dataset.del, { method: 'DELETE' });
-    if (chat.threadId === Number(b.dataset.del)) { chat.threadId = null; renderMsgs([]); }
+  bar.querySelector('#threadSel').onchange = (e) => {
+    if (e.target.value === '') { chat.threadId = null; renderMsgs([]); loadThreads(); }
+    else selectThread(Number(e.target.value));
+  };
+  bar.querySelector('#delThread').onclick = async () => {
+    if (chat.threadId == null) return;
+    await fetch('/api/threads?id=' + chat.threadId, { method: 'DELETE' });
+    chat.threadId = null;
+    renderMsgs([]);
     loadThreads();
   };
 }
