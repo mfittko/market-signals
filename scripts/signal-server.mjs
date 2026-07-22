@@ -742,6 +742,7 @@ function draw(d) {
     },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
+      events: [], // hover is fully owned by fullColumnTooltip (nearest-by-x, full chart height)
       scales: {
         x: { type: 'timeseries', ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18 },
              grid: { color: 'rgba(48,54,61,0.5)' }, time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } } },
@@ -751,6 +752,7 @@ function draw(d) {
       plugins: {
         legend: { display: false },
         tooltip: {
+          animation: false,
           backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#e6edf3',
           filter: (item) => item.datasetIndex === 0,
           callbacks: {
@@ -770,6 +772,36 @@ function draw(d) {
       },
     },
   });
+  fullColumnTooltip(chart);
+}
+
+// Full-column tooltip target (operator UX request): hovering anywhere at an x
+// snaps the tooltip to that candle — no need to hit the body. Implemented as a
+// manual nearest-by-x lookup activating ONLY the candle dataset (axis-x
+// interaction modes crash the vendored bundle's hover-style resolution on the
+// segment/scatter datasets).
+function fullColumnTooltip(c) {
+  const canvas = c.canvas;
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const a = c.chartArea;
+    if (!a || x < a.left || x > a.right || y < a.top || y > a.bottom) return;
+    const data = c.data.datasets[0].data;
+    if (!data.length) return;
+    const xVal = c.scales.x.getValueForPixel(x);
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < data.length; i++) {
+      const d = Math.abs(data[i].x - xVal);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    const cur = c.tooltip.getActiveElements();
+    if (cur.length === 1 && cur[0].index === best) return;
+    c.tooltip.setActiveElements([{ datasetIndex: 0, index: best }], { x, y });
+    c.tooltip.update(true);
+    c.draw();
+  });
+  canvas.addEventListener('mouseleave', () => { c.tooltip.setActiveElements([], { x: 0, y: 0 }); c.tooltip.update(true); c.draw(); });
 }
 
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
