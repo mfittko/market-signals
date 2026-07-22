@@ -44,38 +44,53 @@ const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
   PRIMARY KEY (instrument, granularity, time)
 )`;
 
+const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
+  instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+  open REAL, high REAL, low REAL, close REAL, volume REAL,
+  PRIMARY KEY (instrument, granularity, time)
+)`;
+
+// Every DB access goes through here: schema ensured on open, handle always closed.
+function withDb(dbPath, fn) {
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(CANDLES_DDL);
+    db.exec(SIGNALS_DDL);
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
+
 // Signal memory: every fresh flip is recorded once (PK doubles as alert dedup).
 export function recordSignal(dbPath, instrument, granularity, sig, winRatePct) {
-  const db = new DatabaseSync(dbPath);
-  db.exec(SIGNALS_DDL);
-  const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate) VALUES (?,?,?,?,?,?)')
-    .run(instrument, granularity, sig.time, sig.signal, sig.price, winRatePct);
-  db.close();
-  return { isNew: r.changes > 0 };
+  return withDb(dbPath, (db) => {
+    const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate) VALUES (?,?,?,?,?,?)')
+      .run(instrument, granularity, sig.time, sig.signal, sig.price, winRatePct);
+    return { isNew: r.changes > 0 };
+  });
 }
 
 function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified) {
-  const db = new DatabaseSync(dbPath);
-  db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=?')
-    .run(verdict, reason, notified, instrument, granularity, time);
-  db.close();
+  withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=?')
+    .run(verdict, reason, notified, instrument, granularity, time));
 }
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
 // joined from the accumulated candles table — the filter's track record.
 export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20 } = {}) {
-  const db = new DatabaseSync(dbPath);
-  db.exec(SIGNALS_DDL);
-  const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-    .all(instrument, granularity, limit);
-  const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
-  const rows = sigs.map((s) => {
-    const c = after.get(instrument, granularity, s.time, horizonBars - 1);
-    const dir = s.signal === 'buy' ? 1 : -1;
-    return { ...s, outcomePct: c ? Number((dir * (c.close - s.price) / s.price * 100).toFixed(3)) : null };
+  return withDb(dbPath, (db) => {
+    const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+      .all(instrument, granularity, limit);
+    const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
+    return sigs.map((s) => {
+      const c = after.get(instrument, granularity, s.time, horizonBars - 1);
+      const dir = s.signal === 'buy' ? 1 : -1;
+      const outcomePct = c && s.price ? Number((dir * (c.close - s.price) / s.price * 100).toFixed(3)) : null;
+      return { ...s, outcomePct };
+    });
   });
-  db.close();
-  return rows;
 }
 
 const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
@@ -213,27 +228,21 @@ async function processSignal(opts, result, candles) {
 // Upsert complete candles so history accumulates with every run — future
 // backtests can read from here instead of re-fetching a capped live window.
 export function storeCandles(dbPath, instrument, granularity, candles) {
-  mkdirSync(dirname(dbPath), { recursive: true });
-  const db = new DatabaseSync(dbPath);
-  db.exec(`CREATE TABLE IF NOT EXISTS candles (
-    instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
-    open REAL, high REAL, low REAL, close REAL, volume REAL,
-    PRIMARY KEY (instrument, granularity, time)
-  )`);
-  const stmt = db.prepare(`INSERT INTO candles VALUES (?,?,?,?,?,?,?,?)
-    ON CONFLICT(instrument, granularity, time) DO UPDATE SET
-    open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume`);
-  try {
-    db.exec('BEGIN');
-    for (const c of candles) stmt.run(instrument, granularity, c.time, c.open, c.high, c.low, c.close, c.volume ?? null);
-    db.exec('COMMIT');
-  } catch (err) {
-    try { db.exec('ROLLBACK'); } finally { db.close(); }
-    throw err;
-  }
-  const { n } = db.prepare('SELECT COUNT(*) AS n FROM candles WHERE instrument = ? AND granularity = ?').get(instrument, granularity);
-  db.close();
-  return { stored: candles.length, totalRows: Number(n) };
+  return withDb(dbPath, (db) => {
+    const stmt = db.prepare(`INSERT INTO candles VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(instrument, granularity, time) DO UPDATE SET
+      open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume`);
+    try {
+      db.exec('BEGIN');
+      for (const c of candles) stmt.run(instrument, granularity, c.time, c.open, c.high, c.low, c.close, c.volume ?? null);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM candles WHERE instrument = ? AND granularity = ?').get(instrument, granularity);
+    return { stored: candles.length, totalRows: Number(n) };
+  });
 }
 
 export function computeSupertrend(candles, { period = 10, multiplier = 3 } = {}) {
