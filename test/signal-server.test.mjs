@@ -460,7 +460,7 @@ test('mutating routes reject cross-origin requests (CSRF guard), same-origin and
 });
 
 test('chat threads are view-scoped: stamped on create, filtered per view, legacy NULL threads visible everywhere', async () => {
-  const { listThreads } = await import('../scripts/signal-server.mjs');
+  const { listThreads, resolveView } = await import('../scripts/signal-server.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, dbPath }) => {
     const { DatabaseSync } = await import('node:sqlite');
@@ -486,8 +486,8 @@ test('chat threads are view-scoped: stamped on create, filtered per view, legacy
     assert.deepEqual(wti.threads.map((t) => t.title).sort(), ['legacy', 'wti-m5'], 'scoped list = own view + legacy');
     const spx = await (await fetch(base + '/api/threads?instrument=SPX500/USD&granularity=M1')).json();
     assert.deepEqual(spx.threads.map((t) => t.title).sort(), ['legacy', 'spx-m1']);
+    assert.deepEqual(resolveView({}, 'bad instrument!', 'X9'), resolveView({}), 'invalid view input falls back to defaults');
     const dflt = await (await fetch(base + '/api/threads')).json();
     assert.deepEqual(dflt.threads.map((t) => t.title).sort(), ['legacy', 'wti-m5'], 'no params scopes to settings-default view');
-    assert.deepEqual(listThreads(dbPath).map((t) => t.title).sort(), ['legacy', 'spx-m1', 'wti-m5'], 'unscoped unit call lists all');
   });
 });

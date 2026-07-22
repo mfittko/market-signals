@@ -196,15 +196,21 @@ function chatDb(dbPath, fn) {
   });
 }
 
-// Threads are view-bound (issue #30). A scope filters to that view plus legacy
+// The one validator for a requested view, shared by every chat surface:
+// untrusted input falls back to the settings-default view.
+export function resolveView(cfg, inst, gran) {
+  return {
+    instrument: typeof inst === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(inst) ? inst : (cfg.instrument || DEFAULT_INSTRUMENT),
+    granularity: typeof gran === 'string' && /^[MH]\d{1,2}$/.test(gran) ? gran : (cfg.granularity || 'M5'),
+  };
+}
+
+// Threads are view-bound (issue #30). The scope filters to that view plus legacy
 // NULL-scoped threads (pre-migration history stays reachable from every view).
-export function listThreads(dbPath, scope = null) {
-  return chatDb(dbPath, (db) => {
-    const base = 'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id';
-    if (!scope) return db.prepare(`${base} GROUP BY t.id ORDER BY t.id DESC`).all();
-    return db.prepare(`${base} WHERE t.instrument IS NULL OR (t.instrument = ? AND t.granularity = ?) GROUP BY t.id ORDER BY t.id DESC`)
-      .all(scope.instrument, scope.granularity);
-  });
+export function listThreads(dbPath, scope) {
+  return chatDb(dbPath, (db) => db.prepare(
+    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id WHERE t.instrument IS NULL OR (t.instrument = ? AND t.granularity = ?) GROUP BY t.id ORDER BY t.id DESC')
+    .all(scope.instrument, scope.granularity));
 }
 
 export function deleteThread(dbPath, id) {
@@ -393,12 +399,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
         const cfg = readSettings(settingsPath);
-        const qi = url.searchParams.get('instrument');
-        const qg = url.searchParams.get('granularity');
-        const scope = {
-          instrument: qi && /^[A-Za-z0-9/]{3,20}$/.test(qi) ? qi : (cfg.instrument || DEFAULT_INSTRUMENT),
-          granularity: qg && /^[MH]\d{1,2}$/.test(qg) ? qg : (cfg.granularity || 'M5'),
-        };
+        const scope = resolveView(cfg, url.searchParams.get('instrument'), url.searchParams.get('granularity'));
         return json(res, 200, { ok: true, threads: listThreads(dbPath, scope) });
       }
       if (url.pathname === '/api/threads' && req.method === 'DELETE') {
@@ -424,10 +425,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           return json(res, 400, { ok: false, error: 'no chat provider: set provider to "pi", or leave it on auto and add an ANTHROPIC/OPENAI API key ("none" disables chat)' });
         }
 
-        const instrument = typeof body.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument)
-          ? body.instrument : (cfg.instrument || DEFAULT_INSTRUMENT);
-        const granularity = typeof body.granularity === 'string' && /^[MH]\d{1,2}$/.test(body.granularity)
-          ? body.granularity : (cfg.granularity || 'M5');
+        const { instrument, granularity } = resolveView(cfg, body.instrument, body.granularity);
         const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
         let notes = '';
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
