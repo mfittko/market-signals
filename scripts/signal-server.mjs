@@ -402,6 +402,12 @@ const PAGE = /* html */ `<!doctype html>
   #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
   #chatForm input { flex: 1; }
   #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
+  @media (max-width: 900px) {
+    #app { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
+    #msgs { max-height: 45vh; min-height: 120px; }
+    #wrap { height: 320px !important; }
+  }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
