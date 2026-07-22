@@ -62,6 +62,22 @@ export function tradeMetrics(realizedSeries, startingEquity = 0) {
   };
 }
 
+// Earliest attributed entry time for a baseline window: scoped to the
+// requested instrument (trades in other instruments must not shift it) and,
+// when given, to one strategy; unattributed trades never define the window.
+export function earliestAttributedEntry(dbPath, { instrument, strategyId = null } = {}) {
+  const attribution = positionAttribution(dbPath);
+  let earliest = null;
+  for (const t of rows(dbPath, 'SELECT position_id, instrument, entry_time FROM bot_trades ORDER BY id')) {
+    if (instrument && t.instrument !== instrument) continue;
+    const a = attribution.get(t.position_id);
+    if (!a || a.strategyId == null) continue;
+    if (strategyId != null && a.strategyId !== strategyId) continue;
+    if (earliest === null || t.entry_time < earliest) earliest = t.entry_time;
+  }
+  return earliest;
+}
+
 // Per-strategy(+version) scoreboard from bot_trades, attributed via the journal.
 export function strategyScoreboard(dbPath, startingBalance = 10000) {
   const attribution = positionAttribution(dbPath);
@@ -119,7 +135,8 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
 // by strategy id. Read-only; the exact pinned prompt text lives in strategies.
 export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
   const out = [];
-  for (const j of rows(dbPath, "SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC LIMIT 500")) {
+  const scan = Math.max(500, limit * 10);
+  for (const j of rows(dbPath, `SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC LIMIT ${scan}`)) {
     let ctx = null;
     try { ctx = JSON.parse(j.context); } catch { /* keep raw-less entry */ }
     if (strategyId != null && ctx?.strategyId !== strategyId) continue;

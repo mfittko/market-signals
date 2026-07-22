@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, strategyScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard } from './evaluation.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -466,10 +466,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const sid = Number(url.searchParams.get('strategy'));
         const board = strategyScoreboard(dbPath, bcfg.startingBalance);
         const strategyId = Number.isInteger(sid) && sid > 0 ? sid : null;
-        // baseline window = earliest entry across the SELECTED scope (filtered
-        // strategy when given, else all attributed trades), never map order
-        const scope = strategyId != null ? board.filter((b) => b.strategyId === strategyId) : board;
-        const fromTime = scope.length ? scope.map((b) => b.firstTrade).sort()[0] : null;
+        // baseline window = earliest ATTRIBUTED entry for THIS instrument (and
+        // strategy when filtered) — other instruments and unattributed trades
+        // never shift the window
+        const fromTime = earliestAttributedEntry(dbPath, { instrument: inst, strategyId });
         return json(res, 200, {
           ok: true,
           scoreboard: board,
@@ -795,7 +795,7 @@ async function renderEvaluation() {
   if (!r.ok) return;
   const perf = document.getElementById('tab-performance');
   const rowsHtml = r.scoreboard.map(s =>
-    '<tr><td>' + esc(s.strategyName ?? ('hash ' + (s.strategyVersion || '—'))) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + s.trades +
+    '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + s.trades +
     '</td><td>' + esc(s.winRatePct ?? '—') + '%</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
     '</td><td>' + esc(s.profitFactor === null ? '—' : (s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2))) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
   const b = r.baselines;

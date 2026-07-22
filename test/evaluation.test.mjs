@@ -20,7 +20,7 @@ test('tradeMetrics: hand-computed fixture incl. drawdown across reopened peaks',
   assert.equal(m.avgWin, 20);
   assert.ok(Math.abs(m.avgLoss - (-13.95)) < 1e-9);
   assert.ok(Math.abs(m.profitFactor - 40 / 27.9) < 1e-9);
-  assert.equal(m.maxDrawdownPct, 20, 'max drawdown is measured against the FIRST peak, not the later higher one');
+  assert.equal(m.maxDrawdownPct, 20, 'max drawdown is the largest peak-to-trough drop vs the running peak (here the 110→88 leg)');
   assert.deepEqual(m.equityCurve, [100, 110, 88, 118, 112.1]);
   const empty = tradeMetrics([], 100);
   assert.equal(empty.winRatePct, null);
@@ -69,6 +69,21 @@ test('scoreboard attributes trades to the exact strategy version via the journal
 
 test('botPerformanceSummary is null before any trades (no chat noise)', () => {
   assert.equal(botPerformanceSummary(fresh(), 10000), null);
+});
+
+test('earliestAttributedEntry scopes by instrument and skips unattributed trades', async () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  // unattributed early trade on ANOTHER instrument must not define the window
+  const other = openPosition(db, cfg, { instrument: 'SPX500/USD', side: 'long', notional: 100, price: 5000 });
+  closePosition(db, cfg, other, 5001, 'target');
+  const { earliestAttributedEntry } = await import('../scripts/evaluation.mjs');
+  assert.equal(earliestAttributedEntry(db, { instrument: WTI }), null, 'no attributed WTI trades yet');
+  const st = await seededBotTrade(db);
+  const t = earliestAttributedEntry(db, { instrument: WTI });
+  assert.ok(t, 'attributed WTI entry found');
+  assert.equal(earliestAttributedEntry(db, { instrument: WTI, strategyId: 99999 }), null, 'foreign strategy filter yields null');
+  assert.equal(earliestAttributedEntry(db, { instrument: WTI, strategyId: st.id }), t);
 });
 
 test('unattributed trades label as "unattributed", never "hash null"', () => {
