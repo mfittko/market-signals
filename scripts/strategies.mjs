@@ -108,7 +108,8 @@ export function deleteStrategy(dbPath, id) {
         .get(`%"strategyId":${id},%`, `%"strategyId":${id}}%`).c
       : 0;
     if (referenced > 0) throw new Error('strategy has journal references — archive instead');
-    db.prepare('DELETE FROM strategies WHERE id=?').run(id);
+    const gone = db.prepare('DELETE FROM strategies WHERE id=?').run(id).changes;
+    if (!gone) throw new Error('unknown strategy');
     return { id: Number(id), deleted: true };
   });
 }

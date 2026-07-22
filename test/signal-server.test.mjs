@@ -662,7 +662,7 @@ test('strategy management (#25): chat drafts never activate, human activation vi
 
     // settings whitelist accepts the bot object, rejects junk bot keys
     const okSet = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { enabled: false, riskPct: 2 } }) })).json();
-    assert.equal(okSet.ok, undefined === undefined && okSet.error === undefined, 'bot object accepted');
+    assert.equal(okSet.error, undefined, 'bot object accepted (settings write returns masked settings, no error)');
     const badSet = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { evil: 1 } }) });
     assert.equal(badSet.status, 400, 'unknown bot keys rejected');
     // deep-merge: partial bot saves keep stored keys the form doesn't carry

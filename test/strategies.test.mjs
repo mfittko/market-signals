@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  saveStrategy, activateStrategy, archiveStrategy, deleteStrategy,
+  saveStrategy, activateStrategy, archiveStrategy, deactivateStrategies, deleteStrategy,
   listStrategies, activeStrategy, ensureSeedStrategy, SEED_STRATEGY,
 } from '../scripts/strategies.mjs';
 import { withDb } from '../scripts/supertrend.mjs';
@@ -39,6 +39,8 @@ test('exactly-one-active enforced at write; archived cannot activate; deactivate
   archiveStrategy(db, a.id);
   assert.throws(() => activateStrategy(db, a.id), /archived/);
   assert.throws(() => activateStrategy(db, 999), /unknown/);
+  deactivateStrategies(db);
+  assert.equal(activeStrategy(db), null, 'deactivate clears the active flag');
 });
 
 test('delete blocked with journal references (archive instead); free versions delete', () => {
@@ -57,6 +59,7 @@ test('delete blocked with journal references (archive instead); free versions de
   assert.equal(deleteStrategy(db, unref.id).deleted, true, 'longer-id references never false-positive-block');
   const free = saveStrategy(db, { name: 'strat-free', prompt: PROMPT });
   assert.equal(deleteStrategy(db, free.id).deleted, true);
+  assert.throws(() => deleteStrategy(db, free.id), /unknown strategy/, 'double delete reports unknown');
   assert.equal(archiveStrategy(db, a.id).archived, true);
   assert.equal(listStrategies(db).some((s) => s.id === a.id), false, 'archived hidden by default');
   assert.equal(listStrategies(db, { includeArchived: true }).some((s) => s.id === a.id), true);
