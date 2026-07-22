@@ -541,6 +541,9 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
   assert.equal(extractThreadTitle('mid <!--title: nope--> stream').title, null, 'only a trailing annotation counts');
   assert.equal(extractThreadTitle('x\r\n<!--title: crlf reply-->').title, 'crlf reply', 'CRLF before the annotation accepted');
   assert.equal(extractThreadTitle('x\n<!--title: A > B breakout-->').title, 'A > B breakout', 'titles may contain >');
+  assert.equal(extractThreadTitle('x\n<!--title: never closed').title, null, 'missing --> is a silent no-op');
+  assert.equal(extractThreadTitle('x\n<!--title: line one\nline two-->').title, null, 'multiline title is a silent no-op');
+  assert.equal(extractThreadTitle('x\n<!--title: -->').title, null, 'empty title is a no-op');
 
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
