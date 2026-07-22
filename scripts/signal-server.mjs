@@ -302,8 +302,8 @@ export function execChatTool(name, input) {
 // The model annotates each reply with an evolving thread title (issue #38);
 // stripped before persistence/display, applied when it changed.
 export function extractThreadTitle(reply) {
-  const m = String(reply).match(/\n?<!--\s*title:\s*([^>]{1,120}?)\s*-->\s*$/);
-  if (!m) return { text: String(reply), title: null };
+  const m = String(reply).match(/\r?\n?<!--\s*title:\s*(.{1,120}?)\s*-->\s*$/);
+  if (!m || /[\r\n]/.test(m[1])) return { text: String(reply), title: null };
   return { text: String(reply).slice(0, m.index).trimEnd(), title: m[1].slice(0, 48).trim() || null };
 }
 
@@ -491,11 +491,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const { text: cleanReply, title } = extractThreadTitle(reply);
           addMessage(dbPath, threadId, 'assistant', cleanReply);
           if (title) {
-            const cur = chatDb(dbPath, (db) => db.prepare('SELECT title FROM chat_threads WHERE id=?').get(threadId));
-            if (cur && cur.title !== title) {
-              chatDb(dbPath, (db) => db.prepare('UPDATE chat_threads SET title=? WHERE id=?').run(title, threadId));
-              send({ type: 'title', threadId: Number(threadId), title });
-            }
+            const changed = chatDb(dbPath, (db) => db.prepare('UPDATE chat_threads SET title=? WHERE id=? AND title<>?').run(title, threadId, title).changes);
+            if (changed > 0) send({ type: 'title', threadId: Number(threadId), title });
           }
           send({ type: 'done', threadId: Number(threadId), reply: cleanReply });
         } catch (err) {
