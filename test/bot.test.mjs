@@ -114,6 +114,7 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   const r2 = await runBot(db, over, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
   assert.equal(r2.decision.action, 'hold');
   assert.match(r2.error, /execution rejected/);
+  assert.match(r2.decision.reasoning, /fail-safe hold/, 'reasoning rewritten to match the hold');
   assert.equal(portfolioView(db, botConfig(over)).positions.length, 0);
 
   // wrong-side stop: long with stop above entry → rejected, fail-safe hold
@@ -162,7 +163,7 @@ test('bot disabled: runBot is a no-op and deliberate is never reached', async ()
   assert.deepEqual(r, { skipped: 'disabled' });
 });
 
-test('deliberate records tool trace when the provider is tool-capable', async () => {
+test('deliberate journals an empty-but-present tool trace on the tool-less pi path', async () => {
   // pi chat is tool-less by design; assert the trace plumbing directly instead.
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');
@@ -177,7 +178,7 @@ test('deliberate records tool trace when the provider is tool-capable', async ()
   assert.deepEqual(jd.toolTrace, [], 'pi path never calls tools; trace stays empty but present');
 });
 
-test('tool trace records failed tool attempts too (unit)', async () => {
+test('deliberation survives a throwing tool executor (pi path: tools never invoked)', async () => {
   // Exercise the traced wrapper directly through deliberate's journal: a
   // throwing execTool must still land in the trace with ok:false.
   const { deliberate: d2 } = await import('../scripts/bot.mjs');

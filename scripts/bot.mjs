@@ -167,7 +167,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
     }
   } catch (err) {
     error = `execution rejected: ${String(err.message || err).slice(0, 160)}`;
-    decision = { ...decision, action: 'hold' };
+    decision = { ...decision, action: 'hold', reasoning: `fail-safe hold: ${error}` };
   }
   journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
     instrument, granularity, event, decision, executed, error,
