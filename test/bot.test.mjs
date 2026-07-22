@@ -115,6 +115,17 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   assert.equal(r2.decision.action, 'hold');
   assert.match(r2.error, /execution rejected/);
   assert.equal(portfolioView(db, botConfig(over)).positions.length, 0);
+
+  // wrong-side stop: long with stop above entry → rejected, fail-safe hold
+  const wrongStop = fakeProvider(dir, '{"action":"open","side":"long","notional":500,"stop":88,"reasoning":"inverted"}');
+  const r3 = await runBot(db, wrongStop, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r3.decision.action, 'hold');
+  assert.match(r3.error, /wrong side/);
+  const wrongTarget = fakeProvider(dir, '{"action":"open","side":"short","notional":500,"stop":88,"target":89,"reasoning":"inverted target"}');
+  const r4 = await runBot(db, wrongTarget, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r4.decision.action, 'hold');
+  assert.match(r4.error, /wrong side/);
+  assert.equal(portfolioView(db, botConfig(wrongStop)).positions.length, 0);
 });
 
 test('kill-switch: drawdown past threshold halts, notifies once, stays halted until operator reset', async () => {
@@ -141,6 +152,7 @@ test('kill-switch: drawdown past threshold halts, notifies once, stays halted un
   settings.bot.resetHalt = true;
   const r3 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(75, 75.2, 74.9, 75), quote: { last: 75 } });
   assert.notEqual(r3.skipped, 'halted', 'reset clears the halt');
+  assert.equal(r3.halted, false, 'peak re-baselined: same drawdown does not instantly re-halt');
   assert.ok(portfolioView(db, cfg).journal.some((j) => j.action === 'reset'));
 });
 

@@ -143,6 +143,9 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   try {
     if (decision.action === 'open') {
       const price = ctx.quote?.last ?? ctx.close;
+      const long = decision.side === 'long';
+      if (long ? decision.stop >= price : decision.stop <= price) throw new Error(`stop ${decision.stop} on the wrong side of entry ${price} for ${decision.side}`);
+      if (decision.target != null && (long ? decision.target <= price : decision.target >= price)) throw new Error(`target ${decision.target} on the wrong side of entry ${price} for ${decision.side}`);
       const id = openPosition(dbPath, cfg, {
         instrument, side: decision.side, notional: decision.notional, price,
         stop: decision.stop, target: decision.target ?? null,
@@ -176,7 +179,14 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
 
   if (loop.resetHalt) {
     setHalted(dbPath, cfg, false);
-    journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (bot.resetHalt)', null);
+    // Re-baseline the peak to current equity, else the same drawdown re-halts
+    // on this very run and the operator reset is a no-op.
+    const eq = portfolioView(dbPath, cfg).equity;
+    withDb(dbPath, (db) => {
+      db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+      db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('peak_equity', eq);
+    });
+    journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (bot.resetHalt); peak re-baselined', { peakEquity: eq });
   }
 
   // 1) deterministic: candle fills, then mark everything at the close.
