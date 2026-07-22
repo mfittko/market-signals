@@ -333,6 +333,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
+        if (threadId != null && !chatDb(dbPath, (db) => db.prepare('SELECT id FROM chat_threads WHERE id=?').get(threadId))) {
+          return json(res, 404, { ok: false, error: 'unknown thread' });
+        }
         let createdThread = null;
         if (threadId == null) {
           threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)')

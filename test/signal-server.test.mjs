@@ -389,3 +389,16 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
   });
 });
+
+test('chat: unknown threadId is rejected, provider errors stay short (no prompt leak)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: 999, message: 'hi' }) });
+    assert.equal(res.status, 404);
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    const errEv = sseEvents(await res.text()).find((e) => e.type === 'error');
+    assert.ok(errEv.error.length < 250, 'sanitized error');
+    assert.ok(!errEv.error.includes('context:'), 'prompt not leaked into the error');
+  });
+});

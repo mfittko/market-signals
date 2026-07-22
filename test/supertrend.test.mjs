@@ -134,7 +134,7 @@ test('processSignal fails open on filter error and records the verdict', async (
   const prevPath = process.env.PATH;
   process.env.PATH = `${dir}:${prevPath}`;
   try {
-    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin: join(dir, 'missing-pi') } });
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin: join(dir, 'missing-pi'), notifierBin: join(dir, 'missing-notifier') } });
     const res = await processSignal(opts, result, c);
     assert.equal(res.sent, true, res.reason);
     assert.equal(res.verdictSource, 'error');

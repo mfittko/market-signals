@@ -112,8 +112,9 @@ const VERDICT_SCHEMA = {
 async function readSse(res, extract, onDelta) {
   let full = '';
   let buf = '';
+  const dec = new TextDecoder();
   for await (const chunk of res.body) {
-    buf += Buffer.from(chunk).toString('utf8');
+    buf += dec.decode(chunk, { stream: true });
     let nl;
     while ((nl = buf.indexOf('\n')) >= 0) {
       const line = buf.slice(0, nl).trim();
@@ -142,7 +143,19 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
     const args = ['-p', '--no-session', ...(tools ? [] : ['--no-tools']), '--system-prompt', system];
     if (settings.model) args.push('--model', settings.model);
     args.push(user);
-    const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: timeoutMs }).trim();
+    let out;
+    try {
+      out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        // launchd's PATH lacks the brew prefixes; pi's shebang needs node on PATH.
+        env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}` },
+      }).trim();
+    } catch (err) {
+      // execFileSync errors embed the full command (incl. the prompt) — never propagate that.
+      const stderr = (err.stderr ? String(err.stderr) : '').trim().split('\n').pop() || '';
+      throw new Error(`pi failed: ${stderr || err.code || `exit ${err.status}`}`.slice(0, 200));
+    }
     if (onDelta) onDelta(out); // pi cannot stream: one whole delta
     return out;
   }
