@@ -12,7 +12,7 @@
  */
 
 import { createServer } from 'node:http';
-import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, readSettings, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
@@ -27,9 +27,15 @@ Options:
 `;
 
 const DEFAULT_INSTRUMENT = 'WTICO/USD';
+// Fallback instrument set: the repo's validated candle symbols.
+let DEFAULT_INSTRUMENTS = [DEFAULT_INSTRUMENT];
+try {
+  const cat = JSON.parse(readFileSync('config/candle-symbols.json', 'utf8'));
+  DEFAULT_INSTRUMENTS = Object.values(cat.markets).flat().map((m) => m.symbol);
+} catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -188,7 +194,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
         const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
-        return json(res, 200, await chartData(dbPath, instrument, { t, granularity, fetcher }));
+        const data = await chartData(dbPath, instrument, { t, granularity, fetcher });
+        const configured = (cfg.instruments ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+        data.instruments = configured.length ? configured : DEFAULT_INSTRUMENTS;
+        if (!data.instruments.includes(instrument)) data.instruments = [instrument, ...data.instruments];
+        return json(res, 200, data);
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
         return json(res, 200, maskedSettings(settingsPath));
@@ -253,7 +263,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><main>
-<h1>market-signals — <span id="inst"></span> <button id="cfgbtn" type="button">⚙ settings</button></h1>
+<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="wrap"><canvas id="chart" width="1100" height="420"></canvas><div id="tip"></div></div>
 <div class="quote" id="quote" hidden></div>
 <div class="verdict" id="verdict">loading…</div>
@@ -273,7 +283,7 @@ async function load() {
   if (qs.get('t')) p.set('t', qs.get('t'));
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   const d = await (await fetch('/api/chart?' + p)).json();
-  document.getElementById('inst').textContent = d.instrument + ' ' + d.granularity;
+  selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
 }
 function draw(d) {
@@ -349,6 +359,17 @@ cv.addEventListener('mousemove', (e) => {
   tip.style.top = Math.min(e.clientY - r.top + 14, r.height - 90) + 'px';
 });
 cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
+function selectors(d) {
+  const inst = document.getElementById('instSel');
+  const gran = document.getElementById('granSel');
+  inst.innerHTML = d.instruments.map(i => '<option' + (i === d.instrument ? ' selected' : '') + '>' + esc(i) + '</option>').join('');
+  const grans = GRANULARITIES.includes(d.granularity) ? GRANULARITIES : [d.granularity, ...GRANULARITIES];
+  gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
+  const go = () => { location.search = '?' + new URLSearchParams({ instrument: inst.value, granularity: gran.value }); };
+  inst.onchange = go; gran.onchange = go;
+}
+
 function quoteStrip(q) {
   const el = document.getElementById('quote');
   if (!q) { el.hidden = true; return; }
@@ -388,7 +409,7 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['instrument', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
+const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');

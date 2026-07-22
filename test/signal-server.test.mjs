@@ -48,6 +48,7 @@ test('GET / serves the self-contained chart page', async () => {
     assert.ok(html.includes('<canvas'), 'has chart canvas');
     assert.ok(html.includes('<dialog id="cfgdlg"'), 'settings live in a dialog, hidden by default');
     assert.ok(html.includes('id="cfgbtn"'), 'gear button opens the settings modal');
+    assert.ok(html.includes('id="instSel"') && html.includes('id="granSel"'), 'instrument + granularity selectors in the header');
     assert.ok(!/src=["']http/.test(html), 'no external assets');
   });
 });
@@ -62,6 +63,7 @@ test('GET /api/chart returns candles, supertrend, and the deep-linked signal', a
     assert.equal(d.signal.time, sigTime);
     assert.equal(d.signal.signal, 'sell');
     assert.ok(d.signals.length >= 1, 'history included');
+    assert.ok(Array.isArray(d.instruments) && d.instruments.includes(INSTRUMENT), 'instrument list served for the selector');
   });
 });
 
@@ -164,6 +166,14 @@ test('signal-server --help exits 0 with usage, no listen', () => {
   const res = spawnSync('node', [script, '--help'], { encoding: 'utf8', timeout: 20000, cwd: mkdtempSync(join(tmpdir(), 'ss-help-')) });
   assert.equal(res.status, 0, res.stderr);
   assert.ok(res.stdout.includes('signal-server'), res.stdout);
+});
+
+test('configured instruments CSV drives the selector list', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ instruments: 'WTICO/USD, BCO/USD , XAU/USD' }) });
+    const d = await (await fetch(`${base}/api/chart`)).json();
+    assert.deepEqual(d.instruments, ['WTICO/USD', 'BCO/USD', 'XAU/USD']);
+  });
 });
 
 test('watcher fields round-trip and oversize body gets 413', async () => {
