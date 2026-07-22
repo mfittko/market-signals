@@ -172,7 +172,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
 const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  instrument TEXT,
+  granularity TEXT
 );
 CREATE TABLE IF NOT EXISTS chat_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,13 +188,22 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 function chatDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(CHAT_DDL);
+    // Pre-#30 dbs lack the view columns; ALTER errors when they already exist.
+    try { db.exec('ALTER TABLE chat_threads ADD COLUMN instrument TEXT'); } catch { /* exists */ }
+    try { db.exec('ALTER TABLE chat_threads ADD COLUMN granularity TEXT'); } catch { /* exists */ }
     return fn(db);
   });
 }
 
-export function listThreads(dbPath) {
-  return chatDb(dbPath, (db) => db.prepare(
-    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id GROUP BY t.id ORDER BY t.id DESC').all());
+// Threads are view-bound (issue #30). A scope filters to that view plus legacy
+// NULL-scoped threads (pre-migration history stays reachable from every view).
+export function listThreads(dbPath, scope = null) {
+  return chatDb(dbPath, (db) => {
+    const base = 'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id';
+    if (!scope) return db.prepare(`${base} GROUP BY t.id ORDER BY t.id DESC`).all();
+    return db.prepare(`${base} WHERE t.instrument IS NULL OR (t.instrument = ? AND t.granularity = ?) GROUP BY t.id ORDER BY t.id DESC`)
+      .all(scope.instrument, scope.granularity);
+  });
 }
 
 export function deleteThread(dbPath, id) {
@@ -380,7 +391,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
-        return json(res, 200, { ok: true, threads: listThreads(dbPath) });
+        const cfg = readSettings(settingsPath);
+        const qi = url.searchParams.get('instrument');
+        const qg = url.searchParams.get('granularity');
+        const scope = {
+          instrument: qi && /^[A-Za-z0-9/]{3,20}$/.test(qi) ? qi : (cfg.instrument || DEFAULT_INSTRUMENT),
+          granularity: qg && /^[MH]\d{1,2}$/.test(qg) ? qg : (cfg.granularity || 'M5'),
+        };
+        return json(res, 200, { ok: true, threads: listThreads(dbPath, scope) });
       }
       if (url.pathname === '/api/threads' && req.method === 'DELETE') {
         const id = Number(url.searchParams.get('id'));
@@ -428,8 +446,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         }
         let createdThread = null;
         if (threadId == null) {
-          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)')
-            .run(message.slice(0, 60), new Date().toISOString()).lastInsertRowid);
+          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at, instrument, granularity) VALUES (?,?,?,?)')
+            .run(message.slice(0, 60), new Date().toISOString(), instrument, granularity).lastInsertRowid);
           createdThread = { id: Number(threadId), title: message.slice(0, 60) };
         }
         addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
@@ -705,7 +723,10 @@ async function cfg() {
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
-  const { threads } = await (await fetch('/api/threads')).json();
+  const scope = new URLSearchParams();
+  if (qs.get('instrument')) scope.set('instrument', qs.get('instrument'));
+  if (qs.get('granularity')) scope.set('granularity', qs.get('granularity'));
+  const { threads } = await (await fetch('/api/threads?' + scope)).json();
   const bar = document.getElementById('threadBar');
   const opt = (t) => '<option value="' + t.id + '"' + (t.id === chat.threadId ? ' selected' : '') + '>' +
     esc((t.created_at || '').slice(5, 16).replace('T', ' ')) + ' · ' + esc(t.title.slice(0, 34)) + '</option>';

@@ -343,6 +343,8 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const { threads } = await (await fetch(`${base}/api/threads`)).json();
     assert.equal(threads.length, 1);
     assert.equal(threads[0].messages, 2, 'user + assistant persisted');
+    assert.equal(threads[0].instrument, INSTRUMENT, 'new thread stamped with its view instrument');
+    assert.equal(threads[0].granularity, 'M5', 'new thread stamped with its view granularity');
 
     const { messages } = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
     assert.equal(messages[0].role, 'user');
@@ -453,5 +455,38 @@ test('mutating routes reject cross-origin requests (CSRF guard), same-origin and
     assert.equal(res.status, 200, 'same-origin passes');
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'y' }) });
     assert.equal(res.status, 200, 'no-origin CLI passes');
+  });
+});
+
+test('chat threads are view-scoped: stamped on create, filtered per view, legacy NULL threads visible everywhere', async () => {
+  const { listThreads } = await import('../scripts/signal-server.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    db.exec(`CREATE TABLE IF NOT EXISTS chat_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, created_at TEXT NOT NULL)`);
+    db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)').run('legacy', '2026-07-01T00:00:00Z');
+    db.close();
+
+    assert.deepEqual(
+      listThreads(dbPath, { instrument: 'WTICO/USD', granularity: 'M5' }).map((t) => t.title),
+      ['legacy'], 'pre-migration thread survives ALTER and stays visible in a scoped view');
+
+    const { DatabaseSync: DS } = await import('node:sqlite');
+    const db2 = new DS(dbPath);
+    db2.prepare('INSERT INTO chat_threads (title, created_at, instrument, granularity) VALUES (?,?,?,?)')
+      .run('wti-m5', '2026-07-22T10:00:00Z', 'WTICO/USD', 'M5');
+    db2.prepare('INSERT INTO chat_threads (title, created_at, instrument, granularity) VALUES (?,?,?,?)')
+      .run('spx-m1', '2026-07-22T11:00:00Z', 'SPX500/USD', 'M1');
+    db2.close();
+
+    const wti = await (await fetch(base + '/api/threads?instrument=WTICO/USD&granularity=M5')).json();
+    assert.deepEqual(wti.threads.map((t) => t.title).sort(), ['legacy', 'wti-m5'], 'scoped list = own view + legacy');
+    const spx = await (await fetch(base + '/api/threads?instrument=SPX500/USD&granularity=M1')).json();
+    assert.deepEqual(spx.threads.map((t) => t.title).sort(), ['legacy', 'spx-m1']);
+    const dflt = await (await fetch(base + '/api/threads')).json();
+    assert.deepEqual(dflt.threads.map((t) => t.title).sort(), ['legacy', 'wti-m5'], 'no params scopes to settings-default view');
+    assert.deepEqual(listThreads(dbPath).map((t) => t.title).sort(), ['legacy', 'spx-m1', 'wti-m5'], 'unscoped unit call lists all');
   });
 });
