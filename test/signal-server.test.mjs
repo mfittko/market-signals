@@ -73,6 +73,7 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     assert.equal(res.status, 200);
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
+    assert.equal(got.activeProvider, 'pi', 'resolved provider surfaced');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret', 'secret stored');
@@ -388,6 +389,8 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('<aside>'), 'sidebar present');
     assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
     assert.ok(html.includes('threadSel') && html.includes('delThread'), 'timestamped thread select + delete-after-selection');
+    assert.ok(html.includes('function md('), 'markdown renderer for assistant messages');
+    assert.ok(html.includes('auto (use API keys)'), 'provider select explains auto mode');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
   });

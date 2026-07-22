@@ -39,9 +39,17 @@ const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin',
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
+export function resolveProvider(cfg) {
+  if (cfg.provider === 'pi') return 'pi';
+  if (cfg.provider === 'none') return 'none';
+  if (cfg.ANTHROPIC_API_KEY) return 'anthropic';
+  if (cfg.OPENAI_API_KEY) return 'openai';
+  return 'none';
+}
+
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
-  const out = {};
+  const out = { activeProvider: resolveProvider(s) };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
@@ -324,8 +332,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const message = typeof body.message === 'string' ? body.message.trim() : '';
         if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
         const cfg = readSettings(settingsPath);
-        const hasProvider = cfg.provider === 'pi' || (cfg.provider !== 'none' && (cfg.OPENAI_API_KEY || cfg.ANTHROPIC_API_KEY));
-        if (!hasProvider) return json(res, 400, { ok: false, error: 'no chat provider configured (settings: provider/API keys)' });
+        if (resolveProvider(cfg) === 'none') {
+          return json(res, 400, { ok: false, error: 'no chat provider: set provider to "pi", or leave it on auto and add an ANTHROPIC/OPENAI API key ("none" disables chat)' });
+        }
 
         const instrument = typeof body.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument)
           ? body.instrument : (cfg.instrument || DEFAULT_INSTRUMENT);
@@ -410,6 +419,8 @@ const PAGE = /* html */ `<!doctype html>
   .msg.user { background: #1f6feb22; border: 1px solid #1f6feb55; align-self: flex-end; }
   .msg.assistant { background: #161b22; border: 1px solid #30363d; align-self: flex-start; }
   .msg.error { background: #f8514922; border: 1px solid #f8514955; align-self: flex-start; }
+  .msg code { background: #010409; border: 1px solid #21262d; border-radius: 3px; padding: 0 4px; font-size: 12px; }
+  .msg pre { background: #010409; border: 1px solid #21262d; border-radius: 5px; padding: 8px; overflow-x: auto; margin: 6px 0; }
   #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
   #chatForm input { flex: 1; }
   #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
@@ -600,12 +611,13 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
+const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', [['', 'auto (use API keys)'], ['pi', 'pi'], ['none', 'disabled']]], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');
-  f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
-    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.includes(s[k] ?? '') ? opts : [...opts, s[k]]).map(o => '<option' + ((s[k] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
+  f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
+    FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
+    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
     : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
@@ -649,9 +661,20 @@ async function selectThread(id) {
   renderMsgs(messages);
   loadThreads();
 }
+function md(t) {
+  let h = esc(t);
+  h = h.replace(/\x60\x60\x60[a-z]*\n?([\s\S]*?)\x60\x60\x60/g, '<pre><code>$1</code></pre>');
+  h = h.replace(/\x60([^\x60\n]+)\x60/g, '<code>$1</code>');
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  h = h.replace(/(^|\s)\*([^*\n]+)\*(?=\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
+  h = h.replace(/^#{1,4} (.*)$/gm, '<b>$1</b>');
+  h = h.replace(/^[-*] /gm, '• ');
+  return h;
+}
+
 function renderMsgs(list) {
   const el = document.getElementById('msgs');
-  el.innerHTML = list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + esc(m.content) + '</div>').join('');
+  el.innerHTML = list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + (m.role === 'assistant' ? md(m.content) : esc(m.content)) + '</div>').join('');
   el.scrollTop = el.scrollHeight;
 }
 function appendMsg(role, text) {
@@ -694,8 +717,8 @@ document.getElementById('chatForm').onsubmit = async (e) => {
         if (!line.startsWith('data:')) continue;
         const ev = JSON.parse(line.slice(5));
         if (ev.type === 'thread') chat.threadId = ev.id;
-        if (ev.type === 'delta') { acc += ev.text; bubble.textContent = acc; document.getElementById('msgs').scrollTop = 1e9; }
-        if (ev.type === 'done') { bubble.textContent = ev.reply; chat.threadId = ev.threadId; }
+        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(acc); document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'done') { bubble.innerHTML = md(ev.reply); chat.threadId = ev.threadId; }
         if (ev.type === 'error') { bubble.className = 'msg error'; bubble.textContent = ev.error; chat.threadId = ev.threadId ?? chat.threadId; }
       }
     }
