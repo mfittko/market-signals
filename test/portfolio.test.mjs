@@ -100,6 +100,24 @@ test('guards: max positions, insufficient margin, risk budget, bad input', () =>
   assert.throws(() => closePosition(db2, CFG, 999, 87, 'x'), /unknown position/);
 });
 
+test('commission: charged exactly once (at open), precondition covers it, cache keyed per spreads path', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100, commission: 2 } });
+  const id = openPosition(db, cfg, { instrument: 'NO/SPREAD', side: 'long', notional: 1000, price: 100 });
+  let v = portfolioView(db, cfg);
+  assert.equal(v.cash, 10000 - 100 - 2, 'margin + one commission deducted');
+  const { realized } = closePosition(db, cfg, id, 100, 'bot-close');
+  assert.equal(realized, 0, 'flat close: no second commission in realized');
+  v = portfolioView(db, cfg);
+  assert.equal(v.cash, 10000 - 2, 'exactly one commission across the round trip');
+  const tiny = botConfig({ bot: { startingBalance: 100, riskPct: 100, commission: 5, defaultLeverage: 10 } });
+  const db2 = fresh();
+  assert.throws(() => openPosition(db2, tiny, { instrument: 'NO/SPREAD', side: 'long', notional: 1000, price: 100 }), /insufficient cash/);
+  resetSpreadCache();
+  assert.equal(instrumentSpread('NO/SUCH', 'config/spreads.json'), 0);
+  assert.equal(instrumentSpread(WTI), 0.06, 'per-path cache does not leak across paths');
+});
+
 test('missing quote: mark kept, position flagged stale, no close triggered', () => {
   const db = fresh();
   openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87, stop: 1 });

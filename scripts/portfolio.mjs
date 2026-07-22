@@ -62,15 +62,17 @@ export const BOT_DEFAULTS = {
   commission: 0,
 };
 
-let spreadsCache = null;
+const spreadsCache = new Map();
 export function instrumentSpread(instrument, spreadsPath = 'config/spreads.json') {
-  if (!spreadsCache) {
-    try { spreadsCache = JSON.parse(readFileSync(spreadsPath, 'utf8')); } catch { spreadsCache = {}; }
+  if (!spreadsCache.has(spreadsPath)) {
+    let parsed = {};
+    try { parsed = JSON.parse(readFileSync(spreadsPath, 'utf8')); } catch { /* no spread config */ }
+    spreadsCache.set(spreadsPath, parsed);
   }
-  const s = spreadsCache[instrument];
+  const s = spreadsCache.get(spreadsPath)[instrument];
   return typeof s === 'number' && s >= 0 ? s : 0;
 }
-export function resetSpreadCache() { spreadsCache = null; }
+export function resetSpreadCache() { spreadsCache.clear(); }
 
 export function botConfig(settings = {}) {
   const bot = settings.bot || {};
@@ -118,9 +120,9 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     if (open >= cfg.maxPositions) throw new Error(`max ${cfg.maxPositions} concurrent positions`);
     const leverage = instrumentLeverage(cfg, instrument);
     const margin = notional / leverage;
-    if (margin > p.cash) throw new Error('insufficient cash for margin');
-    // ponytail: risk% caps margin at stake per trade; stop-distance-based
-    // sizing can replace this when the decision loop (#23) needs it.
+    if (margin + cfg.commission > p.cash) throw new Error('insufficient cash for margin + commission');
+    // Risk% caps margin at stake per trade; stop-distance-based sizing can
+    // replace this when the decision loop (#23) needs it.
     const equityNow = viewInDb(db).equity;
     if (margin > (cfg.riskPct / 100) * equityNow) {
       throw new Error(`margin ${margin.toFixed(2)} exceeds risk budget (${cfg.riskPct}% of equity ${equityNow.toFixed(2)})`);
@@ -147,7 +149,7 @@ export function closePosition(dbPath, cfg, positionId, price, closeReason, conte
 function closeInDb(db, cfg, positionId, price, closeReason, context) {
   const pos = db.prepare('SELECT * FROM positions WHERE id=?').get(positionId);
   if (!pos) throw new Error('unknown position');
-  const realized = unrealized(pos, price) - cfg.commission;
+  const realized = unrealized(pos, price); // commission charged once, at open
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
   db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(p.cash + pos.margin + realized);
   db.prepare(`INSERT INTO bot_trades
