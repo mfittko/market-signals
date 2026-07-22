@@ -42,7 +42,7 @@ test('backtest: two closed winning trades, trailing sell trade marked open', () 
 });
 
 test('signal memory: dedup by flip time, 30-min outcome computed from stored candles', () => {
-  const dbPath = new URL('./tmp-signals-test.db', import.meta.url).pathname;
+  const dbPath = fileURLToPath(new URL('./tmp-signals-test.db', import.meta.url));
   rmSync(dbPath, { force: true });
   storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
 
@@ -59,7 +59,7 @@ test('signal memory: dedup by flip time, 30-min outcome computed from stored can
 });
 
 test('storeCandles upserts idempotently', () => {
-  const dbPath = new URL('./tmp-candles-test.db', import.meta.url).pathname;
+  const dbPath = fileURLToPath(new URL('./tmp-candles-test.db', import.meta.url));
   rmSync(dbPath, { force: true });
   const first = storeCandles(dbPath, 'BCO/USD', 'M5', candles);
   const again = storeCandles(dbPath, 'BCO/USD', 'M5', candles);

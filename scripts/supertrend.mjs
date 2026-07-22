@@ -12,7 +12,7 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname } from 'node:path';
@@ -197,7 +197,14 @@ async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
-  execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '')}" with title "market-signals" sound name "Glass"`]);
+  try {
+    execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ')}" with title "market-signals" sound name "Glass"`]);
+  } catch (err) {
+    // Non-macOS or osascript failure: still record the verdict so the signal isn't lost.
+    updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 0);
+    dbg(`notification failed: ${err.message}`);
+    return { sent: false, reason: `notification failed: ${err.message}`, verdictSource };
+  }
   updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 1);
   dbg(`notification sent: ${msg}`);
   return { sent: true, message: msg, verdictSource };
@@ -216,9 +223,14 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
   const stmt = db.prepare(`INSERT INTO candles VALUES (?,?,?,?,?,?,?,?)
     ON CONFLICT(instrument, granularity, time) DO UPDATE SET
     open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume`);
-  db.exec('BEGIN');
-  for (const c of candles) stmt.run(instrument, granularity, c.time, c.open, c.high, c.low, c.close, c.volume ?? null);
-  db.exec('COMMIT');
+  try {
+    db.exec('BEGIN');
+    for (const c of candles) stmt.run(instrument, granularity, c.time, c.open, c.high, c.low, c.close, c.volume ?? null);
+    db.exec('COMMIT');
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } finally { db.close(); }
+    throw err;
+  }
   const { n } = db.prepare('SELECT COUNT(*) AS n FROM candles WHERE instrument = ? AND granularity = ?').get(instrument, granularity);
   db.close();
   return { stored: candles.length, totalRows: Number(n) };
@@ -349,6 +361,9 @@ function parseArgs(argv) {
       : key === 'multiplier' ? Number(value)
       : ['pretty', 'notify'].includes(key) ? value !== 'false'
       : value;
+    if (['count', 'period', 'freshBars', 'multiplier'].includes(key) && Number.isNaN(out[key])) {
+      throw new Error(`invalid --${key} "${value}": expected a number`);
+    }
   }
   return out;
 }
