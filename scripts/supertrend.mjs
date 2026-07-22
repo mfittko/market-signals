@@ -317,10 +317,21 @@ export async function llmChat(settings, system, user, { onDelta = null, toolDefs
 // Watcher runs on the trader's machine: state times in the machine's local
 // zone so filter reasons and notifications match the chart axis (#34).
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-const LOCAL_HM = new Intl.DateTimeFormat('en-GB', { timeZone: LOCAL_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
-export const localHm = (iso) => LOCAL_HM.format(new Date(iso));
-const LOCAL_FULL = new Intl.DateTimeFormat('en-GB', { timeZone: LOCAL_TZ, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
-export const localFull = (iso) => LOCAL_FULL.format(new Date(iso)).replace(/,\s*/, ' ');
+// The one encoding of "trader-local time" for LLM transmission (#34): HH:MM for
+// candles, DD/MM HH:MM for signals. Server passes the browser tz; watcher the
+// machine tz. Invalid tz falls back to UTC.
+export function localTimeFormatters(tz) {
+  try {
+    const hmF = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+    const fullF = new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+    return { tz, hm: (iso) => hmF.format(new Date(iso)), full: (iso) => fullF.format(new Date(iso)).replace(/,\s*/, ' ') };
+  } catch {
+    return localTimeFormatters('UTC');
+  }
+}
+const LOCAL_FMT = localTimeFormatters(LOCAL_TZ);
+export const localHm = LOCAL_FMT.hm;
+export const localFull = LOCAL_FMT.full;
 
 async function llmVerdict(settings, payload) {
   const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });

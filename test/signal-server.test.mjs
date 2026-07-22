@@ -377,9 +377,10 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
 });
 
 test('chat context transmits localized timestamps (#34): tz applied, invalid tz falls back to UTC', async () => {
-  const { localTimeFormatters } = await import('../scripts/signal-server.mjs');
+  const { localTimeFormatters } = await import('../scripts/supertrend.mjs');
   const f = localTimeFormatters('Etc/GMT-2'); // fixed UTC+2, DST-free
-  assert.equal(f.hm.format(new Date('2026-07-22T18:17:00Z')), '20:17', 'chart-axis time, not UTC');
+  assert.equal(f.hm('2026-07-22T18:17:00Z'), '20:17', 'chart-axis time, not UTC');
+  assert.equal(f.full('2026-07-22T18:17:00Z'), '22/07 20:17', 'single shared DD/MM HH:MM encoding');
   assert.equal(localTimeFormatters('No/Such_Zone').tz, 'UTC', 'invalid tz falls back');
 
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
