@@ -10,6 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
+import { activeStrategy } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -118,9 +119,12 @@ function buildDecisionPrompt(loop, view, ctx) {
 const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
 
 // One deliberation for one instrument event. Returns {decision, executed, error}.
-export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null }) {
+export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
   const cfg = botConfig(settings);
   const loop = botLoopConfig(settings);
+  // The ACTIVE db strategy (#25) outranks the settings/default prompt; journal
+  // rows pin its exact id+version so past decisions stay attributed.
+  if (strategyRow?.prompt) loop.strategy = strategyRow.prompt;
   const view = portfolioView(dbPath, cfg);
   const version = strategyVersion(loop.strategy);
   const toolTrace = [];
@@ -178,7 +182,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   }
   journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
     instrument, granularity, event, decision, executed, error,
-    strategyVersion: version, toolTrace, instrumentContext: ctx,
+    strategyVersion: version, strategyId: strategyRow?.id ?? null, strategyName: strategyRow?.name ?? null, strategyDbVersion: strategyRow?.version ?? null, toolTrace, instrumentContext: ctx,
     snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
   });
   return { decision, executed, error };
@@ -231,10 +235,19 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   const event = freshFlip ? 'flip' : adverse ? 'review' : null;
   if (!event) return { fills, halted: false, deliberated: false };
 
+  // Active strategy scoping: an instruments CSV on the active strategy limits
+  // deliberation to those combos (deterministic fills always run).
+  let strategyRow = null;
+  try { strategyRow = activeStrategy(dbPath); } catch { /* strategies table optional */ }
+  if (strategyRow?.instruments) {
+    const combos = strategyRow.instruments.split(',').map((x) => x.trim()).filter(Boolean);
+    if (!combos.includes(`${instrument}|${granularity}`)) return { fills, halted: false, deliberated: false, skipped: 'combo not in active strategy scope' };
+  }
+
   const result = await deliberate(dbPath, settings, {
     instrument, granularity, event,
     ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip },
-    toolDefs, execTool,
+    toolDefs, execTool, strategyRow,
   });
   return { fills, halted: false, deliberated: true, ...result };
 }

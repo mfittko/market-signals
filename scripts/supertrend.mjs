@@ -675,7 +675,7 @@ async function runOne(opts) {
           candle: last, quote: { last: last.close }, freshFlip,
           ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest },
           toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-          execTool: execChatTool,
+          execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db }),
         });
       }
     } catch (err) {

@@ -18,6 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
+import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -38,7 +39,8 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'bot'];
+const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -63,6 +65,11 @@ export function writeSettings(settingsPath, patch) {
   }
   if (patch.freshBars !== undefined && patch.freshBars !== '' && patch.freshBars !== null && (!Number.isInteger(patch.freshBars) || patch.freshBars < 0)) {
     throw new Error('freshBars must be a non-negative integer');
+  }
+  if (patch.bot !== undefined && patch.bot !== '' && patch.bot !== null) {
+    if (typeof patch.bot !== 'object' || Array.isArray(patch.bot)) throw new Error('bot must be an object');
+    const unknownBot = Object.keys(patch.bot).filter((k) => !BOT_SETTING_KEYS.includes(k));
+    if (unknownBot.length) throw new Error(`unknown bot key(s): ${unknownBot.join(', ')}`);
   }
   const current = readSettings(settingsPath);
   const next = { ...current };
@@ -292,11 +299,21 @@ export const CHAT_TOOLS = [
       return execFileSync(process.execPath, ['skills/fxempire-live-data/scripts/fxempire_live_data.mjs', '--mode', 'rates', '--market', a.market, '--slugs', a.slugs, '--pretty', 'false'], { encoding: 'utf8', timeout: 30000 });
     },
   },
+  {
+    name: 'save_strategy',
+    description: 'Save a DRAFT trading strategy (new version each save; append-only). Drafts NEVER trade: activation is a human act in the settings UI. Use when the trader asks to draft or iterate a bot strategy conversationally.',
+    input_schema: { type: 'object', properties: { name: { type: 'string', description: 'kebab-case identifier' }, prompt: { type: 'string', description: 'the strategy prompt text (20-4000 chars)' }, instruments: { type: 'string', description: 'optional combo CSV, e.g. "WTICO/USD|M5"' } }, required: ['name', 'prompt'], additionalProperties: false },
+    run: (a, ctx) => {
+      if (!ctx?.dbPath) throw new Error('save_strategy needs a db context');
+      const saved = saveStrategy(ctx.dbPath, { name: a?.name, prompt: a?.prompt, instruments: a?.instruments ?? null, createdBy: 'chat' });
+      return JSON.stringify({ ...saved, note: 'draft saved — NOT active; the trader activates strategies in settings' });
+    },
+  },
 ];
-export function execChatTool(name, input) {
+export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
   if (!tool) throw new Error(`unknown tool ${name}`);
-  return String(tool.run(input ?? {})).slice(0, 8000);
+  return String(tool.run(input ?? {}, ctx)).slice(0, 8000);
 }
 
 // The model annotates each reply with an evolving thread title (issue #38);
@@ -415,6 +432,20 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
+      if (url.pathname === '/api/strategies' && req.method === 'GET') {
+        ensureSeedStrategy(dbPath);
+        return json(res, 200, { ok: true, strategies: listStrategies(dbPath), activeId: activeStrategy(dbPath)?.id ?? null });
+      }
+      if (url.pathname === '/api/strategies/activate' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const id = Number(body.id);
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
+        try { activateStrategy(dbPath, id); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+        return json(res, 200, { ok: true, activeId: id });
+      }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
         // Bot-only mutations: these surfaces are strictly read-only (#22/#24).
         if (req.method !== 'GET') return json(res, 405, { ok: false, error: `${url.pathname.slice(5)} is read-only over HTTP (bot-only trades)` });
@@ -495,7 +526,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
-          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: execChatTool });
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: (n, i) => execChatTool(n, i, { dbPath }) });
           const { text: cleanReply, title } = extractThreadTitle(reply);
           addMessage(dbPath, threadId, 'assistant', cleanReply);
           if (title) {
@@ -618,6 +649,7 @@ const PAGE = /* html */ `<!doctype html>
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
 <p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
+<div id="botcfg"></div>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
@@ -867,6 +899,38 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
+// Bot section of the settings modal (#25): config lives under settings.bot;
+// strategy ACTIVATION is the one human-only bot control (POST, same-origin).
+async function botCfg(s) {
+  const el = document.getElementById('botcfg');
+  const { strategies, activeId } = await (await fetch('/api/strategies')).json();
+  const bot = (s && typeof s.bot === 'object' && s.bot) || {};
+  el.innerHTML = '<h2>trading bot</h2>' +
+    '<label>enabled</label><input type="checkbox" id="botEnabled"' + (bot.enabled === true ? ' checked' : '') + '>' +
+    '<label>risk % / trade</label><input type="number" step="0.1" id="botRisk" value="' + esc(bot.riskPct ?? 1) + '">' +
+    '<label>kill-switch DD %</label><input type="number" step="1" id="botKill" value="' + esc(bot.killSwitchDrawdownPct ?? 20) + '">' +
+    '<label>bot watchers</label><input type="text" id="botWatchers" placeholder="WTICO/USD|M5, ..." value="' + esc(bot.watchers ?? '') + '">' +
+    '<label>strategy</label><select id="stratSel">' +
+    strategies.map(st => '<option value="' + st.id + '"' + (st.id === activeId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + (st.id === activeId ? ' (active)' : '') + (st.created_by === 'chat' ? ' · chat draft' : '') + '</option>').join('') +
+    '</select>' +
+    '<label></label><span><button type="button" id="stratActivate">activate selected</button> <button type="button" id="botSave">save bot config</button> <span id="botSaved"></span></span>';
+  el.querySelector('#stratActivate').onclick = async () => {
+    const r = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: Number(el.querySelector('#stratSel').value) }) })).json();
+    document.getElementById('botSaved').textContent = r.ok ? 'activated' : r.error;
+    if (r.ok) botCfg(s);
+  };
+  el.querySelector('#botSave').onclick = async () => {
+    const patch = { bot: {
+      enabled: el.querySelector('#botEnabled').checked,
+      riskPct: Number(el.querySelector('#botRisk').value) || 1,
+      killSwitchDrawdownPct: Number(el.querySelector('#botKill').value) || 20,
+    } };
+    const w = el.querySelector('#botWatchers').value.trim();
+    if (w) patch.bot.watchers = w;
+    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify(patch) })).json();
+    document.getElementById('botSaved').textContent = r.ok ? 'saved' : r.error;
+  };
+}
 const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', [['', 'auto (use API keys)'], ['pi', 'pi'], ['none', 'disabled']]], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
@@ -876,6 +940,7 @@ async function cfg() {
     ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
     : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
+  botCfg(s);
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
