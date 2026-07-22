@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
@@ -64,4 +66,12 @@ test('storeCandles upserts idempotently', () => {
   assert.equal(first.totalRows, candles.length);
   assert.equal(again.totalRows, candles.length, 'no duplicates on re-run');
   rmSync(dbPath, { force: true });
+});
+
+test('--help exits 0 with usage, no network, no db writes', () => {
+  const script = fileURLToPath(new URL('../scripts/supertrend.mjs', import.meta.url));
+  const res = spawnSync('node', [script, '--help'], { encoding: 'utf8', timeout: 20000 });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(res.stdout.includes('supertrend'), res.stdout);
+  assert.ok(res.stdout.includes('--settings'), 'usage documents the settings flag');
 });

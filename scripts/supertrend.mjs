@@ -338,7 +338,7 @@ async function fetchCandles({ instrument, granularity, count }) {
 }
 
 function parseArgs(argv) {
-  const out = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, stateFile: 'data/alert-state.json', pretty: true };
+  const out = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
   for (let i = 0; i < argv.length; i++) {
     const m = argv[i].match(/^--([^=]+)(?:=(.*))?$/);
     if (!m) continue;
