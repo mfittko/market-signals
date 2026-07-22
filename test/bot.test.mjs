@@ -18,8 +18,8 @@ const candle = (o, h, l, c, time = '2026-07-22T10:00:00.000000000Z') => ({ open:
 // a fake bin — same pattern as the chat tests.
 import { writeFileSync, chmodSync } from 'node:fs';
 async function withActiveSeed(db) {
-  const { ensureSeedStrategy, activateStrategy, activeStrategy } = await import('../scripts/strategies.mjs');
-  const id = ensureSeedStrategy(db) ?? activeStrategy(db)?.id;
+  const { ensureSeedStrategy, activateStrategy, activeStrategy, listStrategies } = await import('../scripts/strategies.mjs');
+  const id = ensureSeedStrategy(db) ?? activeStrategy(db)?.id ?? listStrategies(db)[0]?.id;
   if (id) activateStrategy(db, id);
   return id;
 }

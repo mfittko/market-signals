@@ -915,11 +915,11 @@ async function botCfg(s) {
   const { strategies, activeId } = await (await fetch('/api/strategies')).json();
   const bot = (s && typeof s.bot === 'object' && s.bot) || {};
   el.innerHTML = '<h2>trading bot</h2>' +
-    '<label>enabled</label><input type="checkbox" id="botEnabled"' + (bot.enabled === true ? ' checked' : '') + '>' +
-    '<label>risk % / trade</label><input type="number" step="0.1" id="botRisk" value="' + esc(bot.riskPct ?? 1) + '">' +
-    '<label>kill-switch DD %</label><input type="number" step="1" id="botKill" value="' + esc(bot.killSwitchDrawdownPct ?? 20) + '">' +
-    '<label>bot watchers</label><input type="text" id="botWatchers" placeholder="WTICO/USD|M5, ..." value="' + esc(bot.watchers ?? '') + '">' +
-    '<label>strategy</label><select id="stratSel">' +
+    '<label for="botEnabled">enabled</label><input type="checkbox" id="botEnabled"' + (bot.enabled === true ? ' checked' : '') + '>' +
+    '<label for="botRisk">risk % / trade</label><input type="number" step="0.1" id="botRisk" value="' + esc(bot.riskPct ?? 1) + '">' +
+    '<label for="botKill">kill-switch DD %</label><input type="number" step="1" id="botKill" value="' + esc(bot.killSwitchDrawdownPct ?? 20) + '">' +
+    '<label for="botWatchers">bot watchers</label><input type="text" id="botWatchers" placeholder="WTICO/USD|M5, ..." value="' + esc(bot.watchers ?? '') + '">' +
+    '<label for="stratSel">strategy</label><select id="stratSel">' +
     strategies.map(st => '<option value="' + st.id + '"' + (st.id === activeId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + (st.id === activeId ? ' (active)' : '') + (st.created_by === 'chat' && st.id !== activeId ? ' · chat draft' : '') + '</option>').join('') +
     '</select>' +
     '<label></label><span><button type="button" id="stratActivate">activate selected</button> <button type="button" id="botSave">save bot config</button> <span id="botSaved"></span></span>';
