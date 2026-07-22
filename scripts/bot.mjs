@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy, listStrategies } from './strategies.mjs';
+import { activeStrategy, ensureSeedStrategy } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -237,15 +237,11 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
 
   // Active strategy scoping: an instruments CSV on the active strategy limits
   // deliberation to those combos (deterministic fills always run).
-  let strategyRow = null;
-  let anyStrategies = false;
-  try {
-    strategyRow = activeStrategy(dbPath);
-    anyStrategies = strategyRow != null || listStrategies(dbPath, { includeArchived: true }).length > 0;
-  } catch { /* strategies table optional */ }
-  // Strategies exist but none is active: the operator turned them off — pause
-  // deliberation rather than silently trading the hardcoded default prompt.
-  if (!strategyRow && anyStrategies) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
+  // Seed idempotently (ships INACTIVE), then require a human-activated
+  // strategy: a fresh db pauses instead of trading the hardcoded default.
+  ensureSeedStrategy(dbPath);
+  const strategyRow = activeStrategy(dbPath);
+  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
   if (strategyRow?.instruments) {
     // normalize each combo the same way the watchers parser does — spaces
     // around the pipe must not silently unscope a combo

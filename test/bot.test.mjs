@@ -17,6 +17,12 @@ const candle = (o, h, l, c, time = '2026-07-22T10:00:00.000000000Z') => ({ open:
 // the provider through llmChat, so tests stub at the settings level with pi and
 // a fake bin — same pattern as the chat tests.
 import { writeFileSync, chmodSync } from 'node:fs';
+async function withActiveSeed(db) {
+  const { ensureSeedStrategy, activateStrategy, activeStrategy } = await import('../scripts/strategies.mjs');
+  const id = ensureSeedStrategy(db) ?? activeStrategy(db)?.id;
+  if (id) activateStrategy(db, id);
+  return id;
+}
 function fakeProvider(dir, reply) {
   const bin = join(dir, 'pi');
   writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho '${reply.replace(/'/g, "'\\''")}'\n`);
@@ -74,6 +80,7 @@ test('no LLM call without an event; flip and adverse review both trigger exactly
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');
   const settings = fakeProvider(dir, '{"action":"hold","reasoning":"idle"}');
+  await withActiveSeed(db);
   let calls = 0;
   const spyTools = [{ name: 'noop', description: 'x', input_schema: { type: 'object' } }];
   // count provider invocations via decision journal entries instead of the bin:
@@ -95,12 +102,15 @@ test('decisions execute: open then close via fake provider; journal carries vers
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');
   const open_ = fakeProvider(dir, '{"action":"open","side":"long","notional":500,"stop":85,"target":90,"reasoning":"flip long"}');
+  await withActiveSeed(db);
   const r = await runBot(db, open_, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
   assert.ok(r.executed.opened > 0, 'position opened');
   const v = portfolioView(db, botConfig(open_));
   assert.equal(v.positions.length, 1);
   const jd = JSON.parse(v.journal.find((j) => j.action === 'decision').context);
-  assert.equal(jd.strategyVersion, strategyVersion(botLoopConfig(open_).strategy), 'strategy version journaled');
+  const { SEED_STRATEGY } = await import('../scripts/strategies.mjs');
+  assert.equal(jd.strategyVersion, strategyVersion(SEED_STRATEGY.prompt), 'journaled hash matches the ACTIVE strategy prompt');
+  assert.equal(jd.strategyName, SEED_STRATEGY.name, 'journal pins the active strategy by name');
   assert.ok(Array.isArray(jd.toolTrace), 'tool trace journaled');
   assert.ok(jd.snapshot.equity > 0 && Array.isArray(jd.snapshot.positions), 'full portfolio snapshot journaled');
   assert.equal(jd.instrumentContext.close, 87, 'instrument context journaled');
@@ -115,6 +125,7 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');
   const bad = fakeProvider(dir, 'the market feels bullish, going long!');
+  await withActiveSeed(db);
   const r = await runBot(db, bad, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
   assert.equal(r.decision.action, 'hold');
   assert.match(r.error, /malformed/);
