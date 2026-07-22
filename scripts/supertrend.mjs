@@ -1,0 +1,400 @@
+#!/usr/bin/env node
+/**
+ * Supertrend signal + inline backtest over Oanda M5 candles (fxempire proxy).
+ *
+ * Computes Supertrend(period, multiplier) on complete candles, reports the
+ * current trend, the last flip (buy/sell signal), and a naive flip-following
+ * backtest over the fetched window so every alert carries its own track record.
+ *
+ * Usage:
+ *   node scripts/supertrend.mjs --instrument BCO/USD [--granularity M5]
+ *     [--count 500] [--period 10] [--multiplier 3] [--freshBars 2] [--pretty true]
+ */
+
+import { DatabaseSync } from 'node:sqlite';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+
+const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
+import { dirname } from 'node:path';
+import { execFileSync } from 'node:child_process';
+
+const USAGE = `supertrend — Supertrend flip signals + inline backtest.
+
+Options:
+  --instrument <sym>    candle symbol, see config/candle-symbols.json (default: BCO/USD)
+  --granularity <g>     M1|M5|M15|H1|... (default: M5)
+  --count <n>           candles to fetch (default: 500)
+  --period <n>          ATR period (default: 10)
+  --multiplier <x>      ATR multiplier (default: 3)
+  --freshBars <n>       flip within last n complete bars counts as fresh (default: 2)
+  --db <path>           sqlite file to upsert fetched candles into (default: data/candles.db, "" to skip)
+  --notify true|false   send a macOS notification on a fresh, not-yet-alerted flip (default: false)
+  --settings <path>     opt-in LLM filter config, JSON with OPENAI_API_KEY or
+                        ANTHROPIC_API_KEY, or {"provider": "pi"} to use the pi
+                        coding agent CLI [, model, notesFile, piBin]
+                        (default: data/settings.json; no file = no filter, alerts pass through)
+  --pretty true|false   (default: true)
+  -h, --help
+`;
+
+const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
+  instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+  signal TEXT NOT NULL, price REAL, win_rate REAL,
+  verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
+  PRIMARY KEY (instrument, granularity, time)
+)`;
+
+// Signal memory: every fresh flip is recorded once (PK doubles as alert dedup).
+export function recordSignal(dbPath, instrument, granularity, sig, winRatePct) {
+  const db = new DatabaseSync(dbPath);
+  db.exec(SIGNALS_DDL);
+  const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate) VALUES (?,?,?,?,?,?)')
+    .run(instrument, granularity, sig.time, sig.signal, sig.price, winRatePct);
+  db.close();
+  return { isNew: r.changes > 0 };
+}
+
+function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified) {
+  const db = new DatabaseSync(dbPath);
+  db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=?')
+    .run(verdict, reason, notified, instrument, granularity, time);
+  db.close();
+}
+
+// Past signals with their realized direction-adjusted move `horizonBars` later,
+// joined from the accumulated candles table — the filter's track record.
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20 } = {}) {
+  const db = new DatabaseSync(dbPath);
+  db.exec(SIGNALS_DDL);
+  const sigs = db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+    .all(instrument, granularity, limit);
+  const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
+  const rows = sigs.map((s) => {
+    const c = after.get(instrument, granularity, s.time, horizonBars - 1);
+    const dir = s.signal === 'buy' ? 1 : -1;
+    return { ...s, outcomePct: c ? Number((dir * (c.close - s.price) / s.price * 100).toFixed(3)) : null };
+  });
+  db.close();
+  return rows;
+}
+
+const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+
+const VERDICT_SCHEMA = {
+  type: 'object',
+  properties: { alert: { type: 'boolean' }, reason: { type: 'string' } },
+  required: ['alert', 'reason'],
+  additionalProperties: false,
+};
+
+// Provider picked by settings: {"provider": "pi"} shells out to the pi coding
+// agent (its own provider/key config applies); else by which API key is present
+// (ANTHROPIC wins if both).
+async function llmVerdict(settings, payload) {
+  if (settings.provider === 'pi') {
+    // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
+    const args = ['-p', '--no-session', '--no-tools', '--system-prompt', FILTER_SYSTEM];
+    if (settings.model) args.push('--model', settings.model);
+    args.push(JSON.stringify(payload));
+    const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: 90000 });
+    const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
+    if (!m) throw new Error(`pi output had no verdict JSON: ${out.slice(0, 120)}`);
+    return JSON.parse(m[0]);
+  }
+  if (settings.ANTHROPIC_API_KEY) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': settings.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: settings.model || 'claude-opus-4-8',
+        max_tokens: 1024,
+        system: FILTER_SYSTEM,
+        output_config: { format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
+        messages: [{ role: 'user', content: JSON.stringify(payload) }],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    const data = await res.json();
+    if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
+    return JSON.parse(data.content.find((b) => b.type === 'text').text);
+  }
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+    body: JSON.stringify({
+      model: settings.model || 'gpt-5.4-mini',
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: FILTER_SYSTEM },
+        { role: 'user', content: JSON.stringify(payload) },
+      ],
+    }),
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+  const data = await res.json();
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function processSignal(opts, result, candles) {
+  const sig = result.signal;
+  if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
+  if (!opts.db) return { sent: false, reason: '--notify requires --db' };
+  const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, result.backtest.winRatePct);
+  if (!isNew) return { sent: false, reason: 'already processed' };
+
+  let settings = {};
+  try { settings = JSON.parse(readFileSync(opts.settings, 'utf8')); } catch { /* no file — fall through to defaults */ }
+  if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
+    // Default: pi coding agent if installed, else env API keys, else no filter.
+    if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
+    else {
+      settings.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+      settings.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    }
+  }
+  const hasFilter = settings.provider !== 'none'
+    && Boolean(settings.provider === 'pi' || settings.OPENAI_API_KEY || settings.ANTHROPIC_API_KEY);
+  dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
+
+  let verdict = null;
+  let verdictSource = 'none';
+  if (hasFilter) {
+    let notes = '';
+    try { notes = readFileSync(settings.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
+    const history = signalOutcomes(opts.db, opts.instrument, opts.granularity).filter((s) => s.time !== sig.time);
+    dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
+    try {
+      verdict = await llmVerdict(settings, {
+        current: { ...sig, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
+        backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
+        recentCandles: candles.slice(-12).map((c) => ({ t: c.time.slice(11, 16), o: c.open, h: c.high, l: c.low, c: c.close })),
+        pastSignals30mOutcomes: history.map((s) => ({ time: s.time.slice(0, 16), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
+        traderNotes: notes,
+      });
+      verdictSource = 'llm';
+    } catch (err) {
+      // ponytail: fail open — a missed alert costs more than a noisy one
+      verdict = { alert: true, reason: `filter error: ${err.message}`.slice(0, 90) };
+      verdictSource = 'error';
+    }
+    dbg(`verdict (${verdictSource}): ${JSON.stringify(verdict)}`);
+  }
+
+  if (verdict && verdict.alert === false) {
+    updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, 'suppress', verdict.reason ?? null, 0);
+    dbg('suppressed — no notification');
+    return { sent: false, reason: `suppressed by filter: ${verdict.reason}`, verdictSource };
+  }
+
+  const wr = result.backtest.winRatePct;
+  const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
+  const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
+  const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
+  execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '')}" with title "market-signals" sound name "Glass"`]);
+  updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 1);
+  dbg(`notification sent: ${msg}`);
+  return { sent: true, message: msg, verdictSource };
+}
+
+// Upsert complete candles so history accumulates with every run — future
+// backtests can read from here instead of re-fetching a capped live window.
+export function storeCandles(dbPath, instrument, granularity, candles) {
+  mkdirSync(dirname(dbPath), { recursive: true });
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE IF NOT EXISTS candles (
+    instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+    open REAL, high REAL, low REAL, close REAL, volume REAL,
+    PRIMARY KEY (instrument, granularity, time)
+  )`);
+  const stmt = db.prepare(`INSERT INTO candles VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(instrument, granularity, time) DO UPDATE SET
+    open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, volume=excluded.volume`);
+  db.exec('BEGIN');
+  for (const c of candles) stmt.run(instrument, granularity, c.time, c.open, c.high, c.low, c.close, c.volume ?? null);
+  db.exec('COMMIT');
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM candles WHERE instrument = ? AND granularity = ?').get(instrument, granularity);
+  db.close();
+  return { stored: candles.length, totalRows: Number(n) };
+}
+
+export function computeSupertrend(candles, { period = 10, multiplier = 3 } = {}) {
+  const n = candles.length;
+  if (n < period + 2) throw new Error(`need at least ${period + 2} candles, got ${n}`);
+
+  const tr = new Array(n).fill(NaN);
+  for (let i = 1; i < n; i++) {
+    const { high, low } = candles[i];
+    const prevClose = candles[i - 1].close;
+    tr[i] = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+  }
+
+  // Wilder's ATR: SMA seed over the first `period` TRs, then RMA.
+  const atr = new Array(n).fill(NaN);
+  let seed = 0;
+  for (let i = 1; i <= period; i++) seed += tr[i];
+  atr[period] = seed / period;
+  for (let i = period + 1; i < n; i++) atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+
+  const out = new Array(n).fill(null);
+  let prevUpper = Infinity;
+  let prevLower = -Infinity;
+  let trend = 'up';
+  for (let i = period; i < n; i++) {
+    const { high, low, close } = candles[i];
+    const mid = (high + low) / 2;
+    const basicUpper = mid + multiplier * atr[i];
+    const basicLower = mid - multiplier * atr[i];
+    const prevClose = candles[i - 1].close;
+
+    const upper = (basicUpper < prevUpper || prevClose > prevUpper) ? basicUpper : prevUpper;
+    const lower = (basicLower > prevLower || prevClose < prevLower) ? basicLower : prevLower;
+
+    if (close > upper) trend = 'up';
+    else if (close < lower) trend = 'down';
+
+    out[i] = { trend, supertrend: trend === 'up' ? lower : upper, atr: atr[i] };
+    prevUpper = upper;
+    prevLower = lower;
+  }
+  return out;
+}
+
+export function detectFlips(candles, st) {
+  const flips = [];
+  for (let i = 1; i < st.length; i++) {
+    if (!st[i] || !st[i - 1]) continue;
+    if (st[i].trend !== st[i - 1].trend) {
+      flips.push({
+        index: i,
+        time: candles[i].time,
+        signal: st[i].trend === 'up' ? 'buy' : 'sell',
+        price: candles[i].close,
+      });
+    }
+  }
+  return flips;
+}
+
+// Naive flip-following backtest: enter long on buy flip / short on sell flip at
+// the flip candle's close, exit on the next flip (or the last candle).
+export function backtestFlips(candles, flips) {
+  const trades = [];
+  for (let i = 0; i < flips.length; i++) {
+    const entry = flips[i];
+    const exitPrice = i + 1 < flips.length
+      ? flips[i + 1].price
+      : candles[candles.length - 1].close;
+    const dir = entry.signal === 'buy' ? 1 : -1;
+    const returnPct = (dir * (exitPrice - entry.price)) / entry.price * 100;
+    trades.push({
+      signal: entry.signal,
+      entryTime: entry.time,
+      entryPrice: entry.price,
+      exitPrice,
+      open: i === flips.length - 1,
+      returnPct: Number(returnPct.toFixed(3)),
+    });
+  }
+  const closed = trades.filter((t) => !t.open);
+  const wins = closed.filter((t) => t.returnPct > 0).length;
+  return {
+    trades: trades.length,
+    closed: closed.length,
+    winRatePct: closed.length ? Number((wins / closed.length * 100).toFixed(1)) : null,
+    totalReturnPct: Number(closed.reduce((s, t) => s + t.returnPct, 0).toFixed(3)),
+    perTrade: trades,
+  };
+}
+
+async function fetchCandles({ instrument, granularity, count }) {
+  const url = new URL('https://p.fxempire.com/oanda/candles/latest');
+  url.searchParams.set('instrument', instrument);
+  url.searchParams.set('granularity', granularity);
+  url.searchParams.set('count', String(count));
+  url.searchParams.set('alignmentTimezone', 'UTC');
+  const res = await fetch(url, {
+    headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  const payload = await res.json();
+  const rows = Array.isArray(payload?.candles) ? payload.candles : [];
+  return rows
+    .map((r) => ({
+      time: r?.time || null,
+      open: Number(r?.mid?.o),
+      high: Number(r?.mid?.h),
+      low: Number(r?.mid?.l),
+      close: Number(r?.mid?.c),
+      complete: Boolean(r?.complete),
+    }))
+    .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite));
+}
+
+function parseArgs(argv) {
+  const out = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, stateFile: 'data/alert-state.json', pretty: true };
+  for (let i = 0; i < argv.length; i++) {
+    const m = argv[i].match(/^--([^=]+)(?:=(.*))?$/);
+    if (!m) continue;
+    const key = m[1];
+    const value = m[2] ?? ((argv[i + 1] && !argv[i + 1].startsWith('--')) ? argv[++i] : 'true');
+    if (!(key in out)) throw new Error(`unknown flag --${key} (run --help)`);
+    out[key] = ['count', 'period', 'freshBars'].includes(key) ? Number.parseInt(value, 10)
+      : key === 'multiplier' ? Number(value)
+      : ['pretty', 'notify'].includes(key) ? value !== 'false'
+      : value;
+  }
+  return out;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
+  const opts = parseArgs(argv);
+
+  const all = await fetchCandles(opts);
+  const candles = all.filter((c) => c.complete);
+  const store = opts.db ? storeCandles(opts.db, opts.instrument, opts.granularity, candles) : null;
+  const st = computeSupertrend(candles, opts);
+  const flips = detectFlips(candles, st);
+  const backtest = backtestFlips(candles, flips);
+
+  const last = candles[candles.length - 1];
+  const lastSt = st[st.length - 1];
+  const lastFlip = flips[flips.length - 1] || null;
+  const barsAgo = lastFlip ? candles.length - 1 - lastFlip.index : null;
+
+  const result = {
+    ok: true,
+    instrument: opts.instrument,
+    granularity: opts.granularity,
+    params: { period: opts.period, multiplier: opts.multiplier },
+    asOf: last.time,
+    close: last.close,
+    trend: lastSt.trend,
+    supertrend: Number(lastSt.supertrend.toFixed(4)),
+    signal: lastFlip && {
+      ...lastFlip,
+      barsAgo,
+      fresh: barsAgo <= opts.freshBars,
+    },
+    backtest,
+    store,
+  };
+  if (opts.notify) result.notify = await processSignal(opts, result, candles);
+  process.stdout.write(`${JSON.stringify(result, null, opts.pretty ? 2 : 0)}\n`);
+}
+
+const invokedDirectly = process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop());
+if (invokedDirectly) {
+  main().catch((err) => {
+    process.stderr.write(`supertrend error: ${err.message}\n`);
+    process.exitCode = 1;
+  });
+}

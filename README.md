@@ -39,6 +39,7 @@ Pipeline scripts under `scripts/` (stdlib only):
 | `classify-post.mjs` | Rule-based high-signal classifier + **per-instrument routing** (F1). |
 | `event-study.mjs` | **Single-feed** (F2) pre/post impact of one event, market-hours aware (next-open roll). |
 | `backtest.mjs` | Ingest → classify → event-study each post on its mapped instruments → markdown/CSV report. |
+| `supertrend.mjs` | Supertrend(10,3) flip signals on live M5 candles + inline flip-following backtest; upserts candles **and every fresh flip** into `data/candles.db` (node:sqlite) — past signals get realized 30-min outcomes computed from stored candles. `--notify true` sends a macOS notification on a fresh flip (deduped via the `signals` table). Opt-in LLM filter: create `data/settings.json` with `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `{"provider": "pi"}` (shells out to the pi coding agent CLI; optional `model`, `notesFile`, `piBin`) and each flip is judged against signal history + `data/notes.md` before alerting; fail-open on errors. Runs as a LaunchAgent: `~/Library/LaunchAgents/com.market-signals.supertrend.plist` (every 5 min, logs to `data/supertrend-launchd.log`). |
 
 Three load-bearing methodology rules are enforced:
 
