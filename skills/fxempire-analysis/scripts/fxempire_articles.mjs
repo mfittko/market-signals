@@ -378,7 +378,9 @@ const BUILTIN_SLUG_MARKETS = {
   bitcoin: 'crypto', ethereum: 'crypto', solana: 'crypto',
 };
 
+let slugMarketCache = null;
 export function slugMarket(slug) {
+  if (slugMarketCache) return slugMarketCache.get(slug) || BUILTIN_SLUG_MARKETS[slug] || 'commodities';
   try {
     const yml = fs.readFileSync(path.join(process.cwd(), 'config', 'instruments.yaml'), 'utf8');
     let market = null;
@@ -386,10 +388,14 @@ export function slugMarket(slug) {
       const m = line.match(/^  (\w[\w-]*):/);
       if (m) { market = m[1]; continue; }
       const sm = line.match(/- slug: (\S+)/);
-      if (sm && sm[1] === slug && market) return market === 'crypto-coin' ? 'crypto' : market;
+      if (sm && market) {
+        if (!slugMarketCache) slugMarketCache = new Map();
+        slugMarketCache.set(sm[1], market === 'crypto-coin' ? 'crypto' : market);
+      }
     }
   } catch { /* no catalog in cwd */ }
-  return BUILTIN_SLUG_MARKETS[slug] || 'commodities';
+  if (!slugMarketCache) slugMarketCache = new Map();
+  return slugMarketCache.get(slug) || BUILTIN_SLUG_MARKETS[slug] || 'commodities';
 }
 
 // Tag-based relevance: SSR pages embed a site-wide article mix; an article
@@ -399,7 +405,7 @@ export function articleMatchesSlug(a, slug) {
 }
 
 export function extractNextData(html) {
-  const m = String(html).match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  const m = String(html).match(/<script[^>]*\bid="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) return null;
   try { return JSON.parse(m[1]); } catch { return null; }
 }
@@ -418,7 +424,7 @@ export function extractSsrArticles(html) {
           id: Number(k),
           title: v.title,
           date: v.date ?? null,
-          timestamp: typeof v.timestamp === 'number' ? v.timestamp : Date.parse(v.date),
+          timestamp: typeof v.timestamp === 'number' ? v.timestamp : parseUpstreamDate(v.date),
           articleUrl: v.url,
           tags: (Array.isArray(v.tags) ? v.tags : []).map((t) => (typeof t === 'string' ? t : t?.slug)).filter(Boolean),
         });
@@ -434,9 +440,17 @@ export function extractSsrArticles(html) {
 // Articles are best-effort enrichment. Classify whether the upstream feed
 // yielded anything usable so the report can signal degradation instead of a
 // silent 0. See issue #11 (frozen/mis-tagged upstream news hub).
+// Upstream date strings are UTC but carry no timezone suffix (verified: hub
+// items' epoch timestamps equal Date.parse(date + 'Z')). Parse them as UTC so
+// recency filtering is machine-timezone independent.
+export function parseUpstreamDate(d) {
+  if (typeof d !== 'string' || !d) return NaN;
+  return Date.parse(/[zZ]$|[+-]\d{2}:?\d{2}$/.test(d) ? d : `${d}Z`);
+}
+
 // Single timestamp-parse rule for upstream article objects.
 export function articleTs(a) {
-  return typeof a.timestamp === 'number' ? a.timestamp : Date.parse(a.date);
+  return typeof a.timestamp === 'number' ? a.timestamp : parseUpstreamDate(a.date);
 }
 
 export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffTs }) {

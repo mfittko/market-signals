@@ -66,8 +66,8 @@ test('extractSsrArticles pulls id-keyed articles from __NEXT_DATA__, skipping no
 });
 
 test('SSR articles flow through normalizeArticles with recency filtering', () => {
-  const nowTs = Date.parse('2026-07-22T17:00:00');
-  const cutoffTs = Date.parse('2026-07-22T05:00:00');
+  const nowTs = Date.parse('2026-07-22T17:00:00Z');
+  const cutoffTs = Date.parse('2026-07-22T05:00:00Z');
   const norm = normalizeArticles(extractSsrArticles(ssrHtml).map((a) => ({ ...a, _type: 'news', _tag: 'ssr:test', _slug: 'wti-crude-oil' })), { cutoffTs, nowTs });
   assert.equal(norm.length, 2, 'ancient article filtered out');
   assert.ok(norm.every((a) => a.fullUrl.startsWith('https://www.fxempire.com/')));
@@ -97,4 +97,18 @@ test('articleMatchesSlug: tag-prefix convention attribution', () => {
   assert.equal(wti.length, 1);
   assert.equal(wti[0].id, 1612050);
   assert.equal(arts.filter((a) => articleMatchesSlug(a, 'bitcoin')).length, 0, 'untagged instruments get nothing from the mix');
+});
+
+
+test('upstream dates parse as UTC regardless of machine timezone; explicit offsets respected', async () => {
+  const { parseUpstreamDate } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  assert.equal(parseUpstreamDate('2026-04-30T10:24:35'), 1777544675000, 'matches the hub epoch pair');
+  assert.equal(parseUpstreamDate('2026-04-30T10:24:35Z'), 1777544675000);
+  assert.equal(parseUpstreamDate('2026-04-30T12:24:35+02:00'), 1777544675000);
+  assert.ok(Number.isNaN(parseUpstreamDate(null)));
+});
+
+test('extractNextData tolerates attribute reordering and extra attributes', () => {
+  const wrapped = '<script type="application/json" nonce="abc" id="__NEXT_DATA__" crossorigin>{"a":1}</script>';
+  assert.deepEqual(extractNextData(wrapped), { a: 1 });
 });
