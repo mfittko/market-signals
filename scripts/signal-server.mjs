@@ -74,7 +74,7 @@ const granularityMs = (g) => {
   return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
 };
 
-const lastLiveFetch = new Map(); // per instrument|granularity: at most one upstream fetch per ~minute
+const lastLiveFetch = new Map(); // key -> { at, tail }: one upstream fetch per ~minute, forming candle cached in between
 
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
@@ -82,14 +82,19 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // Serve stale data if the live fetch fails — availability over freshness.
   let liveTail = null;
   const fetchKey = `${instrument}|${granularity}`;
-  if (fetcher && Date.now() - (lastLiveFetch.get(fetchKey) ?? 0) > 55000) {
-    lastLiveFetch.set(fetchKey, Date.now());
+  const gate = lastLiveFetch.get(fetchKey);
+  if (fetcher && (!gate || Date.now() - gate.at > 55000)) {
     try {
       const live = await fetcher({ instrument, granularity, count: 60 });
       const complete = live.filter((c) => c.complete);
       if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
       liveTail = live.find((c) => !c.complete) ?? null;
-    } catch { /* offline or upstream down: stale view beats none */ }
+      lastLiveFetch.set(fetchKey, { at: Date.now(), tail: liveTail });
+    } catch {
+      lastLiveFetch.set(fetchKey, { at: Date.now(), tail: null }); // failed: back off, stale view beats none
+    }
+  } else if (gate) {
+    liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
   }
   const { candles, recent } = withDb(dbPath, (db) => {
     let windowed;

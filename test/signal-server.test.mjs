@@ -110,9 +110,11 @@ test('stale data triggers a live refresh through the injected fetcher; fetch fai
   assert.equal(d.quote.last, 201, 'forming candle drives the quote');
   assert.equal(d.quote.partial, true, 'quote marked partial');
   assert.equal(d.candles[d.candles.length - 1].partial, true, 'forming candle shown on the chart tail');
-  // Second call: now fresh enough, no fetch.
-  await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return []; } });
-  assert.equal(calls, 1, 'fresh db does not re-fetch');
+  // Second call inside the gate window: no re-fetch, but the cached forming candle still serves.
+  const d2b = await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return []; } });
+  assert.equal(calls, 1, 'gate window prevents a second upstream fetch');
+  assert.equal(d2b.quote.last, 201, 'cached forming candle still drives the quote while the gate is closed');
+  assert.equal(d2b.quote.partial, true);
   // Failure path: stale again with a throwing fetcher still serves stored data.
   const dir2 = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath: db2 } = fixtureDb(dir2);
