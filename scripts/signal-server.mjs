@@ -675,7 +675,7 @@ function selectors(d) {
 }
 
 const localHm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-const localFull = (iso) => new Date(iso).toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/,\s*/, ' ');
+const localFull = (iso) => new Date(iso).toLocaleString('en-GB', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/[,\\s]+/, ' ');
 function quoteStrip(q) {
   const el = document.getElementById('quote');
   if (!q) { el.hidden = true; return; }
