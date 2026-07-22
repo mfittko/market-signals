@@ -62,23 +62,19 @@ export const BOT_DEFAULTS = {
   commission: 0,
 };
 
-const spreadsCache = new Map();
-export function instrumentSpread(instrument, spreadsPath = 'config/spreads.json') {
-  if (!spreadsCache.has(spreadsPath)) {
-    let parsed = {};
-    try { parsed = JSON.parse(readFileSync(spreadsPath, 'utf8')); } catch { /* no spread config */ }
-    spreadsCache.set(spreadsPath, parsed);
-  }
-  const s = spreadsCache.get(spreadsPath)[instrument];
-  return typeof s === 'number' && s >= 0 ? s : 0;
-}
-export function resetSpreadCache() { spreadsCache.clear(); }
-
-export function botConfig(settings = {}) {
+export function botConfig(settings = {}, spreadsPath = 'config/spreads.json') {
   const bot = settings.bot || {};
   const cfg = { ...BOT_DEFAULTS, ...Object.fromEntries(Object.entries(bot).filter(([k, v]) => Object.hasOwn(BOT_DEFAULTS, k) && Number.isFinite(v) && v > 0)) };
   cfg.leverage = bot.leverage && typeof bot.leverage === 'object' ? bot.leverage : {};
+  let spreads = {};
+  try { spreads = JSON.parse(readFileSync(spreadsPath, 'utf8')); } catch { /* no spread config */ }
+  cfg.spreads = spreads;
   return cfg;
+}
+
+export function instrumentSpread(cfg, instrument) {
+  const s = cfg.spreads?.[instrument];
+  return typeof s === 'number' && s >= 0 ? s : 0;
 }
 
 export function instrumentLeverage(cfg, instrument) {
@@ -113,7 +109,7 @@ export function unrealized(pos, mark) {
 
 // --- mutations (module-internal to the bot; never wire to a POST route) -----
 
-export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null, spreadsPath } = {}) {
+export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null } = {}) {
   if (typeof instrument !== 'string' || !instrument.trim()) throw new Error('instrument required');
   if (side !== 'long' && side !== 'short') throw new Error('side must be long|short');
   if (!(notional > 0) || !(price > 0)) throw new Error('notional and price must be > 0');
@@ -134,7 +130,7 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     if (margin > (cfg.riskPct / 100) * equityNow) {
       throw new Error(`margin ${margin.toFixed(2)} exceeds risk budget (${cfg.riskPct}% of equity ${equityNow.toFixed(2)})`);
     }
-    const spread = instrumentSpread(instrument, spreadsPath);
+    const spread = instrumentSpread(cfg, instrument);
     const entry = side === 'long' ? price + spread : price - spread;
     const units = notional / price;
     const cash = p.cash - margin - cfg.commission;

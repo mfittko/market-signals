@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  BOT_DEFAULTS, botConfig, instrumentLeverage, instrumentSpread, resetSpreadCache,
+  BOT_DEFAULTS, botConfig, instrumentLeverage, instrumentSpread,
   openPosition, closePosition, markToMarket, portfolioView, unrealized,
 } from '../scripts/portfolio.mjs';
 
@@ -25,10 +25,11 @@ test('config: defaults, per-instrument leverage with 10x default and cap', () =>
   assert.equal(instrumentLeverage(botConfig({ bot: { leverage: { 'A/B': Infinity } } }), 'A/B'), 10, 'non-finite per-instrument leverage falls back');
 });
 
-test('spread config reads config/spreads.json with 0 fallback', () => {
-  resetSpreadCache();
-  assert.equal(instrumentSpread(WTI), 0.06, 'seeded broker spread');
-  assert.equal(instrumentSpread('NO/SUCH'), 0);
+test('spread config resolves at the config boundary with 0 fallback', () => {
+  const cfg = botConfig({});
+  assert.equal(instrumentSpread(cfg, WTI), 0.06, 'seeded broker spread');
+  assert.equal(instrumentSpread(cfg, 'NO/SUCH'), 0);
+  assert.deepEqual(botConfig({}, 'no/such/file.json').spreads, {}, 'missing spread file is empty config');
 });
 
 test('P&L: long and short with spread on entry, leveraged margin', () => {
@@ -126,9 +127,7 @@ test('commission: charged exactly once (at open), precondition covers it, cache 
   const tiny = botConfig({ bot: { startingBalance: 100, riskPct: 100, commission: 5, defaultLeverage: 10 } });
   const db2 = fresh();
   assert.throws(() => openPosition(db2, tiny, { instrument: 'NO/SPREAD', side: 'long', notional: 1000, price: 100 }), /insufficient cash/);
-  resetSpreadCache();
-  assert.equal(instrumentSpread('NO/SUCH', 'config/spreads.json'), 0);
-  assert.equal(instrumentSpread(WTI), 0.06, 'per-path cache does not leak across paths');
+  assert.equal(instrumentSpread(botConfig({}), 'NO/SUCH'), 0);
 });
 
 test('missing quote: mark kept, position flagged stale, no close triggered', () => {
