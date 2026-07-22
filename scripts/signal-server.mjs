@@ -111,9 +111,10 @@ export function buildServer({ dbPath, settingsPath }) {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (url.pathname === '/api/chart') {
-        const instrument = url.searchParams.get('instrument') || readSettings(settingsPath).instrument || DEFAULT_INSTRUMENT;
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
-        const granularity = url.searchParams.get('granularity') || readSettings(settingsPath).granularity || 'M5';
+        const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
         return json(res, 200, chartData(dbPath, instrument, { t, granularity }));
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
@@ -263,8 +264,8 @@ function parseArgs(argv) {
     if (!(m[1] in out)) throw new Error(`unknown flag --${m[1]} (run --help)`);
     const value = m[2] ?? argv[++i];
     if (value === undefined) throw new Error(`--${m[1]} requires a value`);
+    if (m[1] === 'port' && !/^\d+$/.test(value)) throw new Error(`invalid --port "${value}"`);
     out[m[1]] = m[1] === 'port' ? Number.parseInt(value, 10) : value;
-    if (m[1] === 'port' && Number.isNaN(out.port)) throw new Error(`invalid --port "${value}"`);
   }
   return out;
 }
@@ -273,7 +274,8 @@ function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
   const opts = parseArgs(argv);
-  const port = opts.port ?? readSettings(opts.settings).port ?? 8787;
+  const settingsPort = Number(readSettings(opts.settings).port);
+  const port = opts.port ?? (Number.isInteger(settingsPort) && settingsPort > 0 ? settingsPort : 8787);
   const server = buildServer({ dbPath: opts.db, settingsPath: opts.settings });
   server.listen(port, '127.0.0.1', () => {
     process.stdout.write(`signal-server listening on http://127.0.0.1:${port}\n`);
@@ -281,4 +283,11 @@ function main() {
 }
 
 const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
-if (invokedDirectly) main();
+if (invokedDirectly) {
+  try {
+    main();
+  } catch (err) {
+    process.stderr.write(`signal-server error: ${err.message}\n`);
+    process.exitCode = 1;
+  }
+}
