@@ -89,8 +89,8 @@ export function strategyScoreboard(dbPath, startingBalance = 10000) {
 }
 
 // Baselines over the SAME stored-candle window the strategy traded (or the
-// latest window when no trades exist yet): raw flip-following via the existing
-// backtest math, and buy-and-hold first→last close.
+// full stored history when no fromTime is given): raw flip-following via the
+// existing backtest math, and buy-and-hold first→last close.
 export function baselines(dbPath, instrument, granularity, opts = {}) {
   const candles = rows(dbPath,
     'SELECT time, open, high, low, close, volume, 1 AS complete FROM candles WHERE instrument=? AND granularity=? ORDER BY time',

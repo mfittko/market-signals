@@ -786,10 +786,12 @@ document.getElementById('pfTabs').addEventListener('click', async (e) => {
   if (!tab) return;
   for (const b of document.querySelectorAll('#pfTabs button')) b.classList.toggle('on', b === e.target);
   for (const name of ['positions', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
-  if (tab === 'performance' || tab === 'audit') renderEvaluation();
+  if (tab === 'performance' || tab === 'audit') renderEvaluation().catch(() => { document.getElementById('tab-' + tab).innerHTML = '<p><small>evaluation unavailable</small></p>'; });
 });
 async function renderEvaluation() {
-  const r = await (await fetch('/api/evaluation?' + new URLSearchParams({ instrument: qs.get('instrument') || '', granularity: qs.get('granularity') || '' }))).json();
+  const evalParams = new URLSearchParams({ instrument: qs.get('instrument') || '', granularity: qs.get('granularity') || '' });
+  if (qs.get('strategy')) evalParams.set('strategy', qs.get('strategy'));
+  const r = await (await fetch('/api/evaluation?' + evalParams)).json();
   if (!r.ok) return;
   const perf = document.getElementById('tab-performance');
   const rowsHtml = r.scoreboard.map(s =>
