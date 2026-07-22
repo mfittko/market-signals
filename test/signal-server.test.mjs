@@ -564,3 +564,18 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
     assert.ok(!messages[1].content.includes('<!--title'), 'persisted assistant message is clean');
   });
 });
+
+test('served client stripTitleTail behaves correctly as DELIVERED (escape-drift guard)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const m = html.match(/const stripTitleTail = \(t\) => \{[\s\S]*?\n\};/);
+    assert.ok(m, 'client stripTitleTail found in the served page');
+    const stripTitleTail = new Function(`${m[0]}; return stripTitleTail;`)();
+    assert.equal(stripTitleTail('Answer.\n<!--title: done-->'), 'Answer.');
+    assert.equal(stripTitleTail('Answer.\n<!--title: partial stream'), 'Answer.');
+    assert.equal(stripTitleTail('Answer.\n<!--tit'), 'Answer.');
+    assert.equal(stripTitleTail('legit <!--note--> stays put'), 'legit <!--note--> stays put');
+    assert.equal(stripTitleTail('explains <!--title: x--> then more'), 'explains <!--title: x--> then more');
+    assert.equal(stripTitleTail('ends with <e'), 'ends with <e', 'non-prefix tails untouched');
+  });
+});
