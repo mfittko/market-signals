@@ -299,7 +299,18 @@ export function execChatTool(name, input) {
   return String(tool.run(input ?? {})).slice(0, 8000);
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
+// The model annotates each reply with an evolving thread title (issue #38);
+// stripped before persistence/display, applied when it changed.
+export function extractThreadTitle(reply) {
+  const text = String(reply);
+  const m = text.match(/\r?\n?<!--\s*title:\s*(.{1,120}?)\s*-->\s*$/);
+  if (!m || /[\r\n]/.test(m[1])) return { text, title: null };
+  // Only the annotation (and its single leading newline) is removed — trailing
+  // whitespace in the reply (markdown hard breaks) is content, not noise.
+  return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
+}
+
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -480,8 +491,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
           const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: execChatTool });
-          addMessage(dbPath, threadId, 'assistant', reply);
-          send({ type: 'done', threadId: Number(threadId), reply });
+          const { text: cleanReply, title } = extractThreadTitle(reply);
+          addMessage(dbPath, threadId, 'assistant', cleanReply);
+          if (title) {
+            const changed = chatDb(dbPath, (db) => db.prepare('UPDATE chat_threads SET title=? WHERE id=? AND title<>?').run(title, threadId, title).changes);
+            if (changed > 0) send({ type: 'title', threadId: Number(threadId), title });
+          }
+          send({ type: 'done', threadId: Number(threadId), reply: cleanReply });
         } catch (err) {
           addMessage(dbPath, threadId, 'error', err.message);
           send({ type: 'error', threadId: Number(threadId), error: err.message });
@@ -818,6 +834,19 @@ function appendMsg(role, text) {
   el.scrollTop = el.scrollHeight;
   return div;
 }
+// A complete, still-streaming, or partially-arrived trailing TITLE annotation
+// must never flash in the bubble — but legit HTML comments (even trailing ones,
+// even mid-text title mentions followed by more prose) render. Only the LAST
+// comment-start is considered, and only when it is a title annotation that
+// runs to the end; the fallback strips bare prefixes of "<!--title:".
+const stripTitleTail = (t) => {
+  const i = t.lastIndexOf('<!--');
+  if (i !== -1) {
+    const tail = t.slice(i);
+    if (/^<!--\\s*title:/.test(tail) && (!tail.includes('-->') || /-->\\s*$/.test(tail))) return t.slice(0, i).replace(/\\n$/, '');
+  }
+  return t.replace(/\\n?<(?:!(?:-(?:-(?:\\s*(?:t(?:i(?:t(?:l(?:e(?::)?)?)?)?)?)?)?)?)?)?$/, '');
+};
 document.getElementById('chatForm').onsubmit = async (e) => {
   e.preventDefault();
   if (chat.pending) return;
@@ -849,7 +878,8 @@ document.getElementById('chatForm').onsubmit = async (e) => {
         if (!line.startsWith('data:')) continue;
         const ev = JSON.parse(line.slice(5));
         if (ev.type === 'thread') chat.threadId = ev.id;
-        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(acc); document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(stripTitleTail(acc)); document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'title') loadThreads();
         if (ev.type === 'done') { bubble.innerHTML = md(ev.reply); chat.threadId = ev.threadId; }
         if (ev.type === 'error') { bubble.className = 'msg error'; bubble.textContent = ev.error; chat.threadId = ev.threadId ?? chat.threadId; }
       }
