@@ -35,7 +35,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -227,6 +227,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const configured = (cfg.instruments ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.instruments = configured.length ? configured : DEFAULT_INSTRUMENTS;
         if (!data.instruments.includes(instrument)) data.instruments = [instrument, ...data.instruments];
+        data.watchers = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+        data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
@@ -282,6 +284,7 @@ const PAGE = /* html */ `<!doctype html>
   input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
+  #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn { float: right; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
@@ -299,7 +302,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><main>
-<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="cfgbtn" type="button">⚙ settings</button></h1>
+<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div class="verdict" id="verdict">loading…</div>
@@ -394,6 +397,14 @@ function selectors(d) {
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
   const go = () => { location.search = '?' + new URLSearchParams({ instrument: inst.value, granularity: gran.value }); };
   inst.onchange = go; gran.onchange = go;
+  const btn = document.getElementById('watchBtn');
+  btn.textContent = d.watched ? '🔔' : '🔕';
+  btn.onclick = async () => {
+    const combo = d.instrument + '|' + d.granularity;
+    const next = d.watched ? d.watchers.filter(w => w !== combo) : [...d.watchers, combo];
+    await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ watchers: next.join(', ') }) });
+    load();
+  };
 }
 
 function quoteStrip(q) {
@@ -435,7 +446,7 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
+const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');

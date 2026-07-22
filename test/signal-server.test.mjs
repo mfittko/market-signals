@@ -300,3 +300,18 @@ test('/api/chart carries the current-course quote from the latest candles', asyn
     assert.ok(html.includes('id="quote"'), 'quote strip element present');
   });
 });
+
+test('watch toggle: watchers CSV round-trips and the chart response carries watched state', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let d = await (await fetch(`${base}/api/chart`)).json();
+    assert.equal(d.watched, false);
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ watchers: `${INSTRUMENT}|M5, XAU/USD|M15` }) });
+    d = await (await fetch(`${base}/api/chart`)).json();
+    assert.equal(d.watched, true, 'current combo is watched');
+    assert.deepEqual(d.watchers, [`${INSTRUMENT}|M5`, 'XAU/USD|M15']);
+    d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    assert.equal(d.watched, false, 'same instrument, different granularity: not watched');
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="watchBtn"'), 'bell toggle present');
+  });
+});

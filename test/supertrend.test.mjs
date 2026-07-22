@@ -146,3 +146,13 @@ test('processSignal fails open on filter error and records the verdict', async (
     process.env.PATH = prevPath;
   }
 });
+
+test('parseWatchers: CSV combos with default granularity, falls back to single', async () => {
+  const { parseWatchers } = await import('../scripts/supertrend.mjs');
+  assert.deepEqual(parseWatchers({ watchers: 'WTICO/USD|M5, XAU/USD|M15, BCO/USD' }, { instrument: 'X', granularity: 'M5' }), [
+    { instrument: 'WTICO/USD', granularity: 'M5' },
+    { instrument: 'XAU/USD', granularity: 'M15' },
+    { instrument: 'BCO/USD', granularity: 'M5' },
+  ]);
+  assert.deepEqual(parseWatchers({}, { instrument: 'WTICO/USD', granularity: 'M5' }), [{ instrument: 'WTICO/USD', granularity: 'M5' }]);
+});

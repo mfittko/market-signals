@@ -427,19 +427,18 @@ function parseArgs(argv) {
   return out;
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
-  const opts = parseArgs(argv);
+// settings.watchers CSV ("WTICO/USD|M5, XAU/USD|M15") → combo list; falls back
+// to the single flag/settings-configured instrument+granularity.
+export function parseWatchers(cfg, fallback) {
+  const raw = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  const combos = raw.map((entry) => {
+    const [instrument, granularity = 'M5'] = entry.split('|').map((x) => x.trim());
+    return { instrument, granularity };
+  }).filter((c) => c.instrument);
+  return combos.length ? combos : [fallback];
+}
 
-  // Watcher fields set on the config page win over baked defaults but lose to
-  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
-  const cfg = readSettings(opts.settings);
-  for (const k of ['instrument', 'granularity', 'freshBars']) {
-    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
-    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
-  }
-
+async function runOne(opts) {
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
   const store = opts.db ? storeCandles(opts.db, opts.instrument, opts.granularity, candles) : null;
@@ -470,7 +469,34 @@ async function main() {
     store,
   };
   result.notify = await processSignal(opts, result, candles);
-  process.stdout.write(`${JSON.stringify(result, null, opts.pretty ? 2 : 0)}\n`);
+  return result;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
+  const opts = parseArgs(argv);
+
+  // Watcher fields set on the config page win over baked defaults but lose to
+  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  const cfg = readSettings(opts.settings);
+  for (const k of ['instrument', 'granularity', 'freshBars']) {
+    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
+    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
+  }
+
+  const combos = parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
+  const results = [];
+  for (const combo of combos) {
+    try {
+      results.push(await runOne({ ...opts, ...combo }));
+    } catch (err) {
+      dbg(`watcher ${combo.instrument} ${combo.granularity} failed: ${err.message}`);
+      results.push({ ok: false, ...combo, error: err.message });
+    }
+  }
+  const out = results.length === 1 ? results[0] : results;
+  process.stdout.write(`${JSON.stringify(out, null, opts.pretty ? 2 : 0)}\n`);
 }
 
 const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
