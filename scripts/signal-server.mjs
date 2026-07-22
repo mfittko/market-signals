@@ -74,15 +74,21 @@ const granularityMs = (g) => {
   return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
 };
 
+const lastLiveFetch = new Map(); // per instrument|granularity: at most one upstream fetch per ~minute
+
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
-  const newest = withDb(dbPath, (db) => db.prepare('SELECT time FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity));
-  if (fetcher && (!newest || Date.now() - Date.parse(newest.time) > granularityMs(granularity) + 90000)) {
+  let liveTail = null;
+  const fetchKey = `${instrument}|${granularity}`;
+  if (fetcher && Date.now() - (lastLiveFetch.get(fetchKey) ?? 0) > 55000) {
+    lastLiveFetch.set(fetchKey, Date.now());
     try {
-      const live = (await fetcher({ instrument, granularity, count: 200 })).filter((c) => c.complete);
-      if (live.length) storeCandles(dbPath, instrument, granularity, live);
+      const live = await fetcher({ instrument, granularity, count: 60 });
+      const complete = live.filter((c) => c.complete);
+      if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+      liveTail = live.find((c) => !c.complete) ?? null;
     } catch { /* offline or upstream down: stale view beats none */ }
   }
   const { candles, recent } = withDb(dbPath, (db) => {
@@ -99,8 +105,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
         .all(instrument, granularity, count).reverse();
     }
     // Latest ~24h regardless of any deep-linked window: the quote is about now.
-    const recent = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 288')
-      .all(instrument, granularity).reverse();
+    const dayBars = Math.ceil(86400000 / granularityMs(granularity));
+    const recent = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+      .all(instrument, granularity, dayBars).reverse();
     return { candles: windowed, recent };
   });
   let supertrend = [];
@@ -109,6 +116,11 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     const st = computeSupertrend(candles, {});
     supertrend = st.map((s, i) => s && { time: candles[i].time, value: Number(s.supertrend.toFixed(4)), trend: s.trend }).filter(Boolean);
     flips = detectFlips(candles, st);
+  }
+  if (liveTail) {
+    const tail = { ...liveTail, partial: true };
+    if (!t && (!candles.length || Date.parse(tail.time) > Date.parse(candles[candles.length - 1].time))) candles.push(tail);
+    if (!recent.length || Date.parse(tail.time) > Date.parse(recent[recent.length - 1].time)) recent.push(tail);
   }
   const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
   // Deep-linked signals older than the history window are looked up directly.
@@ -122,7 +134,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   } else {
     signal = signals[0] ?? null;
   }
-  return { instrument, granularity, candles, supertrend, flips, signal, signals, quote: buildQuote(recent) };
+  const quote = buildQuote(recent);
+  if (quote && liveTail) quote.partial = true;
+  return { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
 }
 
 // Current course info from the latest stored candles (at most one candle stale).

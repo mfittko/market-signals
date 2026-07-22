@@ -102,10 +102,13 @@ test('stale data triggers a live refresh through the injected fetcher; fetch fai
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath } = fixtureDb(dir); // fixture times are hours old -> stale
   const fresh = series([200, 201], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  fresh[1] = { ...fresh[1], complete: false }; // the forming candle
   let calls = 0;
   const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return fresh; } });
   assert.equal(calls, 1, 'stale db pulled live candles once');
-  assert.equal(d.quote.last, 201, 'freshly fetched candle serves the quote');
+  assert.equal(d.quote.last, 201, 'forming candle drives the quote');
+  assert.equal(d.quote.partial, true, 'quote marked partial');
+  assert.equal(d.candles[d.candles.length - 1].partial, true, 'forming candle shown on the chart tail');
   // Second call: now fresh enough, no fetch.
   await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return []; } });
   assert.equal(calls, 1, 'fresh db does not re-fetch');

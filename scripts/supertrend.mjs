@@ -187,8 +187,19 @@ export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
   if (!opts.db) return { sent: false, reason: 'signal persistence requires --db' };
+  const granMs = (() => { const m = /^([MH])(\d+)$/.exec(opts.granularity); return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000; })();
+  const sigMs = Date.parse(sig.time);
+  const nearby = signalOutcomes(opts.db, opts.instrument, opts.granularity, { limit: 10 })
+    .find((s) => s.time !== sig.time && Math.abs(Date.parse(s.time) - sigMs) <= 3 * granMs);
   const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, result.backtest.winRatePct);
   if (!isNew) return { sent: false, reason: 'already processed' };
+  if (nearby) {
+    // Same flip re-detected on a shifted candle window: lock in the original,
+    // record this row for audit, never notify twice.
+    updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, 'duplicate', `re-detection of ${nearby.time}`, 0);
+    dbg(`suppressed duplicate of ${nearby.time} (flip re-detected at ${sig.time})`);
+    return { sent: false, reason: `duplicate of ${nearby.time}`, verdictSource: 'cooldown' };
+  }
   if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
   const settings = readSettings(opts.settings);
