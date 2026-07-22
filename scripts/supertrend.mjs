@@ -107,56 +107,224 @@ const VERDICT_SCHEMA = {
 // Provider picked by settings: {"provider": "pi"} shells out to the pi coding
 // agent (its own provider/key config applies); else by which API key is present
 // (ANTHROPIC wins if both).
-async function llmVerdict(settings, payload) {
-  if (settings.provider === 'pi') {
-    // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
-    const args = ['-p', '--no-session', '--no-tools', '--system-prompt', FILTER_SYSTEM];
-    if (settings.model) args.push('--model', settings.model);
-    args.push(JSON.stringify(payload));
-    const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: 90000 });
-    const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
-    if (!m) throw new Error('pi output had no verdict JSON');
-    return JSON.parse(m[0]);
+// Single source of provider precedence: explicit pi/none, else key-based.
+export function resolveProvider(settings) {
+  if (settings.provider === 'pi') return 'pi';
+  if (settings.provider === 'none') return 'none';
+  if (settings.ANTHROPIC_API_KEY) return 'anthropic';
+  if (settings.OPENAI_API_KEY) return 'openai';
+  return 'none';
+}
+
+// Streaming SSE reader shared by both API providers: calls extract(json) per
+// `data:` event, invokes onDelta with each text piece, returns the full text.
+async function readSse(res, extract, onDelta) {
+  let full = '';
+  let buf = '';
+  const dec = new TextDecoder();
+  for await (const chunk of res.body) {
+    buf += dec.decode(chunk, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+      let piece = null;
+      try { piece = extract(JSON.parse(data)); } catch { /* keepalive/partial */ }
+      if (piece) {
+        full += piece;
+        if (onDelta) onDelta(piece);
+      }
+    }
   }
-  if (settings.ANTHROPIC_API_KEY) {
+  // Flush the decoder and any final line without a trailing newline.
+  buf += dec.decode();
+  const tail = buf.trim();
+  if (tail.startsWith('data:')) {
+    try {
+      const piece = extract(JSON.parse(tail.slice(5).trim()));
+      if (piece) {
+        full += piece;
+        if (onDelta) onDelta(piece);
+      }
+    } catch { /* not a data event */ }
+  }
+  return full;
+}
+
+// Single provider dispatch. schema => JSON-constrained (non-streaming);
+// onDelta => streamed tokens for the API providers (pi replies whole).
+// Always tool-less: the chat's tool surface lives in the dedicated tool loops.
+async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null } = {}) {
+  const provider = resolveProvider(settings);
+  if (provider === 'none') throw new Error('no provider configured');
+  if (provider === 'pi') {
+    // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
+    const args = ['-p', '--no-session', '--no-tools', '--system-prompt', system];
+    if (settings.model) args.push('--model', settings.model);
+    args.push(user);
+    let out;
+    try {
+      out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        // launchd's PATH lacks the brew prefixes; pi's shebang needs node on PATH.
+        env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ''}` },
+      }).trim();
+    } catch (err) {
+      // execFileSync errors embed the full command (incl. the prompt) — never propagate that.
+      const stderr = (err.stderr ? String(err.stderr) : '').trim().split('\n').pop() || '';
+      throw new Error(`pi failed: ${stderr || err.code || `exit ${err.status}`}`.slice(0, 200));
+    }
+    if (onDelta) onDelta(out); // pi cannot stream: one whole delta
+    return out;
+  }
+  if (provider === 'anthropic') {
+    const stream = Boolean(onDelta) && !schema;
+    const body = {
+      model: settings.model || 'claude-opus-4-8',
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }],
+    };
+    if (schema) body.output_config = { format: { type: 'json_schema', schema } };
+    if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': settings.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: settings.model || 'claude-opus-4-8',
-        max_tokens: 1024,
-        system: FILTER_SYSTEM,
-        output_config: { format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
-        messages: [{ role: 'user', content: JSON.stringify(payload) }],
-      }),
-      signal: AbortSignal.timeout(30000),
+      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    if (stream) {
+      return readSse(res, (j) => (j.type === 'content_block_delta' && j.delta?.type === 'text_delta' ? j.delta.text : null), onDelta);
+    }
+    const data = await res.json();
+    if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
+    return data.content.find((b) => b.type === 'text').text;
+  }
+  {
+    const stream = Boolean(onDelta) && !schema;
+    const body = {
+      model: settings.model || 'gpt-5.4-mini',
+      max_completion_tokens: maxTokens,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    };
+    if (schema) body.response_format = { type: 'json_object' };
+    if (stream) body.stream = true;
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    if (stream) {
+      return readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+    }
+    const data = await res.json();
+    return data.choices[0].message.content;
+  }
+}
+
+// Tool-use loop for the API providers: runs custom tools via execTool until the
+// model stops asking. Non-streaming rounds; emits status deltas so the UI shows
+// progress, then the final text as one delta.
+async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+  const tools = [
+    { type: 'web_search_20260209', name: 'web_search', max_uses: 3 },
+    ...toolDefs.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
+  ];
+  const messages = [{ role: 'user', content: user }];
+  for (let round = 0; round < 8; round++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: settings.model || 'claude-opus-4-8', max_tokens: maxTokens, system, tools, messages }),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     const data = await res.json();
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
-    return JSON.parse(data.content.find((b) => b.type === 'text').text);
+    if (data.stop_reason === 'pause_turn') {
+      messages.push({ role: 'assistant', content: data.content });
+      continue;
+    }
+    if (data.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content: data.content });
+      const results = [];
+      for (const block of data.content.filter((b) => b.type === 'tool_use')) {
+        if (onDelta) onDelta(`[${block.name}…]\n`);
+        let out;
+        let isError = false;
+        try { out = await execTool(block.name, block.input); } catch (err) { out = err.message; isError = true; }
+        results.push({ type: 'tool_result', tool_use_id: block.id, content: String(out).slice(0, 8000), is_error: isError });
+      }
+      messages.push({ role: 'user', content: results });
+      continue;
+    }
+    const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    if (onDelta) onDelta(text);
+    return text;
   }
+  throw new Error('tool loop exceeded 8 rounds');
+}
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: settings.model || 'gpt-5.4-mini',
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: FILTER_SYSTEM },
-        { role: 'user', content: JSON.stringify(payload) },
-      ],
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
-  const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
+async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+  const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+  const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+  for (let round = 0; round < 8; round++) {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    const msg = (await res.json()).choices[0].message;
+    if (msg.tool_calls?.length) {
+      messages.push(msg);
+      for (const call of msg.tool_calls) {
+        if (onDelta) onDelta(`[${call.function.name}…]\n`);
+        let out;
+        try { out = await execTool(call.function.name, JSON.parse(call.function.arguments || '{}')); } catch (err) { out = `error: ${err.message}`; }
+        messages.push({ role: 'tool', tool_call_id: call.id, content: String(out).slice(0, 8000) });
+      }
+      continue;
+    }
+    if (onDelta) onDelta(msg.content ?? '');
+    return msg.content ?? '';
+  }
+  throw new Error('tool loop exceeded 8 rounds');
+}
+
+// Free-form ask against the configured provider (used by the chat sidebar).
+export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null } = {}) {
+  const provider = resolveProvider(settings);
+  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool };
+  if (toolDefs && execTool && provider === 'anthropic') return anthropicToolLoop(settings, system, user, opts);
+  if (toolDefs && execTool && provider === 'openai') return openaiToolLoop(settings, system, user, opts);
+  // pi (and tool-less fallbacks): context only — the sole tool surface is the
+  // clamped skill registry via the API providers' native tool-calling.
+  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta });
+}
+
+async function llmVerdict(settings, payload) {
+  const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+  // API providers return pure JSON under schema mode; regex is the pi fallback
+  // (its output may wrap the JSON in prose) and can't handle braces in reason.
+  try {
+    const whole = JSON.parse(out);
+    if (typeof whole.alert === 'boolean') return whole;
+  } catch { /* fall through */ }
+  const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
+  if (!m) throw new Error('no verdict JSON in provider output');
+  return JSON.parse(m[0]);
 }
 
 export function readSettings(settingsPath) {
@@ -211,8 +379,7 @@ export async function processSignal(opts, result, candles) {
       settings.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
     }
   }
-  const hasFilter = settings.provider !== 'none'
-    && Boolean(settings.provider === 'pi' || settings.OPENAI_API_KEY || settings.ANTHROPIC_API_KEY);
+  const hasFilter = resolveProvider(settings) !== 'none';
   dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
 
   let verdict = null;

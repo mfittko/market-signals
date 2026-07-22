@@ -12,10 +12,12 @@
  */
 
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, readSettings, recordSignal, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -41,7 +43,7 @@ const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
-  const out = {};
+  const out = { activeProvider: resolveProvider(s) };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
@@ -167,6 +169,113 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   return { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
 }
 
+const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  thread_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  context TEXT,
+  created_at TEXT NOT NULL
+)`;
+
+function chatDb(dbPath, fn) {
+  return withDb(dbPath, (db) => {
+    db.exec(CHAT_DDL);
+    return fn(db);
+  });
+}
+
+export function listThreads(dbPath) {
+  return chatDb(dbPath, (db) => db.prepare(
+    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id GROUP BY t.id ORDER BY t.id DESC').all());
+}
+
+export function deleteThread(dbPath, id) {
+  chatDb(dbPath, (db) => {
+    db.prepare('DELETE FROM chat_messages WHERE thread_id=?').run(id);
+    db.prepare('DELETE FROM chat_threads WHERE id=?').run(id);
+  });
+}
+
+export function listMessages(dbPath, threadId) {
+  return chatDb(dbPath, (db) => db.prepare('SELECT * FROM chat_messages WHERE thread_id=? ORDER BY id').all(threadId));
+}
+
+function addMessage(dbPath, threadId, role, content, context = null) {
+  return chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_messages (thread_id, role, content, context, created_at) VALUES (?,?,?,?,?)')
+    .run(threadId, role, content, context, new Date().toISOString()).lastInsertRowid);
+}
+
+// Repo skills exposed to the chat as tools. Executors shell out to the skill
+// scripts with clamped args and bounded output — the entire tool surface for
+// the API providers' native tool-calling (pi chat is tool-less).
+const clampInt = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo && v <= hi ? v : dflt);
+// Validated rate slugs per market from config/instruments.yaml (never guess slugs).
+function loadRateSlugs() {
+  try {
+    const yml = readFileSync('config/instruments.yaml', 'utf8');
+    const out = {};
+    let market = null;
+    for (const line of yml.split('\n')) {
+      const m = line.match(/^  (\w[\w-]*):/);
+      if (m) { market = m[1]; out[market] = []; continue; }
+      const sm = line.match(/- slug: (\S+)/);
+      if (sm && market) out[market].push(sm[1]);
+    }
+    return out;
+  } catch { return {}; }
+}
+const RATE_SLUGS = loadRateSlugs();
+const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
+export const CHAT_TOOLS = [
+  {
+    name: 'fxempire_articles',
+    description: 'Fetch recent FXEmpire news articles for tracked instruments. NOTE: the upstream feed is often stale; if it returns none, fall back to web search rather than retrying.',
+    input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max articles (1-20, default 6)' } }, additionalProperties: false },
+    run: (a) => {
+      const out = execFileSync(process.execPath, ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 20, 6)), '--json'], { encoding: 'utf8', timeout: 45000 });
+      try {
+        const parsed = JSON.parse(out);
+        if (!parsed.articles?.length) {
+          return JSON.stringify({ ...parsed, note: 'No articles in the window. The FXEmpire news hub has been stale upstream for months — do not retry with wider windows; use web search for current market news instead.' });
+        }
+      } catch { /* pass raw through */ }
+      return out;
+    },
+  },
+  {
+    name: 'truthsocial_posts',
+    description: 'Fetch recent Trump Truth Social posts from the archive (market-moving statements). Use for "did Trump post anything?" questions.',
+    input_schema: { type: 'object', properties: { hours: { type: 'integer', description: 'lookback hours (1-336, default 24)' } }, additionalProperties: false },
+    run: (a) => {
+      const since = new Date(Date.now() - clampInt(a?.hours, 1, 336, 24) * 3600000).toISOString();
+      return execFileSync(process.execPath, ['scripts/fetch-trump-posts.mjs', '--since', since], { encoding: 'utf8', timeout: 45000 });
+    },
+  },
+  {
+    name: 'live_rates',
+    description: `Live last/change/percent rates for instrument slugs via FXEmpire. Use ONLY these validated slugs (others 404; no DXY available) — ${RATE_SLUGS_HINT || 'wti-crude-oil, gold'}. market must match the slug group.`,
+    input_schema: { type: 'object', properties: { market: { type: 'string', enum: ['commodities', 'indices', 'currencies', 'crypto-coin'] }, slugs: { type: 'string', description: 'csv of rate slugs' } }, required: ['market', 'slugs'], additionalProperties: false },
+    run: (a) => {
+      if (!/^[a-z0-9,-]{2,120}$/.test(a?.slugs ?? '')) throw new Error('invalid slugs');
+      if (!['commodities', 'indices', 'currencies', 'crypto-coin'].includes(a?.market)) throw new Error('invalid market');
+      return execFileSync(process.execPath, ['skills/fxempire-live-data/scripts/fxempire_live_data.mjs', '--mode', 'rates', '--market', a.market, '--slugs', a.slugs, '--pretty', 'false'], { encoding: 'utf8', timeout: 30000 });
+    },
+  },
+];
+export function execChatTool(name, input) {
+  const tool = CHAT_TOOLS.find((t) => t.name === name);
+  if (!tool) throw new Error(`unknown tool ${name}`);
+  return String(tool.run(input ?? {})).slice(0, 8000);
+}
+
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Candle timestamps in the context are UTC, but the trader reads the chart axis in their local timezone (view.traderTimezone) — when they mention a time, assume their local zone, and quote times as local (with UTC in parentheses when precision matters). Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
+
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
   if (!recent.length) return null;
@@ -209,6 +318,31 @@ function serveVendor(res, name) {
   return true;
 }
 
+// CSRF guard for the localhost API: browsers attach an Origin header to
+// cross-site requests; anything not from this host is rejected. Non-browser
+// clients (curl, scripts) send no Origin and pass.
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin);
+}
+
+// Multibyte-safe request body accumulation with the shared 64KB cap.
+async function readBody(req, res) {
+  const dec = new TextDecoder();
+  let raw = '';
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > 64 * 1024) {
+      json(res, 413, { ok: false, error: 'body too large' });
+      return null;
+    }
+    raw += dec.decode(chunk, { stream: true });
+  }
+  return raw + dec.decode();
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -218,6 +352,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      if (req.method !== 'GET' && !sameOrigin(req)) {
+        return json(res, 403, { ok: false, error: 'cross-origin requests are not allowed' });
+      }
       if (url.pathname === '/api/chart') {
         const cfg = readSettings(settingsPath);
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
@@ -235,17 +372,84 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, maskedSettings(settingsPath));
       }
       if (url.pathname === '/api/settings' && req.method === 'POST') {
-        let raw = '';
-        let bytes = 0;
-        for await (const chunk of req) {
-          bytes += chunk.length;
-          if (bytes > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
-          raw += chunk;
-        }
+        const raw = await readBody(req, res);
+        if (raw === null) return;
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
+      if (url.pathname === '/api/threads' && req.method === 'GET') {
+        return json(res, 200, { ok: true, threads: listThreads(dbPath) });
+      }
+      if (url.pathname === '/api/threads' && req.method === 'DELETE') {
+        const id = Number(url.searchParams.get('id'));
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
+        deleteThread(dbPath, id);
+        return json(res, 200, { ok: true });
+      }
+      if (url.pathname === '/api/messages' && req.method === 'GET') {
+        const id = Number(url.searchParams.get('thread'));
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'thread required' });
+        return json(res, 200, { ok: true, messages: listMessages(dbPath, id) });
+      }
+      if (url.pathname === '/api/chat' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const message = typeof body.message === 'string' ? body.message.trim() : '';
+        if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
+        const cfg = readSettings(settingsPath);
+        if (resolveProvider(cfg) === 'none') {
+          return json(res, 400, { ok: false, error: 'no chat provider: set provider to "pi", or leave it on auto and add an ANTHROPIC/OPENAI API key ("none" disables chat)' });
+        }
+
+        const instrument = typeof body.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument)
+          ? body.instrument : (cfg.instrument || DEFAULT_INSTRUMENT);
+        const granularity = typeof body.granularity === 'string' && /^[MH]\d{1,2}$/.test(body.granularity)
+          ? body.granularity : (cfg.granularity || 'M5');
+        const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
+        let notes = '';
+        try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
+        const tz = typeof body.tz === 'string' && /^[A-Za-z_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
+        const context = {
+          view: { instrument, granularity, traderTimezone: tz, candleTimesAreUTC: true },
+          quote: view.quote,
+          viewCandles: view.candles.map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null, partial: k.partial || undefined })),
+          signal: view.signal,
+          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: x.time, signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
+          traderNotes: notes,
+        };
+
+        let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
+        if (threadId != null && !chatDb(dbPath, (db) => db.prepare('SELECT id FROM chat_threads WHERE id=?').get(threadId))) {
+          return json(res, 404, { ok: false, error: 'unknown thread' });
+        }
+        let createdThread = null;
+        if (threadId == null) {
+          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)')
+            .run(message.slice(0, 60), new Date().toISOString()).lastInsertRowid);
+          createdThread = { id: Number(threadId), title: message.slice(0, 60) };
+        }
+        addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
+
+        const history = listMessages(dbPath, threadId).slice(-13, -1)
+          .map((m) => `${m.role}: ${m.content}`).join('\n');
+        const user = `context:\n${JSON.stringify(context)}\n\n${history ? `thread so far:\n${history}\n\n` : ''}question: ${message}`;
+
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+        if (createdThread) send({ type: 'thread', ...createdThread });
+        try {
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: execChatTool });
+          addMessage(dbPath, threadId, 'assistant', reply);
+          send({ type: 'done', threadId: Number(threadId), reply });
+        } catch (err) {
+          addMessage(dbPath, threadId, 'error', err.message);
+          send({ type: 'error', threadId: Number(threadId), error: err.message });
+        }
+        return res.end();
       }
       if (url.pathname.startsWith('/vendor/')) {
         if (serveVendor(res, url.pathname.slice('/vendor/'.length))) return;
@@ -273,7 +477,32 @@ const PAGE = /* html */ `<!doctype html>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0d1117; color: #e6edf3; font: 14px/1.5 -apple-system, sans-serif; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  #app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0; min-height: 100vh; }
+  main { padding: 16px; min-width: 0; }
+  aside { border-left: 1px solid #30363d; display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
+  #threadBar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
+  #threadBar button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  #threadBar select { flex: 1; min-width: 0; background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 6px; font-size: 12px; }
+  #threadBar button:disabled { opacity: 0.4; cursor: default; }
+  #msgs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { border-radius: 8px; padding: 7px 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; max-width: 95%; }
+  .msg.user { background: #1f6feb22; border: 1px solid #1f6feb55; align-self: flex-end; }
+  .msg.assistant { background: #161b22; border: 1px solid #30363d; align-self: flex-start; }
+  .msg.error { background: #f8514922; border: 1px solid #f8514955; align-self: flex-start; }
+  .msg code { background: #010409; border: 1px solid #21262d; border-radius: 3px; padding: 0 4px; font-size: 12px; }
+  .msg pre { background: #010409; border: 1px solid #21262d; border-radius: 5px; padding: 8px; overflow-x: auto; margin: 6px 0; }
+  .msg table { margin: 6px 0; font-size: 12px; } .msg td { padding: 2px 8px; border-bottom: 1px solid #21262d; }
+  #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
+  #chatForm input { flex: 1; }
+  #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
+  @media (max-width: 900px) {
+    #app { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
+    #msgs { max-height: 45vh; min-height: 120px; }
+    #wrap { height: 320px !important; }
+    #cfgbtn { float: none; display: inline-block; margin-top: 6px; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
+  }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
@@ -301,7 +530,7 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><main>
+</style></head><body><div id="app"><main>
 <h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -313,6 +542,13 @@ const PAGE = /* html */ `<!doctype html>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
+</main>
+<aside>
+  <div id="threadBar"><button id="newThread">+ new</button></div>
+  <div id="msgs"></div>
+  <form id="chatForm"><input id="chatMsg" placeholder="quick check about the current view…" autocomplete="off"><button>Ask</button></form>
+</aside>
+</div>
 <script>
 const qs = new URLSearchParams(location.search);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -422,7 +658,7 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
-    box('updated', esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(q.time.slice(11, 16)) + ' candle forming' : esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
 }
 
 function verdict(s) {
@@ -446,12 +682,13 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', ['', 'pi', 'none']], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
+const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', [['', 'auto (use API keys)'], ['pi', 'pi'], ['none', 'disabled']]], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['ANTHROPIC_API_KEY', 'password']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');
-  f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
-    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.includes(s[k] ?? '') ? opts : [...opts, s[k]]).map(o => '<option' + ((s[k] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
+  f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
+    FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
+    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
     : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
@@ -466,6 +703,123 @@ async function cfg() {
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
 }
+const chat = { threadId: null, pending: false };
+async function loadThreads() {
+  const { threads } = await (await fetch('/api/threads')).json();
+  const bar = document.getElementById('threadBar');
+  const opt = (t) => '<option value="' + t.id + '"' + (t.id === chat.threadId ? ' selected' : '') + '>' +
+    esc((t.created_at || '').slice(5, 16).replace('T', ' ')) + ' · ' + esc(t.title.slice(0, 34)) + '</option>';
+  bar.innerHTML = '<button id="newThread">+ new</button>' +
+    '<select id="threadSel"><option value=""' + (chat.threadId == null ? ' selected' : '') + '>— new thread —</option>' +
+    threads.map(opt).join('') + '</select>' +
+    '<button id="delThread" title="delete selected thread"' + (chat.threadId == null ? ' disabled' : '') + '>🗑</button>';
+  bar.querySelector('#newThread').onclick = () => { chat.threadId = null; renderMsgs([]); loadThreads(); };
+  bar.querySelector('#threadSel').onchange = (e) => {
+    if (e.target.value === '') { chat.threadId = null; renderMsgs([]); loadThreads(); }
+    else selectThread(Number(e.target.value));
+  };
+  bar.querySelector('#delThread').onclick = async () => {
+    if (chat.threadId == null) return;
+    await fetch('/api/threads?id=' + chat.threadId, { method: 'DELETE' });
+    chat.threadId = null;
+    renderMsgs([]);
+    loadThreads();
+  };
+}
+async function selectThread(id) {
+  chat.threadId = id;
+  const { messages } = await (await fetch('/api/messages?thread=' + id)).json();
+  renderMsgs(messages);
+  loadThreads();
+}
+function md(t) {
+  let h = esc(t);
+  h = h.replace(/\\x60\\x60\\x60[a-z]*\\n?([\\s\\S]*?)\\x60\\x60\\x60/g, '<pre><code>$1</code></pre>');
+  h = h.replace(/\\x60([^\\x60\\n]+)\\x60/g, '<code>$1</code>');
+  h = h.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
+  h = h.replace(/(^|\\s)\\*([^*\\n]+)\\*(?=\\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
+  h = h.replace(/^#{1,4} (.*)$/gm, '<b>$1</b>');
+  h = h.replace(/^[-*] /gm, '\u2022 ');
+  const lines = h.split('\\n');
+  const out = [];
+  let rows = [];
+  const flush = () => {
+    if (!rows.length) return;
+    out.push('<table>' + rows.map((r) => '<tr>' + r.map((c) => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</table>');
+    rows = [];
+  };
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.startsWith('|') && t.endsWith('|')) {
+      if (/^\\|[\\s:|-]+\\|$/.test(t)) continue; // header separator row
+      rows.push(t.slice(1, -1).split('|').map((c) => c.trim()));
+    } else {
+      flush();
+      out.push(line);
+    }
+  }
+  flush();
+  return out.join('\\n');
+}
+
+function renderMsgs(list) {
+  const el = document.getElementById('msgs');
+  el.innerHTML = list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + (m.role === 'assistant' ? md(m.content) : esc(m.content)) + '</div>').join('');
+  el.scrollTop = el.scrollHeight;
+}
+function appendMsg(role, text) {
+  const el = document.getElementById('msgs');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+document.getElementById('chatForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (chat.pending) return;
+  const input = document.getElementById('chatMsg');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  chat.pending = true;
+  appendMsg('user', message);
+  const bubble = appendMsg('assistant', '…');
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({
+      threadId: chat.threadId, message, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      instrument: qs.get('instrument') || undefined, granularity: qs.get('granularity') || undefined,
+    }) });
+    if (!res.ok) { bubble.className = 'msg error'; bubble.textContent = (await res.json()).error; chat.pending = false; return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let acc = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\\n\\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === 'thread') chat.threadId = ev.id;
+        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(acc); document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'done') { bubble.innerHTML = md(ev.reply); chat.threadId = ev.threadId; }
+        if (ev.type === 'error') { bubble.className = 'msg error'; bubble.textContent = ev.error; chat.threadId = ev.threadId ?? chat.threadId; }
+      }
+    }
+  } catch (err) {
+    bubble.className = 'msg error';
+    bubble.textContent = String(err);
+  }
+  chat.pending = false;
+  loadThreads();
+};
+loadThreads();
 load();
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
@@ -473,7 +827,7 @@ document.getElementById('cfgbtn').addEventListener('click', async () => {
   await cfg();
   document.getElementById('cfgdlg').showModal();
 });
-</script></main></body></html>
+</script></body></html>
 `;
 
 function parseArgs(argv) {

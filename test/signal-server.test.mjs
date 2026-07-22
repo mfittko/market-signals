@@ -73,6 +73,7 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     assert.equal(res.status, 200);
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
+    assert.equal(got.activeProvider, 'pi', 'resolved provider surfaced');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret', 'secret stored');
@@ -313,5 +314,144 @@ test('watch toggle: watchers CSV round-trips and the chart response carries watc
     assert.equal(d.watched, false, 'same instrument, different granularity: not watched');
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="watchBtn"'), 'bell toggle present');
+  });
+});
+
+// --- chat sidebar: threads + messages + SSE with a fake pi provider ---
+function sseEvents(text) {
+  return text.split('\n\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)));
+}
+
+test('chat: SSE reply via fake pi, thread auto-created, context + messages persisted, delete cascades', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "Floor holds at 87.7, ceiling 88.8."\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'worth re-entering short here?' }) });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/event-stream/);
+    const events = sseEvents(await res.text());
+    const done = events.find((e) => e.type === 'done');
+    assert.ok(done, 'done event');
+    assert.match(done.reply, /Floor holds/);
+    const threadEv = events.find((e) => e.type === 'thread');
+    assert.equal(threadEv.title, 'worth re-entering short here?');
+
+    const { threads } = await (await fetch(`${base}/api/threads`)).json();
+    assert.equal(threads.length, 1);
+    assert.equal(threads[0].messages, 2, 'user + assistant persisted');
+
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(messages[0].role, 'user');
+    const ctx = JSON.parse(messages[0].context);
+    assert.equal(ctx.view.instrument, INSTRUMENT, 'context snapshot attached');
+    assert.ok(ctx.viewCandles.length >= 60, 'full current-view candles in context, not a tail slice');
+    assert.equal(ctx.view.candleTimesAreUTC, true);
+    assert.equal(ctx.view.traderTimezone, 'UTC', 'tz defaults to UTC when client omits it');
+    assert.ok(ctx.quote && typeof ctx.quote.last === 'number', 'quote in context');
+    assert.equal(typeof ctx.traderNotes, 'string', 'notes tail attached to context');
+    assert.equal(messages[1].role, 'assistant');
+
+    // Follow-up in the same thread includes history and persists more rows.
+    const res2 = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: done.threadId, message: 'and the stop? \u{1F4C9} \u00e9\u00e9' }) });
+    sseEvents(await res2.text());
+    const after = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(after.messages.length, 4);
+
+    await fetch(`${base}/api/threads?id=${done.threadId}`, { method: 'DELETE' });
+    const gone = await (await fetch(`${base}/api/threads`)).json();
+    assert.equal(gone.threads.length, 0);
+    const emptied = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(emptied.messages.length, 0, 'messages cascade-deleted');
+  });
+});
+
+test('chat: no provider configured yields a clear 400; provider errors persist as error role', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /no chat provider/);
+
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    const events = sseEvents(await res.text());
+    const errEv = events.find((e) => e.type === 'error');
+    assert.ok(errEv, 'error event delivered in-stream');
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${errEv.threadId}`)).json();
+    assert.equal(messages[1].role, 'error', 'provider failure persisted without losing the thread');
+  });
+});
+
+test('page ships the chat sidebar', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('<aside>'), 'sidebar present');
+    assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
+    assert.ok(html.includes('threadSel') && html.includes('delThread'), 'timestamped thread select + delete-after-selection');
+    assert.ok(html.includes('function md('), 'markdown renderer for assistant messages');
+    assert.ok(html.includes('auto (use API keys)'), 'provider select explains auto mode');
+    assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
+    assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
+  });
+});
+
+test('chat: unknown threadId is rejected, provider errors stay short (no prompt leak)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: 999, message: 'hi' }) });
+    assert.equal(res.status, 404);
+    assert.equal((await fetch(`${base}/api/threads`, { method: 'DELETE' })).status, 400, 'DELETE without id rejected');
+    assert.equal((await fetch(`${base}/api/messages`)).status, 400, 'messages without thread rejected');
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    const errEv = sseEvents(await res.text()).find((e) => e.type === 'error');
+    assert.ok(errEv.error.length < 250, 'sanitized error');
+    assert.ok(!errEv.error.includes('context:'), 'prompt not leaked into the error');
+  });
+});
+
+test('served page <script> parses as valid JS (template-literal escape guard)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const src = html.match(/<script>([\s\S]*)<\/script>/)[1];
+    const dir = mkdtempSync(join(tmpdir(), 'ss-page-'));
+    writeFileSync(join(dir, 'page.js'), src);
+    const res = spawnSync('node', ['--check', join(dir, 'page.js')], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `served page JS is broken:\n${res.stderr.slice(0, 400)}`);
+  });
+});
+
+test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
+  const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates']);
+  for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
+  assert.throws(() => execChatTool('nope', {}), /unknown tool/);
+  assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
+  assert.throws(() => execChatTool('live_rates', { market: 'evil', slugs: 'gold' }), /invalid market/);
+  // Regression: the executors spawn via execFileSync/process.execPath — a tool
+  // whose spawn path is broken must throw a real spawn error, not ReferenceError.
+  try {
+    execChatTool('fxempire_articles', { hours: 1, maxItems: 1 });
+  } catch (err) {
+    assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
+  }
+});
+
+test('mutating routes reject cross-origin requests (CSRF guard), same-origin and CLI pass', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'x' }), headers: { origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }), headers: { origin: 'http://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/threads?id=1`, { method: 'DELETE', headers: { origin: 'https://evil.example' } });
+    assert.equal(res.status, 403);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'x' }), headers: { origin: 'http://127.0.0.1:8787' } });
+    assert.equal(res.status, 200, 'same-origin passes');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ model: 'y' }) });
+    assert.equal(res.status, 200, 'no-origin CLI passes');
   });
 });
