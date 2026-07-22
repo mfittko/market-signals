@@ -86,4 +86,5 @@ test('baselines run over the stored-candle window with warm-up context', () => {
   const scoped = baselines(db, WTI, 'M5', { fromTime: candles[40].time });
   assert.equal(scoped.window.candles, 40, 'scoped window keeps 20 warm-up candles before fromTime');
   assert.equal(baselines(db, 'NO/PE', 'M5'), null, 'insufficient data yields null, not a crash');
+  assert.equal(baselines(db, WTI, 'M5', { fromTime: '2027-01-01T00:00:00Z' }), null, 'fromTime beyond history yields null, never the whole history');
 });

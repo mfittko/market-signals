@@ -465,11 +465,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const gran = url.searchParams.get('granularity') || cfgS.granularity || 'M5';
         const sid = Number(url.searchParams.get('strategy'));
         const board = strategyScoreboard(dbPath, bcfg.startingBalance);
+        const strategyId = Number.isInteger(sid) && sid > 0 ? sid : null;
+        // baseline window = earliest entry across the SELECTED scope (filtered
+        // strategy when given, else all attributed trades), never map order
+        const scope = strategyId != null ? board.filter((b) => b.strategyId === strategyId) : board;
+        const fromTime = scope.length ? scope.map((b) => b.firstTrade).sort()[0] : null;
         return json(res, 200, {
           ok: true,
           scoreboard: board,
-          baselines: baselines(dbPath, inst, gran, { fromTime: board[0]?.firstTrade ?? null }),
-          audit: decisionAudit(dbPath, { strategyId: Number.isInteger(sid) && sid > 0 ? sid : null, limit: 50 }),
+          baselines: baselines(dbPath, inst, gran, { fromTime }),
+          audit: decisionAudit(dbPath, { strategyId, limit: 50 }),
         });
       }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {

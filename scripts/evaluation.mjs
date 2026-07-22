@@ -69,11 +69,13 @@ export function strategyScoreboard(dbPath, startingBalance = 10000) {
   const groups = new Map();
   for (const t of trades) {
     const a = attribution.get(t.position_id) ?? { strategyId: null, strategyName: null, strategyDbVersion: null, strategyVersion: null };
-    const key = a.strategyId != null ? `${a.strategyId}` : `hash:${a.strategyVersion ?? 'unattributed'}`;
-    if (!groups.has(key)) groups.set(key, { ...a, realized: [], firstTrade: t.close_time, lastTrade: t.close_time });
+    // versions are distinct rows: id+dbVersion (falling back to the content hash)
+    const key = a.strategyId != null ? `${a.strategyId}:${a.strategyDbVersion ?? 0}` : `hash:${a.strategyVersion ?? 'unattributed'}`;
+    if (!groups.has(key)) groups.set(key, { ...a, realized: [], firstTrade: t.entry_time, lastTrade: t.close_time });
     const g = groups.get(key);
     g.realized.push(t.realized);
-    g.lastTrade = t.close_time;
+    if (t.entry_time < g.firstTrade) g.firstTrade = t.entry_time;
+    if (t.close_time > g.lastTrade) g.lastTrade = t.close_time;
   }
   return [...groups.values()].map((g) => ({
     strategyId: g.strategyId,
@@ -97,6 +99,7 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
   let win = candles;
   if (opts.fromTime) {
     const from = candles.findIndex((c) => c.time >= opts.fromTime);
+    if (from === -1) return null; // fromTime beyond stored history: no window, never the whole history
     // keep supertrend warm-up context before the window start
     win = candles.slice(Math.max(0, from - 20));
   }
