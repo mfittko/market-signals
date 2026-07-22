@@ -422,8 +422,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const raw = Number(url.searchParams.get('limit'));
           const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 500) : 50;
           const trades = withDb(dbPath, (db) => {
-            db.exec('CREATE TABLE IF NOT EXISTS bot_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, position_id INTEGER NOT NULL, instrument TEXT NOT NULL, side TEXT NOT NULL, notional REAL NOT NULL, units REAL NOT NULL, entry_price REAL NOT NULL, entry_time TEXT NOT NULL, close_price REAL NOT NULL, close_time TEXT NOT NULL, leverage REAL NOT NULL, realized REAL NOT NULL, close_reason TEXT NOT NULL)');
-            return db.prepare('SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?').all(limit);
+            const exists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='bot_trades'").get();
+            return exists ? db.prepare('SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?').all(limit) : [];
           });
           return json(res, 200, { ok: true, trades });
         }
@@ -642,7 +642,7 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
-  portfolio();
+  portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';

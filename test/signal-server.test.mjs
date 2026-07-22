@@ -609,6 +609,6 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(html.includes('<dialog id="pfdlg"'), 'portfolio modal present');
     assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
     const script = html.slice(html.indexOf('<script>'));
-    assert.ok(!/fetch\('\/api\/(?:portfolio|bot-trades)'[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes');
+    assert.ok(!/fetch\((['"])\/api\/(?:portfolio|bot-trades)\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes (either quote style)');
   });
 });
