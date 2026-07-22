@@ -70,8 +70,78 @@ test('storeCandles upserts idempotently', () => {
 
 test('--help exits 0 with usage, no network, no db writes', () => {
   const script = fileURLToPath(new URL('../scripts/supertrend.mjs', import.meta.url));
-  const res = spawnSync('node', [script, '--help'], { encoding: 'utf8', timeout: 20000 });
+  const cwd = mkdtempSync(join(tmpdir(), 'st-help-'));
+  const res = spawnSync('node', [script, '--help'], { encoding: 'utf8', timeout: 20000, cwd });
   assert.equal(res.status, 0, res.stderr);
   assert.ok(res.stdout.includes('supertrend'), res.stdout);
   assert.ok(res.stdout.includes('--settings'), 'usage documents the settings flag');
+  assert.equal(existsSync(join(cwd, 'data')), false, '--help must not create the data dir/db');
+});
+
+// --- processSignal: opt-in filter, fail-open, dedup (no real pi/osascript/network) ---
+import { mkdtempSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { processSignal } from '../scripts/supertrend.mjs';
+
+function fakeBin(dir, name, script) {
+  const p = join(dir, name);
+  writeFileSync(p, `#!/bin/sh\n${script}\n`);
+  chmodSync(p, 0o755);
+  return p;
+}
+
+function fixture(dir, { notify = true, settings = {} } = {}) {
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify(settings));
+  const opts = { db: join(dir, 'db.sqlite'), instrument: 'WTICO/USD', granularity: 'M5', notify, settings: settingsPath };
+  const result = {
+    close: 88.0, trend: 'down', supertrend: 88.8,
+    signal: { time: '2026-07-22T10:15:00Z', signal: 'sell', price: 88.35, barsAgo: 0, fresh: true },
+    backtest: { winRatePct: 50, totalReturnPct: 1, trades: 4 },
+  };
+  return { opts, result, candles: candles.slice(0, 20) };
+}
+
+test('processSignal records fresh flips with notify off, and dedups', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const { opts, result, candles: c } = fixture(dir, { notify: false });
+  const first = await processSignal(opts, result, c);
+  assert.equal(first.sent, false);
+  assert.match(first.reason, /recorded/);
+  const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
+  assert.equal(row.signal, 'sell');
+  const again = await processSignal(opts, result, c);
+  assert.equal(again.reason, 'already processed');
+});
+
+test('processSignal suppresses when the filter says no (fake pi), no notification', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const piBin = fakeBin(dir, 'pi', `echo '{"alert": false, "reason": "test suppress"}'`);
+  const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin } });
+  const res = await processSignal(opts, result, c);
+  assert.equal(res.sent, false);
+  assert.match(res.reason, /suppressed by filter: test suppress/);
+  const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
+  assert.equal(row.verdict, 'suppress');
+  assert.equal(row.notified, 0);
+});
+
+test('processSignal fails open on filter error and records the verdict', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  fakeBin(dir, 'osascript', 'exit 0'); // shadow real osascript via PATH
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  try {
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin: join(dir, 'missing-pi') } });
+    const res = await processSignal(opts, result, c);
+    assert.equal(res.sent, true, res.reason);
+    assert.equal(res.verdictSource, 'error');
+    const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
+    assert.equal(row.verdict, 'alert');
+    assert.match(row.reason, /filter error/);
+    assert.equal(row.notified, 1);
+  } finally {
+    process.env.PATH = prevPath;
+  }
 });
