@@ -831,6 +831,9 @@ function appendMsg(role, text) {
   el.scrollTop = el.scrollHeight;
   return div;
 }
+// A complete or still-streaming trailing title annotation must never flash in
+// the bubble; the done event carries the server-stripped reply.
+const stripTitleTail = (t) => t.replace(/\\n?<!--(?:(?!-->)[\\s\\S])*(?:-->)?\\s*$/, '');
 document.getElementById('chatForm').onsubmit = async (e) => {
   e.preventDefault();
   if (chat.pending) return;
@@ -862,7 +865,7 @@ document.getElementById('chatForm').onsubmit = async (e) => {
         if (!line.startsWith('data:')) continue;
         const ev = JSON.parse(line.slice(5));
         if (ev.type === 'thread') chat.threadId = ev.id;
-        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(acc); document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(stripTitleTail(acc)); document.getElementById('msgs').scrollTop = 1e9; }
         if (ev.type === 'title') loadThreads();
         if (ev.type === 'done') { bubble.innerHTML = md(ev.reply); chat.threadId = ev.threadId; }
         if (ev.type === 'error') { bubble.className = 'msg error'; bubble.textContent = ev.error; chat.threadId = ev.threadId ?? chat.threadId; }
