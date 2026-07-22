@@ -19,8 +19,10 @@ test('config: defaults, per-instrument leverage with 10x default and cap', () =>
   const custom = botConfig({ bot: { leverage: { [WTI]: 15, 'SPX500/USD': 99 } } });
   assert.equal(instrumentLeverage(custom, WTI), 15);
   assert.equal(instrumentLeverage(custom, 'SPX500/USD'), BOT_DEFAULTS.leverageCap, 'leverage capped');
-  const junk = botConfig({ bot: { startingBalance: -5, riskPct: 'x' } });
+  const junk = botConfig({ bot: { startingBalance: -5, riskPct: 'x', defaultLeverage: Infinity } });
   assert.equal(junk.startingBalance, 10000, 'invalid overrides ignored');
+  assert.equal(junk.defaultLeverage, 10, 'non-finite leverage rejected (would zero out margin)');
+  assert.equal(instrumentLeverage(botConfig({ bot: { leverage: { 'A/B': Infinity } } }), 'A/B'), 10, 'non-finite per-instrument leverage falls back');
 });
 
 test('spread config reads config/spreads.json with 0 fallback', () => {

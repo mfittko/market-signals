@@ -76,24 +76,22 @@ export function resetSpreadCache() { spreadsCache.clear(); }
 
 export function botConfig(settings = {}) {
   const bot = settings.bot || {};
-  const cfg = { ...BOT_DEFAULTS, ...Object.fromEntries(Object.entries(bot).filter(([k, v]) => k in BOT_DEFAULTS && typeof v === 'number' && v > 0)) };
+  const cfg = { ...BOT_DEFAULTS, ...Object.fromEntries(Object.entries(bot).filter(([k, v]) => k in BOT_DEFAULTS && Number.isFinite(v) && v > 0)) };
   cfg.leverage = bot.leverage && typeof bot.leverage === 'object' ? bot.leverage : {};
   return cfg;
 }
 
 export function instrumentLeverage(cfg, instrument) {
   const lv = cfg.leverage[instrument];
-  const chosen = typeof lv === 'number' && lv > 0 ? lv : cfg.defaultLeverage;
+  const chosen = Number.isFinite(lv) && lv > 0 ? lv : cfg.defaultLeverage;
   return Math.min(chosen, cfg.leverageCap);
 }
 
 function pdb(dbPath, cfg, fn) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
-    if (!db.prepare('SELECT id FROM portfolio WHERE id=1').get()) {
-      db.prepare('INSERT INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
-        .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
-    }
+    db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
+      .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
     return fn(db);
   });
 }
@@ -180,15 +178,16 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
       else if (stopHit) closed.push(closeInDb(db, cfg, pos.id, q, 'stop'));
       else if (targetHit) closed.push(closeInDb(db, cfg, pos.id, q, 'target'));
     }
-    const view = viewInDb(db);
+    let view = viewInDb(db);
     if (view.equity <= 0 && !view.halted) {
       for (const pos of db.prepare('SELECT * FROM positions').all()) {
         closed.push(closeInDb(db, cfg, pos.id, pos.last_mark, 'halt'));
       }
       db.prepare('UPDATE portfolio SET halted=1 WHERE id=1').run();
       journal(db, 'halt', null, 'equity <= 0', { equity: view.equity });
+      view = viewInDb(db);
     }
-    return { closed, ...viewInDb(db) };
+    return { closed, ...view };
   });
 }
 
