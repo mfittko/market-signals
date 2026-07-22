@@ -188,10 +188,16 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 function chatDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(CHAT_DDL);
-    // Pre-#30 dbs lack the view columns.
+    // Pre-#30 dbs lack the view columns. Another process (watcher CLI) can win
+    // the same ALTER between our PRAGMA check and exec; only that loss is benign.
+    const addColumn = (ddl) => {
+      try { db.exec(ddl); } catch (err) {
+        if (!/duplicate column/i.test(String(err?.message))) throw err;
+      }
+    };
     const cols = new Set(db.prepare('PRAGMA table_info(chat_threads)').all().map((c) => c.name));
-    if (!cols.has('instrument')) db.exec('ALTER TABLE chat_threads ADD COLUMN instrument TEXT');
-    if (!cols.has('granularity')) db.exec('ALTER TABLE chat_threads ADD COLUMN granularity TEXT');
+    if (!cols.has('instrument')) addColumn('ALTER TABLE chat_threads ADD COLUMN instrument TEXT');
+    if (!cols.has('granularity')) addColumn('ALTER TABLE chat_threads ADD COLUMN granularity TEXT');
     return fn(db);
   });
 }
