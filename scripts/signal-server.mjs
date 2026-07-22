@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -300,20 +300,6 @@ export function execChatTool(name, input) {
 
 const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing.`;
 
-// Localize UTC timestamps for LLM transmission (#34): the model must only ever
-// see the trader's wall-clock times, matching the chart axis. Db stays UTC.
-export function localTimeFormatters(tz) {
-  try {
-    return {
-      tz,
-      hm: new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }),
-      full: new Intl.DateTimeFormat('en-GB', { timeZone: tz, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
-    };
-  } catch {
-    return localTimeFormatters('UTC');
-  }
-}
-
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
   if (!recent.length) return null;
@@ -451,8 +437,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { notes = readFileSync(cfg.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
         const tz = typeof body.tz === 'string' && /^[A-Za-z0-9_/+-]{2,40}$/.test(body.tz) ? body.tz : 'UTC';
         const fmts = localTimeFormatters(tz);
-        const localHm = (iso) => fmts.hm.format(new Date(iso));
-        const localFull = (iso) => fmts.full.format(new Date(iso)).replace(/,\s*/, ' ');
+        const localHm = fmts.hm;
+        const localFull = fmts.full;
         const context = {
           view: { instrument, granularity, traderTimezone: fmts.tz, candleTimesAreLocal: true },
           quote: view.quote,
