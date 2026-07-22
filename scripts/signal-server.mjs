@@ -180,6 +180,22 @@ function buildQuote(recent) {
   };
 }
 
+const VENDOR_TYPES = {
+  'chart.umd.js': 'application/javascript',
+  'chartjs-adapter-date-fns.bundle.min.js': 'application/javascript',
+  'chartjs-chart-financial.min.js': 'application/javascript',
+};
+const vendorCache = new Map();
+function serveVendor(res, name) {
+  if (!VENDOR_TYPES[name]) return false;
+  if (!vendorCache.has(name)) {
+    vendorCache.set(name, readFileSync(fileURLToPath(new URL(`../vendor/${name}`, import.meta.url))));
+  }
+  res.writeHead(200, { 'content-type': VENDOR_TYPES[name], 'cache-control': 'max-age=86400' });
+  res.end(vendorCache.get(name));
+  return true;
+}
+
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
@@ -216,6 +232,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
+      if (url.pathname.startsWith('/vendor/')) {
+        if (serveVendor(res, url.pathname.slice('/vendor/'.length))) return;
+        return json(res, 404, { ok: false, error: 'unknown vendor asset' });
+      }
       if (url.pathname === '/') {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
         return res.end(PAGE);
@@ -232,12 +252,15 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
 const PAGE = /* html */ `<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>market-signals</title>
+<script src="/vendor/chart.umd.js"></script>
+<script src="/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="/vendor/chartjs-chart-financial.min.js"></script>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0d1117; color: #e6edf3; font: 14px/1.5 -apple-system, sans-serif; }
   main { max-width: 1100px; margin: 0 auto; padding: 16px; }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
-  canvas { width: 100%; background: #010409; border: 1px solid #30363d; border-radius: 6px; }
+  #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
@@ -264,7 +287,7 @@ const PAGE = /* html */ `<!doctype html>
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><main>
 <h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="cfgbtn" type="button">⚙ settings</button></h1>
-<div id="wrap"><canvas id="chart" width="1100" height="420"></canvas><div id="tip"></div></div>
+<div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
@@ -286,79 +309,69 @@ async function load() {
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
 }
+let chart = null;
 function draw(d) {
-  const c = document.getElementById('chart'), x = c.getContext('2d');
   const cs = d.candles; if (!cs.length) return;
   const stByTime = Object.fromEntries(d.supertrend.map(s => [s.time, s]));
-  const lo = Math.min(...cs.map(k => k.low), ...d.supertrend.map(s => s.value));
-  const hi = Math.max(...cs.map(k => k.high), ...d.supertrend.map(s => s.value));
-  const priceH = c.height - 88; // bottom band is the volume underlay
-  const px = v => 8 + (1 - (v - lo) / (hi - lo || 1)) * (priceH - 16);
-  const w = c.width / cs.length;
-  x.clearRect(0, 0, c.width, c.height);
+  const P = (t) => Date.parse(t);
+  const candleData = cs.map(k => ({ x: P(k.time), o: k.open, h: k.high, l: k.low, c: k.close, k }));
+  const stData = d.supertrend.map(s => ({ x: P(s.time), y: s.value, trend: s.trend }));
   const maxVol = Math.max(1, ...cs.map(k => k.volume || 0));
-  cs.forEach((k, i) => {
-    const h = (k.volume || 0) / maxVol * 80;
-    x.fillStyle = k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)';
-    x.fillRect(i * w + w * 0.2, c.height - h, w * 0.6, h);
-  });
-  cs.forEach((k, i) => {
-    const cx = i * w + w / 2;
-    x.strokeStyle = x.fillStyle = k.close >= k.open ? '#3fb950' : '#f85149';
-    x.beginPath(); x.moveTo(cx, px(k.high)); x.lineTo(cx, px(k.low)); x.stroke();
-    const [a, b] = [px(k.open), px(k.close)].sort((m, n) => m - n);
-    x.fillRect(cx - w * 0.3, a, w * 0.6, Math.max(1, b - a));
-  });
-  let prev = null;
-  cs.forEach((k, i) => {
-    const s = stByTime[k.time]; if (!s) return;
-    x.strokeStyle = s.trend === 'up' ? '#3fb950' : '#f85149';
-    if (prev) { x.beginPath(); x.moveTo((i - 1) * w + w / 2, px(prev.value)); x.lineTo(i * w + w / 2, px(s.value)); x.stroke(); }
-    prev = s;
-  });
-  // Supertrend flip markers: where the indicator actually fired.
-  for (const f of d.flips || []) {
-    const k = cs[f.index]; if (!k) continue;
-    const cx = f.index * w + w / 2;
-    x.fillStyle = f.signal === 'buy' ? '#3fb950' : '#f85149';
-    x.beginPath();
-    if (f.signal === 'buy') {
-      const y = px(k.low) + 14;
-      x.moveTo(cx, y - 8); x.lineTo(cx - 5, y); x.lineTo(cx + 5, y);
-    } else {
-      const y = px(k.high) - 14;
-      x.moveTo(cx, y + 8); x.lineTo(cx - 5, y); x.lineTo(cx + 5, y);
-    }
-    x.fill();
-  }
+  const volData = cs.map(k => ({ x: P(k.time), y: k.volume || 0 }));
+  const volColor = cs.map(k => k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)');
+  const buys = (d.flips || []).filter(f => f.signal === 'buy').map(f => ({ x: P(f.time), y: cs[f.index] ? cs[f.index].low - (cs[f.index].high - cs[f.index].low) : f.price }));
+  const sells = (d.flips || []).filter(f => f.signal === 'sell').map(f => ({ x: P(f.time), y: cs[f.index] ? cs[f.index].high + (cs[f.index].high - cs[f.index].low) : f.price }));
   const t = qs.get('t') || (d.signal && d.signal.time);
-  const si = cs.findIndex(k => k.time === t);
-  if (si >= 0) {
-    x.fillStyle = '#d29922'; x.beginPath();
-    x.arc(si * w + w / 2, px(cs[si].close), 6, 0, 7); x.fill();
-  }
-  hover = { cs, stByTime, w };
+  const sigCandle = cs.find(k => k.time === t);
+  const marker = sigCandle ? [{ x: P(sigCandle.time), y: sigCandle.close }] : [];
+
+  if (chart) chart.destroy();
+  chart = new Chart(document.getElementById('chart'), {
+    data: {
+      datasets: [
+        { type: 'candlestick', data: candleData, yAxisID: 'y',
+          color: { up: '#3fb950', down: '#f85149', unchanged: '#8b949e' },
+          borderColor: { up: '#3fb950', down: '#f85149', unchanged: '#8b949e' } },
+        { type: 'line', data: stData, yAxisID: 'y', pointRadius: 0, borderWidth: 1.5, tension: 0,
+          segment: { borderColor: (c) => (stData[c.p1DataIndex] || {}).trend === 'up' ? '#3fb950' : '#f85149' } },
+        { type: 'bar', data: volData, yAxisID: 'vol', backgroundColor: volColor, barPercentage: 0.6 },
+        { type: 'scatter', data: buys, yAxisID: 'y', pointStyle: 'triangle', radius: 7, backgroundColor: '#3fb950', borderWidth: 0 },
+        { type: 'scatter', data: sells, yAxisID: 'y', pointStyle: 'triangle', rotation: 180, radius: 7, backgroundColor: '#f85149', borderWidth: 0 },
+        { type: 'scatter', data: marker, yAxisID: 'y', pointStyle: 'circle', radius: 7, backgroundColor: '#d29922', borderWidth: 0 },
+      ],
+    },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
+      scales: {
+        x: { type: 'timeseries', ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18 },
+             grid: { color: 'rgba(48,54,61,0.5)' }, time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } } },
+        y: { position: 'right', ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
+        vol: { position: 'left', display: false, max: maxVol * 5, min: 0 },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#e6edf3',
+          filter: (item) => item.datasetIndex === 0,
+          callbacks: {
+            label: (ctx) => {
+              const k = ctx.raw.k; if (!k) return '';
+              const chg = k.open ? ((k.close - k.open) / k.open * 100).toFixed(2) : '0.00';
+              const st = stByTime[k.time];
+              const lines = [
+                'O ' + k.open + '  H ' + k.high + '  L ' + k.low + '  C ' + k.close + '  (' + (chg >= 0 ? '+' : '') + chg + '%)',
+                'volume ' + (k.volume ?? '—') + (k.partial ? '  (forming)' : ''),
+              ];
+              if (st) lines.push('supertrend ' + st.value + ' ' + st.trend);
+              return lines;
+            },
+          },
+        },
+      },
+    },
+  });
 }
 
-let hover = null;
-const tip = document.getElementById('tip');
-const cv = document.getElementById('chart');
-cv.addEventListener('mousemove', (e) => {
-  if (!hover) return;
-  const r = cv.getBoundingClientRect();
-  const i = Math.max(0, Math.min(hover.cs.length - 1, Math.floor((e.clientX - r.left) * (cv.width / r.width) / hover.w)));
-  const k = hover.cs[i], s = hover.stByTime[k.time];
-  const chg = k.open ? ((k.close - k.open) / k.open * 100).toFixed(2) : '0.00';
-  tip.innerHTML = '<b>' + esc(k.time) + '</b><br>' +
-    'O ' + esc(k.open) + ' · H ' + esc(k.high) + ' · L ' + esc(k.low) + ' · C ' + esc(k.close) +
-    ' <span class="' + (k.close >= k.open ? 'buy' : 'sell') + '">(' + (chg >= 0 ? '+' : '') + esc(chg) + '%)</span><br>' +
-    'volume ' + esc(k.volume ?? '—') +
-    (s ? '<br>supertrend ' + esc(s.value) + ' <span class="' + (s.trend === 'up' ? 'buy' : 'sell') + '">' + esc(s.trend) + '</span>' : '');
-  tip.style.display = 'block';
-  tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 240) + 'px';
-  tip.style.top = Math.min(e.clientY - r.top + 14, r.height - 90) + 'px';
-});
-cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
 function selectors(d) {
   const inst = document.getElementById('instSel');

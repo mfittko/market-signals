@@ -243,12 +243,25 @@ test('deep link to a signal older than the history window still resolves', async
 test('chart page ships the hover tooltip (self-contained, escaped fields)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="tip"'), 'tooltip element present');
-    assert.ok(html.includes("addEventListener('mousemove'"), 'hover handler wired');
+    assert.ok(html.includes('/vendor/chart.umd.js'), 'Chart.js vendored locally');
+    assert.ok(html.includes("type: 'candlestick'"), 'candlestick renderer');
     assert.ok(html.includes('supertrend '), 'tooltip includes supertrend detail');
-    assert.ok(html.includes('maxVol'), 'volume underlay drawn');
+    assert.ok(html.includes("yAxisID: 'vol'"), 'volume underlay dataset');
     assert.ok(html.includes('d.flips'), 'flip markers drawn where the indicator fired');
-    assert.ok(!/src=["']http/.test(html), 'still no external assets');
+    assert.ok(html.includes("type: 'timeseries'"), 'x/y scales configured');
+    assert.ok(!/src=["']http/.test(html), 'no external (network) assets');
+  });
+});
+
+test('vendored chart assets serve locally; unknown vendor 404s', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    for (const f of ['chart.umd.js', 'chartjs-adapter-date-fns.bundle.min.js', 'chartjs-chart-financial.min.js']) {
+      const res = await fetch(`${base}/vendor/${f}`);
+      assert.equal(res.status, 200, f);
+      assert.match(res.headers.get('content-type'), /javascript/);
+    }
+    assert.equal((await fetch(`${base}/vendor/evil.js`)).status, 404);
+    assert.equal((await fetch(`${base}/vendor/..%2Fsupertrend.mjs`)).status, 404);
   });
 });
 
