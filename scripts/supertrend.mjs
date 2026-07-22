@@ -107,56 +107,106 @@ const VERDICT_SCHEMA = {
 // Provider picked by settings: {"provider": "pi"} shells out to the pi coding
 // agent (its own provider/key config applies); else by which API key is present
 // (ANTHROPIC wins if both).
-async function llmVerdict(settings, payload) {
+// Streaming SSE reader shared by both API providers: calls extract(json) per
+// `data:` event, invokes onDelta with each text piece, returns the full text.
+async function readSse(res, extract, onDelta) {
+  let full = '';
+  let buf = '';
+  for await (const chunk of res.body) {
+    buf += Buffer.from(chunk).toString('utf8');
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+      let piece = null;
+      try { piece = extract(JSON.parse(data)); } catch { /* keepalive/partial */ }
+      if (piece) {
+        full += piece;
+        if (onDelta) onDelta(piece);
+      }
+    }
+  }
+  return full;
+}
+
+// Single provider dispatch. schema => JSON-constrained (non-streaming);
+// onDelta => streamed tokens for the API providers (pi replies whole).
+async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, tools = false } = {}) {
   if (settings.provider === 'pi') {
     // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
-    const args = ['-p', '--no-session', '--no-tools', '--system-prompt', FILTER_SYSTEM];
+    // tools=true lets pi use its own agent tools (bash/read/web) — chat only;
+    // verdicts stay tool-less and deterministic.
+    const args = ['-p', '--no-session', ...(tools ? [] : ['--no-tools']), '--system-prompt', system];
     if (settings.model) args.push('--model', settings.model);
-    args.push(JSON.stringify(payload));
-    const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: 90000 });
-    const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
-    if (!m) throw new Error('pi output had no verdict JSON');
-    return JSON.parse(m[0]);
+    args.push(user);
+    const out = execFileSync(settings.piBin || '/opt/homebrew/bin/pi', args, { encoding: 'utf8', timeout: timeoutMs }).trim();
+    if (onDelta) onDelta(out); // pi cannot stream: one whole delta
+    return out;
   }
   if (settings.ANTHROPIC_API_KEY) {
+    const stream = Boolean(onDelta) && !schema;
+    const body = {
+      model: settings.model || 'claude-opus-4-8',
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: user }],
+    };
+    if (schema) body.output_config = { format: { type: 'json_schema', schema } };
+    if (tools && !schema) body.tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3 }];
+    if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': settings.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: settings.model || 'claude-opus-4-8',
-        max_tokens: 1024,
-        system: FILTER_SYSTEM,
-        output_config: { format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
-        messages: [{ role: 'user', content: JSON.stringify(payload) }],
-      }),
-      signal: AbortSignal.timeout(30000),
+      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    if (stream) {
+      return readSse(res, (j) => (j.type === 'content_block_delta' && j.delta?.type === 'text_delta' ? j.delta.text : null), onDelta);
+    }
     const data = await res.json();
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
-    return JSON.parse(data.content.find((b) => b.type === 'text').text);
+    return data.content.find((b) => b.type === 'text').text;
   }
-
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
-    body: JSON.stringify({
+  {
+    const stream = Boolean(onDelta) && !schema;
+    const body = {
       model: settings.model || 'gpt-5.4-mini',
-      response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: FILTER_SYSTEM },
-        { role: 'user', content: JSON.stringify(payload) },
+        { role: 'system', content: system },
+        { role: 'user', content: user },
       ],
-    }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
-  const data = await res.json();
-  return JSON.parse(data.choices[0].message.content);
+    };
+    if (schema) body.response_format = { type: 'json_object' };
+    if (stream) body.stream = true;
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
+    if (stream) {
+      return readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+    }
+    const data = await res.json();
+    return data.choices[0].message.content;
+  }
+}
+
+// Free-form ask against the configured provider (used by the chat sidebar).
+export async function llmChat(settings, system, user, { onDelta = null } = {}) {
+  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, tools: true });
+}
+
+async function llmVerdict(settings, payload) {
+  const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+  const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
+  if (!m) throw new Error('no verdict JSON in provider output');
+  return JSON.parse(m[0]);
 }
 
 export function readSettings(settingsPath) {

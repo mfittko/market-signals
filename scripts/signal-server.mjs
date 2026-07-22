@@ -15,7 +15,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, readSettings, recordSignal, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, llmChat, readSettings, recordSignal, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -167,6 +167,50 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   return { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
 }
 
+const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  thread_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  context TEXT,
+  created_at TEXT NOT NULL
+)`;
+
+function chatDb(dbPath, fn) {
+  return withDb(dbPath, (db) => {
+    db.exec(CHAT_DDL);
+    return fn(db);
+  });
+}
+
+export function listThreads(dbPath) {
+  return chatDb(dbPath, (db) => db.prepare(
+    'SELECT t.*, COUNT(m.id) AS messages FROM chat_threads t LEFT JOIN chat_messages m ON m.thread_id = t.id GROUP BY t.id ORDER BY t.id DESC').all());
+}
+
+export function deleteThread(dbPath, id) {
+  chatDb(dbPath, (db) => {
+    db.prepare('DELETE FROM chat_messages WHERE thread_id=?').run(id);
+    db.prepare('DELETE FROM chat_threads WHERE id=?').run(id);
+  });
+}
+
+export function listMessages(dbPath, threadId) {
+  return chatDb(dbPath, (db) => db.prepare('SELECT * FROM chat_messages WHERE thread_id=? ORDER BY id').all(threadId));
+}
+
+function addMessage(dbPath, threadId, role, content, context = null) {
+  return chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_messages (thread_id, role, content, context, created_at) VALUES (?,?,?,?,?)')
+    .run(threadId, role, content, context, new Date().toISOString()).lastInsertRowid);
+}
+
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, and the trader's notes; prior thread messages may precede the question. Answer concisely with concrete levels; you provide analysis, never order execution. If you have agent tools, you run in the repo root and may expand your context: run \`node skills/fxempire-live-data/scripts/fxempire_live_data.mjs --mode rates --market <commodities|indices|currencies|crypto-coin> --slugs <csv>\` for live rates, query \`sqlite3 data/candles.db\` (tables: candles, signals), read \`data/notes.md\`, or web-search for market-moving news. Prefer the provided context; fetch only what is missing.`;
+
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
   if (!recent.length) return null;
@@ -247,6 +291,73 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
+      if (url.pathname === '/api/threads' && req.method === 'GET') {
+        return json(res, 200, { ok: true, threads: listThreads(dbPath) });
+      }
+      if (url.pathname === '/api/threads' && req.method === 'DELETE') {
+        const id = Number(url.searchParams.get('id'));
+        if (!Number.isInteger(id)) return json(res, 400, { ok: false, error: 'id required' });
+        deleteThread(dbPath, id);
+        return json(res, 200, { ok: true });
+      }
+      if (url.pathname === '/api/messages' && req.method === 'GET') {
+        const id = Number(url.searchParams.get('thread'));
+        if (!Number.isInteger(id)) return json(res, 400, { ok: false, error: 'thread required' });
+        return json(res, 200, { ok: true, messages: listMessages(dbPath, id) });
+      }
+      if (url.pathname === '/api/chat' && req.method === 'POST') {
+        let raw = '';
+        let bytes = 0;
+        for await (const chunk of req) {
+          bytes += chunk.length;
+          if (bytes > 64 * 1024) return json(res, 413, { ok: false, error: 'body too large' });
+          raw += chunk;
+        }
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const message = typeof body.message === 'string' ? body.message.trim() : '';
+        if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
+        const cfg = readSettings(settingsPath);
+        const hasProvider = cfg.provider === 'pi' || (cfg.provider !== 'none' && (cfg.OPENAI_API_KEY || cfg.ANTHROPIC_API_KEY));
+        if (!hasProvider) return json(res, 400, { ok: false, error: 'no chat provider configured (settings: provider/API keys)' });
+
+        const instrument = body.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
+        const granularity = body.granularity || cfg.granularity || 'M5';
+        const view = await chartData(dbPath, instrument, { granularity, fetcher: null });
+        const context = {
+          view: { instrument, granularity },
+          quote: view.quote,
+          recentCandles: view.candles.slice(-24).map((k) => ({ t: k.time.slice(11, 16), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null })),
+          signal: view.signal,
+          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: x.time, signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
+        };
+
+        let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
+        let createdThread = null;
+        if (threadId == null) {
+          threadId = chatDb(dbPath, (db) => db.prepare('INSERT INTO chat_threads (title, created_at) VALUES (?,?)')
+            .run(message.slice(0, 60), new Date().toISOString()).lastInsertRowid);
+          createdThread = { id: Number(threadId), title: message.slice(0, 60) };
+        }
+        addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
+
+        const history = listMessages(dbPath, threadId).slice(-13, -1)
+          .map((m) => `${m.role}: ${m.content}`).join('\n');
+        const user = `context:\n${JSON.stringify(context)}\n\n${history ? `thread so far:\n${history}\n\n` : ''}question: ${message}`;
+
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+        if (createdThread) send({ type: 'thread', ...createdThread });
+        try {
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }) });
+          addMessage(dbPath, threadId, 'assistant', reply);
+          send({ type: 'done', threadId: Number(threadId), reply });
+        } catch (err) {
+          addMessage(dbPath, threadId, 'error', err.message);
+          send({ type: 'error', threadId: Number(threadId), error: err.message });
+        }
+        return res.end();
+      }
       if (url.pathname.startsWith('/vendor/')) {
         if (serveVendor(res, url.pathname.slice('/vendor/'.length))) return;
         return json(res, 404, { ok: false, error: 'unknown vendor asset' });
@@ -273,7 +384,21 @@ const PAGE = /* html */ `<!doctype html>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0d1117; color: #e6edf3; font: 14px/1.5 -apple-system, sans-serif; }
-  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  #app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0; min-height: 100vh; }
+  main { padding: 16px; min-width: 0; }
+  aside { border-left: 1px solid #30363d; display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
+  #threadBar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
+  #threadBar button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  #threadBar button.active { background: #1f6feb; border-color: #1f6feb; }
+  #threadBar .del { padding: 3px 6px; color: #8b949e; }
+  #msgs { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .msg { border-radius: 8px; padding: 7px 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; max-width: 95%; }
+  .msg.user { background: #1f6feb22; border: 1px solid #1f6feb55; align-self: flex-end; }
+  .msg.assistant { background: #161b22; border: 1px solid #30363d; align-self: flex-start; }
+  .msg.error { background: #f8514922; border: 1px solid #f8514955; align-self: flex-start; }
+  #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
+  #chatForm input { flex: 1; }
+  #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
@@ -301,7 +426,7 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><main>
+</style></head><body><div id="app"><main>
 <h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -313,6 +438,13 @@ const PAGE = /* html */ `<!doctype html>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
+</main>
+<aside>
+  <div id="threadBar"><button id="newThread">+ new</button></div>
+  <div id="msgs"></div>
+  <form id="chatForm"><input id="chatMsg" placeholder="quick check about the current view…" autocomplete="off"><button>Ask</button></form>
+</aside>
+</div>
 <script>
 const qs = new URLSearchParams(location.search);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -422,7 +554,7 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
-    box('updated', esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(q.time.slice(11, 16)) + ' candle forming' : esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
 }
 
 function verdict(s) {
@@ -466,6 +598,85 @@ async function cfg() {
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
 }
+const chat = { threadId: null, pending: false };
+async function loadThreads() {
+  const { threads } = await (await fetch('/api/threads')).json();
+  const bar = document.getElementById('threadBar');
+  bar.innerHTML = '<button id="newThread">+ new</button>' + threads.map(t =>
+    '<button data-id="' + t.id + '" class="' + (t.id === chat.threadId ? 'active' : '') + '">' + esc(t.title.slice(0, 22)) + '</button>' +
+    '<button class="del" data-del="' + t.id + '" title="delete thread">✕</button>').join('');
+  bar.querySelector('#newThread').onclick = () => { chat.threadId = null; renderMsgs([]); loadThreads(); };
+  for (const b of bar.querySelectorAll('button[data-id]')) b.onclick = () => selectThread(Number(b.dataset.id));
+  for (const b of bar.querySelectorAll('button[data-del]')) b.onclick = async () => {
+    await fetch('/api/threads?id=' + b.dataset.del, { method: 'DELETE' });
+    if (chat.threadId === Number(b.dataset.del)) { chat.threadId = null; renderMsgs([]); }
+    loadThreads();
+  };
+}
+async function selectThread(id) {
+  chat.threadId = id;
+  const { messages } = await (await fetch('/api/messages?thread=' + id)).json();
+  renderMsgs(messages);
+  loadThreads();
+}
+function renderMsgs(list) {
+  const el = document.getElementById('msgs');
+  el.innerHTML = list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + esc(m.content) + '</div>').join('');
+  el.scrollTop = el.scrollHeight;
+}
+function appendMsg(role, text) {
+  const el = document.getElementById('msgs');
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  div.textContent = text;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  return div;
+}
+document.getElementById('chatForm').onsubmit = async (e) => {
+  e.preventDefault();
+  if (chat.pending) return;
+  const input = document.getElementById('chatMsg');
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  chat.pending = true;
+  appendMsg('user', message);
+  const bubble = appendMsg('assistant', '…');
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({
+      threadId: chat.threadId, message,
+      instrument: qs.get('instrument') || undefined, granularity: qs.get('granularity') || undefined,
+    }) });
+    if (!res.ok) { bubble.className = 'msg error'; bubble.textContent = (await res.json()).error; chat.pending = false; return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let acc = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\\n\\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 2);
+        if (!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if (ev.type === 'thread') chat.threadId = ev.id;
+        if (ev.type === 'delta') { acc += ev.text; bubble.textContent = acc; document.getElementById('msgs').scrollTop = 1e9; }
+        if (ev.type === 'done') { bubble.textContent = ev.reply; chat.threadId = ev.threadId; }
+        if (ev.type === 'error') { bubble.className = 'msg error'; bubble.textContent = ev.error; chat.threadId = ev.threadId ?? chat.threadId; }
+      }
+    }
+  } catch (err) {
+    bubble.className = 'msg error';
+    bubble.textContent = String(err);
+  }
+  chat.pending = false;
+  loadThreads();
+};
+loadThreads();
 load();
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
@@ -473,7 +684,7 @@ document.getElementById('cfgbtn').addEventListener('click', async () => {
   await cfg();
   document.getElementById('cfgdlg').showModal();
 });
-</script></main></body></html>
+</script></body></html>
 `;
 
 function parseArgs(argv) {

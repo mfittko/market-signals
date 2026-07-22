@@ -315,3 +315,77 @@ test('watch toggle: watchers CSV round-trips and the chart response carries watc
     assert.ok(html.includes('id="watchBtn"'), 'bell toggle present');
   });
 });
+
+// --- chat sidebar: threads + messages + SSE with a fake pi provider ---
+function sseEvents(text) {
+  return text.split('\n\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)));
+}
+
+test('chat: SSE reply via fake pi, thread auto-created, context + messages persisted, delete cascades', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "Floor holds at 87.7, ceiling 88.8."\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'worth re-entering short here?' }) });
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /text\/event-stream/);
+    const events = sseEvents(await res.text());
+    const done = events.find((e) => e.type === 'done');
+    assert.ok(done, 'done event');
+    assert.match(done.reply, /Floor holds/);
+    const threadEv = events.find((e) => e.type === 'thread');
+    assert.equal(threadEv.title, 'worth re-entering short here?');
+
+    const { threads } = await (await fetch(`${base}/api/threads`)).json();
+    assert.equal(threads.length, 1);
+    assert.equal(threads[0].messages, 2, 'user + assistant persisted');
+
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(messages[0].role, 'user');
+    const ctx = JSON.parse(messages[0].context);
+    assert.equal(ctx.view.instrument, INSTRUMENT, 'context snapshot attached');
+    assert.ok(ctx.quote && typeof ctx.quote.last === 'number', 'quote in context');
+    assert.equal(messages[1].role, 'assistant');
+
+    // Follow-up in the same thread includes history and persists more rows.
+    const res2 = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: done.threadId, message: 'and the stop?' }) });
+    sseEvents(await res2.text());
+    const after = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(after.messages.length, 4);
+
+    await fetch(`${base}/api/threads?id=${done.threadId}`, { method: 'DELETE' });
+    const gone = await (await fetch(`${base}/api/threads`)).json();
+    assert.equal(gone.threads.length, 0);
+    const emptied = await (await fetch(`${base}/api/messages?thread=${done.threadId}`)).json();
+    assert.equal(emptied.messages.length, 0, 'messages cascade-deleted');
+  });
+});
+
+test('chat: no provider configured yields a clear 400; provider errors persist as error role', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /no chat provider/);
+
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
+    const events = sseEvents(await res.text());
+    const errEv = events.find((e) => e.type === 'error');
+    assert.ok(errEv, 'error event delivered in-stream');
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${errEv.threadId}`)).json();
+    assert.equal(messages[1].role, 'error', 'provider failure persisted without losing the thread');
+  });
+});
+
+test('page ships the chat sidebar', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('<aside>'), 'sidebar present');
+    assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
+    assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
+  });
+});
