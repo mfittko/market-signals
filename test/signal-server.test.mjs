@@ -459,7 +459,7 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
 
 test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
   const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
-  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates']);
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy']);
   for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
@@ -610,5 +610,69 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
     const script = html.slice(html.indexOf('<script>'));
     assert.ok(!/fetch\((['"])\/api\/(?:portfolio|bot-trades)\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes (either quote style)');
+  });
+});
+
+test('strategy management (#25): chat drafts never activate, human activation via same-origin POST, bot uses the active strategy', async () => {
+  const { activeStrategy, saveStrategy } = await import('../scripts/strategies.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\ncat > /dev/null\necho '{"tool":"save_strategy","input":{"name":"chat-draft","prompt":"Draft from chat with enough length to pass validation checks."}}'\necho done\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    // list seeds exactly once and reports no active strategy
+    const l1 = await (await fetch(base + '/api/strategies')).json();
+    assert.equal(l1.strategies.length, 1, 'seed shipped');
+    assert.equal(l1.activeId, null, 'seed inactive');
+
+    // save_strategy tool executes draft-only (direct registry call, db ctx)
+    const { execChatTool } = await import('../scripts/signal-server.mjs');
+    const out = JSON.parse(execChatTool('save_strategy', { name: 'chat-draft', prompt: 'Draft from chat with enough length to pass validation checks.' }, { dbPath }));
+    assert.equal(out.version, 1);
+    assert.match(out.note, /NOT active/);
+    assert.equal(activeStrategy(dbPath), null, 'drafting cannot activate');
+
+    // activation endpoint: POST works same-origin, GET is not a route
+    const act = await (await fetch(base + '/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: out.id }) })).json();
+    assert.equal(act.ok, true);
+    assert.equal(activeStrategy(dbPath).id, out.id);
+    const cross = await fetch(base + '/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: out.id }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403, 'cross-origin activation rejected');
+    const bad = await (await fetch(base + '/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: 99999 }) })).json();
+    assert.equal(bad.ok, false);
+
+    // the bot deliberates with the ACTIVE strategy and journals its id+version
+    const { runBot } = await import('../scripts/bot.mjs');
+    const { botConfig, portfolioView } = await import('../scripts/portfolio.mjs');
+    const holdBin = join(dir, 'pi2');
+    writeFileSync(holdBin, '#!/bin/sh\ncat > /dev/null\necho \'{"action":"hold","reasoning":"per strategy"}\'\n');
+    chmodSync(holdBin, 0o755);
+    const botSettings = { provider: 'pi', piBin: holdBin, bot: { enabled: true, riskPct: 100 } };
+    await runBot(dbPath, botSettings, { instrument: INSTRUMENT, granularity: 'M5', candle: { open: 87, high: 87.1, low: 86.9, close: 87, time: '2026-07-23T08:00:00Z' }, quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+    const jd = JSON.parse(portfolioView(dbPath, botConfig(botSettings)).journal.find((j) => j.action === 'decision').context);
+    assert.equal(jd.strategyId, out.id, 'journal pins the active strategy id');
+    assert.equal(jd.strategyDbVersion, 1);
+    assert.equal(jd.strategyName, 'chat-draft');
+
+    // page ships the bot settings section
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="botcfg"'), 'bot config section in the settings dialog');
+
+    // settings whitelist accepts the bot object, rejects junk bot keys
+    const okSet = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { enabled: false, riskPct: 2 } }) })).json();
+    assert.equal(okSet.error, undefined, 'bot object accepted (settings write returns masked settings, no error)');
+    const badSet = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { evil: 1 } }) });
+    assert.equal(badSet.status, 400, 'unknown bot keys rejected');
+    // deep-merge: partial bot saves keep stored keys the form doesn't carry
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': 12 }, maxPositions: 5 } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { riskPct: 3 } }) });
+    const merged = JSON.parse(readFileSync(settingsPath, 'utf8')).bot;
+    assert.equal(merged.riskPct, 3);
+    assert.equal(merged.maxPositions, 5, 'partial save preserves maxPositions');
+    assert.deepEqual(merged.leverage, { 'WTICO/USD': 12 }, 'partial save preserves the leverage map');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { maxPositions: null } }) });
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).bot.maxPositions, undefined, 'null deletes a bot key');
   });
 });

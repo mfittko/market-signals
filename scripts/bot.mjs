@@ -10,6 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
+import { activeStrategy, ensureSeedStrategy } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -17,6 +18,15 @@ export const BOT_LOOP_DEFAULTS = {
   killSwitchDrawdownPct: 20,
   strategy: 'Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume).',
 };
+
+// Bot-scoped watchers: when settings.bot.watchers is set, the bot only runs
+// on those combos (the alert watcher keeps its own top-level list).
+export function botWatchesCombo(settings, instrument, granularity) {
+  const csv = settings?.bot?.watchers;
+  if (typeof csv !== 'string' || !csv.trim()) return true;
+  const combos = csv.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x && x !== '|');
+  return combos.includes(`${instrument}|${granularity}`);
+}
 
 export function botLoopConfig(settings = {}) {
   const bot = settings.bot || {};
@@ -118,14 +128,24 @@ function buildDecisionPrompt(loop, view, ctx) {
 const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
 
 // One deliberation for one instrument event. Returns {decision, executed, error}.
-export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null }) {
+export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
   const cfg = botConfig(settings);
   const loop = botLoopConfig(settings);
+  // The ACTIVE db strategy (#25) outranks the settings/default prompt; journal
+  // rows pin its exact id+version so past decisions stay attributed.
+  if (strategyRow?.prompt) loop.strategy = strategyRow.prompt;
   const view = portfolioView(dbPath, cfg);
   const version = strategyVersion(loop.strategy);
   const toolTrace = [];
+  const allowedTools = new Set((toolDefs || []).map((t) => t.name));
   const tracedExec = execTool
     ? async (name, args) => {
+      // enforce the declared toolset at EXECUTION time: a provider returning an
+      // undeclared tool call must never reach the executor (read-only guarantee)
+      if (!allowedTools.has(name)) {
+        toolTrace.push({ name, args, ok: false, error: 'tool not in the declared toolset' });
+        throw new Error(`tool ${name} not allowed here`);
+      }
       try {
         const out = await execTool(name, args);
         toolTrace.push({ name, args, ok: true });
@@ -178,7 +198,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   }
   journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
     instrument, granularity, event, decision, executed, error,
-    strategyVersion: version, toolTrace, instrumentContext: ctx,
+    strategyVersion: version, strategyId: strategyRow?.id ?? null, strategyName: strategyRow?.name ?? null, strategyDbVersion: strategyRow?.version ?? null, toolTrace, instrumentContext: ctx,
     snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
   });
   return { decision, executed, error };
@@ -231,10 +251,24 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   const event = freshFlip ? 'flip' : adverse ? 'review' : null;
   if (!event) return { fills, halted: false, deliberated: false };
 
+  // Active strategy scoping: an instruments CSV on the active strategy limits
+  // deliberation to those combos (deterministic fills always run).
+  // Seed idempotently (ships INACTIVE), then require a human-activated
+  // strategy: a fresh db pauses instead of trading the hardcoded default.
+  ensureSeedStrategy(dbPath);
+  const strategyRow = activeStrategy(dbPath);
+  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
+  if (strategyRow?.instruments) {
+    // normalize each combo the same way the watchers parser does — spaces
+    // around the pipe must not silently unscope a combo
+    const combos = strategyRow.instruments.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x !== '|' && x);
+    if (!combos.includes(`${instrument}|${granularity}`)) return { fills, halted: false, deliberated: false, skipped: 'combo not in active strategy scope' };
+  }
+
   const result = await deliberate(dbPath, settings, {
     instrument, granularity, event,
     ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip },
-    toolDefs, execTool,
+    toolDefs, execTool, strategyRow,
   });
   return { fills, halted: false, deliberated: true, ...result };
 }
