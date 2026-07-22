@@ -30,7 +30,7 @@ function fixtureDb(dir) {
 async function withServer(dir, fn) {
   const { dbPath, sigTime } = fixtureDb(dir);
   const settingsPath = join(dir, 'settings.json');
-  const server = buildServer({ dbPath, settingsPath });
+  const server = buildServer({ dbPath, settingsPath, fetcher: null });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -88,14 +88,32 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
   });
 });
 
-test('chartData with no t returns the latest signal; empty db yields empty shapes', () => {
+test('chartData with no t returns the latest signal; empty db yields empty shapes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath } = fixtureDb(dir);
-  const d = chartData(dbPath, INSTRUMENT);
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: null });
   assert.equal(d.signal.signal, 'sell');
-  const empty = chartData(join(dir, 'fresh.sqlite'), INSTRUMENT);
+  const empty = await chartData(join(dir, 'fresh.sqlite'), INSTRUMENT, { fetcher: null });
   assert.deepEqual(empty.candles, []);
   assert.equal(empty.signal, null);
+});
+
+test('stale data triggers a live refresh through the injected fetcher; fetch failure serves stale', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir); // fixture times are hours old -> stale
+  const fresh = series([200, 201], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  let calls = 0;
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return fresh; } });
+  assert.equal(calls, 1, 'stale db pulled live candles once');
+  assert.equal(d.quote.last, 201, 'freshly fetched candle serves the quote');
+  // Second call: now fresh enough, no fetch.
+  await chartData(dbPath, INSTRUMENT, { fetcher: async () => { calls++; return []; } });
+  assert.equal(calls, 1, 'fresh db does not re-fetch');
+  // Failure path: stale again with a throwing fetcher still serves stored data.
+  const dir2 = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath: db2 } = fixtureDb(dir2);
+  const d2 = await chartData(db2, INSTRUMENT, { fetcher: async () => { throw new Error('offline'); } });
+  assert.equal(d2.quote.last, 71, 'stale view beats none');
 });
 
 test('writeSettings validates directly (unit)', () => {
@@ -212,6 +230,8 @@ test('chart page ships the hover tooltip (self-contained, escaped fields)', asyn
     assert.ok(html.includes('id="tip"'), 'tooltip element present');
     assert.ok(html.includes("addEventListener('mousemove'"), 'hover handler wired');
     assert.ok(html.includes('supertrend '), 'tooltip includes supertrend detail');
+    assert.ok(html.includes('maxVol'), 'volume underlay drawn');
+    assert.ok(html.includes('d.flips'), 'flip markers drawn where the indicator fired');
     assert.ok(!/src=["']http/.test(html), 'still no external assets');
   });
 });

@@ -79,7 +79,7 @@ test('--help exits 0 with usage, no network, no db writes', () => {
 });
 
 // --- processSignal: opt-in filter, fail-open, dedup (no real pi/osascript/network) ---
-import { mkdtempSync, writeFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { processSignal } from '../scripts/supertrend.mjs';
@@ -117,11 +117,12 @@ test('processSignal records fresh flips with notify off, and dedups', async () =
 
 test('processSignal suppresses when the filter says no (fake pi), no notification', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-'));
-  const piBin = fakeBin(dir, 'pi', `echo '{"alert": false, "reason": "test suppress"}'`);
+  const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": false, "reason": "test suppress"}'`);
   const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin } });
   const res = await processSignal(opts, result, c);
   assert.equal(res.sent, false);
   assert.match(res.reason, /suppressed by filter: test suppress/);
+  assert.match(readFileSync(join(dir, 'pi-args.txt'), 'utf8'), /volumeContext/, 'filter payload carries volume context');
   const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
   assert.equal(row.verdict, 'suppress');
   assert.equal(row.notified, 0);

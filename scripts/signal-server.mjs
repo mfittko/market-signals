@@ -15,7 +15,7 @@ import { createServer } from 'node:http';
 import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, readSettings, signalOutcomes, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, readSettings, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
 
@@ -69,7 +69,22 @@ export function writeSettings(settingsPath, patch) {
   return maskedSettings(settingsPath);
 }
 
-export function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5' } = {}) {
+const granularityMs = (g) => {
+  const m = /^([MH])(\d+)$/.exec(g);
+  return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
+};
+
+export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles } = {}) {
+  // Freshness on load: when the stored data is older than one candle period,
+  // pull live candles and upsert before serving (shared db gets richer too).
+  // Serve stale data if the live fetch fails — availability over freshness.
+  const newest = withDb(dbPath, (db) => db.prepare('SELECT time FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity));
+  if (fetcher && (!newest || Date.now() - Date.parse(newest.time) > granularityMs(granularity) + 90000)) {
+    try {
+      const live = (await fetcher({ instrument, granularity, count: 200 })).filter((c) => c.complete);
+      if (live.length) storeCandles(dbPath, instrument, granularity, live);
+    } catch { /* offline or upstream down: stale view beats none */ }
+  }
   const { candles, recent } = withDb(dbPath, (db) => {
     let windowed;
     if (t) {
@@ -141,7 +156,7 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-export function buildServer({ dbPath, settingsPath }) {
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
@@ -150,7 +165,7 @@ export function buildServer({ dbPath, settingsPath }) {
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
         const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
-        return json(res, 200, chartData(dbPath, instrument, { t, granularity }));
+        return json(res, 200, await chartData(dbPath, instrument, { t, granularity, fetcher }));
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
         return json(res, 200, maskedSettings(settingsPath));
@@ -244,9 +259,16 @@ function draw(d) {
   const stByTime = Object.fromEntries(d.supertrend.map(s => [s.time, s]));
   const lo = Math.min(...cs.map(k => k.low), ...d.supertrend.map(s => s.value));
   const hi = Math.max(...cs.map(k => k.high), ...d.supertrend.map(s => s.value));
-  const px = v => 8 + (1 - (v - lo) / (hi - lo || 1)) * (c.height - 16);
+  const priceH = c.height - 88; // bottom band is the volume underlay
+  const px = v => 8 + (1 - (v - lo) / (hi - lo || 1)) * (priceH - 16);
   const w = c.width / cs.length;
   x.clearRect(0, 0, c.width, c.height);
+  const maxVol = Math.max(1, ...cs.map(k => k.volume || 0));
+  cs.forEach((k, i) => {
+    const h = (k.volume || 0) / maxVol * 80;
+    x.fillStyle = k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)';
+    x.fillRect(i * w + w * 0.2, c.height - h, w * 0.6, h);
+  });
   cs.forEach((k, i) => {
     const cx = i * w + w / 2;
     x.strokeStyle = x.fillStyle = k.close >= k.open ? '#3fb950' : '#f85149';
@@ -261,6 +283,21 @@ function draw(d) {
     if (prev) { x.beginPath(); x.moveTo((i - 1) * w + w / 2, px(prev.value)); x.lineTo(i * w + w / 2, px(s.value)); x.stroke(); }
     prev = s;
   });
+  // Supertrend flip markers: where the indicator actually fired.
+  for (const f of d.flips || []) {
+    const k = cs[f.index]; if (!k) continue;
+    const cx = f.index * w + w / 2;
+    x.fillStyle = f.signal === 'buy' ? '#3fb950' : '#f85149';
+    x.beginPath();
+    if (f.signal === 'buy') {
+      const y = px(k.low) + 14;
+      x.moveTo(cx, y - 8); x.lineTo(cx - 5, y); x.lineTo(cx + 5, y);
+    } else {
+      const y = px(k.high) - 14;
+      x.moveTo(cx, y + 8); x.lineTo(cx - 5, y); x.lineTo(cx + 5, y);
+    }
+    x.fill();
+  }
   const t = qs.get('t') || (d.signal && d.signal.time);
   const si = cs.findIndex(k => k.time === t);
   if (si >= 0) {
@@ -349,6 +386,8 @@ async function cfg() {
   };
 }
 load();
+setInterval(load, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 document.getElementById('cfgbtn').addEventListener('click', async () => {
   await cfg();
   document.getElementById('cfgdlg').showModal();
