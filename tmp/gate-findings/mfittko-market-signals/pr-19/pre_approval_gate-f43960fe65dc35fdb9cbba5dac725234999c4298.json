@@ -1,0 +1,79 @@
+{
+  "repo": "mfittko/market-signals",
+  "pr": 19,
+  "gate": "pre_approval_gate",
+  "headSha": "f43960fe65dc35fdb9cbba5dac725234999c4298",
+  "verdict": "clean",
+  "loggedAt": "2026-07-22T13:58:21.898Z",
+  "findings": [
+    {
+      "severity": "defer",
+      "angle": "pr-checklist-matrix",
+      "summary": "All PR checkboxes checked; AC/DoD/Non-goals matrix table present. All six ACs verified on final head 44a1477: 50 tests green in CI (fixture-db endpoints, settings round-trip incl. watcher fields and masked secrets, notifier fake-binary tests incl. broken-binary fallback, help smokes); final live smoke served the real 10:15 deep-linked signal (verdict alert, +0.436% outcome), page 200, settings write ok; zero npm deps; README documents server + notifier + LaunchAgent. UI-review loop additionally drove all three declared flows on head f43960f in headless WebKit: zero console/HTTP/step failures, chart + deep link + settings round-trip proven in the running app; two non-blocking UX notes left as a pending PR review.",
+      "disposition": "deferred"
+    },
+    {
+      "severity": "worth-fixing-now",
+      "angle": "dry",
+      "summary": "Settings-file parse was copy-pasted in three places (server readSettings, processSignal, new main() copy). FIXED in 44a1477: single readSettings exported from supertrend.mjs, server imports it, both inline copies deleted.",
+      "disposition": "accepted-for-fix"
+    },
+    {
+      "severity": "defer",
+      "angle": "yagni",
+      "summary": "API-key editing in the config UI (password fields + mask-preserve machinery) exceeds the issue's listed config scope. DEFERRED as operator-accepted scope: it is tested, keeps keys out of shell history, and the settings file already owns those keys.",
+      "disposition": "deferred"
+    },
+    {
+      "severity": "defer",
+      "angle": "deep",
+      "summary": "Deep-link resolution does find-over-history before the targeted lookup; the direct lookup alone would suffice (one extra db open per deep link). DEFERRED micro-optimization.",
+      "disposition": "deferred"
+    },
+    {
+      "severity": "defer",
+      "angle": "deep",
+      "summary": "Settings triple-parse concern superseded by the readSettings consolidation in 44a1477 (main() now passes one parsed cfg path; remaining second read inside processSignal is per-run and accepted).",
+      "disposition": "deferred"
+    }
+  ],
+  "provenance": {
+    "distinctReviewers": 2,
+    "perAngle": [
+      {
+        "angle": "dry",
+        "reviewer": "claude-subagent-dry-kiss-yagni",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "kiss",
+        "reviewer": "claude-subagent-dry-kiss-yagni",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "yagni",
+        "reviewer": "claude-subagent-dry-kiss-yagni",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "srp",
+        "reviewer": "claude-subagent-srp-soc-deep",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "soc",
+        "reviewer": "claude-subagent-srp-soc-deep",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "deep",
+        "reviewer": "claude-subagent-srp-soc-deep",
+        "carriedFromHead": "44a1477518c39e60794e6b7a0c69fe10770e3739"
+      },
+      {
+        "angle": "pr-checklist-matrix",
+        "reviewer": "claude-main-agent"
+      }
+    ]
+  }
+}
