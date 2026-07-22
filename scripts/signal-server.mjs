@@ -70,17 +70,23 @@ export function writeSettings(settingsPath, patch) {
 }
 
 export function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5' } = {}) {
-  const candles = withDb(dbPath, (db) => {
+  const { candles, recent } = withDb(dbPath, (db) => {
+    let windowed;
     if (t) {
       // Window around the signal: bars up to and past t.
       const before = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time <= ? ORDER BY time DESC LIMIT ?')
         .all(instrument, granularity, t, Math.ceil(count * 0.7)).reverse();
       const after = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT ?')
         .all(instrument, granularity, t, Math.floor(count * 0.3));
-      return [...before, ...after];
+      windowed = [...before, ...after];
+    } else {
+      windowed = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+        .all(instrument, granularity, count).reverse();
     }
-    return db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-      .all(instrument, granularity, count).reverse();
+    // Latest ~24h regardless of any deep-linked window: the quote is about now.
+    const recent = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 288')
+      .all(instrument, granularity).reverse();
+    return { candles: windowed, recent };
   });
   let supertrend = [];
   let flips = [];
@@ -91,10 +97,43 @@ export function chartData(dbPath, instrument, { t = null, count = 120, granulari
   }
   const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
   // Deep-linked signals older than the history window are looked up directly.
-  const signal = t
-    ? signals.find((s) => s.time === t) ?? signalOutcomes(dbPath, instrument, granularity, { time: t })[0] ?? null
-    : signals[0] ?? null;
-  return { instrument, granularity, candles, supertrend, flips, signal, signals };
+  let signal = null;
+  if (t) {
+    const variants = /\.\d+Z$/.test(t) ? [t] : [t, `${t.slice(0, -1)}.000000000Z`, `${t.slice(0, -1)}.000Z`];
+    for (const v of variants) {
+      signal = signals.find((s) => s.time === v) ?? signalOutcomes(dbPath, instrument, granularity, { time: v })[0] ?? null;
+      if (signal) break;
+    }
+  } else {
+    signal = signals[0] ?? null;
+  }
+  return { instrument, granularity, candles, supertrend, flips, signal, signals, quote: buildQuote(recent) };
+}
+
+// Current course info from the latest stored candles (at most one candle stale).
+function buildQuote(recent) {
+  if (!recent.length) return null;
+  const last = recent[recent.length - 1];
+  const lastMs = Date.parse(last.time);
+  const at = (minsBack) => recent.find((c) => Date.parse(c.time) >= lastMs - minsBack * 60000) ?? recent[0];
+  const pct = (ref) => ref?.close ? Number(((last.close - ref.close) / ref.close * 100).toFixed(2)) : null;
+  const dayKey = last.time.slice(0, 10);
+  const day = recent.filter((c) => c.time.startsWith(dayKey));
+  let st = null;
+  if (recent.length >= 15) {
+    const series = computeSupertrend(recent, {});
+    const cur = series[series.length - 1];
+    if (cur) st = { value: Number(cur.supertrend.toFixed(4)), trend: cur.trend, distPct: Number(((last.close - cur.supertrend) / last.close * 100).toFixed(2)) };
+  }
+  return {
+    last: last.close,
+    time: last.time,
+    change1hPct: pct(at(60)),
+    change24hPct: pct(recent[0]),
+    dayHigh: Math.max(...day.map((c) => c.high)),
+    dayLow: Math.min(...day.map((c) => c.low)),
+    supertrend: st,
+  };
 }
 
 function json(res, status, body) {
@@ -159,12 +198,32 @@ const PAGE = /* html */ `<!doctype html>
   input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
+  #cfgbtn { float: right; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+            border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+  dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
+           padding: 18px 20px; min-width: 420px; }
+  dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
+  dialog h2 { margin-top: 0; }
+  .dlg-close { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px;
+               padding: 5px 14px; cursor: pointer; }
+  #wrap { position: relative; }
+  .quote { display: flex; gap: 22px; flex-wrap: wrap; padding: 8px 14px; border: 1px solid #30363d;
+           border-radius: 6px; margin: 10px 0 0; }
+  .quote small { display: block; color: #8b949e; font-size: 11px; }
+  .quote b { font-size: 15px; }
+  #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
+         border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
+         pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><main>
-<h1>market-signals — <span id="inst"></span></h1>
-<canvas id="chart" width="1100" height="420"></canvas>
+<h1>market-signals — <span id="inst"></span> <button id="cfgbtn" type="button">⚙ settings</button></h1>
+<div id="wrap"><canvas id="chart" width="1100" height="420"></canvas><div id="tip"></div></div>
+<div class="quote" id="quote" hidden></div>
 <div class="verdict" id="verdict">loading…</div>
+<dialog id="cfgdlg">
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
+<p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
+</dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time (UTC)</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
 <script>
@@ -177,7 +236,7 @@ async function load() {
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   const d = await (await fetch('/api/chart?' + p)).json();
   document.getElementById('inst').textContent = d.instrument + ' ' + d.granularity;
-  draw(d); verdict(d.signal); history(d.signals);
+  draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
 }
 function draw(d) {
   const c = document.getElementById('chart'), x = c.getContext('2d');
@@ -208,7 +267,46 @@ function draw(d) {
     x.fillStyle = '#d29922'; x.beginPath();
     x.arc(si * w + w / 2, px(cs[si].close), 6, 0, 7); x.fill();
   }
+  hover = { cs, stByTime, w };
 }
+
+let hover = null;
+const tip = document.getElementById('tip');
+const cv = document.getElementById('chart');
+cv.addEventListener('mousemove', (e) => {
+  if (!hover) return;
+  const r = cv.getBoundingClientRect();
+  const i = Math.max(0, Math.min(hover.cs.length - 1, Math.floor((e.clientX - r.left) * (cv.width / r.width) / hover.w)));
+  const k = hover.cs[i], s = hover.stByTime[k.time];
+  const chg = k.open ? ((k.close - k.open) / k.open * 100).toFixed(2) : '0.00';
+  tip.innerHTML = '<b>' + esc(k.time) + '</b><br>' +
+    'O ' + esc(k.open) + ' · H ' + esc(k.high) + ' · L ' + esc(k.low) + ' · C ' + esc(k.close) +
+    ' <span class="' + (k.close >= k.open ? 'buy' : 'sell') + '">(' + (chg >= 0 ? '+' : '') + esc(chg) + '%)</span><br>' +
+    'volume ' + esc(k.volume ?? '—') +
+    (s ? '<br>supertrend ' + esc(s.value) + ' <span class="' + (s.trend === 'up' ? 'buy' : 'sell') + '">' + esc(s.trend) + '</span>' : '');
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 240) + 'px';
+  tip.style.top = Math.min(e.clientY - r.top + 14, r.height - 90) + 'px';
+});
+cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+function quoteStrip(q) {
+  const el = document.getElementById('quote');
+  if (!q) { el.hidden = true; return; }
+  el.hidden = false;
+  const pc = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v + '%';
+  const cls = (v) => v == null || v >= 0 ? 'buy' : 'sell';
+  const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(q.time)) / 60000));
+  const st = q.supertrend;
+  const box = (label, html) => '<div><small>' + label + '</small><b>' + html + '</b></div>';
+  el.innerHTML =
+    box('last', '<span class="' + cls(q.change1hPct) + '">' + esc(q.last) + '</span>') +
+    box('1h', '<span class="' + cls(q.change1hPct) + '">' + esc(pc(q.change1hPct)) + '</span>') +
+    box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
+    box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
+    (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
+    box('updated', esc(q.time.slice(11, 16)) + ' UTC (' + ageMin + 'm ago)');
+}
+
 function verdict(s) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
@@ -234,9 +332,9 @@ const FIELDS = [['instrument', 'text'], ['granularity', 'text'], ['freshBars', '
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   const f = document.getElementById('cfg');
-  f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label>' + k + '</label>' + (kind === 'select'
-    ? '<select name="' + k + '">' + (opts.includes(s[k] ?? '') ? opts : [...opts, s[k]]).map(o => '<option' + ((s[k] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
-    : '<input name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
+  f.innerHTML = FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
+    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.includes(s[k] ?? '') ? opts : [...opts, s[k]]).map(o => '<option' + ((s[k] ?? '') === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('') + '</select>'
+    : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
     e.preventDefault();
@@ -246,11 +344,15 @@ async function cfg() {
       patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
     }
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify(patch) })).json();
+    if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
-    if (r.ok) cfg();
   };
 }
-load(); cfg();
+load();
+document.getElementById('cfgbtn').addEventListener('click', async () => {
+  await cfg();
+  document.getElementById('cfgdlg').showModal();
+});
 </script></main></body></html>
 `;
 

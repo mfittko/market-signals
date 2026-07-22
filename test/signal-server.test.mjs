@@ -46,6 +46,8 @@ test('GET / serves the self-contained chart page', async () => {
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.ok(html.includes('<canvas'), 'has chart canvas');
+    assert.ok(html.includes('<dialog id="cfgdlg"'), 'settings live in a dialog, hidden by default');
+    assert.ok(html.includes('id="cfgbtn"'), 'gear button opens the settings modal');
     assert.ok(!/src=["']http/.test(html), 'no external assets');
   });
 });
@@ -194,9 +196,36 @@ test('deep link to a signal older than the history window still resolves', async
     for (let i = 0; i < 60; i++) {
       recordSignal(dbPath, INSTRUMENT, 'M5', { time: new Date(Date.parse('2026-07-21T00:00:00Z') + i * 300000).toISOString(), signal: 'sell', price: 90 }, 10);
     }
-    const d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(old.time)}`)).json();
+    let d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(old.time)}`)).json();
     assert.ok(d.signal, 'old signal found via direct lookup');
+    const short = old.time.replace('.000Z', 'Z').replace(/\.\d+Z$/, 'Z');
+    d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(short)}`)).json();
+    assert.ok(d.signal, 'second-precision t resolves via nanosecond variant');
     assert.equal(d.signal.time, old.time);
     assert.equal(d.signal.signal, 'buy');
+  });
+});
+
+test('chart page ships the hover tooltip (self-contained, escaped fields)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="tip"'), 'tooltip element present');
+    assert.ok(html.includes("addEventListener('mousemove'"), 'hover handler wired');
+    assert.ok(html.includes('supertrend '), 'tooltip includes supertrend detail');
+    assert.ok(!/src=["']http/.test(html), 'still no external assets');
+  });
+});
+
+test('/api/chart carries the current-course quote from the latest candles', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const d = await (await fetch(`${base}/api/chart`)).json();
+    assert.ok(d.quote, 'quote present');
+    assert.equal(d.quote.last, 71, 'last close of the fixture crash series');
+    assert.ok(d.quote.dayHigh >= d.quote.dayLow);
+    assert.ok(d.quote.supertrend && ['up', 'down'].includes(d.quote.supertrend.trend));
+    assert.equal(typeof d.quote.change24hPct, 'number');
+    // Deep-linked historical windows still quote the LATEST data.
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="quote"'), 'quote strip element present');
   });
 });

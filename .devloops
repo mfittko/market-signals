@@ -27,6 +27,7 @@ uiReview:
       pathPatterns: ["scripts/signal-server.mjs"]
       steps:
         - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
