@@ -248,3 +248,13 @@ test('strategy scoping (#25): spaced combos normalize; no-active-strategy pauses
   assert.equal(r3.skipped, 'no active strategy');
   assert.equal(r3.deliberated, false);
 });
+
+test('botWatchesCombo: unset watches all, spaced CSV normalizes, non-listed combos excluded', async () => {
+  const { botWatchesCombo } = await import('../scripts/bot.mjs');
+  assert.equal(botWatchesCombo({}, WTI, 'M5'), true, 'no bot.watchers = all combos');
+  assert.equal(botWatchesCombo({ bot: { watchers: '' } }, WTI, 'M5'), true);
+  const s = { bot: { watchers: 'WTICO/USD | M5, SPX500/USD|M1' } };
+  assert.equal(botWatchesCombo(s, WTI, 'M5'), true, 'spaces normalize');
+  assert.equal(botWatchesCombo(s, 'SPX500/USD', 'M1'), true);
+  assert.equal(botWatchesCombo(s, WTI, 'M1'), false);
+});

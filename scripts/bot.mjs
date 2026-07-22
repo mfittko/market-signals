@@ -19,6 +19,15 @@ export const BOT_LOOP_DEFAULTS = {
   strategy: 'Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume).',
 };
 
+// Bot-scoped watchers: when settings.bot.watchers is set, the bot only runs
+// on those combos (the alert watcher keeps its own top-level list).
+export function botWatchesCombo(settings, instrument, granularity) {
+  const csv = settings?.bot?.watchers;
+  if (typeof csv !== 'string' || !csv.trim()) return true;
+  const combos = csv.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x && x !== '|');
+  return combos.includes(`${instrument}|${granularity}`);
+}
+
 export function botLoopConfig(settings = {}) {
   const bot = settings.bot || {};
   return {
@@ -128,8 +137,15 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   const view = portfolioView(dbPath, cfg);
   const version = strategyVersion(loop.strategy);
   const toolTrace = [];
+  const allowedTools = new Set((toolDefs || []).map((t) => t.name));
   const tracedExec = execTool
     ? async (name, args) => {
+      // enforce the declared toolset at EXECUTION time: a provider returning an
+      // undeclared tool call must never reach the executor (read-only guarantee)
+      if (!allowedTools.has(name)) {
+        toolTrace.push({ name, args, ok: false, error: 'tool not in the declared toolset' });
+        throw new Error(`tool ${name} not allowed here`);
+      }
       try {
         const out = await execTool(name, args);
         toolTrace.push({ name, args, ok: true });

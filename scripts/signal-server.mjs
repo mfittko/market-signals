@@ -929,10 +929,11 @@ async function botCfg(s) {
     if (r.ok) botCfg(s);
   };
   el.querySelector('#botSave').onclick = async () => {
+    const posNum = (sel, dflt) => { const n = Number(el.querySelector(sel).value); return Number.isFinite(n) && n > 0 ? n : dflt; };
     const patch = { bot: {
       enabled: el.querySelector('#botEnabled').checked,
-      riskPct: Number(el.querySelector('#botRisk').value) || 1,
-      killSwitchDrawdownPct: Number(el.querySelector('#botKill').value) || 20,
+      riskPct: posNum('#botRisk', 1),
+      killSwitchDrawdownPct: posNum('#botKill', 20),
     } };
     const w = el.querySelector('#botWatchers').value.trim();
     if (w) patch.bot.watchers = w;
