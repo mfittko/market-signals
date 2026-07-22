@@ -52,7 +52,7 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
 )`;
 
 // Every DB access goes through here: schema ensured on open, handle always closed.
-function withDb(dbPath, fn) {
+export function withDb(dbPath, fn) {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
@@ -158,6 +158,18 @@ async function llmVerdict(settings, payload) {
   return JSON.parse(data.choices[0].message.content);
 }
 
+// Delivery: terminal-notifier when installed (the notification itself opens the
+// deep link), else osascript (not clickable). Both bounded by a 10s timeout.
+export function sendNotification(msg, deepLink, settings = {}) {
+  const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  const notifier = settings.notifierBin || '/opt/homebrew/bin/terminal-notifier';
+  if (existsSync(notifier)) {
+    execFileSync(notifier, ['-title', 'market-signals', '-message', clean, '-open', deepLink, '-sound', 'Glass'], { timeout: 10000 });
+  } else {
+    execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+  }
+}
+
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
@@ -214,8 +226,9 @@ export async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${sig.time.slice(11, 16)} UTC, win rate ${wr ?? '?'}%${lowConf}${extra}`;
+  const deepLink = `http://127.0.0.1:${settings.port || 8787}/?instrument=${encodeURIComponent(opts.instrument)}&t=${encodeURIComponent(sig.time)}`;
   try {
-    execFileSync('osascript', ['-e', `display notification "${msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ')}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+    sendNotification(msg, deepLink, settings);
   } catch (err) {
     // Non-macOS or osascript failure: still record the verdict so the signal isn't lost.
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 0);
