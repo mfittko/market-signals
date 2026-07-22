@@ -570,6 +570,7 @@ const PAGE = /* html */ `<!doctype html>
   #pf summary { cursor: pointer; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; }
   #pf summary button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
   #pfChips b, #pfChips span { margin-right: 12px; }
+  #pfSpark { max-width: 100%; height: 46px; display: block; }
   .pfcard { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
