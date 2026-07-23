@@ -970,3 +970,38 @@ test('settings: OPENAI_BASE_URL whitelisted + URL-validated; provider select is 
     assert.ok(html.includes('openai (compatible via base URL)'), 'openai option present');
   });
 });
+
+test('info overlays (#57): one explanation map covers the axis keys, ⓘ toggle ships in the header', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const src = html.match(/const INFO = \{[\s\S]*?\n\};/);
+    assert.ok(src, 'a single INFO explanation map is present');
+    for (const key of ['adx', 'regime', 'impulse', 'vwap', 'rsi']) {
+      assert.match(src[0], new RegExp('\\b' + key + ':'), key + ' has an INFO map entry');
+    }
+    assert.ok(html.includes('id="infoBtn"'), 'ⓘ toggle button present');
+    assert.ok(html.includes('data-info="'), 'at least one rendered element carries data-info');
+    assert.match(html, /body\.info-on \[data-info\]:hover::after/, 'CSS-only tooltip rule present, gated on body.info-on');
+  });
+});
+
+test('info toggle (#57): settings key round-trips like ind, invalid values rejected, /api/chart carries it', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.info, false, 'off by default');
+
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ info: 'yes' }) })).status, 400, 'non-boolean rejected');
+
+    let res = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ info: true }) });
+    assert.equal(res.status, 200);
+    assert.equal((await (await fetch(base + '/api/settings')).json()).info, true);
+    d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.info, true, 'persisted globally, same pattern as ind');
+
+    // null deletes the key, same convention as every other settings field
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ info: null }) });
+    assert.equal((await (await fetch(base + '/api/settings')).json()).info, undefined);
+    d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.info, false);
+  });
+});
