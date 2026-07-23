@@ -763,6 +763,69 @@ export function parseWatchers(cfg, fallback) {
   return combos.length ? combos : [fallback];
 }
 
+// HTF cache grounding (issue #81): the watcher only ever fetches its own
+// watched combos, so higher timeframes for the same instruments (used by the
+// axis gate and future H1 strategies) went stale between watched ticks. Every
+// tick, walk a fixed ladder per tracked instrument and top up only what's
+// actually stale — cache-only, no signal evaluation, no notifications.
+const HTF_LADDER = ['M15', 'M30', 'H1', 'H4'];
+const HTF_STALE_GRACE = 1.5; // refetch once a cached bar is this many bar-durations old
+const HTF_FETCH_CAP = 6; // bound fan-out after a long downtime instead of catching up unboundedly in one tick
+
+// Tracked = watched combos ∪ configured bot combos, regardless of enabled
+// status (issue #81 decision 1: the operator wants data grounded even for
+// unarmed bots). `combos` is whatever parseWatchers already resolved for this
+// tick — reused so single-watcher fallback mode is covered too.
+export function trackedInstruments(combos, cfg) {
+  const fromWatchers = combos.map((c) => c.instrument).filter(Boolean);
+  const botKeys = cfg?.bot?.bots && typeof cfg.bot.bots === 'object' ? Object.keys(cfg.bot.bots) : [];
+  const fromBots = botKeys.map((k) => String(k).split('|')[0].trim()).filter(Boolean);
+  return [...new Set([...fromWatchers, ...fromBots])];
+}
+
+export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCandles, cap = HTF_FETCH_CAP, count = 100, now = Date.now() } = {}) {
+  const instruments = trackedInstruments(combos, cfg);
+  if (!instruments.length) return { refreshed: [], skipped: [] };
+
+  // One DB open to read every ladder rung's newest bar instead of one per combo.
+  const newest = withDb(dbPath, (db) => {
+    const stmt = db.prepare('SELECT MAX(time) AS t FROM candles WHERE instrument=? AND granularity=?');
+    const out = {};
+    for (const instrument of instruments) {
+      for (const granularity of HTF_LADDER) out[`${instrument}|${granularity}`] = stmt.get(instrument, granularity)?.t ?? null;
+    }
+    return out;
+  });
+
+  const due = [];
+  for (const instrument of instruments) {
+    for (const granularity of HTF_LADDER) {
+      const t = newest[`${instrument}|${granularity}`];
+      const ageMs = t ? now - Date.parse(t) : Infinity;
+      if (ageMs > granularityMs(granularity) * HTF_STALE_GRACE) due.push({ instrument, granularity });
+    }
+  }
+
+  const toFetch = due.slice(0, cap);
+  const skipped = due.slice(cap);
+  if (skipped.length) {
+    dbg(`HTF cache: per-tick cap (${cap}) reached, skipped ${skipped.map((c) => `${c.instrument}|${c.granularity}`).join(', ')}`);
+  }
+
+  const refreshed = [];
+  for (const combo of toFetch) {
+    try {
+      const candles = await fetcher({ instrument: combo.instrument, granularity: combo.granularity, count });
+      const complete = candles.filter((c) => c.complete);
+      if (complete.length) storeCandles(dbPath, combo.instrument, combo.granularity, complete);
+      refreshed.push(combo);
+    } catch (err) {
+      dbg(`HTF cache refresh failed for ${combo.instrument}|${combo.granularity}: ${err.message}`);
+    }
+  }
+  return { refreshed, skipped };
+}
+
 async function runOne(opts) {
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
@@ -859,6 +922,18 @@ async function main() {
       results.push({ ok: false, ...combo, error: err.message });
     }
   }
+
+  // HTF cache grounding runs AFTER the watched combos: the signal path is
+  // latency/freshness-sensitive (barsAgo is measured from now), while this is
+  // best-effort with its own 1.5x grace, so it never delays a real alert.
+  if (opts.db) {
+    try {
+      await refreshHtfCache(opts.db, combos, cfg);
+    } catch (err) {
+      dbg(`HTF cache refresh failed: ${err.message}`);
+    }
+  }
+
   const out = results.length === 1 ? results[0] : results;
   process.stdout.write(`${JSON.stringify(out, null, opts.pretty ? 2 : 0)}\n`);
 }

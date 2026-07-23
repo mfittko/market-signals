@@ -229,6 +229,101 @@ test('explicit anthropic provider without ANTHROPIC_API_KEY fails fast (no x-api
   );
 });
 
+// --- HTF cache grounding (issue #81): cache-only, staleness-gated, capped ---
+import { trackedInstruments, refreshHtfCache } from '../scripts/supertrend.mjs';
+
+test('trackedInstruments: union of watched combos + configured bot keys, including a disabled bot', () => {
+  const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
+  const cfg = { bot: { bots: { 'XAU/USD|M15': { enabled: false }, 'WTICO/USD|M5': { enabled: true } } } };
+  assert.deepEqual(trackedInstruments(combos, cfg), ['WTICO/USD', 'XAU/USD'], 'disabled bot instrument still tracked');
+});
+
+function htfDb(dir) {
+  const dbPath = join(dir, 'htf.sqlite');
+  rmSync(dbPath, { force: true });
+  return dbPath;
+}
+
+function seedBar(dbPath, instrument, granularity, time) {
+  storeCandles(dbPath, instrument, granularity, [{ time, open: 1, high: 1.1, low: 0.9, close: 1, volume: 1, complete: true }]);
+}
+
+test('refreshHtfCache: fresh granularity skipped, stale one fetched', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'htf-'));
+  const dbPath = htfDb(dir);
+  const now = Date.now();
+  seedBar(dbPath, 'WTICO/USD', 'M15', new Date(now - 5 * 60000).toISOString()); // fresh (< 15*1.5min)
+  seedBar(dbPath, 'WTICO/USD', 'H1', new Date(now - 3 * 3600000).toISOString()); // stale (> 1.5h)
+  // M30 and H4 have no cached bars at all -> also due.
+  const calls = [];
+  const fetcher = async ({ instrument, granularity }) => {
+    calls.push(`${instrument}|${granularity}`);
+    return [{ time: new Date(now).toISOString(), open: 1, high: 1.1, low: 0.9, close: 1, volume: 1, complete: true }];
+  };
+  const { refreshed, skipped } = await refreshHtfCache(dbPath, [{ instrument: 'WTICO/USD', granularity: 'M5' }], {}, { fetcher, now });
+  assert.equal(skipped.length, 0);
+  assert.ok(!calls.includes('WTICO/USD|M15'), 'fresh M15 was not fetched');
+  assert.ok(calls.includes('WTICO/USD|H1'), 'stale H1 was fetched');
+  assert.ok(calls.includes('WTICO/USD|M30'), 'uncached M30 was fetched');
+  assert.ok(calls.includes('WTICO/USD|H4'), 'uncached H4 was fetched');
+  assert.deepEqual(refreshed.map((c) => `${c.instrument}|${c.granularity}`).sort(), calls.sort());
+});
+
+test('refreshHtfCache: per-tick cap truncates fan-out and logs what was skipped', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'htf-'));
+  const dbPath = htfDb(dir);
+  const now = Date.now();
+  // Two instruments, all 4 ladder rungs uncached each -> 8 due combos, capped to 3.
+  const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }, { instrument: 'XAU/USD', granularity: 'M5' }];
+  let calls = 0;
+  const fetcher = async () => { calls++; return []; };
+  let stderr = '';
+  const origWrite = process.stderr.write;
+  process.stderr.write = (chunk) => { stderr += chunk; return true; };
+  let result;
+  try {
+    result = await refreshHtfCache(dbPath, combos, {}, { fetcher, now, cap: 3 });
+  } finally {
+    process.stderr.write = origWrite;
+  }
+  assert.equal(calls, 3, 'only the capped number of fetches ran');
+  assert.equal(result.refreshed.length, 3);
+  assert.equal(result.skipped.length, 5);
+  assert.match(stderr, /per-tick cap \(3\) reached, skipped/, 'truncation is logged');
+});
+
+test('refreshHtfCache: a throwing fetch for one combo does not prevent the others', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'htf-'));
+  const dbPath = htfDb(dir);
+  const now = Date.now();
+  const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
+  const fetcher = async ({ granularity }) => {
+    if (granularity === 'H1') throw new Error('upstream down');
+    return [{ time: new Date(now).toISOString(), open: 1, high: 1.1, low: 0.9, close: 1, volume: 1, complete: true }];
+  };
+  const { refreshed } = await refreshHtfCache(dbPath, combos, {}, { fetcher, now });
+  assert.ok(!refreshed.some((c) => c.granularity === 'H1'), 'the failing combo is absent from refreshed');
+  assert.ok(refreshed.some((c) => c.granularity === 'M15'), 'other combos still refreshed despite the throw');
+  assert.ok(refreshed.some((c) => c.granularity === 'H4'), 'the tick did not abort after the throw');
+});
+
+test('refreshHtfCache: writes candles only — no signal rows, no notifications', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'htf-'));
+  const dbPath = htfDb(dir);
+  const now = Date.now();
+  const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
+  // A flip-shaped series so a naive signal path WOULD detect a flip if one ran.
+  const flipCandles = candles.map((c) => ({ ...c }));
+  const fetcher = async () => flipCandles;
+  await refreshHtfCache(dbPath, combos, {}, { fetcher, now });
+  const [storedCount, signalCount] = withDb(dbPath, (db) => [
+    db.prepare('SELECT COUNT(*) AS n FROM candles').get().n,
+    db.prepare('SELECT COUNT(*) AS n FROM signals').get().n,
+  ]);
+  assert.ok(Number(storedCount) > 0, 'HTF fetches did upsert candles');
+  assert.equal(Number(signalCount), 0, 'no signal rows result from HTF refreshes');
+});
+
 test('OPENAI_BASE_URL drives the request URL and the model passes through unchanged (#42)', async () => {
   const { llmRequest } = await import('../scripts/supertrend.mjs');
   const { createServer } = await import('node:http');
