@@ -198,7 +198,7 @@ test('mdEscape neutralizes HTML tag delimiters in an untrusted headline (publish
 test('parseArgs: a flag-shaped token after a value-flag is not swallowed as its value (#91)', async () => {
   const { parseArgs } = await import('../skills/market-sentinel/scripts/sentinel_briefing.mjs');
   assert.throws(() => parseArgs(['--hours', '-x']), /unknown|unrecognized|-x/i);
-  // a negative number is still a valid value
+  // a numeric token after --hours is parsed as its value (not a flag)
   const ok = parseArgs(['--hours', '6']);
   assert.equal(String(ok.hours), '6');
 });

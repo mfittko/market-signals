@@ -155,7 +155,9 @@ Options:
   -h, --help            show this help (no network)
 `;
 
-const BOOLEAN_FLAGS = new Set(['help', 'h']);
+// only --help is a real long boolean; -h (short) is handled at the entrypoint, so
+// a bare --h is a typo that must fail loud rather than be silently accepted
+const BOOLEAN_FLAGS = new Set(['help']);
 
 export function parseArgs(argv) {
   const out = { instruments: null, hours: DEFAULT_HOURS, fixture: null, outputFile: null };
@@ -169,7 +171,8 @@ export function parseArgs(argv) {
     if (BOOLEAN_FLAGS.has(key)) continue;
     const next = argv[i + 1];
     // a following token that starts with '-' is another flag, not this flag's value —
-    // except a negative number (e.g. --hours -3); otherwise '--hours -x' would swallow -x
+    // except a numeric token (e.g. --hours -3 is parsed as a value; hours<=0 later
+    // normalizes to DEFAULT_HOURS); otherwise '--hours -x' would swallow the -x flag
     const nextIsFlag = next !== undefined && next.startsWith('-') && !/^-\d/.test(next);
     const hasValue = next !== undefined && !nextIsFlag;
     const val = hasValue ? next : null;
