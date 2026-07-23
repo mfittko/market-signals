@@ -397,6 +397,17 @@ export function sendNotification(msg, deepLink, settings = {}) {
     dbg(`notifierBin ${settings.notifierBin} missing — notification suppressed`);
     return;
   }
+  // Test-suite guard: MS_NO_NOTIFY (set by `npm test`) suppresses only the
+  // FALLBACK candidates (unconfigured terminal-notifier/osascript paths) —
+  // prod is unaffected since the env var is never set outside tests, and an
+  // explicitly-configured, EXISTING notifierBin (tests that assert delivery
+  // args pin a real recorder-script fixture) still proceeds normally. This
+  // makes it structural: no test can ever reach a real notifier, because the
+  // fallbacks are dead under MS_NO_NOTIFY and any configured bin is a fixture.
+  if (!settings.notifierBin && process.env.MS_NO_NOTIFY) {
+    dbg('MS_NO_NOTIFY set — notification suppressed (no notifierBin configured)');
+    return;
+  }
   const candidates = settings.notifierBin
     ? [settings.notifierBin]
     : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];

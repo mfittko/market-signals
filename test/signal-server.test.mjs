@@ -198,6 +198,33 @@ test('sendNotification: explicit notifierBin is authoritative — used when pres
   }
 });
 
+test('sendNotification: MS_NO_NOTIFY suppresses unconfigured fallbacks but not an explicitly-configured existing notifierBin (#71)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const fakeOsa = join(dir, 'osascript');
+  writeFileSync(fakeOsa, `#!/bin/sh\necho osascript-called > ${join(dir, 'osa.txt')}\n`);
+  chmodSync(fakeOsa, 0o755);
+  const prevPath = process.env.PATH;
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  process.env.PATH = `${dir}:${prevPath}`;
+  process.env.MS_NO_NOTIFY = '1';
+  try {
+    // Nothing configured → suppressed, no candidate (terminal-notifier/osascript) spawn.
+    sendNotification('WTI SELL @ 88.0', 'http://x', {});
+    assert.ok(!existsSync(join(dir, 'osa.txt')), 'MS_NO_NOTIFY blocks the unconfigured osascript fallback');
+
+    // Explicitly configured + existing (a recorder fixture) → still delivered.
+    const argsFile = join(dir, 'args.txt');
+    const notifier = join(dir, 'terminal-notifier');
+    writeFileSync(notifier, `#!/bin/sh\necho "$@" > ${argsFile}\n`);
+    chmodSync(notifier, 0o755);
+    sendNotification('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x', { notifierBin: notifier });
+    assert.ok(readFileSync(argsFile, 'utf8').includes('WTI SELL @ 88.0'), 'a configured, existing notifierBin still delivers under MS_NO_NOTIFY');
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
 test('signal-server --help exits 0 with usage, no listen', () => {
   const script = fileURLToPath(new URL('../scripts/signal-server.mjs', import.meta.url));
   const res = spawnSync('node', [script, '--help'], { encoding: 'utf8', timeout: 20000, cwd: mkdtempSync(join(tmpdir(), 'ss-help-')) });
