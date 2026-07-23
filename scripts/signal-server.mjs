@@ -906,7 +906,8 @@ const PAGE = /* html */ `<!doctype html>
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
   dialog h2 { margin-top: 0; }
   .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
-           font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto; }
+           font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto;
+           z-index: 1; /* modal titles are positioned ([data-info]) and would otherwise paint over the × */ }
   .dlg-x:hover { color: #e6edf3; }
   #wrap { position: relative; }
   .quote { display: flex; gap: 22px; flex-wrap: wrap; padding: 8px 14px; border: 1px solid #30363d;
