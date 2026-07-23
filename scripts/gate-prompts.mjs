@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 // Gate-prompt overrides (issue #58): a minimal sibling to strategies.mjs for
-// LLM gates OTHER than the bot (which stays strategy-owned). v1 covers only
-// the 'filter' gate — chat drafts revisions (createdBy 'chat'), stored
-// INACTIVE; ACTIVATION is a human act in the settings gates section, same
-// lifecycle strategies already established. The shipped FILTER_SYSTEM
-// constant is the fallback whenever no row is active.
+// LLM gates OTHER than the bot (which stays strategy-owned). Covers the
+// 'filter' and 'recheck' (#70) gates — chat drafts revisions (createdBy
+// 'chat'), stored INACTIVE; ACTIVATION is a human act in the settings gates
+// section, same lifecycle strategies already established. The shipped
+// FILTER_SYSTEM/RECHECK_SYSTEM constants are the fallback whenever no row is active.
 import { withDb } from './supertrend.mjs';
 
-const GATES = ['filter'];
+export const GATES = ['filter', 'recheck'];
 
 const DDL = `CREATE TABLE IF NOT EXISTS gate_prompts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  gate TEXT NOT NULL CHECK (gate IN ('filter')),
+  gate TEXT NOT NULL CHECK (gate IN ('filter','recheck')),
   version INTEGER NOT NULL,
   prompt TEXT NOT NULL,
   created_by TEXT NOT NULL DEFAULT 'manual',
@@ -20,9 +20,37 @@ const DDL = `CREATE TABLE IF NOT EXISTS gate_prompts (
   UNIQUE (gate, version)
 )`;
 
+// SQLite CHECK constraints can't be ALTERed in place: a db created before
+// #70 has gate_prompts locked to CHECK (gate IN ('filter')), which would
+// reject every 'recheck' draft. Guarded one-time rebuild (rename, recreate
+// with the current DDL, copy rows, drop) — a no-op once migrated, since the
+// stored CREATE TABLE sql then already contains 'recheck'.
+// exported for the transactional-rollback test only (forces a mid-rebuild
+// failure via a monkeypatched db.exec)
+export function migrateCheckConstraint(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='gate_prompts'").get();
+  if (row?.sql && !row.sql.includes("'recheck'")) {
+    // Transactional (SQLite DDL is transactional): a crash mid-rebuild must
+    // never leave gate_prompts_pre70 lingering (the guard above would then
+    // see the ALREADY-RENAMED table as "no gate_prompts", not a migrated one).
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('ALTER TABLE gate_prompts RENAME TO gate_prompts_pre70');
+      db.exec(DDL);
+      db.exec('INSERT INTO gate_prompts SELECT * FROM gate_prompts_pre70');
+      db.exec('DROP TABLE gate_prompts_pre70');
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+}
+
 function gdb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
+    migrateCheckConstraint(db);
     return fn(db);
   });
 }

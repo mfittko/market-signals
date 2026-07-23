@@ -16,11 +16,12 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveFilterSystem, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
-import { activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
+import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
+import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
@@ -251,6 +252,17 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   const quote = buildQuote(recent);
   if (quote && liveTail) quote.partial = true;
   const out = { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
+  // #70 follow-up: the re-check button re-checks the LATEST signal server-side
+  // (see /api/recheck), so the client must only render it when the shown
+  // signal IS that latest one — never on a deep-linked historical view (?t=),
+  // where a click would silently re-check a different signal than displayed.
+  out.isLatestSignal = signal ? signals[0]?.time === signal.time : true;
+  // #70: the last re-check for the shown signal rides with the chart so a
+  // reload shows it without a POST — the verdict/history rows it read stay untouched.
+  if (signal) {
+    const rc = latestRecheck(dbPath, instrument, granularity, signal.time);
+    if (rc) out.recheck = { verdict: rc.verdict, reason: rc.reason, at: rc.at, promptVersion: rc.prompt_version };
+  }
   if (indicators?.length) {
     const closes = candles.map((k) => k.close);
     const ind = {};
@@ -465,8 +477,8 @@ export const CHAT_TOOLS = [
   },
   {
     name: 'save_gate_prompt',
-    description: 'Save a DRAFT revision of a gate\'s advisory rules text (new version each save; append-only). Drafts NEVER take effect: activation is a human act in the settings gates section. Only the filter gate is overridable in v1 — the bot prompt is strategy-owned and the chat prompt is constant. Use when the trader asks to draft or iterate the filter\'s rules conversationally.',
-    input_schema: { type: 'object', properties: { gate: { type: 'string', enum: ['filter'] }, prompt: { type: 'string', description: 'the gate rules text (max 4000 chars) — advisory only; it can never grant tools or change the JSON verdict schema, which is always appended server-side' } }, required: ['gate', 'prompt'], additionalProperties: false },
+    description: 'Save a DRAFT revision of a gate\'s advisory rules text (new version each save; append-only). Drafts NEVER take effect: activation is a human act in the settings gates section. The filter and recheck gates are overridable — the bot prompt is strategy-owned and the chat prompt is constant. Use when the trader asks to draft or iterate the filter\'s or re-check\'s rules conversationally.',
+    input_schema: { type: 'object', properties: { gate: { type: 'string', enum: GATES }, prompt: { type: 'string', description: 'the gate rules text (max 4000 chars) — advisory only; it can never grant tools or change the JSON verdict schema, which is always appended server-side' } }, required: ['gate', 'prompt'], additionalProperties: false },
     run: (a, ctx) => {
       if (!ctx?.dbPath) throw new Error('save_gate_prompt needs a db context');
       const saved = saveGatePrompt(ctx.dbPath, { gate: a?.gate, prompt: a?.prompt, createdBy: 'chat' });
@@ -505,6 +517,7 @@ const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals 
 // per gate — one source of truth, never re-derived client-side.
 async function gatesInfo(dbPath) {
   const filterEff = await resolveFilterSystem(dbPath);
+  const recheckEff = await resolveRecheckSystem(dbPath);
   const strat = activeStrategy(dbPath);
   return {
     filter: {
@@ -512,6 +525,13 @@ async function gatesInfo(dbPath) {
       prompt: filterEff.system,
       promptVersion: filterEff.promptVersion,
       drafts: listGatePrompts(dbPath, { gate: 'filter' }),
+    },
+    // #70: operator-initiated only — never in the bot/chat toolsets.
+    recheck: {
+      toolset: [],
+      prompt: recheckEff.system,
+      promptVersion: recheckEff.promptVersion,
+      drafts: listGatePrompts(dbPath, { gate: 'recheck' }),
     },
     bot: {
       toolset: [...botToolDefs().map((t) => t.name), 'web_search'],
@@ -649,6 +669,28 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.watchers = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
+      }
+      // #70: operator-initiated re-check of the LATEST signal of the current
+      // view (never a deep-linked/historical one). Same-origin guarded above
+      // like every other non-GET route. Never touches the signals/
+      // signal_snapshots rows it reads — persists a NEW signal_rechecks row.
+      if (url.pathname === '/api/recheck' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const cfg = readSettings(settingsPath);
+        const instrument = body?.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
+        const granularity = body?.granularity || cfg.granularity || 'M5';
+        const [signal] = signalOutcomes(dbPath, instrument, granularity, { limit: 1 });
+        if (!signal) return json(res, 404, { ok: false, error: 'no signal recorded for this view yet' });
+        try {
+          const result = await recheckSignal(dbPath, settingsPath, instrument, granularity, signal);
+          return json(res, 200, { ok: true, ...result });
+        } catch (err) {
+          // fail-open UX: never crash the server — a visible error line beats a 500 page
+          return json(res, 502, { ok: false, error: err.message });
+        }
       }
       if (url.pathname === '/api/settings' && req.method === 'GET') {
         return json(res, 200, maskedSettings(settingsPath));
@@ -1037,6 +1079,9 @@ const PAGE = /* html */ `<!doctype html>
   /* the bot declined to act on this signal — the effective stance is neutral */
   .overruled { color: #8b949e; }
   .botnote { margin-top: 4px; color: #8b949e; font-size: 12px; }
+  .recheckline { margin-top: 4px; font-size: 12px; }
+  #recheckBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
+  #recheckBtn:disabled { opacity: 0.5; cursor: default; }
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
   tr { cursor: pointer; } tr:hover { background: #161b22; }
   form { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; max-width: 520px; }
@@ -1182,6 +1227,7 @@ const INFO = {
   memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
   botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
   botDecision: 'What the bot did on this signal: hold (no trade), open (entered a position), or close (exited one) — full reasoning and history in portfolio → audit.',
+  recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded verdict above — the result renders as its own line.',
   info: 'Toggle styled hover explanations for metrics across the UI.',
   settings: 'Watcher and filter settings, and trader memories.',
 };
@@ -1222,7 +1268,7 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision); history(d.signals, d.botDecisions);
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions);
   indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
@@ -1739,16 +1785,51 @@ function quoteStrip(q) {
     box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)', q.partial ? 'forming' : null);
 }
 
-function verdict(s, botDecision) {
+// #70: a re-check verdict picks buy/sell-style coloring for valid/invalidated
+// and the #78 .overruled grey for played-out — NOT the literal 'overruled' ?
+// ternary shape (that pattern is pinned to the bot-hold override elsewhere).
+function recheckCls(v) { return v === 'valid' ? 'buy' : v === 'invalidated' ? 'sell' : 'overruled'; }
+function recheckLabel(v) { return v === 'valid' ? 'still valid' : v === 'invalidated' ? 'invalidated' : 'played out'; }
+function renderRecheckLine(r) {
+  if (!r) return '';
+  // .recheckline (not .botnote) carries only layout — .botnote's own color:
+  // #8b949e would otherwise beat .buy/.sell by source order and grey out every verdict.
+  if (r.error) return '<div class="recheckline sell">🔁 re-check failed — ' + esc(r.error) + '</div>';
+  return '<div class="recheckline ' + recheckCls(r.verdict) + '" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁 re-check ' + esc(localHm(r.at)) + ' · ' + esc(recheckLabel(r.verdict)) + (r.reason ? ' — ' + esc(r.reason) : '') + '</div>';
+}
+function verdict(s, botDecision, recheck, view) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
   const botNote = botDecision ? '<div class="botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning) + '</div>' : '';
   const overruled = botDecision && botDecision.action === 'hold';
+  // #70 follow-up: /api/recheck always re-checks the LATEST signal — the
+  // button must only render when the shown signal IS that latest one, never
+  // on a deep-linked historical view, or a click would re-check a different
+  // signal than the one displayed. A past re-check line (if any) still shows
+  // for a historical signal — read-only, no new-recheck affordance.
+  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
   el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
-    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' + botNote;
+    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' +
+    recheckBtn +
+    botNote + '<div id="recheckLine">' + renderRecheckLine(recheck) + '</div>';
+  const recheckBtnEl = document.getElementById('recheckBtn');
+  if (recheckBtnEl) recheckBtnEl.onclick = async () => {
+    const btn = document.getElementById('recheckBtn');
+    const line = document.getElementById('recheckLine');
+    btn.disabled = true;
+    line.innerHTML = '<div class="botnote">🔁 re-checking…</div>';
+    try {
+      const r = await (await fetch('/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: view.instrument, granularity: view.granularity }) })).json();
+      line.innerHTML = renderRecheckLine(r.ok ? r : { error: r.error || 're-check failed' });
+    } catch (err) {
+      line.innerHTML = renderRecheckLine({ error: String(err && err.message || err) });
+    } finally {
+      btn.disabled = false;
+    }
+  };
 }
 function history(list, botDecisions) {
   const tb = document.querySelector('#hist tbody');
@@ -1809,14 +1890,17 @@ async function renderGates() {
   const g = r.gates;
   const toolsetLine = (names) => names.length ? esc(names.join(', ')) : 'none';
   const promptDetails = (text) => '<details><summary>system prompt</summary><pre>' + esc(text || '') + '</pre></details>';
-  const drafts = g.filter.drafts.length ? g.filter.drafts.map((d) =>
+  // shared by every overridable gate (filter, recheck): draft rows + activate/deactivate
+  const draftsBlock = (drafts) => drafts.length ? drafts.map((d) =>
     '<div class="gatedraft" data-id="' + d.id + '"><small>v' + d.version + ' · ' + esc(d.created_by) + (d.active ? ' · <b>active</b>' : '') + '</small> ' +
     '<button type="button" class="gateactivate"' + (d.active ? ' hidden' : '') + '>activate</button> ' +
     '<button type="button" class="gatedeactivate"' + (d.active ? '' : ' hidden') + '>deactivate</button></div>').join('')
     : '<div class="gateempty"><small>no drafts yet — ask the copilot to draft one</small></div>';
-  const filterVerLabel = g.filter.promptVersion === 'builtin' ? 'builtin' : 'v' + g.filter.promptVersion;
+  const verLabel = (eff) => eff.promptVersion === 'builtin' ? 'builtin' : 'v' + eff.promptVersion;
+  const overridableRow = (name, eff) => '<div class="gaterow"><b>' + esc(name) + '</b> <small>— toolset: ' + toolsetLine(eff.toolset) + ' · active: ' + esc(verLabel(eff)) + '</small>' + promptDetails(eff.prompt) + draftsBlock(eff.drafts) + '</div>';
   list.innerHTML =
-    '<div class="gaterow"><b>filter</b> <small>— toolset: ' + toolsetLine(g.filter.toolset) + ' · active: ' + esc(filterVerLabel) + '</small>' + promptDetails(g.filter.prompt) + drafts + '</div>' +
+    overridableRow('filter', g.filter) +
+    overridableRow('recheck', g.recheck) +
     '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
     (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') + '</div>' +
     '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>';

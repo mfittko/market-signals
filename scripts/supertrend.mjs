@@ -134,6 +134,37 @@ const VERDICT_SCHEMA = {
   additionalProperties: false,
 };
 
+// Dedicated re-check gate (issue #70): NOT the filter prompt — the filter
+// judges a fresh flip, this judges a flip already alerted on, well after the
+// fact, against everything that has happened since. Same split as FILTER_*:
+// the advisory rules text is chat/settings-overridable, the JSON schema
+// instruction is code-owned and always appended server-side.
+export const RECHECK_RULES = 'You re-check a supertrend flip alert some time after it fired, for a leveraged oil/index CFD trader. Given the original flip (time, side, entry price), the axis-gate snapshot recorded at flip time, the candles and price path since the flip, and the realized excursion (current, best, and worst direction-adjusted move since entry, as a percent of entry price), decide whether the setup is: valid (the original thesis still holds, no clear invalidation yet), played-out (the anticipated move already happened — entering or holding now is chasing a stale edge), or invalidated (price action broke the thesis, e.g. it reversed back through the flip level or the trend rolled over). Timestamps are already in the trader\'s local timezone — quote them as-is.';
+export const RECHECK_SCHEMA_SUFFIX = ' Reply JSON: {"verdict": "valid" | "played-out" | "invalidated", "reason": "<max 90 chars>"}.';
+const RECHECK_SYSTEM = RECHECK_RULES + RECHECK_SCHEMA_SUFFIX;
+
+// Mirrors resolveFilterSystem exactly, for the 'recheck' gate.
+export async function resolveRecheckSystem(dbPath) {
+  if (dbPath) {
+    try {
+      const { activeGatePrompt } = await import('./gate-prompts.mjs');
+      const override = activeGatePrompt(dbPath, 'recheck');
+      if (override) return { system: override.prompt + RECHECK_SCHEMA_SUFFIX, promptVersion: override.version };
+    } catch {
+      // fail-open: a locked/corrupt db must never block an operator-initiated re-check
+    }
+  }
+  return { system: RECHECK_SYSTEM, promptVersion: 'builtin' };
+}
+
+const RECHECK_SCHEMA = {
+  type: 'object',
+  properties: { verdict: { type: 'string', enum: ['valid', 'played-out', 'invalidated'] }, reason: { type: 'string' } },
+  required: ['verdict', 'reason'],
+  additionalProperties: false,
+};
+const RECHECK_VERDICTS = ['valid', 'played-out', 'invalidated'];
+
 // Provider picked by settings: {"provider": "pi"} shells out to the pi coding
 // agent (its own provider/key config applies); else by which API key is present
 // (ANTHROPIC wins if both).
@@ -406,6 +437,32 @@ async function llmVerdict(settings, payload, system) {
   return JSON.parse(m[0]);
 }
 
+// Schema mode constrains type shape, not content — a provider can still return
+// a non-string/empty reason. Normalize (never persist null/undefined as the
+// UI's re-check reason line) and reject anything that isn't a valid verdict,
+// same "trust nothing past the wire" stance as the pi regex fallback below.
+function normalizeRecheckVerdict(v) {
+  if (!RECHECK_VERDICTS.includes(v?.verdict)) return null;
+  const reason = typeof v.reason === 'string' ? v.reason.trim().slice(0, 90) : '';
+  if (!reason) return null;
+  return { verdict: v.verdict, reason };
+}
+
+async function llmRecheckVerdict(settings, payload, system) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+  try {
+    const whole = JSON.parse(out);
+    const norm = normalizeRecheckVerdict(whole);
+    if (norm) return norm;
+  } catch { /* fall through to the pi regex fallback */ }
+  const m = out.match(/\{[^{}]*"verdict"[^{}]*\}/);
+  if (!m) throw new Error('no recheck verdict JSON in provider output');
+  const parsed = JSON.parse(m[0]);
+  const norm = normalizeRecheckVerdict(parsed);
+  if (!norm) throw new Error(`invalid recheck verdict "${parsed.verdict}"${parsed.reason == null ? ' (missing reason)' : ''}`);
+  return norm;
+}
+
 export function readSettings(settingsPath) {
   try { return JSON.parse(readFileSync(settingsPath, 'utf8')); } catch { return {}; }
 }
@@ -450,6 +507,21 @@ export function sendNotification(msg, deepLink, settings = {}) {
   execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
 }
 
+// Default: pi coding agent if installed, else env API keys, else no filter.
+// Shared by the watcher's alert filter (processSignal) and the operator's
+// recheckSignal button — both fall back the same way when settings.json
+// leaves the provider unset (mutates and returns settings for convenience).
+export function applyProviderDefault(settings) {
+  if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
+    if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
+    else {
+      settings.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+      settings.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    }
+  }
+  return settings;
+}
+
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
@@ -469,15 +541,7 @@ export async function processSignal(opts, result, candles) {
   }
   if (!opts.notify) return { sent: false, reason: 'recorded (notify off)' };
 
-  const settings = readSettings(opts.settings);
-  if (!settings.provider && !settings.OPENAI_API_KEY && !settings.ANTHROPIC_API_KEY) {
-    // Default: pi coding agent if installed, else env API keys, else no filter.
-    if (existsSync(settings.piBin || '/opt/homebrew/bin/pi')) settings.provider = 'pi';
-    else {
-      settings.OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-      settings.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-    }
-  }
+  const settings = applyProviderDefault(readSettings(opts.settings));
   const hasFilter = resolveProvider(settings) !== 'none';
   dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
 
@@ -588,6 +652,69 @@ export async function processSignal(opts, result, candles) {
   dbg(`notification sent: ${msg}`);
   await recordGate();
   return { sent: true, message: msg, verdictSource, gateSnapshot };
+}
+
+// Direction-adjusted excursion since a signal, from the candles path itself
+// (not a fixed 30-min horizon like signalOutcomes): current/best/worst move
+// since entry, as a percent of entry price — the "everything since" half of
+// the re-check's context.
+// Single pass (not Math.max/min(...array)): a long-lived signal can have tens
+// of thousands of candles since, and spreading that many args into Math.max
+// throws "Maximum call stack size exceeded".
+export function excursionSince(dir, entryPrice, candlesSince) {
+  if (!entryPrice || !candlesSince.length) return null;
+  let current = NaN;
+  let maxFavorable = -Infinity;
+  let maxAdverse = Infinity;
+  for (const c of candlesSince) {
+    current = (dir * (c.close - entryPrice)) / entryPrice * 100;
+    if (current > maxFavorable) maxFavorable = current;
+    if (current < maxAdverse) maxAdverse = current;
+  }
+  return {
+    currentPct: round4(current),
+    maxFavorablePct: round4(maxFavorable),
+    maxAdversePct: round4(maxAdverse),
+  };
+}
+const round4 = (v) => Number(v.toFixed(4));
+
+// Operator-initiated re-check (issue #70) of an already-recorded signal:
+// NEVER touches the signals/signal_snapshots rows — the flip, its axis
+// snapshot, and the price path/excursion since are read-only context fed to
+// the dedicated 'recheck' gate; the verdict is a NEW row in signal_rechecks.
+export async function recheckSignal(dbPath, settingsPath, instrument, granularity, signal) {
+  const settings = applyProviderDefault(readSettings(settingsPath));
+  if (resolveProvider(settings) === 'none') throw new Error('no LLM provider configured');
+  // the candles table only ever holds complete bars (storeCandles filters
+  // partial ticks before upserting) — no completeness filter needed here
+  const candlesSince = withDb(dbPath, (db) => db.prepare(
+    'SELECT * FROM candles WHERE instrument=? AND granularity=? AND time>=? ORDER BY time')
+    .all(instrument, granularity, signal.time));
+  const dir = signal.signal === 'buy' ? 1 : -1;
+  const excursion = excursionSince(dir, signal.price, candlesSince);
+
+  let axes = null;
+  try {
+    const { getSnapshot } = await import('./axis-snapshot.mjs');
+    axes = getSnapshot(dbPath, instrument, granularity, signal.time)?.axes ?? null;
+  } catch { /* best-effort: a recheck without a recorded snapshot still runs */ }
+
+  const recheckSystem = await resolveRecheckSystem(dbPath);
+  const payload = {
+    flip: { time: localFull(signal.time), timezone: LOCAL_TZ, side: signal.signal, price: signal.price },
+    axisSnapshotAtFlip: axes,
+    priceSince: candlesSince.slice(-60).map((c) => ({ t: localHm(c.time), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
+    excursion,
+  };
+  const out = await llmRecheckVerdict(settings, payload, recheckSystem.system);
+
+  const at = new Date().toISOString();
+  const { recordRecheck } = await import('./signal-rechecks.mjs');
+  recordRecheck(dbPath, { signalTime: signal.time, instrument, granularity, at, verdict: out.verdict, reason: out.reason, promptVersion: recheckSystem.promptVersion });
+  // promptVersion as a string here matches /api/chart's persisted TEXT column,
+  // so both endpoints return the same type to the client
+  return { verdict: out.verdict, reason: out.reason, at, promptVersion: String(recheckSystem.promptVersion) };
 }
 
 // Upsert complete candles so history accumulates with every run — future

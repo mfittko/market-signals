@@ -328,11 +328,19 @@ test('deep link to a signal older than the history window still resolves', async
     }
     let d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(old.time)}`)).json();
     assert.ok(d.signal, 'old signal found via direct lookup');
+    assert.equal(d.isLatestSignal, false, '#70 follow-up: deep-linked historical signal is never the latest');
     const short = old.time.replace('.000Z', 'Z').replace(/\.\d+Z$/, 'Z');
     d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(short)}`)).json();
     assert.ok(d.signal, 'second-precision t resolves via nanosecond variant');
     assert.equal(d.signal.time, old.time);
     assert.equal(d.signal.signal, 'buy');
+    assert.equal(d.isLatestSignal, false);
+
+    const latest = await (await fetch(`${base}/api/chart`)).json();
+    assert.equal(latest.isLatestSignal, true, 'no ?t deep-link — the latest view is always the latest signal');
+
+    const latestDeepLink = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(latest.signal.time)}`)).json();
+    assert.equal(latestDeepLink.isLatestSignal, true, 'deep-linking to the latest signal itself still counts as latest');
   });
 });
 
@@ -1061,6 +1069,69 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     // settings modal ships the gates section
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="gatesList"'), 'settings modal ships the gates transparency section');
+  });
+});
+
+test('re-check (#70): POST /api/recheck runs the LATEST signal via fake pi, persists, returns, rides with /api/chart on reload; cross-origin + no-signal + no-provider handled; gate visible in settings + save_gate_prompt accepts it', async () => {
+  const { execChatTool } = await import('../scripts/signal-server.mjs');
+  const { RECHECK_RULES, RECHECK_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, sigTime, settingsPath, dbPath }) => {
+    // cross-origin rejected before any provider/signal work happens
+    const cross = await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403);
+
+    // no signal recorded for this combo yet: 404, no crash
+    const none = await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: 'XAU/USD', granularity: 'M5' }) });
+    assert.equal(none.status, 404);
+
+    // no LLM provider configured: fail-open UX — a visible error, not a 500/crash
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'none' }));
+    const noProvider = await (await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) })).json();
+    assert.equal(noProvider.ok, false);
+    assert.match(noProvider.error, /provider/);
+
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho '{"verdict": "invalidated", "reason": "reversed hard through the flip level"}'\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const beforeSignals = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+    const r = await (await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) })).json();
+    assert.equal(r.ok, true);
+    assert.equal(r.verdict, 'invalidated');
+    assert.equal(r.reason, 'reversed hard through the flip level');
+    assert.equal(r.promptVersion, 'builtin');
+    assert.match(r.at, /^\d{4}-\d{2}-\d{2}T/);
+
+    // persisted to signal_rechecks, and the ORIGINAL signal row untouched
+    const persisted = latestRecheck(dbPath, INSTRUMENT, 'M5', sigTime);
+    assert.equal(persisted.verdict, 'invalidated');
+    const afterSignals = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+    assert.deepEqual(afterSignals, beforeSignals, 'the signals table is byte-identical after a re-check');
+
+    // /api/chart reload carries the last re-check under the signal, no extra POST
+    const chart = await (await fetch(base + '/api/chart?' + new URLSearchParams({ instrument: INSTRUMENT, granularity: 'M5' }))).json();
+    assert.deepEqual(chart.recheck, { verdict: 'invalidated', reason: 'reversed hard through the flip level', at: r.at, promptVersion: 'builtin' });
+
+    // the settings gates section lists 'recheck' with its effective prompt + no toolset
+    const gates = await (await fetch(base + '/api/gate-prompts')).json();
+    assert.equal(gates.gates.recheck.prompt, RECHECK_RULES + RECHECK_SCHEMA_SUFFIX);
+    assert.equal(gates.gates.recheck.promptVersion, 'builtin');
+    assert.deepEqual(gates.gates.recheck.toolset, []);
+    assert.equal(gates.gates.recheck.drafts.length, 0);
+
+    // save_gate_prompt now accepts 'recheck' too (chat-only, human activates in settings)
+    const out = JSON.parse(execChatTool('save_gate_prompt', { gate: 'recheck', prompt: 'Weigh realized excursion heavily.' }, { dbPath }));
+    assert.equal(out.gate, 'recheck');
+    const gates2 = await (await fetch(base + '/api/gate-prompts')).json();
+    assert.equal(gates2.gates.recheck.drafts.length, 1);
+
+    // the verdict row ships the 🔁 button and its INFO overlay entry
+    const html = await (await fetch(base + '/')).text();
+    assert.match(html, /id="recheckBtn"/);
+    assert.match(html, /recheck: '[^']*re-check/i, 'INFO overlay entry documents the 🔁 button');
   });
 });
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -66,6 +66,30 @@ test('storeCandles upserts idempotently', () => {
   assert.equal(first.totalRows, candles.length);
   assert.equal(again.totalRows, candles.length, 'no duplicates on re-run');
   rmSync(dbPath, { force: true });
+});
+
+// --- excursionSince (#70): direction-adjusted current/best/worst since a signal ---
+test('excursionSince: direction-adjusted current/best/worst move since entry, for both buy and sell', () => {
+  const entryPrice = 100;
+  const candlesSince = [{ close: 102 }, { close: 95 }, { close: 108 }, { close: 101 }];
+  const buy = excursionSince(1, entryPrice, candlesSince);
+  assert.deepEqual(buy, { currentPct: 1, maxFavorablePct: 8, maxAdversePct: -5 });
+  const sell = excursionSince(-1, entryPrice, candlesSince);
+  assert.deepEqual(sell, { currentPct: -1, maxFavorablePct: 5, maxAdversePct: -8 });
+  assert.equal(excursionSince(1, 0, candlesSince), null, 'no entry price: no excursion');
+  assert.equal(excursionSince(1, entryPrice, []), null, 'no candles since: no excursion');
+});
+
+test('excursionSince: a very large candlesSince array computes without throwing (Math.max/min(...array) would stack-overflow on this size)', () => {
+  const entryPrice = 100;
+  const n = 200000;
+  const candlesSince = Array.from({ length: n }, (_, i) => ({ close: 100 + (i % 1000) - 500 }));
+  const result = excursionSince(1, entryPrice, candlesSince);
+  assert.ok(Number.isFinite(result.currentPct));
+  assert.ok(Number.isFinite(result.maxFavorablePct));
+  assert.ok(Number.isFinite(result.maxAdversePct));
+  assert.equal(result.maxFavorablePct, 499, 'best move: close hits 100+499');
+  assert.equal(result.maxAdversePct, -500, 'worst move: close hits 100-500');
 });
 
 test('--help exits 0 with usage, no network, no db writes', () => {
@@ -197,6 +221,164 @@ test('processSignal filter: active gate-prompt override feeds the filter system 
     assert.notEqual(row.filter_prompt_hash, builtinHash, 'override active: recorded hash differs from the builtin prompt hash');
     assert.equal(row.filter_prompt_hash, promptHash(OVERRIDE_RULES + FILTER_SCHEMA_SUFFIX), 'recorded hash matches the effective (override) prompt text actually used');
   }
+});
+
+// --- recheckSignal (#70): dedicated re-check gate, never mutates recorded verdicts ---
+test('recheckSignal (#70): fake pi persists a NEW signal_rechecks row and returns it; the original signal + its snapshot are byte-identical after', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const { recordSnapshot, promptHash } = await import('../scripts/axis-snapshot.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"verdict": "played-out", "reason": "already ran 3x the typical range"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const snapshot = {
+    schema_version: 1, at: sig.time, instrument: 'WTICO/USD', granularity: 'M5', flip: 'buy',
+    axes: { trendStrength: { adx: 30, verdict: 'trending' }, direction: { verdict: 'aligned' }, impulse: { verdict: 'impulsive' }, location: { verdict: 'aligned' }, exhaustion: { verdict: 'clear' } },
+  };
+  recordSnapshot(dbPath, snapshot, { filterVerdict: 'alert', filterModel: 'test', filterPromptHash: promptHash('x'), filterPromptVersion: 'builtin' });
+
+  const beforeSignal = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+  const beforeSnap = withDb(dbPath, (d) => d.prepare('SELECT * FROM signal_snapshots').all());
+
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+  const result = await recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow);
+  assert.equal(result.verdict, 'played-out');
+  assert.equal(result.reason, 'already ran 3x the typical range');
+  assert.equal(result.promptVersion, 'builtin');
+  assert.match(result.at, /^\d{4}-\d{2}-\d{2}T/, 'at is an ISO timestamp');
+
+  const persisted = latestRecheck(dbPath, 'WTICO/USD', 'M5', sig.time);
+  assert.equal(persisted.verdict, 'played-out');
+  assert.equal(persisted.reason, 'already ran 3x the typical range');
+  assert.equal(persisted.signal_time, sig.time);
+  assert.equal(persisted.prompt_version, 'builtin');
+
+  // the payload sent to the LLM carries the axis snapshot and an excursion, not just the flip
+  const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+  assert.match(args, /axisSnapshotAtFlip/);
+  assert.match(args, /trendStrength/, 'the recorded axis snapshot rides in the payload');
+  assert.match(args, /excursion/);
+  assert.match(args, /priceSince/);
+
+  // non-destructive guarantee: the ORIGINAL signal row and its snapshot are untouched
+  const afterSignal = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+  const afterSnap = withDb(dbPath, (d) => d.prepare('SELECT * FROM signal_snapshots').all());
+  assert.deepEqual(afterSignal, beforeSignal, 'the signals table is byte-identical after a re-check');
+  assert.deepEqual(afterSnap, beforeSnap, 'the signal_snapshots table is byte-identical after a re-check');
+});
+
+test('recheckSignal (#70): an active recheck gate-prompt override feeds the recheck system text; the code-owned schema suffix always follows it; promptVersion recorded', async () => {
+  const { saveGatePrompt, activateGatePrompt } = await import('../scripts/gate-prompts.mjs');
+  const { recheckSignal, RECHECK_SCHEMA_SUFFIX, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const OVERRIDE_RULES = 'RECHECK-OVERRIDE-MARKER: weigh realized excursion above everything else.';
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const draft = saveGatePrompt(dbPath, { gate: 'recheck', prompt: OVERRIDE_RULES });
+  activateGatePrompt(dbPath, draft.id);
+  const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"verdict": "valid", "reason": "still tracking"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  const result = await recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow);
+  assert.equal(result.promptVersion, String(draft.version), 'promptVersion is a string, consistent with /api/chart');
+
+  const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+  const rulesAt = args.indexOf(OVERRIDE_RULES);
+  const schemaAt = args.indexOf(RECHECK_SCHEMA_SUFFIX.trim());
+  assert.ok(rulesAt >= 0, 'override rules text used as the system prompt');
+  assert.ok(schemaAt > rulesAt, 'code-owned JSON schema suffix appended AFTER the override text — never overridable');
+});
+
+test('resolveRecheckSystem falls back to the builtin prompt when gate-prompt resolution throws (fail-open, #70)', async () => {
+  const { resolveRecheckSystem, RECHECK_RULES, RECHECK_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const r = await resolveRecheckSystem('/nonexistent-dir/nope/db.sqlite');
+  assert.equal(r.promptVersion, 'builtin');
+  assert.equal(r.system, RECHECK_RULES + RECHECK_SCHEMA_SUFFIX, 'fallback is byte-identical to the shipped constant');
+});
+
+test('recheckSignal (#70): a verdict with a missing/non-string reason is rejected, never persisted as null/undefined', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  // valid verdict, but reason is missing entirely — the provider-schema mode
+  // constrains type shape, not content, so this can come back from a real LLM.
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  await assert.rejects(() => recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow), /invalid recheck verdict/);
+  assert.equal(latestRecheck(dbPath, 'WTICO/USD', 'M5', sig.time), null, 'a rejected verdict is never persisted');
+});
+
+test('recheckSignal (#70): a verdict with a non-string reason is rejected the same way', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid", "reason": null}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  await assert.rejects(() => recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow), /invalid recheck verdict/);
+  assert.equal(latestRecheck(dbPath, 'WTICO/USD', 'M5', sig.time), null, 'a rejected verdict is never persisted');
+});
+
+test('recheckSignal (#70): a long reason is capped to the schema-advertised 90 chars, never stored raw', async () => {
+  const { recheckSignal } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const longReason = 'x'.repeat(300);
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid", "reason": "${longReason}"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const { signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  const result = await recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow);
+  assert.equal(result.reason.length, 90, 'reason capped to the schema-advertised max');
+});
+
+test('recheckSignal (#70) throws when no LLM provider is configured — caller (the HTTP route) turns this into a visible error, never a crash', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'none' }));
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+  await assert.rejects(() => recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow), /no LLM provider configured/);
 });
 
 test('parseWatchers: CSV combos with default granularity, falls back to single', async () => {
@@ -356,4 +538,17 @@ test('OPENAI_BASE_URL drives the request URL and the model passes through unchan
       () => llmRequest({ provider: 'openai', OPENAI_BASE_URL: base, model: 'x' }, 'sys', 'user', { timeoutMs: 5000 }),
       /OPENAI_API_KEY is not set/, 'missing key fails fast with a clear message');
   } finally { await new Promise((r) => srv.close(r)); }
+});
+
+
+test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) from any caller (#70)', async () => {
+  const { recordRecheck } = await import('../scripts/signal-rechecks.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'rc-'));
+  const db = join(dir, 'db.sqlite');
+  const base = { signalTime: '2026-07-23T10:00:00Z', instrument: 'WTICO/USD', granularity: 'M5', at: '2026-07-23T10:05:00Z' };
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'maybe', reason: 'x' }), /invalid verdict/);
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'valid', reason: '   ' }), /reason is required/);
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'valid' }), /reason is required/);
+  const ok = recordRecheck(db, { ...base, verdict: 'valid', reason: '  still holds  ' });
+  assert.equal(ok.reason, 'still holds', 'reason is trimmed before persist');
 });
