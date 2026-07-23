@@ -816,9 +816,9 @@ const PAGE = /* html */ `<!doctype html>
   #topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
   #topbar h1 { margin: 0; }
   #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: baseline; flex-wrap: wrap; }
-  #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; }
+  #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; margin-left: auto; }
   #pfMini b { color: #e6edf3; }
-  #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; }
+  #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; margin-left: auto; }
   #indbar label { cursor: pointer; }
   #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
@@ -831,7 +831,7 @@ const PAGE = /* html */ `<!doctype html>
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
-  #cfgbtn { margin-left: auto; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
            padding: 18px 20px; min-width: 420px; }
@@ -848,7 +848,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <span id="indbar"></span> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button></span></header>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
