@@ -286,8 +286,10 @@ function recentBotDecisions(dbPath, instrument, granularity) {
   for (const r of rows) {
     let ctx;
     try { ctx = JSON.parse(r.context); } catch { continue; }
-    if (ctx?.granularity !== granularity || !ctx?.decision?.action) continue;
-    out.push({ at: r.at, action: ctx.decision.action, reasoning: String(ctx.decision.reasoning ?? '').slice(0, 120) });
+    // exact-match BOTH keys — the LIKE prefilter is an index hint, not the contract
+    if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || !ctx?.decision?.action) continue;
+    // full reasoning travels (it backs the hover title); the client truncates the inline fragment
+    out.push({ at: r.at, action: ctx.decision.action, reasoning: String(ctx.decision.reasoning ?? '') });
   }
   return out;
 }
