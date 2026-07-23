@@ -831,7 +831,7 @@ const PAGE = /* html */ `<!doctype html>
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
-  #cfgbtn { margin-left: auto; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
            padding: 18px 20px; min-width: 420px; }
