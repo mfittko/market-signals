@@ -705,8 +705,24 @@ test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) fro
 });
 
 
-test('llmUsageLine renders n/a for a present-but-null token field, and reportUsage swallows an async rejection (#93)', async () => {
+test('llmUsageLine renders n/a for a present-but-null token field (#93)', async () => {
   const { llmUsageLine } = await import('../scripts/supertrend.mjs');
   assert.match(llmUsageLine('filter', { provider: 'openai', model: 'x', usage: { inputTokens: 12, outputTokens: null } }), /in=12 out=n\/a/);
   assert.match(llmUsageLine('bot', { provider: 'pi', model: 'x', usage: null }), /in=n\/a out=n\/a/);
+});
+
+test('reportUsage swallows a synchronous throw AND an async-callback rejection — no unhandled rejection (#93)', async () => {
+  const { reportUsage } = await import('../scripts/supertrend.mjs');
+  const rejections = [];
+  const onRej = (e) => rejections.push(e);
+  process.on('unhandledRejection', onRej);
+  try {
+    assert.doesNotThrow(() => reportUsage(() => { throw new Error('sync boom'); }, {}));
+    assert.doesNotThrow(() => reportUsage(async () => { throw new Error('async boom'); }, {}));
+    // let the rejected promise settle; the .catch() in reportUsage must have caught it
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(rejections.length, 0, 'the async onUsage rejection was swallowed');
+  } finally {
+    process.off('unhandledRejection', onRej);
+  }
 });

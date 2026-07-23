@@ -205,7 +205,7 @@ export function effectiveModel(settings, provider) {
 // #93: usage capture is purely additive debug telemetry — a bad onUsage
 // callback (or a provider omitting usage) must never break the actual
 // request/response path.
-function reportUsage(onUsage, info) {
+export function reportUsage(onUsage, info) {
   if (typeof onUsage !== 'function') return;
   // debug callback errors never break the request — cover BOTH a synchronous
   // throw and an async callback whose returned promise rejects later
