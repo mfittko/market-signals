@@ -42,17 +42,17 @@ async function withServer(dir, fn) {
 
 test('header structure: two rows — pfMini right-clusters on row 1, indicators live in hdr2 after the bot button (#63)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
-  const page = await (await fetch(base + '/')).text();
-  const hdr = page.slice(page.indexOf('<header id="topbar">'), page.indexOf('</header>'));
-  const hdr2 = hdr.slice(hdr.indexOf('<span id="hdr2">'));
-  assert.ok(hdr.indexOf('id="pfMini"') < hdr.indexOf('id="pfBtn"'), 'insights precede the portfolio button on row 1');
-  assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
-  assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
-  assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="botBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
-  const cfgRule = page.match(/#cfgbtn \{[^}]*\}/)[0];
-  assert.ok(!cfgRule.includes('margin-left: auto'), 'single auto-margin: only pfMini pushes the right cluster');
-  assert.match(page.match(/#pfMini \{[^}]*\}/)[0], /margin-left: auto/);
-  assert.match(page.match(/#indbar \{[^}]*\}/)[0], /margin-left: auto/);
+    const page = await (await fetch(base + '/')).text();
+    const hdr = page.slice(page.indexOf('<header id="topbar">'), page.indexOf('</header>'));
+    const hdr2 = hdr.slice(hdr.indexOf('<span id="hdr2">'));
+    assert.ok(hdr.indexOf('id="pfMini"') < hdr.indexOf('id="pfBtn"'), 'insights precede the portfolio button on row 1');
+    assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
+    assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
+    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="botBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
+    const auto = /margin-left:\s*auto/;
+    assert.ok(!auto.test(page.match(/#cfgbtn \{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
+    assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
+    assert.match(page.match(/#indbar \{[^}]*\}/)[0], auto);
   });
 });
 
