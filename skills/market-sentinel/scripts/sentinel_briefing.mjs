@@ -70,7 +70,7 @@ export function renderSentinelBriefing({ asOf, instruments = [] } = {}) {
 
   lines.push('# Market Sentinel Briefing');
   lines.push('');
-  lines.push(`asOf: ${asOf || new Date().toISOString()}`);
+  lines.push(`asOf: ${mdEscape(asOf || new Date().toISOString())}`);
   lines.push('');
   lines.push('## Escalation summary');
   lines.push('');
