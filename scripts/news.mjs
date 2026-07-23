@@ -46,6 +46,23 @@ export function upsertNews(dbPath, instrument, items, fetchedAt) {
   });
 }
 
+// A poll can legitimately return zero items (quiet news day, or every source
+// down) — upsertNews then writes nothing, so MAX(fetched_at) would stay null
+// forever and every future tick would treat the instrument as infinitely
+// stale, re-fetching (and hammering the sources) on every tick. Record a
+// per-instrument poll marker row instead: time=NULL, so newsContextFor's own
+// `time IS NOT NULL` filter already excludes it from prompt context, but the
+// staleness MAX(fetched_at) query below still picks it up. One row per
+// instrument (upserted on its own stable url), not one per empty poll.
+function recordPollMarker(dbPath, instrument, fetchedAt) {
+  return newsDb(dbPath, (db) => {
+    db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
+      VALUES (?, 'poll-marker', ?, NULL, NULL, ?, NULL, NULL, 0, ?)
+      ON CONFLICT(url) DO UPDATE SET fetched_at=excluded.fetched_at`)
+      .run(instrument, `poll marker: ${instrument}`, `local://news-poll-marker/${instrument}`, fetchedAt);
+  });
+}
+
 // Poll at most this often per instrument (locked design: "per-instrument poll
 // at most every ~5-10 min"); a per-tick watcher gate, not a scheduler.
 export const NEWS_POLL_INTERVAL_MS = 8 * 60 * 1000;
@@ -101,6 +118,7 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
       });
       const fetchedAt = new Date(now).toISOString();
       const { added } = upsertNews(dbPath, instrument, result.items, fetchedAt);
+      recordPollMarker(dbPath, instrument, fetchedAt);
       refreshed.push({ instrument, added, escalation: result.escalation });
     } catch (err) {
       log(`refresh failed for ${instrument}: ${err.message}`);

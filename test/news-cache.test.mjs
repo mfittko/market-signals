@@ -69,6 +69,25 @@ test('refreshNewsCache: a stale cache (older than the poll interval) is re-fetch
   assert.equal(result.refreshed.length, 1, 'stale cache triggers a re-fetch');
 });
 
+// --- zero-item polls still update the staleness gate --------------------------
+test('refreshNewsCache: a poll that returns zero items still marks the instrument fresh (no hammering the source every tick)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const fetcher = stubFetcher(); // EMPTY_RSS/EMPTY_GDELT everywhere -> zero items
+
+  const first = await refreshNewsCache(dbPath, combos, {}, { fetcher, now, log: () => {} });
+  assert.equal(first.refreshed.length, 1);
+  assert.equal(first.refreshed[0].added, 0);
+
+  const second = await refreshNewsCache(dbPath, combos, {}, { fetcher, now: now + 60000, log: () => {} });
+  assert.deepEqual(second.refreshed, [], 'still fresh a minute later, even though the first poll cached nothing');
+
+  const ctx = newsContextFor(dbPath, 'WTICO/USD', { now: now + 60000 });
+  assert.equal(ctx, null, 'the poll marker never leaks into prompt context');
+});
+
 // --- one instrument's failure never aborts the tick --------------------------
 test('refreshNewsCache: one instrument failing (e.g. every source down) does not prevent the others', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));

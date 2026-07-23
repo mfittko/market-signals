@@ -24,10 +24,22 @@ export const ESCALATION_LEXICON = [
 ];
 export const GDELT_TONE_ESCALATION_THRESHOLD = -5;
 
+// 'war' and 'strike' are short, common English words that over-fire as a raw
+// substring (e.g. 'warn'/'warning'/'forward'/'toward' contain 'war'; 'strikes
+// a deal' contains 'strike') — matched whole-word instead. Everything else in
+// the lexicon (longer single words, the 'escalat*' stem, and multi-word
+// phrases) is precise enough as a plain substring.
+const WORD_BOUNDARY_TERMS = new Set(['war', 'strike']);
+
+function termMatches(term, text) {
+  if (WORD_BOUNDARY_TERMS.has(term)) return new RegExp(`\\b${term}\\b`, 'i').test(text);
+  return text.includes(term);
+}
+
 export function computeEscalation({ title, summary, tone } = {}) {
   if (Number.isFinite(tone) && tone < GDELT_TONE_ESCALATION_THRESHOLD) return true;
   const text = `${title || ''} ${summary || ''}`.toLowerCase();
-  return ESCALATION_LEXICON.some((kw) => text.includes(kw));
+  return ESCALATION_LEXICON.some((kw) => termMatches(kw, text));
 }
 
 // --- tiny RSS/Atom parse (no new deps; a hand-rolled regex parser, same
@@ -79,7 +91,12 @@ export function parseFeedItems(xml) {
 
 function parseFeedDate(raw) {
   if (!raw) return null;
-  const t = Date.parse(raw);
+  // GDELT's seendate is compact "basic" ISO 8601 (e.g. "20260723T090500Z", no
+  // dashes/colons) — V8's Date.parse only recognizes the "extended" form, so
+  // it returns NaN for this shape. Expand to extended ISO 8601 first.
+  const compact = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(String(raw));
+  const normalized = compact ? `${compact[1]}-${compact[2]}-${compact[3]}T${compact[4]}:${compact[5]}:${compact[6]}Z` : raw;
+  const t = Date.parse(normalized);
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
@@ -119,8 +136,24 @@ export function normalizeGdeltArticle(article) {
 }
 
 // --- dedup: exact url match, else fuzzy (normalized) title match ------------
+// Google News' <title> appends " - Publisher" (e.g. "Oil jumps on Houthi
+// attack - Reuters"); GDELT/Al Jazeera/OilPrice carry the bare headline for
+// the same story. Strip a trailing " - X" segment before normalizing so the
+// two collapse — but only when X reads like a short publisher name, so a
+// legitimate " - " elsewhere in a title (a real clause, a dash-joined date)
+// is left alone.
+function stripPublisherSuffix(title) {
+  const s = String(title || '');
+  const idx = s.lastIndexOf(' - ');
+  if (idx === -1) return s;
+  const suffix = s.slice(idx + 3).trim();
+  const looksLikePublisher = suffix.length > 0 && suffix.length <= 30
+    && suffix.split(/\s+/).length <= 4 && !/[.!?:;]/.test(suffix);
+  return looksLikePublisher ? s.slice(0, idx) : s;
+}
+
 function normTitle(t) {
-  return String(t || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return stripPublisherSuffix(String(t || '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 export function dedupeItems(items) {

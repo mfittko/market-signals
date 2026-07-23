@@ -24,6 +24,14 @@ test('computeEscalation: tanker-attack headline flags true, benign headline flag
   assert.equal(computeEscalation({ title: 'Oil prices steady amid summer demand outlook' }), false);
 });
 
+test('computeEscalation: "war"/"strike" are word-boundary matched, not raw substrings', () => {
+  assert.equal(computeEscalation({ title: 'warning of rain' }), false, 'warn(ing) is not war');
+  assert.equal(computeEscalation({ title: 'Traffic pushes forward toward downtown' }), false, 'forward/toward are not war');
+  assert.equal(computeEscalation({ title: 'missile strike on tanker' }), true);
+  assert.equal(computeEscalation({ title: 'Vendors strikes a deal on new supply contract' }), false, 'strikes-a-deal is not a strike');
+  assert.equal(computeEscalation({ title: 'war breaks out' }), true);
+});
+
 test('computeEscalation: GDELT tone below the threshold flags true even with a benign title', () => {
   assert.equal(computeEscalation({ title: 'Quarterly market recap', tone: -6 }), true);
   assert.equal(computeEscalation({ title: 'Quarterly market recap', tone: -4 }), false, 'above the threshold does not flag');
@@ -66,6 +74,10 @@ test('normalizeGdeltArticle: parses tone (number) and themes (semicolon list)', 
   assert.equal(item.tone, -8.2);
   assert.deepEqual(item.themes, ['ARMEDCONFLICT', 'MARITIME_INCIDENT', 'ECON_OILPRICE']);
   assert.equal(item.escalation, true, 'tone < -5 flags escalation even before keyword check');
+  // GDELT's seendate is compact ISO 8601 ("20260723T090500Z", no separators)
+  // — Date.parse alone returns NaN for this shape, which would silently drop
+  // GDELT items' timestamps (bypassing the lookback window, sorting as 0).
+  assert.equal(item.timeIso, '2026-07-23T09:05:00.000Z');
 
   const benign = normalizeGdeltArticle(gdelt.articles[1]);
   assert.equal(benign.escalation, false);
@@ -82,6 +94,24 @@ test('dedupeItems: drops an exact url repeat and a fuzzy-title repeat, keeps dis
   const out = dedupeItems(items);
   assert.equal(out.length, 2);
   assert.deepEqual(out.map((i) => i.url), ['https://a/1', 'https://a/2']);
+});
+
+test('dedupeItems: strips a Google News " - Publisher" suffix before the fuzzy-title fallback, so a real cross-source story (different urls) collapses', () => {
+  const items = [
+    { title: 'Oil jumps on Houthi attack - Reuters', url: 'https://news.google.com/rss/articles/abc' },
+    { title: 'Oil jumps on Houthi attack', url: 'https://gdelt.example/houthi-attack' }, // same story, bare title from GDELT
+  ];
+  const out = dedupeItems(items);
+  assert.equal(out.length, 1);
+});
+
+test('dedupeItems: does not corrupt a legitimate title that happens to contain " - "', () => {
+  const items = [
+    { title: 'Crude oil - a deep dive into the 2026 supply glut and what it means for prices', url: 'https://a/1' },
+    { title: 'Oil demand outlook - 2026 edition - full report with methodology notes', url: 'https://a/2' },
+  ];
+  const out = dedupeItems(items);
+  assert.equal(out.length, 2, 'long/clausal " - " segments are not mistaken for a publisher suffix');
 });
 
 // --- fetchSentinelNews: bounded, dedup across sources, failure-isolated -----
