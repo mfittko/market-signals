@@ -660,7 +660,10 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
-    assert.ok(html.includes('data-tab="bots"') && html.includes('id="botTable"'), 'bots tab in the portfolio modal');
+    assert.ok(html.includes('id="botBtn"'), 'contextual bot icon in the header');
+    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped');
+    assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
+    assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
     // settings whitelist accepts the bot object, rejects junk bot keys
     const okSet = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { enabled: false, riskPct: 2 } }) })).json();
@@ -756,5 +759,32 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
     assert.ok(d.indicators.ema && d.indicators.rsi, 'series served from the stored default');
     const overridden = await (await fetch(base + '/api/chart?ind=vwap')).json();
     assert.deepEqual(overridden.activeInd, ['vwap'], 'URL still overrides');
+  });
+});
+
+test('/api/bots serves the read-only activated-bots list; /api/chart carries botState (#49 design)', async () => {
+  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, { name: 'ux-strat', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: st.id }, 'XAG/USD|M1': { enabled: false } } } }) });
+    const r = await (await fetch(base + '/api/bots')).json();
+    assert.equal(r.bots.length, 2);
+    const wti = r.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(wti.enabled, true);
+    assert.equal(wti.strategyName, 'ux-strat v1');
+    assert.equal(typeof wti.trades, 'number');
+    assert.equal(r.halted, false);
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const resp = await fetch(base + '/api/bots', { method, body: '{}' });
+      assert.ok([404, 405].includes(resp.status), method + ' has no mutation surface on /api/bots');
+    }
+    const d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.botState.configured, true);
+    assert.equal(d.botState.enabled, true);
+    assert.equal(d.botState.strategyName, 'ux-strat v1');
+    assert.equal(d.botState.halted, false);
+    const d2 = await (await fetch(base + '/api/chart?instrument=XAG/USD&granularity=M1')).json();
+    assert.equal(d2.botState.enabled, false);
+    assert.equal(d2.botState.configured, true);
   });
 });

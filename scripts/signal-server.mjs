@@ -18,7 +18,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
-import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
+import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
+import { resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
@@ -469,6 +470,18 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
         const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
         data.activeInd = effectiveInd;
+        // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
+        const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
+        const pfB = portfolioView(dbPath, botConfig(cfg));
+        const strat = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
+        const pos = pfB.positions.find((pp) => pp.instrument === instrument) ?? null;
+        data.botState = {
+          configured: botFor.enabled || botFor.strategyId != null || Object.keys(cfg.bot?.bots ?? {}).some((k) => k.split('|').map((x) => x.trim()).join('|') === `${instrument}|${granularity}`),
+          enabled: botFor.enabled,
+          strategyName: strat ? `${strat.name} v${strat.version}` : null,
+          halted: pfB.halted,
+          openPosition: pos ? { side: pos.side, unrealized: Math.round(pos.unrealized * 100) / 100 } : null,
+        };
         const configured = (cfg.instruments ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.instruments = configured.length ? configured : DEFAULT_INSTRUMENTS;
         if (!data.instruments.includes(instrument)) data.instruments = [instrument, ...data.instruments];
@@ -486,6 +499,31 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
+      if (url.pathname === '/api/bots' && req.method === 'GET') {
+        // read-only activated-bots list for the portfolio overview (#49 design)
+        const cfgB = readSettings(settingsPath);
+        const bots = (cfgB.bot && typeof cfgB.bot.bots === 'object' && cfgB.bot.bots) || {};
+        const pf = portfolioView(dbPath, botConfig(cfgB));
+        const audit = decisionAudit(dbPath, { limit: 200 });
+        const rows = Object.entries(bots).map(([combo, b]) => {
+          const [inst, gran] = combo.split('|').map((x) => x.trim());
+          const strat = Number.isInteger(b.strategyId) ? strategyById(dbPath, b.strategyId) : null;
+          const trades = pf.trades.filter((t) => t.instrument === inst);
+          const lastDecision = audit.find((a) => a.instrument === inst && (a.event == null || true));
+          return {
+            combo, instrument: inst, granularity: gran,
+            enabled: b.enabled === true,
+            strategyId: b.strategyId ?? null,
+            strategyName: strat ? `${strat.name} v${strat.version}` : null,
+            riskPct: b.riskPct ?? null,
+            trades: trades.length,
+            realized: Math.round(trades.reduce((a, t) => a + t.realized, 0) * 100) / 100,
+            lastDecisionAt: lastDecision?.at ?? null,
+            lastDecisionReason: lastDecision?.reason ?? null,
+          };
+        });
+        return json(res, 200, { ok: true, bots: rows, halted: pf.halted, equity: pf.equity });
       }
       if (url.pathname === '/api/strategies' && req.method === 'GET') {
         ensureSeedStrategy(dbPath);
@@ -684,6 +722,20 @@ const PAGE = /* html */ `<!doctype html>
   #pfTabs { display: flex; gap: 6px; margin: 10px 0; }
   #pfTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
   #pfTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #botBtn { position: relative; }
+  #botBtn.nobot { opacity: 0.45; }
+  #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
+  #botBtn.dot-grey::after { display: block; background: #8b949e; }
+  #botBtn.dot-green::after { display: block; background: #3fb950; }
+  #botBtn.dot-amber::after { display: block; background: #d29922; }
+  #botBtn.ring-halt { box-shadow: 0 0 0 2px #f85149; border-radius: 6px; }
+  #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
+  #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(360px, 92vw); }
+  #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
+  #botdlg select, #botdlg input[type=number] { width: 100%; }
+  .botwarn { color: #d29922; font-size: 12px; }
+  .botrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #30363d; border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; flex-wrap: wrap; }
+  .botrow .jump { cursor: pointer; background: #21262d; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; padding: 2px 10px; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
   .audit-entry .meta { color: #8b949e; }
   #indbar { display: flex; gap: 12px; margin: 6px 0; font-size: 12px; color: #8b949e; flex-wrap: wrap; }
@@ -716,7 +768,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
+<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
 <div id="indbar"></div>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
@@ -729,20 +781,25 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="pfdlg">
   <h2>virtual portfolio <small>(bot-only — view)</small></h2>
   <div id="pfHead"></div>
+  <div id="haltBanner" hidden></div>
   <div id="pfTabs">
-    <button data-tab="bots" class="on">bots</button><button data-tab="positions">positions</button><button data-tab="trades">trades</button><button data-tab="performance">performance</button><button data-tab="audit">audit</button>
+    <button data-tab="overview" class="on">overview</button><button data-tab="trades">trades</button><button data-tab="performance">performance</button><button data-tab="audit">audit</button>
   </div>
-  <div id="tab-bots">
-    <table id="botTable"><thead><tr><th>bot</th><th>strategy</th><th>risk %</th><th>enabled</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="botAdd"></div>
+  <div id="tab-overview">
+    <div id="pfPositions"></div>
+    <h2>activated bots</h2>
+    <div id="botList"></div>
   </div>
-  <div id="tab-positions" hidden><div id="pfPositions"></div></div>
   <div id="tab-trades" hidden>
     <table id="pfTrades"><thead><tr><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
   </div>
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
   <form method="dialog"><button>close</button></form>
+</dialog>
+<dialog id="botdlg">
+  <h2 id="botTitle">🤖 bot</h2>
+  <div id="botBody"></div>
 </dialog>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
@@ -784,7 +841,7 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
-  indBar(d); axisChips(d.axisGate); oscPanel(d);
+  indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
@@ -852,59 +909,96 @@ function sparkline(pf) {
   });
   g.stroke();
 }
-document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderBots(); });
-document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderBots(); });
-// Per-combo bot management (#49): list/add/edit/enable — strategy assignment
-// is the human activation act; all writes are same-origin settings POSTs.
-async function renderBots() {
-  const [settings, strat, chartInfo] = await Promise.all([
+document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
+document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
+// Contextual per-combo bot modal + read-only overview (#49 design grill).
+let botStateCache = null;
+function botIcon(bs) {
+  botStateCache = bs;
+  const el = document.getElementById('botBtn');
+  el.className = '';
+  const combo = (qs.get('instrument') || '') + '·' + (qs.get('granularity') || 'M5');
+  if (!bs || !bs.configured) { el.classList.add('nobot'); el.title = 'no bot for ' + combo + ' — click to configure'; }
+  else if (bs.enabled && !bs.strategyName) { el.classList.add('dot-amber'); el.title = 'bot enabled — no strategy, will not trade'; }
+  else if (bs.enabled) { el.classList.add('dot-green'); el.title = 'armed — ' + bs.strategyName + (bs.openPosition ? ' · ' + bs.openPosition.side + ' ' + money(bs.openPosition.unrealized) : ''); }
+  else { el.classList.add('dot-grey'); el.title = 'bot configured (off)'; }
+  if (bs && bs.halted) { el.classList.add('ring-halt'); el.title += ' · PORTFOLIO halted — all bots paused'; }
+}
+async function openBotModal() {
+  const inst = qs.get('instrument') || document.getElementById('instSel').value;
+  const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+  const combo = inst + '|' + gran;
+  const [settings, strat] = await Promise.all([
     (await fetch('/api/settings')).json(),
     (await fetch('/api/strategies')).json(),
-    (await fetch('/api/chart?' + new URLSearchParams({ instrument: qs.get('instrument') || '', granularity: qs.get('granularity') || '' }))).json(),
   ]);
-  const bots = (settings.bot && settings.bot.bots) || {};
-  const stratOpt = (sel) => '<option value="">— none —</option>' + strat.strategies.map(st => '<option value="' + st.id + '"' + (st.id === sel ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + '</option>').join('');
-  const tb = document.querySelector('#botTable tbody');
-  tb.innerHTML = '';
-  for (const [combo, b] of Object.entries(bots)) {
-    const tr = document.createElement('tr');
-    tr.innerHTML = '<td><b>' + esc(combo) + '</b></td>' +
-      '<td><select data-combo="' + esc(combo) + '" data-k="strategyId">' + stratOpt(b.strategyId) + '</select></td>' +
-      '<td><input type="number" step="0.1" style="width:70px" data-combo="' + esc(combo) + '" data-k="riskPct" value="' + esc(b.riskPct ?? '') + '" placeholder="dflt"></td>' +
-      '<td><input type="checkbox" data-combo="' + esc(combo) + '" data-k="enabled"' + (b.enabled ? ' checked' : '') + '></td>' +
-      '<td><button data-del="' + esc(combo) + '">✕</button></td>';
-    tb.appendChild(tr);
+  const entry = ((settings.bot || {}).bots || {})[combo] || {};
+  document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
+  const noStrat = !strat.strategies.length;
+  document.getElementById('botBody').innerHTML =
+    '<label for="bmStrat">strategy</label><select id="bmStrat"><option value="">— none —</option>' +
+    strat.strategies.map(st => '<option value="' + st.id + '"' + (st.id === entry.strategyId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + '</option>').join('') + '</select>' +
+    (noStrat ? '<div class="botwarn">No strategies yet — draft one with the copilot, then assign it here.</div>' : '') +
+    '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
+    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !entry.strategyId ? '' : ' hidden') + '> won\u2019t trade until a strategy is assigned</span>' +
+    '<label for="bmRisk">risk % / trade</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
+    '<details><summary>advanced</summary><label for="bmKill">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
+    '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
+    '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '\u25CF ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
+    '<p><button type="button" id="bmToPf">View in portfolio \u2192</button> <span id="bmSaved"></span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>' +
+    '<form method="dialog"><button>close</button></form>';
+  const save = async (patch) => {
+    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
+    document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
+    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
+    botIcon(d2.botState);
+    document.getElementById('bmWarn').hidden = !(document.getElementById('bmEnabled').checked && !document.getElementById('bmStrat').value);
+  };
+  document.getElementById('bmStrat').onchange = (e) => save({ strategyId: e.target.value ? Number(e.target.value) : null });
+  document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
+  document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
+  document.getElementById('bmRemove').onclick = async () => { await save(null); document.getElementById('botdlg').close(); };
+  document.getElementById('botdlg').showModal();
+}
+document.getElementById('botBtn').addEventListener('click', openBotModal);
+// Read-only activated-bots list + halt banner in the portfolio overview.
+async function renderOverviewBots() {
+  const r = await (await fetch('/api/bots')).json();
+  if (!r.ok) return;
+  const banner = document.getElementById('haltBanner');
+  banner.hidden = !r.halted;
+  if (r.halted) {
+    banner.innerHTML = 'PORTFOLIO HALTED — kill-switch drawdown tripped; all bots paused. <button id="haltReset" type="button">reset halt</button>';
+    banner.querySelector('#haltReset').onclick = async () => {
+      await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { resetHalt: true } }) });
+      renderOverviewBots(); portfolio();
+    };
   }
-  if (!Object.keys(bots).length) tb.innerHTML = '<tr><td colspan="5"><small>no bots configured yet — add one below</small></td></tr>';
-  const grans = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
-  document.getElementById('botAdd').innerHTML =
-    '<select id="nbInst">' + (chartInfo.instruments || []).map(i => '<option>' + esc(i) + '</option>').join('') + '</select> ' +
-    '<select id="nbGran">' + grans.map(g => '<option' + (g === 'M5' ? ' selected' : '') + '>' + g + '</option>').join('') + '</select> ' +
-    '<button id="nbAdd">+ add bot</button> <span id="botSaved"></span>';
-  const patchBot = async (combo, entry) => {
-    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: entry } } }) })).json();
-    document.getElementById('botSaved').textContent = r.error ? r.error : 'saved';
-    renderBots();
-  };
-  tb.onchange = (e) => {
-    const combo = e.target.dataset.combo;
+  const list = document.getElementById('botList');
+  const active = r.bots.filter(b => b.enabled);
+  const off = r.bots.filter(b => !b.enabled);
+  const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
+    (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won\u2019t trade</span>') + '</span>' +
+    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
+    (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
+    '<button class="jump" data-combo="' + esc(b.combo) + '">\u2192</button></div>';
+  list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click \ud83e\udd16 in the header to configure a bot for that view.</div>') +
+    (off.length ? '<details><summary><small>configured (off): ' + off.length + '</small></summary>' + off.map(row).join('') + '</details>' : '');
+  list.onclick = (e) => {
+    const combo = e.target.dataset?.combo;
     if (!combo) return;
-    const k = e.target.dataset.k;
-    const v = k === 'enabled' ? e.target.checked : k === 'strategyId' ? (e.target.value ? Number(e.target.value) : null) : (Number(e.target.value) > 0 ? Number(e.target.value) : null);
-    patchBot(combo, { [k]: v });
-  };
-  tb.onclick = (e) => { const c = e.target.dataset?.del; if (c) patchBot(c, null); };
-  document.getElementById('nbAdd').onclick = () => {
-    const combo = document.getElementById('nbInst').value + '|' + document.getElementById('nbGran').value;
-    patchBot(combo, { enabled: false });
+    const [i2, g2] = combo.split('|');
+    location.search = '?' + new URLSearchParams({ instrument: i2, granularity: g2, bot: '1' });
   };
 }
 document.getElementById('pfTabs').addEventListener('click', async (e) => {
   const tab = e.target.dataset?.tab;
   if (!tab) return;
   for (const b of document.querySelectorAll('#pfTabs button')) b.classList.toggle('on', b === e.target);
-  for (const name of ['bots', 'positions', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
-  if (tab === 'bots') renderBots();
+  for (const name of ['overview', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
+  if (tab === 'overview') renderOverviewBots();
   if (tab === 'performance' || tab === 'audit') renderEvaluation().catch(() => { document.getElementById('tab-' + tab).innerHTML = '<p><small>evaluation unavailable</small></p>'; });
 });
 async function renderEvaluation() {
@@ -1299,7 +1393,7 @@ document.getElementById('chatForm').onsubmit = async (e) => {
   loadThreads();
 };
 loadThreads();
-load();
+load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 document.getElementById('cfgbtn').addEventListener('click', async () => {
