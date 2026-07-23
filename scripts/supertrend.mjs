@@ -406,7 +406,11 @@ export async function processSignal(opts, result, candles) {
   let gateSnapshot = null;
   try {
     const { axisSnapshot } = await import('./axis-snapshot.mjs');
-    gateSnapshot = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity, flip: { signal: sig.signal } });
+    // signal-time truth: freshBars admits flips up to N bars old — the snapshot
+    // must judge the FLIP bar (and share its timestamp for the outcome join),
+    // never bars that closed afterwards
+    const flipCandles = Number.isInteger(sig.index) ? candles.slice(0, sig.index + 1) : candles;
+    gateSnapshot = axisSnapshot(flipCandles, { instrument: opts.instrument, granularity: opts.granularity, flip: { signal: sig.signal } });
   } catch (err) { dbg(`axis snapshot failed: ${err.message}`); }
 
   let verdict = null;
@@ -709,7 +713,8 @@ async function runOne(opts) {
         let botAxes = null;
         try {
           const { axisSnapshot } = await import('./axis-snapshot.mjs');
-          botAxes = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity, flip: freshFlip ? { signal: freshFlip.signal } : null })?.axes ?? null;
+          const axCandles = freshFlip && Number.isInteger(freshFlip.index) ? candles.slice(0, freshFlip.index + 1) : candles;
+          botAxes = axisSnapshot(axCandles, { instrument: opts.instrument, granularity: opts.granularity, flip: freshFlip ? { signal: freshFlip.signal } : null })?.axes ?? null;
         } catch { /* axes optional */ }
         result.bot = !botWatchesCombo(settings, opts.instrument, opts.granularity)
           ? { skipped: 'combo not in bot.watchers' }
