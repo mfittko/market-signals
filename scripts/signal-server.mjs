@@ -545,10 +545,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
           traderNotes: notes,
           botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
-          axisGate: (() => {
-            const snap = axisSnapshot(view.candles, { instrument, granularity });
-            return snap ? snap.axes : null;
-          })(),
+          axisGate: axisSnapshot(view.candles, { instrument, granularity })?.axes ?? null,
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
@@ -692,6 +689,7 @@ const PAGE = /* html */ `<!doctype html>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
+<div id="axischips" class="quote" hidden></div>
 <details id="pf" hidden>
   <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
   <canvas id="pfSpark" width="560" height="46"></canvas>
@@ -992,13 +990,7 @@ function oscPanel(d) {
 }
 // Axis-gate chips in the quote strip area (state-only view of the five axes).
 function axisChips(gate) {
-  let el = document.getElementById('axischips');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'axischips';
-    el.className = 'quote';
-    document.getElementById('quote').after(el);
-  }
+  const el = document.getElementById('axischips');
   if (!gate || !gate.axes) { el.hidden = true; return; }
   const a = gate.axes;
   el.hidden = false;
