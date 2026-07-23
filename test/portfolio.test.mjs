@@ -91,15 +91,21 @@ test('halt: equity wiped to <= 0 closes everything and blocks new opens', () => 
   assert.throws(() => openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 10, price: 87 }), /halted/);
 });
 
-test('guards: max positions, insufficient margin, risk budget, bad input', () => {
+test('guards: max positions, insufficient margin (post-sizing), bad input', () => {
   const db = fresh();
   const cfg = botConfig({ bot: { riskPct: 100, maxPositions: 2 } });
   openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
   openPosition(db, cfg, { instrument: WTI, side: 'short', notional: 100, price: 87 });
   assert.throws(() => openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 }), /max 2/);
   const db2 = fresh();
-  assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'long', notional: 2e6, price: 87 }), /insufficient cash|risk budget/);
-  assert.throws(() => openPosition(db2, botConfig({ bot: { riskPct: 1 } }), { instrument: WTI, side: 'long', notional: 5000, price: 87 }), /risk budget/);
+  // riskPct/allocationPct caps SIZE DOWN (#83), so an oversized notional no
+  // longer rejects on its own — insufficient cash still must, checked against
+  // the post-sizing (effective) margin: unleveraged 1:1, first open locks
+  // 9000 of the 10000 cash, leaving 1000 free; a second request the 100%
+  // risk cap would happily size to 5000 margin still can't fit that cash.
+  const tightCash = botConfig({ bot: { riskPct: 100, defaultLeverage: 1 } });
+  openPosition(db2, tightCash, { instrument: WTI, side: 'long', notional: 9000, price: 87 });
+  assert.throws(() => openPosition(db2, tightCash, { instrument: WTI, side: 'long', notional: 5000, price: 87 }), /insufficient cash/);
   assert.throws(() => openPosition(db2, CFG, { instrument: WTI, side: 'up', notional: 100, price: 87 }), /side/);
   assert.throws(() => closePosition(db2, CFG, 999, 87, 'x'), /unknown position/);
   assert.throws(() => openPosition(db2, CFG, { side: 'long', notional: 100, price: 87 }), /instrument required/);
@@ -174,14 +180,113 @@ test('unit: unrealized math is symmetric', () => {
   assert.equal(unrealized({ ...pos, side: 'short' }, 105), -10);
 });
 
-test('allocation cap (#51): total locked margin per instrument stays within allocationPct of equity', () => {
+test('allocation cap (#51): oversize sizes down (#83) to the remaining budget; exhausted cap is a no-budget skip, not a reject', () => {
   const db = fresh();
   const cfg = botConfig({ bot: { riskPct: 100, maxPositions: 5 } });
   cfg.allocationPct = 3; // 3% of 10000 = 300 margin budget
-  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 2000, price: 87 }); // margin 200
-  assert.throws(() => openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1500, price: 87 }), /allocation cap/, 'stacking past the cap rejected');
-  openPosition(db, cfg, { instrument: WTI, side: 'short', notional: 900, price: 87 }); // margin 90 → 290 ≤ 300
-  assert.equal(portfolioView(db, cfg).positions.length, 2);
+  const INSTR = 'NO/SPREAD'; // zero spread keeps equity exactly 10000 for clean math
+  openPosition(db, cfg, { instrument: INSTR, side: 'long', notional: 2000, price: 87 }); // margin 200
+  // requesting 1500 (margin 150) would push total to 350 > 300: SIZE DOWN
+  // (#83) to whatever allocation has left (100 margin), never reject.
+  const id2 = openPosition(db, cfg, { instrument: INSTR, side: 'long', notional: 1500, price: 87 });
+  assert.ok(id2 > 0, 'size-down opens rather than rejecting');
+  let v = portfolioView(db, cfg);
+  assert.equal(v.positions.length, 2);
+  assert.equal(v.positions[1].margin, 100, 'sized to the remaining allocation budget');
+  assert.equal(v.positions[1].notional, 1000);
+  const jd = JSON.parse(v.journal.find((j) => j.action === 'open' && j.position_id === id2).context);
+  assert.equal(jd.bindingCap, 'allocation');
+  assert.equal(jd.requestedNotional, 1500);
+  assert.equal(jd.effectiveNotional, 1000);
+  // allocation now fully consumed (300 of 300 margin locked): the next open
+  // on this instrument is a legitimate no-budget skip, not a rejection.
+  const skipped = openPosition(db, cfg, { instrument: INSTR, side: 'short', notional: 500, price: 87 });
+  assert.equal(skipped, null, 'exhausted allocation returns null instead of throwing');
+  v = portfolioView(db, cfg);
+  assert.equal(v.positions.length, 2, 'no third position opened');
+  const skipRow = v.journal.find((j) => j.action === 'skip');
+  assert.equal(skipRow.reason, 'no budget (allocation full)');
   openPosition(db, cfg, { instrument: 'SPX500/USD', side: 'long', notional: 2000, price: 5000 });
   assert.equal(portfolioView(db, cfg).positions.length, 3, 'cap is instrument-scoped, other instruments unaffected');
+});
+
+test('server-side sizing (#83): the exact operator repro sizes down to $100 margin / $1000 notional, no throw', () => {
+  const db = fresh();
+  // allocationPct is not a BOT_DEFAULTS key (botConfig would silently drop
+  // it); production wires it in per-combo (bot.mjs resolveBotFor), set it
+  // directly here, same convention as the allocation-cap test above.
+  const cfg = botConfig({ bot: { riskPct: 1, defaultLeverage: 10 } });
+  cfg.allocationPct = 10;
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 30000, price: 87 });
+  assert.ok(id > 0, 'sizes down and opens instead of rejecting');
+  const v = portfolioView(db, cfg);
+  assert.equal(v.positions.length, 1);
+  assert.equal(v.positions[0].margin, 100, '1% of 10000 equity binds');
+  assert.equal(v.positions[0].notional, 1000);
+  const jd = JSON.parse(v.journal.find((j) => j.action === 'open').context);
+  assert.equal(jd.requestedNotional, 30000);
+  assert.equal(jd.effectiveNotional, 1000);
+  assert.equal(jd.bindingCap, 'risk');
+});
+
+test('server-side sizing (#83): each cap drops out cleanly when unconfigured; requested-under-budget never sizes up', () => {
+  const db = fresh();
+  // riskPct configured null (explicitly unset) → only allocation binds
+  const allocOnly = botConfig({ bot: { defaultLeverage: 10 } });
+  allocOnly.riskPct = null;
+  allocOnly.allocationPct = 5;
+  const id1 = openPosition(db, allocOnly, { instrument: WTI, side: 'long', notional: 100000, price: 87 });
+  const v1 = portfolioView(db, allocOnly);
+  assert.equal(v1.positions[0].margin, 500, '5% of 10000, risk cap dropped out');
+  const jd1 = JSON.parse(v1.journal.find((j) => j.action === 'open').context);
+  assert.equal(jd1.bindingCap, 'allocation');
+
+  // allocationPct unset (default) → only risk binds
+  const db2 = fresh();
+  const riskOnly = botConfig({ bot: { riskPct: 2, defaultLeverage: 10 } });
+  const id2 = openPosition(db2, riskOnly, { instrument: WTI, side: 'long', notional: 100000, price: 87 });
+  const v2 = portfolioView(db2, riskOnly);
+  assert.equal(v2.positions[0].margin, 200, '2% of 10000, allocation cap absent');
+  const jd2 = JSON.parse(v2.journal.find((j) => j.action === 'open').context);
+  assert.equal(jd2.bindingCap, 'risk');
+
+  // both unset → sizes to the requested notional (or cash), never a false block
+  const db3 = fresh();
+  const noCaps = botConfig({ bot: { defaultLeverage: 10 } });
+  noCaps.riskPct = null;
+  const id3 = openPosition(db3, noCaps, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  const v3 = portfolioView(db3, noCaps);
+  assert.equal(v3.positions[0].notional, 1000, 'sizes to the requested amount with no caps configured');
+  const jd3 = JSON.parse(v3.journal.find((j) => j.action === 'open').context);
+  assert.equal(jd3.bindingCap, 'none');
+
+  // requested notional already under budget → opens unchanged (size-down
+  // never sizes UP)
+  const db4 = fresh();
+  const generous = botConfig({ bot: { riskPct: 100, defaultLeverage: 10 } });
+  const id4 = openPosition(db4, generous, { instrument: WTI, side: 'long', notional: 500, price: 87 });
+  const v4 = portfolioView(db4, generous);
+  assert.equal(v4.positions[0].notional, 500, 'unchanged: requested was already within budget');
+  const jd4 = JSON.parse(v4.journal.find((j) => j.action === 'open').context);
+  assert.equal(jd4.bindingCap, 'none');
+  assert.equal(jd4.requestedNotional, 500);
+  assert.equal(jd4.effectiveNotional, 500);
+  void id1; void id2; void id3; void id4;
+});
+
+test('sequential trades fit within allocation (#83): $100-margin opens until the $1000 budget is exhausted, then no-budget skip', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 1, defaultLeverage: 10, maxPositions: 20 } });
+  cfg.allocationPct = 10;
+  const INSTR = 'NO/SPREAD';
+  const ids = [];
+  for (let i = 0; i < 10; i++) {
+    const id = openPosition(db, cfg, { instrument: INSTR, side: 'long', notional: 30000, price: 87 });
+    assert.ok(id > 0, `open ${i} should land inside the budget`);
+    ids.push(id);
+  }
+  assert.equal(portfolioView(db, cfg).positions.length, 10, '10 * $100 margin == the $1000 allocation budget');
+  const skipped = openPosition(db, cfg, { instrument: INSTR, side: 'long', notional: 30000, price: 87 });
+  assert.equal(skipped, null, 'allocation fully consumed: the 11th is a no-budget skip, not a reject');
+  assert.equal(portfolioView(db, cfg).positions.length, 10, 'skip never opens a position');
 });

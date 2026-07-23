@@ -198,6 +198,14 @@ const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VI
 // One deliberation for one instrument event. Returns {decision, executed, error}.
 export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
   const cfg = botConfig(settings);
+  // Per-combo riskPct/allocationPct (#49/#51) live under settings.bot.bots and
+  // are NOT BOT_DEFAULTS keys botConfig() would pick up on its own — fold in
+  // the same per-combo override runBot applies, so the sizing math (#83) that
+  // openPosition does below actually sees this combo's budget, not just the
+  // global/legacy flat settings.
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
+  if (botFor.allocationPct) cfg.allocationPct = botFor.allocationPct;
   const loop = botLoopConfig(settings);
   // The ACTIVE db strategy (#25) outranks the settings/default prompt; journal
   // rows pin its exact id+version so past decisions stay attributed.
@@ -249,7 +257,15 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
         stop: decision.stop, target: decision.target ?? null,
         reason: decision.reasoning, context: { event, granularity, strategyVersion: version },
       });
-      executed = { opened: id };
+      if (id == null) {
+        // Server sized the request down to zero: the risk/allocation budget
+        // for this instrument is genuinely exhausted — a legitimate skip,
+        // not an execution failure (#83). Never surface this as `error`
+        // (the UI renders `error` as a rejection).
+        decision = { ...decision, action: 'hold', reasoning: 'no budget (allocation full)' };
+      } else {
+        executed = { opened: id };
+      }
     } else if (decision.action === 'close') {
       const price = ctx.quote?.last ?? ctx.close;
       // Clamp closes to the triggering instrument: the prompt shows the whole

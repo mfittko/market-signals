@@ -122,33 +122,62 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     const open = db.prepare('SELECT COUNT(*) c FROM positions').get().c;
     if (open >= cfg.maxPositions) throw new Error(`max ${cfg.maxPositions} concurrent positions`);
     const leverage = instrumentLeverage(cfg, instrument);
-    const margin = notional / leverage;
-    if (margin + cfg.commission > p.cash) throw new Error('insufficient cash for margin + commission');
-    // Risk% caps margin at stake per trade; stop-distance-based sizing can
-    // replace this when the decision loop (#23) needs it.
     const equityNow = viewInDb(db).equity;
-    if (margin > (cfg.riskPct / 100) * equityNow) {
-      throw new Error(`margin ${margin.toFixed(2)} exceeds risk budget (${cfg.riskPct}% of equity ${equityNow.toFixed(2)})`);
+    // per-INSTRUMENT equity allocation (#51): positions carry no granularity,
+    // so the cap is shared by every bot on this instrument — same semantics
+    // as leverage; labeled accordingly in the UI. Computed once, reused by
+    // both the allocation cap below and the sizing math.
+    const lockedHere = db.prepare('SELECT COALESCE(SUM(margin),0) m FROM positions WHERE instrument=?').get(instrument).m;
+
+    // Server-side sizing (#83): the LLM's notional is only an upper-bound
+    // hint — it has no numeric anchors to compute margin/leverage/budget
+    // itself, so it always overshoots. Rather than reject an oversized
+    // request, size it DOWN to whatever fits the risk% and allocation% caps.
+    // Stop-distance-based sizing can replace this when the decision loop
+    // (#23) needs it.
+    const riskCap = Number.isFinite(cfg.riskPct) && cfg.riskPct > 0 ? (cfg.riskPct / 100) * equityNow : Infinity;
+    const allocCap = Number.isFinite(cfg.allocationPct) && cfg.allocationPct > 0
+      ? (cfg.allocationPct / 100) * equityNow - lockedHere
+      : Infinity;
+    const maxMargin = Math.min(riskCap, allocCap);
+    const maxNotional = maxMargin * leverage;
+    const requestedNotional = notional;
+    const effectiveNotional = Math.min(requestedNotional, maxNotional);
+    const EPS = 1e-9;
+    const bindingCap = effectiveNotional >= requestedNotional - EPS ? 'none' : (riskCap <= allocCap ? 'risk' : 'allocation');
+
+    if (maxMargin <= EPS || effectiveNotional <= EPS) {
+      // Allocation/risk budget for this instrument is genuinely exhausted —
+      // a legitimate no-trade skip, not an execution rejection (#83).
+      journal(db, 'skip', null, 'no budget (allocation full)', {
+        instrument, side, requestedNotional, effectiveNotional: 0, bindingCap, leverage, equityNow, lockedHere,
+      });
+      return null;
     }
-    if (Number.isFinite(cfg.allocationPct) && cfg.allocationPct > 0) {
-      // per-INSTRUMENT equity allocation (#51): positions carry no granularity,
-      // so the cap is shared by every bot on this instrument — same semantics
-      // as leverage; labeled accordingly in the UI
-      const lockedHere = db.prepare('SELECT COALESCE(SUM(margin),0) m FROM positions WHERE instrument=?').get(instrument).m;
-      if (lockedHere + margin > (cfg.allocationPct / 100) * equityNow) {
-        throw new Error(`allocation cap: ${(lockedHere + margin).toFixed(2)} would exceed ${cfg.allocationPct}% of equity ${equityNow.toFixed(2)}`);
-      }
+
+    const margin = effectiveNotional / leverage;
+    if (margin + cfg.commission > p.cash) throw new Error('insufficient cash for margin + commission');
+    // Invariants, not gates: effectiveNotional was already sized above to
+    // satisfy both caps, so these can never fire in practice — kept as cheap
+    // defense-in-depth against a future edit breaking the sizing math.
+    if (margin > riskCap + EPS) {
+      throw new Error(`invariant violated: sized margin ${margin.toFixed(2)} exceeds risk cap ${riskCap.toFixed(2)}`);
+    }
+    if (margin > allocCap + EPS) {
+      throw new Error(`invariant violated: sized margin ${margin.toFixed(2)} exceeds allocation cap`);
     }
     const spread = instrumentSpread(cfg, instrument);
     const entry = side === 'long' ? price + spread : price - spread;
-    const units = notional / price;
+    const units = effectiveNotional / price;
     const cash = p.cash - margin - cfg.commission;
     db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(cash);
     const id = db.prepare(`INSERT INTO positions
       (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(instrument, side, notional, units, entry, new Date().toISOString(), leverage, margin, stop, target, price).lastInsertRowid;
-    journal(db, 'open', id, reason, { ...context, side, notional, price, entry, spread, leverage, margin });
+      .run(instrument, side, effectiveNotional, units, entry, new Date().toISOString(), leverage, margin, stop, target, price).lastInsertRowid;
+    journal(db, 'open', id, reason, {
+      ...context, side, notional: effectiveNotional, requestedNotional, effectiveNotional, bindingCap, price, entry, spread, leverage, margin,
+    });
     return Number(id);
   });
 }
