@@ -157,7 +157,7 @@ async function readSse(res, extract, onDelta) {
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
 // Always tool-less: the chat's tool surface lives in the dedicated tool loops.
-async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null } = {}) {
+export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null } = {}) {
   const provider = resolveProvider(settings);
   if (provider === 'none') throw new Error('no provider configured');
   if (provider === 'pi') {
@@ -186,6 +186,7 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
     const body = {
       model: settings.model || 'claude-opus-4-8',
       max_tokens: maxTokens,
+      ...(temperature != null ? { temperature } : {}),
       system,
       messages: [{ role: 'user', content: user }],
     };
@@ -215,6 +216,7 @@ async function llmRequest(settings, system, user, { schema = null, maxTokens = 1
         { role: 'user', content: user },
       ],
     };
+    if (temperature != null) body.temperature = temperature;
     if (schema) body.response_format = { type: 'json_object' };
     if (stream) body.stream = true;
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
