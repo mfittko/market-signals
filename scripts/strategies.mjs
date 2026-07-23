@@ -84,10 +84,9 @@ export function activateStrategy(dbPath, id) {
     if (row.archived) throw new Error('cannot activate an archived strategy');
     // single statement re-checking archived under the write lock: a concurrent
     // archive between the read and this UPDATE can never activate the row
-    const changed = db.prepare(`UPDATE strategies SET active = CASE WHEN id=? THEN 1 ELSE 0 END
+    db.prepare(`UPDATE strategies SET active = CASE WHEN id=? THEN 1 ELSE 0 END
       WHERE (active=1 OR id=?)
-        AND EXISTS (SELECT 1 FROM strategies t WHERE t.id=? AND t.archived=0)`).run(id, id, id).changes;
-    void changed;
+        AND EXISTS (SELECT 1 FROM strategies t WHERE t.id=? AND t.archived=0)`).run(id, id, id);
     // accurate post-write diagnosis (#45): unknown vs archived vs generic
     const after = db.prepare('SELECT active, archived FROM strategies WHERE id=?').get(id);
     if (!after) throw new Error('unknown strategy (removed concurrently)');
