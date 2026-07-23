@@ -1408,6 +1408,9 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   if (editActiveRow) editFull = (await (await fetch('/api/strategies?id=' + editActiveRow.id)).json()).strategy;
   el.innerHTML =
     '<label for="bmStratSel" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="bmStratSel"><option value="">— none —</option>' +
+    // an assigned name whose rows are all archived has no option of its own; show it
+    // disabled so the select still reflects `editing` and '— none —' stays a real change
+    (editing && !assignable.includes(editing) ? '<option value="' + esc(editing) + '" selected disabled>' + esc(editing) + ' — archived</option>' : '') +
     assignable.map((n) => {
       const av = activeVersionOf(n);
       const label = n + (av ? ' (active v' + av.version + ')' : ' — draft, no active version') + (mismatched(n) ? ' ⚠' : '');
