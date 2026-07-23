@@ -254,7 +254,7 @@ test('resolveBotFor: per-combo map wins, legacy shape migrates on read, unset di
   // per-combo map: only listed combos, per-bot overrides respected
   const withBots = { bot: { bots: { 'WTICO/USD | M5': { enabled: true, strategyId: 7, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } };
   const wti = resolveBotFor(withBots, WTI, 'M5');
-  assert.deepEqual(wti, { configured: true, enabled: true, strategyId: 7, riskPct: 2, allocationPct: null, killSwitchDrawdownPct: null }, 'spaced keys normalize; overrides pass through');
+  assert.deepEqual(wti, { configured: true, enabled: true, strategyId: 7, strategyName: null, riskPct: 2, allocationPct: null, killSwitchDrawdownPct: null }, 'spaced keys normalize; overrides pass through; no dbPath means the legacy id cannot resolve a name yet');
   assert.equal(resolveBotFor(withBots, 'SPX500/USD', 'M1').enabled, false);
   assert.equal(resolveBotFor(withBots, WTI, 'M1').enabled, false, 'unlisted combo has no bot');
   // legacy shape: enabled + watchers CSV migrates on read
@@ -263,4 +263,37 @@ test('resolveBotFor: per-combo map wins, legacy shape migrates on read, unset di
   assert.equal(resolveBotFor(legacy, WTI, 'M1').enabled, false);
   assert.equal(resolveBotFor({ bot: { enabled: false } }, WTI, 'M5').enabled, false);
   assert.equal(resolveBotFor({}, WTI, 'M5').enabled, false);
+});
+
+test('resolveBotFor + resolvedStrategy (#75): bots follow a NAME\'s active version, not a frozen row id', async () => {
+  const { resolveBotFor, resolvedStrategy } = await import('../scripts/bot.mjs');
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  const db = fresh();
+  const v1 = saveStrategy(db, { name: 'iter-strat', prompt: 'Open on confirmed flips with a protective stop, hold otherwise.' });
+  activateStrategy(db, v1.id);
+
+  // legacy shape (strategyId only): resolves to its row's name once, given a dbPath
+  const legacyEntry = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: v1.id } } } };
+  const legacyBotFor = resolveBotFor(legacyEntry, WTI, 'M5', db);
+  assert.equal(legacyBotFor.strategyName, 'iter-strat', 'legacy strategyId resolved to its name');
+  assert.equal(resolvedStrategy(db, legacyBotFor).version, 1);
+
+  // new shape (strategyName): same resolution, no id lookup needed
+  const nameEntry = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyName: 'iter-strat' } } } };
+  const nameBotFor = resolveBotFor(nameEntry, WTI, 'M5', db);
+  assert.equal(resolvedStrategy(db, nameBotFor).version, 1);
+
+  // chat iterates a v2 draft and it is activated (moves the pointer) — NEITHER
+  // bot config entry above ever changes, yet both now resolve to v2
+  const v2 = saveStrategy(db, { name: 'iter-strat', prompt: 'Open on confirmed flips with a protective stop; tighter chop filter.', createdBy: 'chat' });
+  activateStrategy(db, v2.id);
+  assert.equal(resolvedStrategy(db, resolveBotFor(legacyEntry, WTI, 'M5', db)).version, 2, 'legacy-id bot now follows v2 without any config change');
+  assert.equal(resolvedStrategy(db, resolveBotFor(nameEntry, WTI, 'M5', db)).version, 2, 'name bot follows v2 without any config change');
+
+  // strategyName wins over a stale/mismatched legacyId when both are present
+  const bothEntry = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: 99999, strategyName: 'iter-strat' } } } };
+  assert.equal(resolveBotFor(bothEntry, WTI, 'M5', db).strategyName, 'iter-strat');
+
+  // no strategy assigned: resolvedStrategy is null, never a fallback default
+  assert.equal(resolvedStrategy(db, resolveBotFor({ bot: { bots: { [`${WTI}|M5`]: { enabled: true } } } }, WTI, 'M5', db)), null);
 });
