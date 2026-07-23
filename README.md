@@ -42,9 +42,11 @@ combo (`watchers` CSV in settings, e.g. `WTICO/USD|M5, XAU/USD|M15`):
 - refreshes the higher-timeframe candle cache (M15/M30/H1/H4) for every
   watched-or-bot-tracked instrument, staleness-gated and rate-capped so a long
   downtime doesn't cause an unbounded fetch storm on the next tick;
-- polls the market-sentinel breaking-news cache (see below) for the same
-  tracked instruments, staleness-gated (~8 min per instrument), so filter/bot
-  prompts always read from a warm cache instead of fetching live on the signal
+- polls the market-sentinel breaking-news cache (see below) for the tracked
+  instruments that have a committed sentinel query in `config/instruments.yaml`
+  (others are skipped — it never guesses a query), staleness-gated (~8 min per
+  instrument), so filter/bot prompts read from a warm cache instead of fetching
+  live on the signal
   path.
 
 Set `MS_DEBUG_LLM=1` in the environment to log a one-line
@@ -143,11 +145,13 @@ trigger), and any malformed output, timeout, or provider error is a journaled
   its stored config. A strategy can be scoped to one dedicated combo or shared
   across several; activation is per-name, so a dedicated strategy and the
   shared pool can both be active at once.
-- **Position sizing sizes to budget, it never rejects a trade outright.** The
-  LLM's requested notional is only an upper-bound hint; the server clamps it
-  down to whatever fits the risk%/allocation% caps for that instrument (and
-  journals the requested vs. effective notional and which cap bound). Only
-  when the budget is fully exhausted does the bot fall back to a `hold`.
+- **Position sizing sizes to budget instead of rejecting an oversized order.**
+  The LLM's requested notional is only an upper-bound hint; the server clamps
+  it down to whatever fits the risk%/allocation% caps for that instrument (and
+  journals the requested vs. effective notional and which cap bound). When the
+  budget is fully exhausted the bot falls back to a `hold`. (The pre-existing
+  hard invariants still apply — a halted portfolio, the max-concurrent-positions
+  limit, or insufficient cash for margin+commission still stop an open.)
 - **One global drawdown kill-switch**: when equity falls further than the
   configured percentage below its peak, the whole portfolio halts (no new
   opens) until an operator resets it — a human act, not automatic.
