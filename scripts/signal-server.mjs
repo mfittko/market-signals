@@ -671,7 +671,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
         const cfg = readSettings(settingsPath);
         if (resolveProvider(cfg) === 'none') {
-          return json(res, 400, { ok: false, error: 'no chat provider: set provider to "pi", or leave it on auto and add an ANTHROPIC/OPENAI API key ("none" disables chat)' });
+          return json(res, 400, { ok: false, error: 'no chat provider: select a provider in settings (pi, anthropic, or openai) and add its API key ("none" disables chat)' });
         }
 
         const { instrument, granularity } = resolveView(cfg, body.instrument, body.granularity);
