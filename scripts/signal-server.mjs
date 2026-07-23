@@ -20,6 +20,8 @@ import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, l
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
+import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -40,7 +42,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'bot'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
@@ -97,7 +99,7 @@ export function writeSettings(settingsPath, patch) {
 
 const lastLiveFetch = new Map(); // key -> { at, tail }: one upstream fetch per ~minute, forming candle cached in between
 
-export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles } = {}) {
+export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
@@ -179,7 +181,21 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   const quote = buildQuote(recent);
   if (quote && liveTail) quote.partial = true;
-  return { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
+  const out = { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
+  if (indicators?.length) {
+    const closes = candles.map((k) => k.close);
+    const ind = {};
+    for (const name of indicators) {
+      if (name === 'ema') ind.ema = { ema20: ema(closes, 20), ema50: ema(closes, 50), ema200: ema(closes, 200) };
+      else if (name === 'rsi') ind.rsi = rsi(closes, 14);
+      else if (name === 'macd') ind.macd = macd(closes);
+      else if (name === 'bb') ind.bb = bollinger(closes, 20, 2);
+      else if (name === 'vwap') ind.vwap = vwap(candles);
+    }
+    out.indicators = ind;
+    out.axisGate = axisSnapshot(candles, { instrument, granularity }) ?? null;
+  }
+  return out;
 }
 
 const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
@@ -332,7 +348,7 @@ export function extractThreadTitle(reply) {
   return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -418,7 +434,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
         const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
-        const data = await chartData(dbPath, instrument, { t, granularity, fetcher });
+        const indParam = (url.searchParams.get('ind') || '').split(',').map((x) => x.trim()).filter((x) => ['ema', 'rsi', 'macd', 'bb', 'vwap'].includes(x));
+        const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: indParam.length ? indParam : null });
         const configured = (cfg.instruments ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.instruments = configured.length ? configured : DEFAULT_INSTRUMENTS;
         if (!data.instruments.includes(instrument)) data.instruments = [instrument, ...data.instruments];
@@ -470,6 +487,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           scoreboard: transportScoreboard(board),
           baselines: baselines(dbPath, inst, gran, { fromTime }),
           audit: decisionAudit(dbPath, { strategyId, limit: 50 }),
+          axisExpectancy: axisExpectancy(dbPath, { instrument: inst, granularity: gran }),
         });
       }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
@@ -526,6 +544,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
           traderNotes: notes,
           botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
+          axisGate: (() => {
+            const snap = axisSnapshot(view.candles, { instrument, granularity });
+            return snap ? snap.axes : null;
+          })(),
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;

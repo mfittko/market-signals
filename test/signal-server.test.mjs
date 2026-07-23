@@ -691,3 +691,15 @@ test('evaluation endpoint (#26): read-only, serves scoreboard+baselines+audit; p
     assert.ok(html.includes('data-tab="audit"') && html.includes('data-tab="performance"'), 'performance + audit tabs present');
   });
 });
+
+test('chart ind= param serves display series + state axis gate; chat context carries axisGate (#32)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const d = await (await fetch(base + '/api/chart?ind=ema,rsi,vwap,bogus')).json();
+    assert.ok(Array.isArray(d.indicators.ema.ema20) && d.indicators.ema.ema20.length === d.candles.length, 'ema series aligned to candles');
+    assert.ok(Array.isArray(d.indicators.rsi) && Array.isArray(d.indicators.vwap));
+    assert.equal(d.indicators.macd, undefined, 'unrequested series omitted');
+    assert.ok(d.axisGate === null || d.axisGate.axes.trendStrength !== undefined, 'axis gate attached (state-only) when indicators requested');
+    const plain = await (await fetch(base + '/api/chart')).json();
+    assert.equal(plain.indicators, undefined, 'no ind param → no indicator payload');
+  });
+});
