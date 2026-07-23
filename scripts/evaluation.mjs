@@ -155,6 +155,7 @@ export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
       id: j.id, at: j.at, action: j.action, reason: j.reason,
       instrument: ctx?.instrument ?? null, granularity: ctx?.granularity ?? null, event: ctx?.event ?? null,
       decision: ctx?.decision ?? null, executed: ctx?.executed ?? null, error: ctx?.error ?? null,
+      execSizing: ctx?.execSizing ?? null,
       strategyId: ctx?.strategyId ?? null, strategyName: ctx?.strategyName ?? null,
       strategyDbVersion: ctx?.strategyDbVersion ?? null,
       toolTrace: ctx?.toolTrace ?? [], snapshot: ctx?.snapshot ?? null,
