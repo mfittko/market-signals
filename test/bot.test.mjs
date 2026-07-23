@@ -297,3 +297,19 @@ test('resolveBotFor + resolvedStrategy (#75): bots follow a NAME\'s active versi
   // no strategy assigned: resolvedStrategy is null, never a fallback default
   assert.equal(resolvedStrategy(db, resolveBotFor({ bot: { bots: { [`${WTI}|M5`]: { enabled: true } } } }, WTI, 'M5', db)), null);
 });
+
+test('resolveBotFor: a legacy strategyId pointing at an ARCHIVED version still resolves the name (review fix)', async () => {
+  const { resolveBotFor, resolvedStrategy } = await import('../scripts/bot.mjs');
+  const { saveStrategy, activateStrategy, archiveStrategy } = await import('../scripts/strategies.mjs');
+  const db = fresh();
+  const v1 = saveStrategy(db, { name: 'archived-legacy', prompt: 'Open on confirmed flips with a protective stop, hold otherwise.' });
+  activateStrategy(db, v1.id);
+  const v2 = saveStrategy(db, { name: 'archived-legacy', prompt: 'Open on confirmed flips with a protective stop; revised chop filter.', createdBy: 'chat' });
+  activateStrategy(db, v2.id); // moves the active pointer to v2, v1 deactivated
+  archiveStrategy(db, v1.id); // v1 (what the stale legacyId points at) is now archived
+
+  const legacyEntry = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: v1.id } } } };
+  const botFor = resolveBotFor(legacyEntry, WTI, 'M5', db);
+  assert.equal(botFor.strategyName, 'archived-legacy', 'name resolution is metadata, not an activation check — archived rows still resolve a name');
+  assert.equal(resolvedStrategy(db, botFor).version, 2, 'and the bot follows that name\'s currently active version, not the stale archived one');
+});

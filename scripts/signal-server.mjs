@@ -743,7 +743,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id must be a positive integer' });
           const row = strategyById(dbPath, id);
           if (!row) return json(res, 404, { ok: false, error: 'unknown strategy' });
-          return json(res, 200, { ok: true, strategy: { ...row, spec: row.spec ? JSON.parse(row.spec) : null } });
+          // review fix: a non-JSON stored spec (older db, manual edit) must
+          // never throw and crash the handler — surface it as a structured
+          // null-spec + specError flag instead of a 500.
+          let spec = null; let specError = null;
+          if (row.spec) {
+            try { spec = JSON.parse(row.spec); } catch { specError = 'stored spec is not valid JSON'; }
+          }
+          return json(res, 200, { ok: true, strategy: { ...row, spec, specError } });
         }
         return json(res, 200, { ok: true, strategies: listStrategies(dbPath), activeId: activeStrategy(dbPath)?.id ?? null });
       }
@@ -1375,7 +1382,10 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   const rows = strat.strategies || [];
   const byName = new Map();
   for (const r of rows) { if (!byName.has(r.name)) byName.set(r.name, []); byName.get(r.name).push(r); }
-  const scopeOf = (name) => byName.get(name)[0]; // newest-first per name (server ORDER BY)
+  // review fix: an assigned name whose rows are all archived/deleted has no
+  // entry in byName (listStrategies excludes archived) — tolerate that as
+  // "unknown scope" rather than throwing on byName.get(name)[0].
+  const scopeOf = (name) => byName.get(name)?.[0]; // newest-first per name (server ORDER BY)
   const mismatched = (name) => { const s = scopeOf(name); return !!(s && s.instrument && (s.instrument !== inst || s.granularity !== gran)); };
   const showAll = el.dataset.showAll === '1';
   const names = [...byName.keys()];
@@ -1391,6 +1401,7 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     assignable.map((n) => '<option value="' + esc(n) + '"' + (n === current ? ' selected' : '') + '>' + esc(n) + (mismatched(n) ? ' ⚠' : '') + '</option>').join('') + '</select>' +
     '<label><input type="checkbox" id="bmShowAll"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +
     (current && mismatched(current) ? '<div class="botwarn">declared for ' + esc(scopeOf(current).instrument) + '·' + esc(scopeOf(current).granularity) + ' — assigning to ' + esc(inst) + '·' + esc(gran) + '</div>' : '') +
+    (current && !byName.has(current) ? '<div class="botwarn">assigned strategy "' + esc(current) + '" has no active versions (archived?) — reassign or reactivate a version</div>' : '') +
     (!rows.length ? '<div class="botwarn">No strategies yet — draft one below or with the copilot.</div>' : '') +
     (editRows.length ? '<div id="bmVersions">' + editRows.map((v) =>
       '<div class="botrow" data-id="' + v.id + '"><span>v' + v.version + ' · ' + esc(v.created_by) + (v.active ? ' · <b>active</b>' : '') + '</span>' +

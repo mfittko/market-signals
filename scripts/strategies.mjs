@@ -176,6 +176,17 @@ export function strategyById(dbPath, id) {
   return sdb(dbPath, (db) => db.prepare('SELECT * FROM strategies WHERE id=? AND archived=0').get(id) ?? null);
 }
 
+// Legacy strategyId→strategyName migration ONLY (review: resolveBotFor):
+// deliberately NOT archived-filtered. Resolving a name is metadata, not an
+// activation check — a settings.json still pointing at an archived version
+// id must still find that name so the bot keeps following the name's
+// (possibly different, active) current version. activateStrategy and
+// activeStrategyByName remain the real archived guards for what actually
+// trades.
+export function strategyNameById(dbPath, id) {
+  return sdb(dbPath, (db) => db.prepare('SELECT name FROM strategies WHERE id=?').get(id)?.name ?? null);
+}
+
 // Legacy/global lookup: "some" active strategy (arbitrary pick when several
 // names are active — used only by the pre-#49 flat single-bot config path
 // and the settings gates-transparency summary, neither of which is per-combo).

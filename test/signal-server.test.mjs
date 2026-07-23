@@ -789,6 +789,24 @@ test('dedicated per-combo strategies (#75): /api/strategies id lookup + manual d
   });
 });
 
+test('/api/strategies?id= a malformed stored spec never throws/500s — structured null-spec + specError (review fix)', async () => {
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const { saveStrategy } = await import('../scripts/strategies.mjs');
+    const st = saveStrategy(dbPath, { name: 'corrupt-spec', prompt: 'A strategy whose stored spec column got hand-edited into garbage.' });
+    // bypass saveStrategy's validation to simulate an older/manually-edited row with non-JSON spec
+    withDb(dbPath, (db) => db.prepare('UPDATE strategies SET spec=? WHERE id=?').run('{not valid json', st.id));
+
+    const res = await fetch(base + '/api/strategies?id=' + st.id);
+    assert.equal(res.status, 200, 'malformed spec must never 500 the handler');
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.strategy.spec, null, 'unparseable spec surfaces as null, not a thrown error');
+    assert.match(body.strategy.specError, /not valid JSON/, 'structured error flag explains why');
+    assert.equal(body.strategy.prompt.startsWith('A strategy whose stored spec'), true, 'the rest of the row is still served');
+  });
+});
+
 test('save_strategy scope defaulting from the current view (#75): dedicated drafts default instrument/granularity, chat copy points at the bot modal', async () => {
   const { execChatTool } = await import('../scripts/signal-server.mjs');
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ dbPath }) => {
@@ -821,6 +839,18 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
     assert.match(html, /assigning to /, 'scope mismatch warning copy present');
     assert.match(html, /bmActivate/, 'per-version activate control present');
     assert.match(html, /bmSaveVersion/, 'inline edit → new version control present');
+  });
+});
+
+test('served client scopeOf/mismatched tolerate an assigned name with zero visible rows, e.g. all-archived (review fix, escape-drift guard)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const m = html.match(/const scopeOf = \(name\) => [\s\S]*?\n\s*const mismatched = \(name\) => \{[\s\S]*?\};/);
+    assert.ok(m, 'client scopeOf/mismatched found in the served page');
+    const { scopeOf, mismatched } = new Function('byName', 'inst', 'gran', `${m[0]}; return { scopeOf, mismatched };`)(new Map(), 'WTICO/USD', 'M5');
+    assert.equal(scopeOf('assigned-but-archived'), undefined, 'no throw for a name with zero visible (non-archived) rows');
+    assert.equal(mismatched('assigned-but-archived'), false, 'unknown scope is treated as no-mismatch, never throws');
+    assert.match(html, /has no active versions \(archived\?\)/, 'strategy tab renders an explicit note for an assigned name with no visible rows');
   });
 });
 

@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy, activeStrategyByName, ensureSeedStrategy, strategyById } from './strategies.mjs';
+import { activeStrategy, activeStrategyByName, ensureSeedStrategy, strategyNameById } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -54,10 +54,14 @@ export function resolveBotFor(settings, instrument, granularity, dbPath = null) 
   // row id. entry.strategyName (new writes) wins; a legacy strategyId
   // resolves to its row's name here, once per read, then is name-referenced
   // from that point on — so even old settings.json entries start following
-  // the active version instead of a permanently frozen row.
+  // the active version instead of a permanently frozen row. Name resolution
+  // is archive-inclusive (strategyNameById, not strategyById): a legacy id
+  // that happens to point at a now-archived version must still resolve the
+  // name, otherwise the bot silently goes unconfigured even though that
+  // name has an active version elsewhere (review fix).
   const strategyName = typeof entry.strategyName === 'string' && entry.strategyName
     ? entry.strategyName
-    : (dbPath && legacyId != null ? (strategyById(dbPath, legacyId)?.name ?? null) : null);
+    : (dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
   return {
     configured: true,
     enabled: entry.enabled === true,
