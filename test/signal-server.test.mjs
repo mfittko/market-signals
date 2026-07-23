@@ -703,3 +703,12 @@ test('chart ind= param serves display series + state axis gate; chat context car
     assert.equal(plain.indicators, undefined, 'no ind param → no indicator payload');
   });
 });
+
+test('page ships the indicator toggle row and oscillator panel (#32)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="indbar"'), 'indicator toggle row present');
+    assert.ok(html.includes('id="oscwrap"') && html.includes('id="osc"'), 'oscillator sub-panel canvas present');
+    assert.ok(html.includes("data-ind"), 'toggles carry indicator keys');
+  });
+});

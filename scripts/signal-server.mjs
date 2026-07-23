@@ -656,6 +656,9 @@ const PAGE = /* html */ `<!doctype html>
   #pfTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
   .audit-entry .meta { color: #8b949e; }
+  #indbar { display: flex; gap: 12px; margin: 6px 0; font-size: 12px; color: #8b949e; flex-wrap: wrap; }
+  #indbar label { cursor: pointer; }
+  #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
@@ -684,7 +687,9 @@ const PAGE = /* html */ `<!doctype html>
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
 <h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
+<div id="indbar"></div>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
+<div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <details id="pf" hidden>
   <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
@@ -723,14 +728,30 @@ const PAGE = /* html */ `<!doctype html>
 <script>
 const qs = new URLSearchParams(location.search);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWAP'], ['rsi', 'RSI'], ['macd', 'MACD']];
+function activeInd() {
+  return (qs.get('ind') || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+function indBar() {
+  const on = new Set(activeInd());
+  document.getElementById('indbar').innerHTML = 'indicators: ' + INDICATORS.map(([k, label]) =>
+    '<label><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
+  document.getElementById('indbar').onchange = () => {
+    const next = [...document.querySelectorAll('#indbar input:checked')].map(el => el.dataset.ind);
+    if (next.length) qs.set('ind', next.join(',')); else qs.delete('ind');
+    location.search = '?' + qs.toString();
+  };
+}
 async function load() {
   const p = new URLSearchParams();
   if (qs.get('instrument')) p.set('instrument', qs.get('instrument'));
   if (qs.get('t')) p.set('t', qs.get('t'));
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
+  if (qs.get('ind')) p.set('ind', qs.get('ind'));
   const d = await (await fetch('/api/chart?' + p)).json();
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
+  indBar(); axisChips(d.axisGate); oscPanel(d);
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
@@ -842,6 +863,18 @@ function draw(d) {
   const sigCandle = cs.find(k => k.time === t);
   const marker = sigCandle ? [{ x: P(sigCandle.time), y: sigCandle.close }] : [];
 
+  const overlays = [];
+  if (d.indicators) {
+    const ind = d.indicators;
+    const line = (series, color, dash) => overlays.push({
+      type: 'line', yAxisID: 'y', pointRadius: 0, borderWidth: 1, borderColor: color,
+      borderDash: dash || [], data: cs.map((k, i) => ({ x: P(k.time), y: series[i] ?? null })), spanGaps: false,
+    });
+    if (ind.ema) { line(ind.ema.ema20, '#d2a8ff'); line(ind.ema.ema50, '#79c0ff'); line(ind.ema.ema200, '#ffa657'); }
+    if (ind.bb) { line(ind.bb.upper, '#8b949e', [4, 4]); line(ind.bb.lower, '#8b949e', [4, 4]); }
+    if (ind.vwap) line(ind.vwap, '#f2cc60', [2, 2]);
+  }
+
   if (chart) chart.destroy();
   chart = new Chart(document.getElementById('chart'), {
     data: {
@@ -855,6 +888,7 @@ function draw(d) {
         { type: 'scatter', data: buys, yAxisID: 'y', pointStyle: 'triangle', radius: 7, backgroundColor: '#3fb950', borderWidth: 0 },
         { type: 'scatter', data: sells, yAxisID: 'y', pointStyle: 'triangle', rotation: 180, radius: 7, backgroundColor: '#f85149', borderWidth: 0 },
         { type: 'scatter', data: marker, yAxisID: 'y', pointStyle: 'circle', radius: 7, backgroundColor: '#d29922', borderWidth: 0 },
+        ...overlays,
       ],
     },
     options: {
@@ -927,6 +961,54 @@ function fullColumnTooltip(c) {
   canvas.addEventListener('mouseleave', () => { const c2 = chart; if (!c2) return; c2.tooltip.setActiveElements([], { x: 0, y: 0 }); c2.tooltip.update(true); c2.draw(); });
 }
 
+let oscChart = null;
+// One oscillator sub-panel: RSI when toggled (with 30/70 bands), else MACD hist.
+function oscPanel(d) {
+  const wrapEl = document.getElementById('oscwrap');
+  const ind = d.indicators || {};
+  const mode = ind.rsi ? 'rsi' : ind.macd ? 'macd' : null;
+  wrapEl.hidden = !mode;
+  if (oscChart) { oscChart.destroy(); oscChart = null; }
+  if (!mode) return;
+  const P = (t) => Date.parse(t);
+  const xs = d.candles.map(k => P(k.time));
+  const datasets = mode === 'rsi'
+    ? [{ type: 'line', pointRadius: 0, borderWidth: 1, borderColor: '#d2a8ff', data: d.candles.map((k, i) => ({ x: xs[i], y: ind.rsi[i] ?? null })) }]
+    : [{ type: 'bar', backgroundColor: d.candles.map((k, i) => (ind.macd.hist[i] ?? 0) >= 0 ? 'rgba(63,185,80,0.6)' : 'rgba(248,81,73,0.6)'), data: d.candles.map((k, i) => ({ x: xs[i], y: ind.macd.hist[i] ?? null })) }];
+  oscChart = new Chart(document.getElementById('osc'), {
+    data: { datasets },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true, events: [],
+      scales: {
+        x: { type: 'timeseries', display: false },
+        y: mode === 'rsi'
+          ? { position: 'right', min: 0, max: 100, ticks: { color: '#8b949e', stepSize: 35 }, grid: { color: (c) => (c.tick.value === 30 || c.tick.value === 70) ? 'rgba(139,148,158,0.6)' : 'rgba(48,54,61,0.4)' } }
+          : { position: 'right', ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.4)' } },
+      },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    },
+  });
+}
+// Axis-gate chips in the quote strip area (state-only view of the five axes).
+function axisChips(gate) {
+  let el = document.getElementById('axischips');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'axischips';
+    el.className = 'quote';
+    document.getElementById('quote').after(el);
+  }
+  if (!gate || !gate.axes) { el.hidden = true; return; }
+  const a = gate.axes;
+  el.hidden = false;
+  const chip = (label, val, extra) => '<div><small>' + esc(label) + '</small><b>' + esc(val ?? '—') + (extra ? ' <span>' + esc(extra) + '</span>' : '') + '</b></div>';
+  el.innerHTML =
+    chip('ADX', a.trendStrength.adx, a.trendStrength.verdict) +
+    chip('regime', a.direction.emaRegime, (a.direction.htfM15 || '—') + '/' + (a.direction.htfH1 || '—')) +
+    chip('impulse', a.impulse.rangeAtr != null ? a.impulse.rangeAtr + '×ATR' : null, 'vol ' + (a.impulse.volumeRatio ?? '—') + '×') +
+    chip('VWAP dist', a.location.vwapDistAtr != null ? a.location.vwapDistAtr + '×ATR' : null) +
+    chip('RSI', a.exhaustion.rsi);
+}
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
 function selectors(d) {
   const inst = document.getElementById('instSel');
