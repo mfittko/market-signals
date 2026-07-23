@@ -46,9 +46,8 @@ tanker, missile, drone, escalat*, war, OPEC cut, supply disruption).
 
 `scripts/sentinel_briefing.mjs` renders a markdown digest (title, asOf, an escalation
 summary, and top headlines grouped per instrument) across every instrument with a
-committed sentinel query. It feeds `skills/briefing-publisher/scripts/publish_briefing.mjs
---series sentinel` — the replacement for the FXEmpire market-analysis briefing input,
-which dried out (#11/#28).
+committed sentinel query. It feeds `skills/briefing-publisher/scripts/publish_briefing.mjs --series sentinel`
+— the replacement for the FXEmpire market-analysis briefing input, which dried out (#11/#28).
 
 ```bash
 node skills/market-sentinel/scripts/sentinel_briefing.mjs --output-file /tmp/sentinel-briefing.md

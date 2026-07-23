@@ -44,7 +44,44 @@ test('renderSentinelBriefing: groups headlines per instrument with source, link,
     }],
   });
   assert.match(md, /### WTI Oil ⚠/);
-  assert.match(md, /- \[google-news\] \[Tanker attack near Hormuz\]\(https:\/\/x\/1\) — 2026-07-23T09:00:00Z ⚠/);
+  assert.match(md, /- \[google-news\] \[Tanker attack near Hormuz\]\(<https:\/\/x\/1>\) — 2026-07-23T09:00:00Z ⚠/);
+});
+
+test('renderSentinelBriefing: a javascript: url is dropped, headline renders as plain text (no link)', () => {
+  const md = renderSentinelBriefing({
+    asOf: 'x',
+    instruments: [{
+      instrument: 'WTICO/USD',
+      label: 'WTI Oil',
+      items: [{ source: 's', title: 'Unsafe link', url: 'javascript:alert(1)' }],
+    }],
+  });
+  assert.ok(md.includes('- [s] Unsafe link'), 'plain text, no markdown link');
+  assert.ok(!md.includes('javascript:'), 'unsafe scheme never reaches the output');
+});
+
+test('renderSentinelBriefing: a url containing whitespace is angle-bracketed so it cannot break the link', () => {
+  const md = renderSentinelBriefing({
+    asOf: 'x',
+    instruments: [{
+      instrument: 'WTICO/USD',
+      label: 'WTI Oil',
+      items: [{ source: 's', title: 'Spacey link', url: 'https://x/has space' }],
+    }],
+  });
+  assert.match(md, /\[Spacey link\]\(<https:\/\/x\/has space>\)/);
+});
+
+test('renderSentinelBriefing: a normal http(s) url still renders as a link', () => {
+  const md = renderSentinelBriefing({
+    asOf: 'x',
+    instruments: [{
+      instrument: 'WTICO/USD',
+      label: 'WTI Oil',
+      items: [{ source: 's', title: 'Normal link', url: 'https://example.com/a' }],
+    }],
+  });
+  assert.match(md, /\[Normal link\]\(<https:\/\/example\.com\/a>\)/);
 });
 
 test('renderSentinelBriefing: an instrument with zero headlines still gets a section, not an empty gap', () => {
@@ -117,6 +154,11 @@ test('parseArgs: --instruments splits on comma, unknown flags fail loud', () => 
   assert.deepEqual(args.instruments, ['WTICO/USD', 'XAU/USD']);
   assert.equal(args.hours, 6);
   assert.throws(() => parseArgs(['--bogus', 'x']), /unknown flag/);
+});
+
+test('parseArgs: single-dash typos fail loud instead of being silently ignored', () => {
+  assert.throws(() => parseArgs(['-hours', '6']), /unknown flag/);
+  assert.throws(() => parseArgs(['-x']), /unknown flag/);
 });
 
 // --- CLI: hermetic parts only (no live network) -------------------------------

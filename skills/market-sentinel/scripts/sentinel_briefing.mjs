@@ -36,10 +36,20 @@ function linkText(text) {
   return mdEscape(text).replace(/\[/g, '\\[').replace(/\]/g, '\\]');
 }
 
+// Only http(s) URLs get linked; anything else (javascript:, data:, malformed)
+// renders as plain text. Angle-bracket form so a stray space/paren in the
+// destination can't break out of the markdown link syntax.
+function sanitizeUrl(url) {
+  if (!url) return null;
+  const collapsed = String(url).replace(/\s+/g, ' ').trim();
+  return /^https?:\/\//i.test(collapsed) ? collapsed : null;
+}
+
 function headlineLine(item) {
   const source = mdEscape(item?.source || 'source');
   const title = linkText(item?.title || 'Untitled');
-  const label = item?.url ? `[${title}](${item.url})` : title;
+  const safeUrl = sanitizeUrl(item?.url);
+  const label = safeUrl ? `[${title}](<${safeUrl}>)` : title;
   const when = item?.timeIso ? ` — ${item.timeIso}` : '';
   const flag = item?.escalation ? ' ⚠' : '';
   return `- [${source}] ${label}${when}${flag}`;
@@ -145,7 +155,9 @@ export function parseArgs(argv) {
   const unknown = [];
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
-    if (!token.startsWith('--')) continue;
+    if (!token.startsWith('-')) continue;
+    if (token === '-h') continue; // alias for --help, handled at the CLI entrypoint
+    if (!token.startsWith('--')) { unknown.push(token); continue; }
     const key = token.slice(2);
     if (BOOLEAN_FLAGS.has(key)) continue;
     const next = argv[i + 1];
