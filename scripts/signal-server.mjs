@@ -103,7 +103,7 @@ export function writeSettings(settingsPath, patch) {
   if (patch.ind !== undefined && patch.ind !== '' && patch.ind !== null && !/^[a-z,]{1,40}$/.test(patch.ind)) {
     throw new Error('ind must be a csv of indicator keys');
   }
-  if (patch.info !== undefined && patch.info !== null && typeof patch.info !== 'boolean') {
+  if (patch.info !== undefined && patch.info !== null && patch.info !== '' && typeof patch.info !== 'boolean') {
     throw new Error('info must be a boolean');
   }
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
@@ -1016,11 +1016,15 @@ const STATIC_TITLES = { pfBtn: 'portfolio', infoBtn: 'info', cfgbtn: 'settings',
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
-  if (el && INFO[STATIC_TITLES[sid]]) { el.title = INFO[STATIC_TITLES[sid]]; el.dataset.info = INFO[STATIC_TITLES[sid]]; if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', INFO[STATIC_TITLES[sid]]); }
+  // aria-label stays a SHORT control name (the map key), only on symbol-only buttons;
+  // the long explanation lives in title/data-info
+  if (el && INFO[STATIC_TITLES[sid]]) { el.title = INFO[STATIC_TITLES[sid]]; el.dataset.info = INFO[STATIC_TITLES[sid]]; if (el.tagName === 'BUTTON' && !el.getAttribute('aria-label')) el.setAttribute('aria-label', STATIC_TITLES[sid]); }
 }
 function applyInfo(on) {
   document.body.classList.toggle('info-on', on);
-  document.getElementById('infoBtn').classList.toggle('on', on);
+  const ib = document.getElementById('infoBtn');
+  ib.classList.toggle('on', on);
+  ib.setAttribute('aria-pressed', on ? 'true' : 'false');
 }
 document.getElementById('infoBtn').addEventListener('click', async () => {
   const on = !document.body.classList.contains('info-on');
