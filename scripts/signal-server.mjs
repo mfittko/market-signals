@@ -21,7 +21,7 @@ import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portf
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
-import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
+import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
@@ -47,7 +47,7 @@ try {
 // Keys the config page may read/write; API keys are write-only (masked on read).
 const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
-const PER_BOT_KEYS = ['enabled', 'strategyId', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
+const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -94,6 +94,9 @@ export function writeSettings(settingsPath, patch) {
         if (unknown2.length) throw new Error(`bot.bots['${combo}']: unknown key(s) ${unknown2.join(', ')}`);
         if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') throw new Error(`bot.bots['${combo}'].enabled must be boolean`);
         if (entry.strategyId !== undefined && entry.strategyId !== null && !Number.isInteger(entry.strategyId)) throw new Error(`bot.bots['${combo}'].strategyId must be an integer id`);
+        // #75: strategyName is the preferred bot→strategy binding — the bot
+        // follows whatever version of this name is active, not a frozen row.
+        if (entry.strategyName !== undefined && entry.strategyName !== null && (typeof entry.strategyName !== 'string' || !/^[a-z0-9][a-z0-9-]{1,47}$/.test(entry.strategyName))) throw new Error(`bot.bots['${combo}'].strategyName must be a kebab-case strategy name`);
         if (entry.allocationPct !== undefined && entry.allocationPct !== null && (!Number.isFinite(entry.allocationPct) || entry.allocationPct <= 0 || entry.allocationPct > 100)) throw new Error(`bot.bots['${combo}'].allocationPct must be in (0,100]`);
         for (const nk of ['riskPct', 'killSwitchDrawdownPct']) {
           if (entry[nk] !== undefined && entry[nk] !== null && (!Number.isFinite(entry[nk]) || entry[nk] <= 0)) throw new Error(`bot.bots['${combo}'].${nk} must be a positive number`);
@@ -426,12 +429,27 @@ export const CHAT_TOOLS = [
   },
   {
     name: 'save_strategy',
-    description: 'Save a DRAFT trading strategy (new version each save; append-only). Drafts NEVER trade: activation is a human act in the settings UI. Use when the trader asks to draft or iterate a bot strategy conversationally.',
-    input_schema: { type: 'object', properties: { name: { type: 'string', description: 'kebab-case identifier' }, prompt: { type: 'string', description: 'the strategy prompt text (20-4000 chars)' }, instruments: { type: 'string', description: 'optional combo CSV, e.g. "WTICO/USD|M5"' } }, required: ['name', 'prompt'], additionalProperties: false },
+    description: 'Save a DRAFT trading strategy (new version each save; append-only). Drafts NEVER trade: activation is a human act in the bot modal (or settings). Set dedicated:true for a strategy meant for exactly one instrument/granularity combo — instrument/granularity then default to the trader\'s current view when omitted. Use when the trader asks to draft or iterate a bot strategy conversationally.',
+    input_schema: { type: 'object', properties: {
+      name: { type: 'string', description: 'kebab-case identifier' },
+      prompt: { type: 'string', description: 'the strategy prompt text (20-4000 chars)' },
+      instruments: { type: 'string', description: 'optional combo CSV, e.g. "WTICO/USD|M5" (deliberation guardrail, independent of scope)' },
+      dedicated: { type: 'boolean', description: 'true when this strategy is meant for exactly one combo' },
+      instrument: { type: 'string', description: 'scope instrument; defaults to the current view when dedicated is true and this is omitted' },
+      granularity: { type: 'string', description: 'scope granularity; defaults to the current view when dedicated is true and this is omitted' },
+    }, required: ['name', 'prompt'], additionalProperties: false },
     run: (a, ctx) => {
       if (!ctx?.dbPath) throw new Error('save_strategy needs a db context');
-      const saved = saveStrategy(ctx.dbPath, { name: a?.name, prompt: a?.prompt, instruments: a?.instruments ?? null, createdBy: 'chat' });
-      return JSON.stringify({ ...saved, note: 'draft saved — NOT active; the trader activates strategies in settings' });
+      // #75: dedicated drafts default their scope from the combo the trader is
+      // currently looking at — asking for "a strategy for this view" needs no
+      // instrument/granularity spelled out.
+      const dedicated = a?.dedicated === true;
+      const instrument = a?.instrument ?? (dedicated ? ctx?.view?.instrument ?? null : null);
+      const granularity = a?.granularity ?? (dedicated ? ctx?.view?.granularity ?? null : null);
+      const saved = saveStrategy(ctx.dbPath, {
+        name: a?.name, prompt: a?.prompt, instruments: a?.instruments ?? null, instrument, granularity, dedicated, createdBy: 'chat',
+      });
+      return JSON.stringify({ ...saved, note: 'draft saved — NOT active; activate + assign it in the bot modal for its combo (or settings)' });
     },
   },
   {
@@ -601,7 +619,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));
-        const strat = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
+        // #75: the ACTIVE version of the bot's strategy name — not a frozen row.
+        const strat = resolvedStrategy(dbPath, botFor);
         const pos = pfB.positions.find((pp) => pp.instrument === instrument) ?? null;
         data.botState = {
           configured: botFor.configured === true,
@@ -689,7 +708,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         }
         const rows = Object.entries(bots).map(([combo, b]) => {
           const [inst, gran] = combo.split('|').map((x) => x.trim());
-          const strat = Number.isInteger(b.strategyId) ? strategyById(dbPath, b.strategyId) : null;
+          // #75: resolve through the SAME name→active-version path runBot uses,
+          // so this list always reflects the version the bot will actually
+          // trade next — never a frozen row.
+          const botFor = resolveBotFor(cfgB, inst, gran, dbPath);
+          const strat = resolvedStrategy(dbPath, botFor);
           const attributed = comboAgg.get(`${inst}|${gran}`) ?? { c: 0, r: 0 };
           const orphan = botsPerInstrument.get(inst) === 1 ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
@@ -697,7 +720,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           return {
             combo: `${inst}|${gran}`, instrument: inst, granularity: gran,
             enabled: b.enabled === true,
-            strategyId: b.strategyId ?? null,
+            strategyId: strat?.id ?? null,
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
             riskPct: b.riskPct ?? null,
             allocationPct: b.allocationPct ?? null,
@@ -712,7 +735,40 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       }
       if (url.pathname === '/api/strategies' && req.method === 'GET') {
         ensureSeedStrategy(dbPath);
+        // ?id=NN: one version's FULL prompt/spec (the list below only carries a
+        // 120-char preview) — feeds the bot modal's strategy-tab inline editor.
+        const idParam = url.searchParams.get('id');
+        if (idParam !== null) {
+          const id = Number(idParam);
+          if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id must be a positive integer' });
+          const row = strategyById(dbPath, id);
+          if (!row) return json(res, 404, { ok: false, error: 'unknown strategy' });
+          // review fix: a non-JSON stored spec (older db, manual edit) must
+          // never throw and crash the handler — surface it as a structured
+          // null-spec + specError flag instead of a 500.
+          let spec = null; let specError = null;
+          if (row.spec) {
+            try { spec = JSON.parse(row.spec); } catch { specError = 'stored spec is not valid JSON'; }
+          }
+          return json(res, 200, { ok: true, strategy: { ...row, spec, specError } });
+        }
         return json(res, 200, { ok: true, strategies: listStrategies(dbPath), activeId: activeStrategy(dbPath)?.id ?? null });
+      }
+      // #75: manual draft save (bot-modal inline edit) — new INACTIVE version,
+      // same append-only rule as the chat tool; activation stays a separate act.
+      if (url.pathname === '/api/strategies' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        try {
+          const saved = saveStrategy(dbPath, {
+            name: body.name, prompt: body.prompt, spec: body.spec ?? null, instruments: body.instruments ?? null,
+            instrument: body.instrument ?? null, granularity: body.granularity ?? null, dedicated: body.dedicated === true,
+            createdBy: 'manual',
+          });
+          return json(res, 200, { ok: true, strategy: saved });
+        } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/strategies/activate' && req.method === 'POST') {
         const raw = await readBody(req, res);
@@ -869,7 +925,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
-          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: (n, i) => execChatTool(n, i, { dbPath }) });
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity } }) });
           const { text: cleanReply, title } = extractThreadTitle(reply);
           addMessage(dbPath, threadId, 'assistant', cleanReply);
           if (title) {
@@ -947,9 +1003,9 @@ const PAGE = /* html */ `<!doctype html>
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs { display: flex; gap: 6px; margin: 10px 0; }
-  #pfTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, #bmTabs { display: flex; gap: 6px; margin: 10px 0; }
+  #pfTabs button, #bmTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, #bmTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   #botBtn { position: relative; }
   #botBtn.nobot { opacity: 0.45; }
   #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
@@ -960,8 +1016,9 @@ const PAGE = /* html */ `<!doctype html>
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
   #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(360px, 92vw); }
   #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
-  #botdlg select, #botdlg input[type=number] { width: 100%; }
+  #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
   .botwarn { color: #d29922; font-size: 12px; }
+  #bmVersions { max-height: 160px; overflow-y: auto; }
   .botrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #30363d; border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; flex-wrap: wrap; }
   .botrow .jump { cursor: pointer; background: #21262d; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; padding: 2px 10px; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
@@ -989,7 +1046,8 @@ const PAGE = /* html */ `<!doctype html>
   .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
   /* one control height everywhere interactive chrome lives (#56) */
   #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
-  input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
+  dialog textarea { box-sizing: border-box; }
+  input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
@@ -1254,40 +1312,61 @@ function botIcon(bs) {
   else { el.classList.add('dot-grey'); el.title = 'bot configured (off)'; }
   if (bs && bs.halted) { el.classList.add('ring-halt'); el.title += ' · PORTFOLIO halted — all bots paused'; }
 }
+// #75: bot modal tabs — setup (unchanged knobs) + strategy (assignment by
+// NAME, version list w/ per-version activate, inline draft/edit). A single
+// shared save() drives both tabs and repaints them both, so the setup tab's
+// "no strategy assigned" warning always reflects a strategy-tab assignment.
+let bmActiveTab = 'setup';
 async function openBotModal() {
   const inst = qs.get('instrument') || document.getElementById('instSel').value;
   const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   const combo = inst + '|' + gran;
-  const [settings, strat] = await Promise.all([
-    (await fetch('/api/settings')).json(),
-    (await fetch('/api/strategies')).json(),
-  ]);
-  const entry = ((settings.bot || {}).bots || {})[combo] || {};
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
   document.getElementById('botTitle').dataset.info = INFO.botModal;
-  const noStrat = !strat.strategies.length;
+  bmActiveTab = 'setup';
   document.getElementById('botBody').innerHTML =
-    '<label for="bmStrat" data-info="' + esc(INFO.strategyActivate) + '">strategy</label><select id="bmStrat"><option value="">— none —</option>' +
-    strat.strategies.map(st => '<option value="' + st.id + '"' + (st.id === entry.strategyId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + '</option>').join('') + '</select>' +
-    (noStrat ? '<div class="botwarn">No strategies yet — draft one with the copilot, then assign it here.</div>' : '') +
+    '<div id="bmTabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
+    '<div id="bm-setup"></div><div id="bm-strategy" hidden></div>';
+  const save = async (patch) => {
+    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
+    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
+    botIcon(d2.botState);
+    await paint(r.error ? r.error : 'saved');
+    return r;
+  };
+  const paint = async (savedMsg) => {
+    const settings = await (await fetch('/api/settings')).json();
+    const entry = ((settings.bot || {}).bots || {})[combo] || {};
+    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg);
+    if (bmActiveTab === 'strategy') await renderBotStrategyTab(inst, gran, entry, save, savedMsg);
+  };
+  document.getElementById('bmTabs').onclick = async (e) => {
+    const tab = e.target.dataset?.tab;
+    if (!tab) return;
+    bmActiveTab = tab;
+    for (const b of document.querySelectorAll('#bmTabs button')) b.classList.toggle('on', b === e.target);
+    document.getElementById('bm-setup').hidden = tab !== 'setup';
+    document.getElementById('bm-strategy').hidden = tab !== 'strategy';
+    if (tab === 'strategy') await paint();
+  };
+  await paint();
+  document.getElementById('botdlg').showModal();
+}
+function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
+  const body = document.getElementById('bm-setup');
+  body.innerHTML =
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
-    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !entry.strategyId ? '' : ' hidden') + '> won\u2019t trade until a strategy is assigned</span>' +
+    // review fix: gate on the RESOLVED active-version name (botStateCache,
+    // same value /api/bots + runBot see), not entry.strategyName — a name
+    // whose versions are all inactive must still show the warning.
+    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !botStateCache?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
     '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
     '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
     '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
     '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
-    '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '\u25CF ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
-    '<p><button type="button" id="bmToPf">View in portfolio \u2192</button> <span id="bmSaved"></span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>' +
-    '';
-  const save = async (patch) => {
-    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
-    document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
-    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
-    botIcon(d2.botState);
-    document.getElementById('bmWarn').hidden = !(document.getElementById('bmEnabled').checked && !document.getElementById('bmStrat').value);
-  };
-  document.getElementById('bmStrat').onchange = (e) => save({ strategyId: e.target.value ? Number(e.target.value) : null });
+    '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '● ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
+    '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>';
   document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById('bmAlloc').onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -1299,7 +1378,111 @@ async function openBotModal() {
   document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   document.getElementById('bmRemove').onclick = async () => { await save(null); document.getElementById('botdlg').close(); };
-  document.getElementById('botdlg').showModal();
+}
+// #75 strategy tab: assign by name (scope-filtered, "show all" escape),
+// per-version activate, inline prompt/spec edit → new INACTIVE version.
+// showAll/editing state lives on the tab element's dataset — cheap enough to
+// refetch+rerender the whole tab on every interaction (same pattern as the
+// rest of this page).
+async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
+  const el = document.getElementById('bm-strategy');
+  const strat = await (await fetch('/api/strategies')).json();
+  const rows = strat.strategies || [];
+  const byName = new Map();
+  for (const r of rows) { if (!byName.has(r.name)) byName.set(r.name, []); byName.get(r.name).push(r); }
+  // review fix: an assigned name whose rows are all archived/deleted has no
+  // entry in byName (listStrategies excludes archived) — tolerate that as
+  // "unknown scope" rather than throwing on byName.get(name)[0].
+  const scopeOf = (name) => byName.get(name)?.[0]; // newest-first per name (server ORDER BY)
+  const mismatched = (name) => { const s = scopeOf(name); return !!(s && s.instrument && (s.instrument !== inst || s.granularity !== gran)); };
+  // review fix: surface active-version state right in the option label so an
+  // operator can see "won't trade" risk before assigning, not after.
+  const activeVersionOf = (name) => byName.get(name)?.find((r) => r.active) || null;
+  const showAll = el.dataset.showAll === '1';
+  const names = [...byName.keys()];
+  const assignable = showAll ? names : names.filter((n) => !mismatched(n));
+  const current = entry.strategyName || '';
+  // an explicit '— none —' preview is an empty STRING, not 'unset' — falling back to
+  // current here made detaching a strategy impossible from the modal
+  const editing = 'editing' in el.dataset ? el.dataset.editing : current;
+  const editRows = editing && byName.has(editing) ? byName.get(editing) : [];
+  const editActiveRow = editRows.find((r) => r.active) || editRows[0] || null;
+  let editFull = null;
+  if (editActiveRow) editFull = (await (await fetch('/api/strategies?id=' + editActiveRow.id)).json()).strategy;
+  el.innerHTML =
+    '<label for="bmStratSel" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="bmStratSel"><option value="">— none —</option>' +
+    // an assigned name whose rows are all archived has no option of its own; show it
+    // disabled so the select still mirrors the preview and none stays a real change
+    (editing && !assignable.includes(editing) ? '<option value="' + esc(editing) + '" selected disabled>' + esc(editing) + ' — archived</option>' : '') +
+    assignable.map((n) => {
+      const av = activeVersionOf(n);
+      const label = n + (av ? ' (active v' + av.version + ')' : ' — draft, no active version') + (mismatched(n) ? ' ⚠' : '');
+      return '<option value="' + esc(n) + '"' + (n === editing ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('') + '</select> ' +
+    '<button type="button" id="bmAssignBtn"' + (editing === current ? ' disabled' : '') + '>+ assign</button>' +
+    '<label><input type="checkbox" id="bmShowAll"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +
+    (current && mismatched(current) ? '<div class="botwarn">declared for ' + esc(scopeOf(current).instrument) + '·' + esc(scopeOf(current).granularity) + ' — assigning to ' + esc(inst) + '·' + esc(gran) + '</div>' : '') +
+    (current && !byName.has(current) ? '<div class="botwarn">assigned strategy "' + esc(current) + '" has no active versions (archived?) — reassign or reactivate a version</div>' : '') +
+    (!rows.length ? '<div class="botwarn">No strategies yet — draft one below or with the copilot.</div>' : '') +
+    // review fix: an already-active version needs its own assign-only path
+    // (bmAssign) — bmActivate stays hidden for it since there's nothing to
+    // activate, but "assign the active version" must still be reachable.
+    (editRows.length ? '<div id="bmVersions">' + editRows.map((v) =>
+      '<div class="botrow" data-id="' + v.id + '"><span>v' + v.version + ' · ' + esc(v.created_by) + (v.active ? ' · <b>active</b>' : '') + '</span>' +
+      (v.active
+        ? (v.name === current ? '' : '<button type="button" class="bmAssign">assign</button>')
+        : '<button type="button" class="bmActivate">activate' + (v.name === current ? '' : ' + assign') + '</button>') +
+      '</div>').join('') + '</div>' : '') +
+    '<details open><summary>' + (editing ? 'edit ' + esc(editing) + ' / draft a new version' : 'draft a strategy') + '</summary>' +
+    '<label for="bmEditName">name</label><input type="text" id="bmEditName" value="' + esc(editing) + '" placeholder="kebab-case-name">' +
+    '<label for="bmEditPrompt">prompt</label><textarea id="bmEditPrompt" rows="6">' + esc(editFull?.prompt ?? '') + '</textarea>' +
+    '<label for="bmEditSpec" data-info="declarative backtest spec JSON, optional">spec JSON (optional)</label><textarea id="bmEditSpec" rows="3">' + esc(editFull?.spec ? JSON.stringify(editFull.spec) : '') + '</textarea>' +
+    '<label><input type="checkbox" id="bmEditDedicated"' + (editFull?.dedicated ? ' checked' : '') + '> dedicated to ' + esc(inst) + '·' + esc(gran) + '</label>' +
+    '<p><button type="button" id="bmSaveVersion">save as new version</button> <button type="button" id="bmSaveActivate">save + activate + assign</button></p>' +
+    '<div id="bmEditErr" class="botwarn"></div></details>' +
+    '<p><small id="bmStratSaved">' + esc(savedMsg || '') + '</small></p>';
+  document.getElementById('bmShowAll').onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(inst, gran, entry, save); };
+  // review fix: browsing the select only PREVIEWS a name (version list +
+  // editor below) — it must never rebind (or disarm) a live bot on its own.
+  // Assignment is a separate, explicit write via #bmAssignBtn / .bmAssign.
+  document.getElementById('bmStratSel').onchange = (e) => {
+    el.dataset.editing = e.target.value || '';
+    renderBotStrategyTab(inst, gran, entry, save);
+  };
+  document.getElementById('bmAssignBtn').onclick = async () => { await save({ strategyName: editing || null }); };
+  el.querySelectorAll('.bmAssign').forEach((row) => {
+    row.onclick = async () => { await save({ strategyName: editing }); };
+  });
+  el.querySelectorAll('.bmActivate').forEach((row) => {
+    const id = Number(row.closest('[data-id]').dataset.id);
+    row.onclick = async () => {
+      // a failed activation must NOT be followed by an assign — that would read
+      // as 'activated' while the bot silently has no active version to trade
+      const r = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id }) })).json();
+      if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error || 'activation failed'; return; }
+      await save({ strategyName: editing });
+    };
+  });
+  document.getElementById('bmSaveVersion').onclick = () => saveVersion(false);
+  document.getElementById('bmSaveActivate').onclick = () => saveVersion(true);
+  async function saveVersion(activate) {
+    const name = document.getElementById('bmEditName').value.trim();
+    const prompt = document.getElementById('bmEditPrompt').value;
+    const specText = document.getElementById('bmEditSpec').value.trim();
+    let spec = null;
+    if (specText) { try { spec = JSON.parse(specText); } catch { document.getElementById('bmEditErr').textContent = 'spec is not valid JSON'; return; } }
+    const dedicated = document.getElementById('bmEditDedicated').checked;
+    const r = await (await fetch('/api/strategies', { method: 'POST', body: JSON.stringify({ name, prompt, spec, dedicated, instrument: dedicated ? inst : null, granularity: dedicated ? gran : null }) })).json();
+    if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error; return; }
+    el.dataset.editing = name;
+    if (activate) {
+      const a = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: r.strategy.id }) })).json();
+      if (!a.ok) { document.getElementById('bmEditErr').textContent = a.error || 'activation failed'; return; }
+      await save({ strategyName: name });
+    } else {
+      await renderBotStrategyTab(inst, gran, entry, save);
+    }
+  }
 }
 document.getElementById('botBtn').addEventListener('click', openBotModal);
 // Read-only activated-bots list + halt banner in the portfolio overview.

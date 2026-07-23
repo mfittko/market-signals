@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy, ensureSeedStrategy, strategyById } from './strategies.mjs';
+import { activeStrategy, activeStrategyByName, ensureSeedStrategy, strategyNameById } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -40,23 +40,45 @@ export function resolveBotFor(settings, instrument, granularity, dbPath = null) 
     // branch is dead — legacy-watched combos not in the map stop trading
     // (fail-safe direction; the overview list is the source of truth).
     // legacy migration-on-read: watchers CSV (or all combos when unset) become
-    // implicit bot entries bound to the globally-active strategy
+    // implicit bot entries bound to the globally-active strategy (by name, #75)
     const csv = typeof bot.watchers === 'string' ? bot.watchers.trim() : '';
     const combos = csv ? csv.split(',').map(normCombo).filter((x) => x && x !== '|') : null;
     if (!combos || combos.includes(key)) {
       const act = dbPath ? (() => { try { return activeStrategy(dbPath); } catch { return null; } })() : null;
-      entry = { enabled: true, strategyId: act?.id ?? null };
+      entry = { enabled: true, strategyName: act?.name ?? null };
     }
   }
   if (!entry) return { enabled: false, configured: false };
+  const legacyId = Number.isInteger(entry.strategyId) ? entry.strategyId : null;
+  // #75 migration: bots follow a strategy NAME's active version, not a frozen
+  // row id. entry.strategyName (new writes) wins; a legacy strategyId
+  // resolves to its row's name here, once per read, then is name-referenced
+  // from that point on — so even old settings.json entries start following
+  // the active version instead of a permanently frozen row. Name resolution
+  // is archive-inclusive (strategyNameById, not strategyById): a legacy id
+  // that happens to point at a now-archived version must still resolve the
+  // name, otherwise the bot silently goes unconfigured even though that
+  // name has an active version elsewhere (review fix).
+  const strategyName = typeof entry.strategyName === 'string' && entry.strategyName
+    ? entry.strategyName
+    : (dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
   return {
     configured: true,
     enabled: entry.enabled === true,
-    strategyId: Number.isInteger(entry.strategyId) ? entry.strategyId : null,
+    strategyId: legacyId,
+    strategyName,
     riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
     allocationPct: Number.isFinite(entry.allocationPct) && entry.allocationPct > 0 ? entry.allocationPct : null,
     killSwitchDrawdownPct: Number.isFinite(entry.killSwitchDrawdownPct) && entry.killSwitchDrawdownPct > 0 ? entry.killSwitchDrawdownPct : null,
   };
+}
+
+// The one place "bots follow a name's active version" happens (#75): resolves
+// the CURRENTLY active row for a resolved bot's strategy name, called fresh
+// at every deliberation — a chat draft + bot-modal activation takes effect on
+// the next run without ever touching the bot's stored config.
+export function resolvedStrategy(dbPath, botFor) {
+  return botFor?.strategyName ? activeStrategyByName(dbPath, botFor.strategyName) : null;
 }
 
 export function botLoopConfig(settings = {}) {
@@ -308,7 +330,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   // Seed idempotently (ships unassigned), then require a human-assigned
   // strategy for THIS bot: an unbound bot pauses instead of trading a default.
   ensureSeedStrategy(dbPath);
-  const strategyRow = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
+  const strategyRow = resolvedStrategy(dbPath, botFor);
   if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no strategy assigned to this bot' };
   if (strategyRow?.instruments) {
     // normalize each combo the same way the watchers parser does — spaces
