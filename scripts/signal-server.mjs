@@ -644,7 +644,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         const id = Number(body.id);
         try {
-          if (body.action === 'save') return json(res, 200, { ok: true, memory: saveMemory(dbPath, { content: body.content, weight: body.weight, source: 'manual' }) });
+          if (body.action === 'save') return json(res, 200, { ok: true, memory: saveMemory(dbPath, { content: body.content, weight: body.weight === undefined || body.weight === null ? undefined : Number(body.weight), source: 'manual' }) });
           if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
           if (body.action === 'reweight') return json(res, 200, { ok: true, ...reweightMemory(dbPath, id, Number(body.weight)) });
           if (body.action === 'edit') return json(res, 200, { ok: true, ...editMemory(dbPath, id, body.content) });

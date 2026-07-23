@@ -725,6 +725,8 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.deepEqual(empty, { ok: true, memories: [], archivedCount: 0 });
 
     const saved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Trail stops on WTI after a 1% move.', weight: 4 }) })).json();
+    const strSaved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Numeric-string weight via API.', weight: '2' }) })).json();
+    assert.equal(strSaved.ok && strSaved.memory.weight, 2, 'API save coerces numeric-string weights like the chat tool');
     assert.equal(saved.ok, true);
     assert.equal(saved.memory.source, 'manual', 'HTTP-driven saves are source=manual, never chat');
     const id = saved.memory.id;
