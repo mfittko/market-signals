@@ -44,7 +44,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
@@ -102,6 +102,9 @@ export function writeSettings(settingsPath, patch) {
   }
   if (patch.ind !== undefined && patch.ind !== '' && patch.ind !== null && !/^[a-z,]{1,40}$/.test(patch.ind)) {
     throw new Error('ind must be a csv of indicator keys');
+  }
+  if (patch.info !== undefined && patch.info !== null && patch.info !== '' && typeof patch.info !== 'boolean') {
+    throw new Error('info must be a boolean');
   }
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error('provider must be one of pi, anthropic, openai, none');
@@ -521,6 +524,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
         const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
         data.activeInd = effectiveInd;
+        data.info = cfg.info === true; // #57: persisted globally, same pattern as ind
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));
@@ -879,12 +883,34 @@ const PAGE = /* html */ `<!doctype html>
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+  #infoBtn { background: none; color: #8b949e; border: 1px solid #30363d;
+             border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
+  #infoBtn.on { background: #1f6feb33; color: #58a6ff; border-color: #1f6feb; }
+  /* #57: info overlay — CSS-only tooltip, no JS positioning; [data-info] gets a
+     positioning context whether the toggle is on or off (no reflow on toggle). */
+  [data-info] { position: relative; }
+  body.info-on [data-info]:not(button):not(label):not(select):not(input) { cursor: help; }
+  @media (hover: hover) {
+  body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
+    content: attr(data-info); position: absolute; left: 0; top: 100%; margin-top: 4px;
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 6px 9px;
+    font-size: 12px; line-height: 1.45; white-space: normal; max-width: 260px;
+    z-index: 5; color: #e6edf3; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    pointer-events: none;
+  }
+  }
+  @media (hover: hover) and (max-width: 480px) {
+    body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
+      max-width: calc(100vw - 32px);
+    }
+  }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
            padding: 18px 20px; min-width: min(420px, 92vw); max-width: 92vw; box-sizing: border-box; position: relative; }
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
   dialog h2 { margin-top: 0; }
   .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
-           font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto; }
+           font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto;
+           z-index: 1; /* modal titles are positioned ([data-info]) and would otherwise paint over the × */ }
   .dlg-x:hover { color: #e6edf3; }
   #wrap { position: relative; }
   .quote { display: flex; gap: 22px; flex-wrap: wrap; padding: 8px 14px; border: 1px solid #30363d;
@@ -895,7 +921,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="infoBtn" type="button" aria-label="toggle hover explanations" title="toggle hover explanations for metrics across the UI">ⓘ</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -906,7 +932,7 @@ const PAGE = /* html */ `<!doctype html>
 </details>
 <dialog id="pfdlg">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-  <h2>virtual portfolio <small>(bot-only — view)</small></h2>
+  <h2 id="pfDlgTitle">virtual portfolio <small>(bot-only — view)</small></h2>
   <div id="pfHead"></div>
   <div id="haltBanner" hidden></div>
   <div id="pfTabs">
@@ -949,11 +975,70 @@ const PAGE = /* html */ `<!doctype html>
 <script>
 const qs = new URLSearchParams(location.search);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// #57: one explanation map — single source for every non-obvious metric/term.
+// Rendered elements carry data-info="<INFO[key] text>" (the resolved
+// explanation, not the key) so CSS alone (content: attr(data-info)) can
+// render it as a styled hover tooltip when the ⓘ toggle is on; STATIC_TITLES
+// below also derives native title attributes from this same map (baseline,
+// always on).
+const INFO = {
+  adx: 'ADX (0-100): trend strength. Above 25 is trending, below 20 is ranging, in between is neutral.',
+  regime: 'Regime: EMA-based bull/bear direction, shown with M15/H1 higher-timeframe alignment.',
+  impulse: 'Impulse: bar range vs ATR, and volume vs its recent average (vol ratio).',
+  vwap: 'VWAP: session volume-weighted average price. The chip shows distance from it in ATR multiples; the toggle overlays the line on the chart.',
+  rsi: 'RSI (0-100): momentum. Above 70 or below 30 is the exhaustion veto band that can block a signal.',
+  supertrend: 'Supertrend: trend-following stop level; flips up/down when price crosses it.',
+  dayRange: 'Lowest to highest traded price today.',
+  change1h: 'Price change over the last hour.',
+  change24h: 'Price change over the last 24 hours.',
+  forming: 'This candle is still forming — not yet closed.',
+  verdict: 'alert means every axis gate cleared; suppress means at least one axis vetoed the signal.',
+  equity: 'Equity: cash plus unrealized P&L of open positions.',
+  pnl: 'Total P&L: realized plus unrealized.',
+  active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
+  alertToggle: 'Toggle alert notifications for this instrument and granularity.',
+  bot: 'grey = configured but off. green = armed. amber = enabled with no strategy assigned. red ring = a global halt is in effect.',
+  portfolio: 'Virtual trading portfolio: positions, trades, performance, and audit.',
+  ema: 'EMA 20/50/200 overlay on the chart.',
+  bb: 'Bollinger Bands: volatility bands around a moving average.',
+  macd: 'MACD: trend and momentum oscillator (fast EMA minus slow EMA, with a signal line).',
+  margin: 'Margin: capital locked as collateral for a leveraged position.',
+  allocation: 'Allocation percent: max total margin this instrument may lock, shared across its granularities.',
+  leverage: 'Leverage: position size as a multiple of margin, shared across an instrument and all its granularities.',
+  riskPct: 'Risk percent per trade: margin risked per trade, as a percent of equity.',
+  killSwitch: 'Kill-switch drawdown percent: the threshold that trips the single GLOBAL portfolio halt.',
+  strategyActivate: 'Assign a saved strategy to this bot — it will not trade until one is assigned.',
+  memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
+  botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
+  info: 'Toggle styled hover explanations for metrics across the UI.',
+  settings: 'Watcher and filter settings, and trader memories.',
+};
+// Drives both the always-on native title AND (when the toggle is on) the
+// styled data-info hover tooltip — one map, one loop, no duplicated copy.
+const STATIC_TITLES = { pfBtn: 'portfolio', infoBtn: 'info', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
+for (const sid in STATIC_TITLES) {
+  const el = document.getElementById(sid);
+  // symbol-only buttons need an accessible name too — title alone is unreliable for AT
+  // aria-label stays a SHORT control name (the map key), only on symbol-only buttons;
+  // the long explanation lives in title/data-info
+  if (el && INFO[STATIC_TITLES[sid]]) { el.title = INFO[STATIC_TITLES[sid]]; el.dataset.info = INFO[STATIC_TITLES[sid]]; if (el.tagName === 'BUTTON' && !el.getAttribute('aria-label')) el.setAttribute('aria-label', STATIC_TITLES[sid]); }
+}
+function applyInfo(on) {
+  document.body.classList.toggle('info-on', on);
+  const ib = document.getElementById('infoBtn');
+  ib.classList.toggle('on', on);
+  ib.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+document.getElementById('infoBtn').addEventListener('click', async () => {
+  const on = !document.body.classList.contains('info-on');
+  applyInfo(on);
+  await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: on || null }) });
+});
 const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWAP'], ['rsi', 'RSI'], ['macd', 'MACD']];
 function indBar(d) {
   const on = new Set(d.activeInd || []);
   document.getElementById('indbar').innerHTML = 'indicators: ' + INDICATORS.map(([k, label]) =>
-    '<label><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
+    '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
   document.getElementById('indbar').onchange = async () => {
     const next = [...document.querySelectorAll('#indbar input:checked')].map(el => el.dataset.ind);
     // persisted globally (#49): every view opens with this selection
@@ -969,6 +1054,7 @@ async function load() {
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   if (qs.get('ind')) p.set('ind', qs.get('ind'));
   const d = await (await fetch('/api/chart?' + p)).json();
+  applyInfo(!!d.info);
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
   indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
@@ -986,11 +1072,11 @@ async function portfolio() {
   const el = document.getElementById('pf');
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
-  const status = pf.halted ? '<span class="halted">halted</span>' : '<span class="active">active</span>';
+  const status = pf.halted ? '<span class="halted" data-info="' + esc(INFO.active) + '">halted</span>' : '<span class="active" data-info="' + esc(INFO.active) + '">active</span>';
   const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
   const totalPnl = realized + pf.unrealized;
   mini.innerHTML =
-    '<b>' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
+    '<b data-info="' + esc(INFO.equity) + '">' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
   const today = new Date().toDateString();
   const dayPnl = pf.trades.filter(t => new Date(t.close_time).toDateString() === today).reduce((a, t) => a + t.realized, 0) + pf.unrealized;
@@ -1003,8 +1089,8 @@ async function portfolio() {
   sparkline(pf);
   }
   document.getElementById('pfHead').innerHTML =
-    '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b> · cash ' + esc(pf.cash.toFixed(2)) +
-    ' · margin ' + esc(pf.marginLocked.toFixed(2)) +
+    '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b> · cash ' + esc(pf.cash.toFixed(2)) +
+    ' · <span data-info="' + esc(INFO.margin) + '">margin ' + esc(pf.marginLocked.toFixed(2)) + '</span>' +
     ' · unrealized <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> · ' + status;
   document.getElementById('pfPositions').innerHTML = pf.positions.map(p => {
     const age = Math.round((Date.now() - Date.parse(p.entry_time)) / 60000);
@@ -1070,17 +1156,18 @@ async function openBotModal() {
   ]);
   const entry = ((settings.bot || {}).bots || {})[combo] || {};
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
+  document.getElementById('botTitle').dataset.info = INFO.botModal;
   const noStrat = !strat.strategies.length;
   document.getElementById('botBody').innerHTML =
-    '<label for="bmStrat">strategy</label><select id="bmStrat"><option value="">— none —</option>' +
+    '<label for="bmStrat" data-info="' + esc(INFO.strategyActivate) + '">strategy</label><select id="bmStrat"><option value="">— none —</option>' +
     strat.strategies.map(st => '<option value="' + st.id + '"' + (st.id === entry.strategyId ? ' selected' : '') + '>' + esc(st.name) + ' v' + st.version + '</option>').join('') + '</select>' +
     (noStrat ? '<div class="botwarn">No strategies yet — draft one with the copilot, then assign it here.</div>' : '') +
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
     '<span id="bmWarn" class="botwarn"' + (entry.enabled && !entry.strategyId ? '' : ' hidden') + '> won\u2019t trade until a strategy is assigned</span>' +
-    '<label for="bmRisk">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
-    '<label for="bmAlloc">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
-    '<label for="bmLev">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
-    '<details><summary>advanced</summary><label for="bmKill">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
+    '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
+    '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
+    '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
+    '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '\u25CF ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
     '<p><button type="button" id="bmToPf">View in portfolio \u2192</button> <span id="bmSaved"></span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>' +
@@ -1314,13 +1401,13 @@ function axisChips(gate) {
   if (!gate || !gate.axes) { el.hidden = true; return; }
   const a = gate.axes;
   el.hidden = false;
-  const chip = (label, val, extra) => '<div><small>' + esc(label) + '</small><b>' + esc(val ?? '—') + (extra ? ' <span>' + esc(extra) + '</span>' : '') + '</b></div>';
+  const chip = (label, val, extra, key) => '<div' + (key ? ' data-info="' + esc(INFO[key]) + '"' : '') + '><small>' + esc(label) + '</small><b>' + esc(val ?? '—') + (extra ? ' <span>' + esc(extra) + '</span>' : '') + '</b></div>';
   el.innerHTML =
-    chip('ADX', a.trendStrength.adx, a.trendStrength.verdict) +
-    chip('regime', a.direction.emaRegime, (a.direction.htfM15 || '—') + '/' + (a.direction.htfH1 || '—')) +
-    chip('impulse', a.impulse.rangeAtr != null ? a.impulse.rangeAtr + '×ATR' : null, 'vol ' + (a.impulse.volumeRatio ?? '—') + '×') +
-    chip('VWAP dist', a.location.vwapDistAtr != null ? a.location.vwapDistAtr + '×ATR' : null) +
-    chip('RSI', a.exhaustion.rsi);
+    chip('ADX', a.trendStrength.adx, a.trendStrength.verdict, 'adx') +
+    chip('regime', a.direction.emaRegime, (a.direction.htfM15 || '—') + '/' + (a.direction.htfH1 || '—'), 'regime') +
+    chip('impulse', a.impulse.rangeAtr != null ? a.impulse.rangeAtr + '×ATR' : null, 'vol ' + (a.impulse.volumeRatio ?? '—') + '×', 'impulse') +
+    chip('VWAP dist', a.location.vwapDistAtr != null ? a.location.vwapDistAtr + '×ATR' : null, null, 'vwap') +
+    chip('RSI', a.exhaustion.rsi, null, 'rsi');
 }
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
 function selectors(d) {
@@ -1351,14 +1438,14 @@ function quoteStrip(q) {
   const cls = (v) => v == null || v >= 0 ? 'buy' : 'sell';
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(q.time)) / 60000));
   const st = q.supertrend;
-  const box = (label, html) => '<div><small>' + label + '</small><b>' + html + '</b></div>';
+  const box = (label, html, key) => '<div' + (key ? ' data-info="' + esc(INFO[key]) + '"' : '') + '><small>' + label + '</small><b>' + html + '</b></div>';
   el.innerHTML =
     box('last', '<span class="' + cls(q.change1hPct) + '">' + esc(q.last) + '</span>') +
-    box('1h', '<span class="' + cls(q.change1hPct) + '">' + esc(pc(q.change1hPct)) + '</span>') +
-    box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>') +
-    box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh)) +
-    (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>') : '') +
-    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)');
+    box('1h', '<span class="' + cls(q.change1hPct) + '">' + esc(pc(q.change1hPct)) + '</span>', 'change1h') +
+    box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>', 'change24h') +
+    box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh), 'dayRange') +
+    (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>', 'supertrend') : '') +
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)', q.partial ? 'forming' : null);
 }
 
 function verdict(s) {
@@ -1366,7 +1453,7 @@ function verdict(s) {
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
   el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
-    ' — ' + esc(localFull(s.time)) + ' · verdict: <b>' + esc(s.verdict || 'unfiltered') + '</b>' +
+    ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%';
 }
@@ -1417,7 +1504,7 @@ async function renderMemories() {
   list.innerHTML = r.memories.length ? r.memories.map(m =>
     '<div class="memrow" data-id="' + m.id + '">' +
     '<span class="memcontent">' + esc(m.content) + '</span>' +
-    '<input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '">' +
+    '<span class="memweightwrap" data-info="' + esc(INFO.memWeight) + '"><input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '"></span>' +
     '<button type="button" class="memarchive">archive</button>' +
     '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
   list.querySelectorAll('.memrow').forEach(row => {
