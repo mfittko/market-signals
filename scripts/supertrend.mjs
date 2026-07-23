@@ -401,6 +401,18 @@ export async function processSignal(opts, result, candles) {
   const hasFilter = resolveProvider(settings) !== 'none';
   dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
 
+  // Axis-grouped gate snapshot (#32): computed once per fresh signal, fed to
+  // the filter, and recorded for backtesting; lazy import avoids a load cycle.
+  let gateSnapshot = null;
+  try {
+    const { axisSnapshot } = await import('./axis-snapshot.mjs');
+    // signal-time truth: freshBars admits flips up to N bars old — the snapshot
+    // must judge the FLIP bar (and share its timestamp for the outcome join),
+    // never bars that closed afterwards
+    const flipCandles = Number.isInteger(sig.index) ? candles.slice(0, sig.index + 1) : candles;
+    gateSnapshot = axisSnapshot(flipCandles, { instrument: opts.instrument, granularity: opts.granularity, flip: { signal: sig.signal } });
+  } catch (err) { dbg(`axis snapshot failed: ${err.message}`); }
+
   let verdict = null;
   let verdictSource = 'none';
   if (hasFilter) {
@@ -420,6 +432,7 @@ export async function processSignal(opts, result, candles) {
           return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
         })(),
         pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
+        axisGate: gateSnapshot?.axes ?? null,
         traderNotes: notes,
       });
       verdictSource = 'llm';
@@ -431,10 +444,36 @@ export async function processSignal(opts, result, candles) {
     dbg(`verdict (${verdictSource}): ${JSON.stringify(verdict)}`);
   }
 
+  // Snapshot recording (schema shared with #26/#40) runs AFTER the alert
+  // decision/notification — backtest-capture I/O (incl. the up-to-20s headline
+  // fetch behind snapshotContext) must never delay a real-time notification.
+  const recordGate = async () => {
+    try {
+      const { recordSnapshot, promptHash } = await import('./axis-snapshot.mjs');
+      let context = null;
+      if (settings.snapshotContext === true) {
+        // #40 decision 4: headline digest recorded AT signal time; sentiment is
+        // scored by the replay judge from this block, never fetched at backtest.
+        try {
+          const raw = execFileSync(process.execPath, ['skills/fxempire-analysis/scripts/fxempire_articles.mjs', '--hours', '6', '--max-items', '3', '--json'], { encoding: 'utf8', timeout: 20000 });
+          const parsed = JSON.parse(raw);
+          context = { headlines: (parsed.articles || []).slice(0, 3).map((a) => a.title), capturedAt: sig.time };
+        } catch { /* context capture is best-effort */ }
+      }
+      recordSnapshot(opts.db, gateSnapshot, {
+        filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
+        filterModel: hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.model || (settings.ANTHROPIC_API_KEY ? 'anthropic-default' : 'openai-default')) : null,
+        filterPromptHash: hasFilter ? promptHash(FILTER_SYSTEM) : null,
+        context,
+      });
+    } catch (err) { dbg(`snapshot record failed: ${err.message}`); }
+  };
+
   if (verdict && verdict.alert === false) {
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, 'suppress', verdict.reason ?? null, 0);
     dbg('suppressed — no notification');
-    return { sent: false, reason: `suppressed by filter: ${verdict.reason}`, verdictSource };
+    await recordGate();
+    return { sent: false, reason: `suppressed by filter: ${verdict.reason}`, verdictSource, gateSnapshot };
   }
 
   const wr = result.backtest.winRatePct;
@@ -450,11 +489,13 @@ export async function processSignal(opts, result, candles) {
     // Non-macOS or osascript failure: still record the verdict so the signal isn't lost.
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 0);
     dbg(`notification failed: ${err.message}`);
-    return { sent: false, reason: `notification failed: ${err.message}`, verdictSource };
+    await recordGate();
+    return { sent: false, reason: `notification failed: ${err.message}`, verdictSource, gateSnapshot };
   }
   updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, verdict ? 'alert' : 'unfiltered', verdict?.reason ?? null, 1);
   dbg(`notification sent: ${msg}`);
-  return { sent: true, message: msg, verdictSource };
+  await recordGate();
+  return { sent: true, message: msg, verdictSource, gateSnapshot };
 }
 
 // Upsert complete candles so history accumulates with every run — future
@@ -676,12 +717,19 @@ async function runOne(opts) {
         const newThisRun = result.notify?.sent === true
           || /^(suppressed by filter|recorded \(notify off\)|notification failed)/.test(result.notify?.reason || '');
         const freshFlip = result.signal?.fresh && newThisRun ? result.signal : null;
+        let botAxes = result.notify?.gateSnapshot?.axes ?? null; // flip events reuse the signal-time snapshot
+        if (!botAxes) {
+          try {
+            const { axisSnapshot } = await import('./axis-snapshot.mjs');
+            botAxes = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity })?.axes ?? null;
+          } catch { /* axes optional */ }
+        }
         result.bot = !botWatchesCombo(settings, opts.instrument, opts.granularity)
           ? { skipped: 'combo not in bot.watchers' }
           : await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest },
+          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes },
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts (or anything else) as a side effect of deciding
           toolDefs: CHAT_TOOLS.filter((t) => t.name !== 'save_strategy').map(({ name, description, input_schema }) => ({ name, description, input_schema })),

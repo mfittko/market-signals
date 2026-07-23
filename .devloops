@@ -35,6 +35,11 @@ uiReview:
       pathPatterns: ["scripts/signal-server.mjs", "scripts/portfolio.mjs"]
       steps:
         - { action: goto, path: "/", name: portfolio-section }
+    - name: chart-indicators
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/indicators.mjs", "scripts/axis-snapshot.mjs"]
+      steps:
+        - { action: goto, path: "/?ind=ema%2Cbb%2Cvwap%2Crsi", name: indicators-on }
+        - { action: goto, path: "/", name: indicators-off }
     - name: settings-roundtrip
       pathPatterns: ["scripts/signal-server.mjs"]
       steps:
