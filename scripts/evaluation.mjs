@@ -107,6 +107,8 @@ export function strategyScoreboard(dbPath, startingBalance = 10000) {
 // Baselines over the SAME stored-candle window the strategy traded (or the
 // full stored history when no fromTime is given): raw flip-following via the
 // existing backtest math, and buy-and-hold first→last close.
+const GRAN_MS = { M1: 60000, M5: 300000, M15: 900000, M30: 1800000, H1: 3600000, H4: 14400000 };
+
 export function baselines(dbPath, instrument, granularity, opts = {}) {
   const candles = rows(dbPath,
     'SELECT time, open, high, low, close, volume, 1 AS complete FROM candles WHERE instrument=? AND granularity=? ORDER BY time',
@@ -114,10 +116,19 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
   if (candles.length < 20) return null;
   let win = candles;
   if (opts.fromTime) {
-    const from = candles.findIndex((c) => c.time >= opts.fromTime);
-    if (from === -1) return null; // fromTime beyond stored history: no window, never the whole history
+    // fromTime is a wall-clock entry time; anchor the window at the CANDLE
+    // containing it so a mid-bar entry doesn't skew the window by one bar
+    const dur = GRAN_MS[granularity] ?? 300000;
+    let start = candles.findIndex((c) => c.time >= opts.fromTime);
+    if (start === -1) {
+      const last = candles[candles.length - 1];
+      if (Date.parse(opts.fromTime) <= Date.parse(last.time) + dur) start = candles.length - 1;
+      else return null; // beyond stored history: no window, never the whole history
+    } else if (start > 0 && candles[start].time > opts.fromTime) {
+      start -= 1; // the bar the entry happened inside
+    }
     // keep supertrend warm-up context before the window start
-    win = candles.slice(Math.max(0, from - 20));
+    win = candles.slice(Math.max(0, start - 20));
   }
   const st = computeSupertrend(win, { period: 10, multiplier: 3 });
   const flips = detectFlips(win, st);

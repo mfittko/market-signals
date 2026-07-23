@@ -111,4 +111,8 @@ test('baselines run over the stored-candle window with warm-up context', () => {
   assert.equal(scoped.window.candles, 40, 'scoped window keeps 20 warm-up candles before fromTime');
   assert.equal(baselines(db, 'NO/PE', 'M5'), null, 'insufficient data yields null, not a crash');
   assert.equal(baselines(db, WTI, 'M5', { fromTime: '2027-01-01T00:00:00Z' }), null, 'fromTime beyond history yields null, never the whole history');
+  const midBar = new Date(Date.parse(candles[40].time) + 90000).toISOString(); // 1.5min into candle 40
+  assert.equal(baselines(db, WTI, 'M5', { fromTime: midBar }).window.candles, 40, 'mid-bar entry anchors at the containing candle, no one-bar skew');
+  const inLastBar = new Date(Date.parse(candles[59].time) + 200000).toISOString();
+  assert.ok(baselines(db, WTI, 'M5', { fromTime: inLastBar }), 'entry inside the still-open last bar still yields a window');
 });
