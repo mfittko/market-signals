@@ -889,7 +889,7 @@ const PAGE = /* html */ `<!doctype html>
   /* #57: info overlay — CSS-only tooltip, no JS positioning; [data-info] gets a
      positioning context whether the toggle is on or off (no reflow on toggle). */
   [data-info] { position: relative; }
-  body.info-on [data-info] { cursor: help; }
+  body.info-on [data-info]:not(button):not(label):not(select):not(input) { cursor: help; }
   body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
     content: attr(data-info); position: absolute; left: 0; top: 100%; margin-top: 4px;
     background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 6px 9px;
@@ -972,9 +972,11 @@ const PAGE = /* html */ `<!doctype html>
 const qs = new URLSearchParams(location.search);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // #57: one explanation map — single source for every non-obvious metric/term.
-// data-info="key" on a rendered element surfaces INFO[key] as a styled hover
-// tooltip when the ⓘ toggle is on; STATIC_TITLES below also derives native
-// title attributes from this same map (baseline, always on).
+// Rendered elements carry data-info="<INFO[key] text>" (the resolved
+// explanation, not the key) so CSS alone (content: attr(data-info)) can
+// render it as a styled hover tooltip when the ⓘ toggle is on; STATIC_TITLES
+// below also derives native title attributes from this same map (baseline,
+// always on).
 const INFO = {
   adx: 'ADX (0-100): trend strength. Above 25 is trending, below 20 is ranging, in between is neutral.',
   regime: 'Regime: EMA-based bull/bear direction, shown with M15/H1 higher-timeframe alignment.',
@@ -1005,6 +1007,7 @@ const INFO = {
   memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
   botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
   info: 'Toggle styled hover explanations for metrics across the UI.',
+  settings: 'Watcher and filter settings, and trader memories.',
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
