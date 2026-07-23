@@ -273,8 +273,10 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
 function recentBotDecisions(dbPath, instrument, granularity) {
   const rows = withDb(dbPath, (db) => {
     try {
-      return db.prepare("SELECT at, context FROM bot_journal WHERE action='decision' AND context LIKE ? ORDER BY id DESC LIMIT 50")
-        .all(`%"instrument":"${instrument}"%`);
+      // both keys in the LIKE prefilter so the LIMIT counts rows of THIS combo —
+      // limiting before the granularity filter could starve M5 under M1 noise
+      return db.prepare("SELECT at, context FROM bot_journal WHERE action='decision' AND context LIKE ? AND context LIKE ? ORDER BY id DESC LIMIT 50")
+        .all(`%"instrument":"${instrument}"%`, `%"granularity":"${granularity}"%`);
     } catch (err) {
       if (/no such table/i.test(String(err.message))) return [];
       throw err;
