@@ -1054,7 +1054,7 @@ async function renderOverviewBots() {
   const off = r.bots.filter(b => !b.enabled);
   const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
     (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won\u2019t trade</span>') + '</span>' +
-    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
+    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '\u00d7' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
     (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
     '<button class="jump" data-combo="' + esc(b.combo) + '">\u2192</button></div>';
   list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click \ud83e\udd16 in the header to configure a bot for that view.</div>') +
