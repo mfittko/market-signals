@@ -166,7 +166,7 @@ revisions:
 | Gate | What it does | Overridable? |
 |------|---------------|---------------|
 | **Filter** | Single-shot sanity check on every fresh flip; no tools. | Yes — draft via chat or the gates modal, human-activated. |
-| **Bot** | Tool-loop deliberation (fxempire articles, sentinel news, Truth Social posts, live rates, web search) that opens/closes/holds. | No — strategy-owned, not gate-owned. |
+| **Bot** | Tool-loop deliberation (fxempire articles, sentinel news, Truth Social posts, live rates; plus Anthropic-only server-side web search) that opens/closes/holds. | No — strategy-owned, not gate-owned. |
 | **Chat** | The copilot; full tool loop including the save-draft tools. | No — constant system prompt. |
 | **Recheck** | Operator-initiated 🔁 re-check of a past signal's verdict. | Yes — draft via chat or the gates modal, human-activated. |
 
