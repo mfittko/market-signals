@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { storeCandles, recordSignal, sendNotification } from '../scripts/supertrend.mjs';
+import { storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
 import { buildServer, writeSettings, maskedSettings, chartData } from '../scripts/signal-server.mjs';
 
 const INSTRUMENT = 'WTICO/USD';
@@ -38,6 +38,16 @@ async function withServer(dir, fn) {
   } finally {
     server.close();
   }
+}
+
+// Mirrors bot.mjs's journalBot DDL/insert (not exported) — just enough to seed
+// a decision row for the matching logic under test.
+function seedDecision(dbPath, { instrument = INSTRUMENT, granularity = 'M5', at, action = 'hold', reasoning = 'held' } = {}) {
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, action TEXT NOT NULL, position_id INTEGER, reason TEXT, context TEXT)');
+    db.prepare('INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,NULL,?,?)')
+      .run(at, 'decision', reasoning, JSON.stringify({ instrument, granularity, event: 'flip', decision: { action, reasoning } }));
+  });
 }
 
 test('modal chrome (#56): every dialog closes via a top-right X; settings plumbing collapses behind advanced', async () => {
@@ -1113,5 +1123,50 @@ test('info toggle (#57): settings key round-trips like ind, invalid values rejec
     assert.equal((await (await fetch(base + '/api/settings')).json()).info, undefined);
     d = await (await fetch(base + '/api/chart')).json();
     assert.equal(d.info, false);
+  });
+});
+
+test('bot decision annotation on /api/chart (#73): matched by combo + candle-window timing, absent when unconfigured', async () => {
+  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, sigTime }) => {
+    const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString(); // within M5's 2x-candle grace window
+    seedDecision(dbPath, { at, action: 'hold', reasoning: 'chop, staying flat until the next confirmed flip' });
+
+    // no bot configured for this combo yet: silent even though a matching decision exists
+    let d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.botDecision, undefined, 'unarmed combo: no botDecision');
+    assert.equal(d.botDecisions, undefined, 'unarmed combo: no botDecisions map');
+
+    const st = saveStrategy(dbPath, { name: 'bd-strat', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [`${INSTRUMENT}|M5`]: { enabled: true, strategyId: st.id } } } }) });
+
+    d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.botDecision.action, 'hold');
+    assert.ok(d.botDecision.reasoning.startsWith('chop'));
+    assert.equal(d.botDecisions[sigTime].action, 'hold', 'history map keyed by signal time');
+
+    // a decision outside the candle-window grace never matches, even if it's the newest row
+    const stale = new Date(Date.parse(sigTime) + 20 * 60000).toISOString();
+    seedDecision(dbPath, { at: stale, action: 'open', reasoning: 'too late to attribute to this signal' });
+    const d2 = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d2.botDecision.action, 'hold', 'the in-window decision still wins over an out-of-window one');
+  });
+});
+
+test('bot decision INFO overlay entry present, verdict/history render the inline annotation (#73)', async () => {
+  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, sigTime }) => {
+    const html = await (await fetch(base + '/')).text();
+    const src = html.match(/const INFO = \{[\s\S]*?\n\};/);
+    assert.match(src[0], /botDecision:/, 'INFO map explains the inline bot decision annotation');
+    assert.match(html, /botDecision\.reasoning/, 'verdict row renders the escaped bot annotation');
+    assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
+
+    const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString();
+    seedDecision(dbPath, { at, action: 'hold', reasoning: 'held' });
+    const st = saveStrategy(dbPath, { name: 'bd-strat2', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [`${INSTRUMENT}|M5`]: { enabled: true, strategyId: st.id } } } }) });
+    const d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.botDecision.action, 'hold', 'armed combo with a recorded decision carries botDecision');
   });
 });
