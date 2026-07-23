@@ -71,6 +71,8 @@ async function judgeMeta(report, settings) {
       timeoutMs: 60000,
     });
     const parsed = JSON.parse(String(out).match(/\{[\s\S]*\}/)?.[0] ?? '{}');
+    // a malformed reply must THROW so cached() never freezes an empty verdict
+    if (!Array.isArray(parsed.ranking) || typeof parsed.critiques !== 'object') throw new Error('malformed meta-judge reply (not cached)');
     return { mode: 'meta', promptVersion: JUDGE_PROMPTS.meta.version, ...parsed };
   });
 }
@@ -97,6 +99,7 @@ async function judgePerSignal(snapshots, settings) {
         timeoutMs: 45000,
       });
       const parsed = JSON.parse(String(out).match(/\{[\s\S]*\}/)?.[0] ?? '{}');
+      if (!Number.isInteger(parsed.score) || typeof parsed.rationale !== 'string') throw new Error('malformed per-signal judge reply (not cached)');
       return { promptVersion: JUDGE_PROMPTS.perSignal.version, ...parsed };
     });
     scores.push({ time: s.time, ...scored });

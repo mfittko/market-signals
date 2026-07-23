@@ -26,27 +26,35 @@ export function loadReplayData(dbPath, instrument, granularity) {
 // Simulate one trade from entry at the flip-bar close, walking forward bars:
 // gap-aware stop/target fills (same ordering semantics as the live bot) plus
 // an optional time-stop at the close of bar N.
-function simulateTrade(candles, entryIdx, dir, spec, atrSeries) {
-  const entryPrice = candles[entryIdx].close;
-  const atrNow = atrSeries[entryIdx];
+function simulateTrade(candles, signalIdx, dir, spec, atrSeries) {
+  // Live execution truth: deliberation happens AFTER the flip candle closes,
+  // so the fill is the NEXT bar's open — entering at the flip close would
+  // systematically flatter every continuation move.
+  const entryIdx = signalIdx + 1;
+  if (entryIdx >= candles.length) return null;
+  const entryPrice = candles[entryIdx].open;
+  const atrNow = atrSeries[signalIdx]; // ATR known at signal time, never later
   if (!(atrNow > 0)) return null;
   const stop = entryPrice - dir * spec.exit.stopAtr * atrNow;
   const target = spec.exit.targetAtr != null ? entryPrice + dir * spec.exit.targetAtr * atrNow : null;
   const maxBars = spec.exit.timeStopBars ?? 72;
-  for (let i = entryIdx + 1; i < Math.min(candles.length, entryIdx + 1 + maxBars); i++) {
+  for (let i = entryIdx; i < Math.min(candles.length, entryIdx + 1 + maxBars); i++) {
     const c = candles[i];
-    const gapStop = dir === 1 ? c.open <= stop : c.open >= stop;
-    const gapTarget = target != null && (dir === 1 ? c.open >= target : c.open <= target);
-    if (gapStop) return { exitIdx: i, exitPrice: c.open, reason: 'stop' };
-    if (gapTarget) return { exitIdx: i, exitPrice: c.open, reason: 'target' };
+    if (i > entryIdx) {
+      // gap-at-open applies only to bars AFTER the entry bar (its open IS the fill)
+      const gapStop = dir === 1 ? c.open <= stop : c.open >= stop;
+      const gapTarget = target != null && (dir === 1 ? c.open >= target : c.open <= target);
+      if (gapStop) return { exitIdx: i, exitPrice: c.open, reason: 'stop', entryIdx, entryPrice };
+      if (gapTarget) return { exitIdx: i, exitPrice: c.open, reason: 'target', entryIdx, entryPrice };
+    }
     const hitStop = dir === 1 ? c.low <= stop : c.high >= stop;
     const hitTarget = target != null && (dir === 1 ? c.high >= target : c.low <= target);
-    if (hitStop) return { exitIdx: i, exitPrice: stop, reason: 'stop' }; // pessimistic on both-touched
-    if (hitTarget) return { exitIdx: i, exitPrice: target, reason: 'target' };
+    if (hitStop) return { exitIdx: i, exitPrice: stop, reason: 'stop', entryIdx, entryPrice }; // pessimistic on both-touched
+    if (hitTarget) return { exitIdx: i, exitPrice: target, reason: 'target', entryIdx, entryPrice };
   }
   const lastIdx = Math.min(candles.length - 1, entryIdx + maxBars);
-  if (lastIdx <= entryIdx) return null;
-  return { exitIdx: lastIdx, exitPrice: candles[lastIdx].close, reason: 'time-stop' };
+  if (lastIdx < entryIdx) return null;
+  return { exitIdx: lastIdx, exitPrice: candles[lastIdx].close, reason: 'time-stop', entryIdx, entryPrice };
 }
 
 // Pure replay of one spec over one window. Returns the mechanical report.
@@ -69,8 +77,8 @@ export function replaySpec(spec, snapshots, candles, { exposureBase = null } = {
     const dir = s.snapshot.flip === 'buy' ? 1 : -1;
     const fill = simulateTrade(candles, entryIdx, dir, spec, atrSeries);
     if (!fill) continue;
-    const retPct = (dir * (fill.exitPrice - candles[entryIdx].close) / candles[entryIdx].close) * 100;
-    trades.push({ entryTime: s.time, exitTime: candles[fill.exitIdx].time, dir, retPct: round(retPct), reason: fill.reason, bars: fill.exitIdx - entryIdx });
+    const retPct = (dir * (fill.exitPrice - fill.entryPrice) / fill.entryPrice) * 100;
+    trades.push({ signalTime: s.time, entryTime: candles[fill.entryIdx].time, entryPrice: round(fill.entryPrice), exitTime: candles[fill.exitIdx].time, dir, retPct: round(retPct), reason: fill.reason, bars: fill.exitIdx - fill.entryIdx });
     openUntil = fill.exitIdx;
   }
   const rets = trades.map((t) => t.retPct);
