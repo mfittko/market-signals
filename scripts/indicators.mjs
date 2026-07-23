@@ -24,12 +24,14 @@ export function rsi(closes, period = 14) {
     if (d > 0) gain += d; else loss -= d;
   }
   gain /= period; loss /= period;
-  out[period] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+  // flat market (no gains, no losses) is neutral 50, not overbought 100
+  const value = (g, l) => (g === 0 && l === 0 ? 50 : l === 0 ? 100 : 100 - 100 / (1 + g / l));
+  out[period] = value(gain, loss);
   for (let i = period + 1; i < closes.length; i++) {
     const d = closes[i] - closes[i - 1];
     gain = (gain * (period - 1) + Math.max(d, 0)) / period;
     loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
-    out[i] = loss === 0 ? 100 : 100 - 100 / (1 + gain / loss);
+    out[i] = value(gain, loss);
   }
   return out;
 }

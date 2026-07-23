@@ -21,6 +21,8 @@ test('rsi: monotone up → 100, monotone down → 0, warm-up nulls, mixed hand-v
   const down = rsi(Array.from({ length: 20 }, (_, i) => 100 - i), 14);
   assert.equal(down[19], 0);
   // equal gains and losses alternating → RSI 50 (gain avg == loss avg)
+  const flat = rsi(Array(30).fill(100), 14);
+  assert.equal(flat[29], 50, 'flat series is neutral 50, never overbought 100');
   const alt = rsi(Array.from({ length: 29 }, (_, i) => 100 + (i % 2)), 14);
   assert.ok(Math.abs(alt[28] - 50) < 5, 'alternating ±1 oscillates near 50 (Wilder smoothing swings ~±3.6)');
 });
