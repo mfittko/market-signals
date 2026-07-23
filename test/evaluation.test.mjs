@@ -105,6 +105,26 @@ test('halt/reset audit rows survive a strategy filter', async () => {
   assert.ok(filtered.some((a) => a.action === 'halt'), 'kill-switch rows visible under a strategy filter');
 });
 
+test('decision audit surfaces the EFFECTIVE sized-down notional, not the LLM\'s raw ask (#85)', async () => {
+  const db = fresh();
+  const dir = mkdtempSync(join(tmpdir(), 'eval-'));
+  const bin = join(dir, 'pi');
+  writeFileSync(bin, '#!/bin/sh\ncat > /dev/null\necho \'{"action":"open","side":"long","notional":30000,"stop":85,"reasoning":"oversized ask"}\'\n');
+  chmodSync(bin, 0o755);
+  const settings = { provider: 'pi', piBin: bin, bot: { enabled: true, riskPct: 1 } };
+  const st = saveStrategy(db, { name: 'sizing-strat', prompt: 'Open long on confirmed flips with a protective stop; hold otherwise.' });
+  activateStrategy(db, st.id);
+  const candle = { open: 87, high: 87.1, low: 86.9, close: 87, time: '2026-07-23T08:00:00.000000000Z', complete: true };
+  const r = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle, quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r.decision.action, 'open', 'sized down and opened, not rejected');
+  const d = decisionAudit(db).find((a) => a.action === 'decision');
+  assert.equal(d.decision.notional, 30000, 'raw decision still carries the LLM\'s original ask');
+  assert.ok(d.execSizing, 'execSizing threaded onto the decision journal context');
+  assert.equal(d.execSizing.requestedNotional, 30000);
+  assert.equal(d.execSizing.effectiveNotional, 1000, '1% risk cap (100 margin) at 10x default leverage');
+  assert.equal(d.execSizing.bindingCap, 'risk', 'the audit shows what actually happened, not the requested notional');
+});
+
 test('unattributed trades label as "unattributed", never "hash null"', () => {
   const db = fresh();
   const cfg = botConfig({ bot: { riskPct: 100 } });

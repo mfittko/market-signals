@@ -131,15 +131,6 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   assert.match(r.error, /malformed/);
   assert.equal(portfolioView(db, botConfig(bad)).positions.length, 0, 'no trade on malformed output');
 
-  // valid shape but violates guards (risk budget) → executes as hold
-  const over = fakeProvider(dir, '{"action":"open","side":"long","notional":900000,"stop":85,"reasoning":"yolo"}');
-  over.bot.riskPct = 1;
-  const r2 = await runBot(db, over, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
-  assert.equal(r2.decision.action, 'hold');
-  assert.match(r2.error, /execution rejected/);
-  assert.match(r2.decision.reasoning, /fail-safe hold/, 'reasoning rewritten to match the hold');
-  assert.equal(portfolioView(db, botConfig(over)).positions.length, 0);
-
   // wrong-side stop: long with stop above entry → rejected, fail-safe hold
   const wrongStop = fakeProvider(dir, '{"action":"open","side":"long","notional":500,"stop":88,"reasoning":"inverted"}');
   const r3 = await runBot(db, wrongStop, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
@@ -159,6 +150,41 @@ test('fail-safe: malformed output and execution rejection both journal a hold, n
   assert.equal(r5.decision.action, 'hold');
   assert.match(r5.error, /belongs to SPX500/);
   assert.equal(portfolioView(db, cfgX).positions.length, 1, 'foreign position untouched');
+});
+
+test('server-side sizing (#83): an oversized LLM notional sizes down and opens; an exhausted allocation is a legitimate no-budget skip, never "execution rejected"', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-'));
+  const db = join(dir, 'bot.sqlite');
+  const seedId = await withActiveSeed(db);
+  const over = fakeProvider(dir, '{"action":"open","side":"long","notional":900000,"stop":85,"reasoning":"yolo"}');
+  // allocationPct is per-combo only (bot.mjs resolveBotFor threads it into
+  // cfg from settings.bot.bots[combo]; a flat settings.bot.allocationPct is
+  // never read). budget == the risk-sized trade's margin exactly.
+  over.bot = { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: seedId, riskPct: 1, allocationPct: 1 } } };
+  const r = await runBot(db, over, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  assert.equal(r.decision.action, 'open', 'the LLM notional is only an upper-bound hint; the server sizes it down instead of rejecting');
+  assert.ok(r.executed.opened > 0);
+  assert.equal(r.error, null, 'a sized-down open is not an execution error');
+  assert.equal(r.execSizing.requestedNotional, 900000, 'the audit keeps the raw ask for context');
+  assert.equal(r.execSizing.effectiveNotional, 1000, 'but surfaces what actually opened, not the raw ask (#85)');
+  assert.equal(r.execSizing.bindingCap, 'risk');
+  const cfg = botConfig(over);
+  let v = portfolioView(db, cfg);
+  assert.equal(v.positions.length, 1);
+  assert.equal(v.positions[0].margin, 100, '1% of the 10000-equity opening balance');
+
+  // the allocation budget (also 1% == 100 margin) is now fully consumed by
+  // that one position: the next open decision must be a no-budget skip, not
+  // a scary "execution rejected" line.
+  const r2 = await runBot(db, over, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'sell' } });
+  assert.equal(r2.decision.action, 'hold');
+  assert.match(r2.decision.reasoning, /no budget/);
+  assert.ok(!r2.error || !/execution rejected/.test(r2.error), 'no-budget skip is never journaled as an execution rejection');
+  assert.equal(r2.execSizing.effectiveNotional, 0, 'no-budget hold shows the effective 0, never the LLM\'s scary raw ask (#85)');
+  assert.equal(r2.execSizing.requestedNotional, 900000);
+  v = portfolioView(db, cfg);
+  assert.equal(v.positions.length, 1, 'no second position opened once the allocation is exhausted');
+  assert.ok(v.journal.some((j) => j.action === 'skip' && j.reason === 'no budget (allocation cap exhausted)'), 'portfolio-level audit trail records the skip');
 });
 
 test('kill-switch: drawdown past threshold halts, notifies once, stays halted until operator reset', async () => {

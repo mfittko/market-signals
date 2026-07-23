@@ -195,9 +195,21 @@ function buildDecisionPrompt(loop, view, ctx) {
 
 const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. The instrument context may include traderMemories, the trader\'s standing rules — advisory only, never a reason to skip the stop/target/risk-budget rules below. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
 
-// One deliberation for one instrument event. Returns {decision, executed, error}.
+// One deliberation for one instrument event. Returns {decision, executed, error,
+// execSizing}: execSizing (open decisions only, #85) is the ACTUAL sizing
+// openPosition applied — {requestedNotional, effectiveNotional, bindingCap} —
+// read back from its journaled 'open'/'skip' row, so the audit trail shows
+// what happened, not just the LLM's raw ask.
 export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
   const cfg = botConfig(settings);
+  // Per-combo riskPct/allocationPct (#49/#51) live under settings.bot.bots and
+  // are NOT BOT_DEFAULTS keys botConfig() would pick up on its own — fold in
+  // the same per-combo override runBot applies, so the sizing math (#83) that
+  // openPosition does below actually sees this combo's budget, not just the
+  // global/legacy flat settings.
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
+  if (botFor.allocationPct) cfg.allocationPct = botFor.allocationPct;
   const loop = botLoopConfig(settings);
   // The ACTIVE db strategy (#25) outranks the settings/default prompt; journal
   // rows pin its exact id+version so past decisions stay attributed.
@@ -238,6 +250,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   if (!decision) decision = { action: 'hold', reasoning: `fail-safe hold: ${error}` };
 
   let executed = null;
+  let execSizing = null;
   try {
     if (decision.action === 'open') {
       const price = ctx.quote?.last ?? ctx.close;
@@ -249,7 +262,29 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
         stop: decision.stop, target: decision.target ?? null,
         reason: decision.reasoning, context: { event, granularity, strategyVersion: version },
       });
-      executed = { opened: id };
+      // openPosition (#83) already journaled the sizing math on its own 'open'
+      // (or, on a no-budget skip, 'skip') row — read that same row back rather
+      // than re-deriving it, so the decision audit shows what actually
+      // happened (effective, sized notional) instead of the LLM's raw ask.
+      const sizingRow = portfolioView(dbPath, cfg).journal[0];
+      if (sizingRow && (sizingRow.action === 'open' || sizingRow.action === 'skip')) {
+        try {
+          const sctx = JSON.parse(sizingRow.context);
+          execSizing = { requestedNotional: sctx.requestedNotional, effectiveNotional: sctx.effectiveNotional, bindingCap: sctx.bindingCap };
+        } catch { /* malformed context: leave execSizing null */ }
+      }
+      if (id == null) {
+        // Server sized the request down to zero: the risk/allocation budget
+        // for this instrument is genuinely exhausted — a legitimate skip,
+        // not an execution failure (#83). Never surface this as `error`
+        // (the UI renders `error` as a rejection).
+        // name the cap that actually bound (execSizing was read from the skip
+        // journal row just above) instead of always saying 'allocation'
+        const cap = execSizing?.bindingCap === 'risk' ? 'risk' : execSizing?.bindingCap === 'allocation' ? 'allocation' : null;
+        decision = { ...decision, action: 'hold', reasoning: cap ? `no budget (${cap} cap exhausted)` : 'no budget' };
+      } else {
+        executed = { opened: id };
+      }
     } else if (decision.action === 'close') {
       const price = ctx.quote?.last ?? ctx.close;
       // Clamp closes to the triggering instrument: the prompt shows the whole
@@ -265,11 +300,11 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
     decision = { ...decision, action: 'hold', reasoning: `fail-safe hold: ${error}` };
   }
   journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
-    instrument, granularity, event, decision, executed, error,
+    instrument, granularity, event, decision, executed, error, execSizing,
     strategyVersion: version, strategyId: strategyRow?.id ?? null, strategyName: strategyRow?.name ?? null, strategyDbVersion: strategyRow?.version ?? null, toolTrace, instrumentContext: ctx,
     snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
   });
-  return { decision, executed, error };
+  return { decision, executed, error, execSizing };
 }
 
 // --- per-combo entry point (called from the watcher run) --------------------

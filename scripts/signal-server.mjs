@@ -1582,11 +1582,23 @@ async function renderEvaluation() {
   const b = r.baselines;
   perf.innerHTML = '<table><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th>PF</th><th>max DD</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="6">no attributed trades yet</td></tr>') + '</tbody></table>' +
     (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + esc(b.flipFollowing.winRatePct ?? '—') + '% win / ' + esc(b.flipFollowing.totalReturnPct ?? '—') + '% return (' + esc(b.flipFollowing.trades ?? 0) + ' trades) · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
+  // execSizing (#83/#85) carries what actually happened at open (effective,
+  // sized-down notional), not the LLM's raw ask — the decision journal on its
+  // own only ever had the requested figure, which disagreed with the position
+  // card. Prefer the effective notional, and note the cap/no-budget story.
+  const sizeNote = (a) => {
+    if (!a.execSizing) return null;
+    const { requestedNotional, effectiveNotional, bindingCap } = a.execSizing;
+    if (!(effectiveNotional > 0)) return 'no budget (requested ' + requestedNotional + ')';
+    if (bindingCap && bindingCap !== 'none') return 'sized to ' + effectiveNotional + ' (' + bindingCap + ' cap, requested ' + requestedNotional + ')';
+    return null;
+  };
   document.getElementById('tab-audit').innerHTML = r.audit.map(a =>
     '<div class="audit-entry"><div class="meta">' + esc(localFull(a.at)) + ' · ' + esc(a.action) + (a.event ? ' · ' + esc(a.event) : '') + (a.instrument ? ' · ' + esc(a.instrument) : '') +
     (a.strategyName ? ' · ' + esc(a.strategyName) + (a.strategyDbVersion ? ' v' + esc(a.strategyDbVersion) : '') : '') + '</div>' +
-    (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(a.decision.notional ?? '') : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
+    (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(a.execSizing ? a.execSizing.effectiveNotional : (a.decision.notional ?? '')) : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
     (a.reason ? '<div>' + esc(a.reason) + '</div>' : '') +
+    (sizeNote(a) ? '<div class="meta">' + esc(sizeNote(a)) + '</div>' : '') +
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
 }
