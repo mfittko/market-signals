@@ -599,6 +599,99 @@ test('OPENAI_BASE_URL drives the request URL and the model passes through unchan
 });
 
 
+// --- llmRequest onUsage (#93): additive usage/provider/model capture, return type unchanged ---
+
+test('llmRequest onUsage: fake anthropic body reports provider/model/tokens', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    content: [{ type: 'text', text: 'ok-anthropic' }],
+    usage: { input_tokens: 120, output_tokens: 34 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    let captured = null;
+    const out = await llmRequest({ provider: 'anthropic', ANTHROPIC_API_KEY: 'sk-secret-testkey', model: 'claude-test' }, 'sys', 'user', { onUsage: (info) => { captured = info; } });
+    assert.equal(out, 'ok-anthropic', 'return type unchanged: still the plain text');
+    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-test', usage: { inputTokens: 120, outputTokens: 34 } });
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmRequest onUsage: fake openai-compatible body reports provider/model/tokens', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { content: 'ok-openai' } }], usage: { prompt_tokens: 55, completion_tokens: 12 } }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    let captured = null;
+    const out = await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'sk-secret-testkey', OPENAI_BASE_URL: base, model: 'gpt-test' }, 'sys', 'user', { onUsage: (info) => { captured = info; } });
+    assert.equal(out, 'ok-openai');
+    assert.deepEqual(captured, { provider: 'openai', model: 'gpt-test', usage: { inputTokens: 55, outputTokens: 12 } });
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
+test('llmRequest onUsage: pi path reports provider/model, usage null (never faked)', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'pi-'));
+  const piBin = join(dir, 'pi');
+  writeFileSync(piBin, '#!/bin/sh\necho "pi reply"\n');
+  chmodSync(piBin, 0o755);
+  let captured = null;
+  const out = await llmRequest({ provider: 'pi', piBin, model: 'pi-model' }, 'sys', 'user', { onUsage: (info) => { captured = info; } });
+  assert.equal(out, 'pi reply');
+  assert.deepEqual(captured, { provider: 'pi', model: 'pi-model', usage: null });
+});
+
+test('llmRequest onUsage: a throwing callback never breaks the request (missing/faulty usage must never throw)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: 'still ok' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const out = await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k' }, 'sys', 'user', { onUsage: () => { throw new Error('boom'); } });
+    assert.equal(out, 'still ok', 'a throwing onUsage callback must not break the actual response');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rounds, reported once', async () => {
+  const { llmChat } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  let call = 0;
+  globalThis.fetch = async () => {
+    call += 1;
+    if (call === 1) {
+      // round 1: model asks for a tool
+      return new Response(JSON.stringify({
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 't1', name: 'noop', input: {} }],
+        usage: { input_tokens: 100, output_tokens: 10 },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    // round 2: final text
+    return new Response(JSON.stringify({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'final answer' }],
+      usage: { input_tokens: 200, output_tokens: 20 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    let captured = null;
+    const reply = await llmChat({ provider: 'anthropic', ANTHROPIC_API_KEY: 'k' }, 'sys', 'user', {
+      toolDefs: [{ name: 'noop', description: 'no-op', input_schema: { type: 'object' } }],
+      execTool: async () => 'done',
+      onUsage: (info) => { captured = info; },
+    });
+    assert.equal(reply, 'final answer');
+    assert.equal(call, 2, 'two rounds ran');
+    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-opus-4-8', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
+  } finally { globalThis.fetch = realFetch; }
+});
+
 test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) from any caller (#70)', async () => {
   const { recordRecheck } = await import('../scripts/signal-rechecks.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'rc-'));

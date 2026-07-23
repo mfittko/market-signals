@@ -193,6 +193,23 @@ export function openaiEndpoint(settings) {
   return `${base}/v1/chat/completions`;
 }
 
+// The one "effective model id" resolution (#93): mirrors the per-provider
+// defaults baked into the request bodies below, so the MS_DEBUG_LLM
+// header/log surface can never drift from what was actually sent.
+export function effectiveModel(settings, provider) {
+  if (provider === 'anthropic') return settings.model || 'claude-opus-4-8';
+  if (provider === 'openai') return settings.model || 'gpt-5.4-mini';
+  return settings.model || null;
+}
+
+// #93: usage capture is purely additive debug telemetry — a bad onUsage
+// callback (or a provider omitting usage) must never break the actual
+// request/response path.
+function reportUsage(onUsage, info) {
+  if (typeof onUsage !== 'function') return;
+  try { onUsage(info); } catch { /* debug callback errors never break the request */ }
+}
+
 // provider=openai without a key would send "Bearer undefined" and die with an
 // opaque upstream error — fail fast with a message that names the fix
 function requireAnthropicKey(settings) {
@@ -246,7 +263,7 @@ async function readSse(res, extract, onDelta) {
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
 // Always tool-less: the chat's tool surface lives in the dedicated tool loops.
-export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null } = {}) {
+export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null, onUsage = null } = {}) {
   const provider = resolveProvider(settings);
   if (provider === 'none') throw new Error('no provider configured');
   if (provider === 'pi') {
@@ -268,12 +285,16 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
       throw new Error(`pi failed: ${stderr || err.code || `exit ${err.status}`}`.slice(0, 200));
     }
     if (onDelta) onDelta(out); // pi cannot stream: one whole delta
+    // pi has no structured usage to report — provider/model still surfaced,
+    // usage is always null here, never faked (#93).
+    reportUsage(onUsage, { provider: 'pi', model: settings.model || null, usage: null });
     return out;
   }
   if (provider === 'anthropic') {
     const stream = Boolean(onDelta) && !schema;
+    const model = effectiveModel(settings, 'anthropic');
     const body = {
-      model: settings.model || 'claude-opus-4-8',
+      model,
       max_tokens: maxTokens,
       ...(temperature != null ? { temperature } : {}),
       system,
@@ -289,16 +310,23 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     if (stream) {
+      // ponytail: real token-level SSE usage (message_start/message_delta) isn't
+      // parsed here — this streamed path only ever runs tool-less/schema-less,
+      // which nothing in this codebase currently exercises for anthropic/openai
+      // (chat's tool loop covers the real streaming UI case); onUsage is simply
+      // not called rather than faking a count.
       return readSse(res, (j) => (j.type === 'content_block_delta' && j.delta?.type === 'text_delta' ? j.delta.text : null), onDelta);
     }
     const data = await res.json();
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
+    reportUsage(onUsage, { provider: 'anthropic', model, usage: data.usage ? { inputTokens: data.usage.input_tokens ?? null, outputTokens: data.usage.output_tokens ?? null } : null });
     return data.content.find((b) => b.type === 'text').text;
   }
   {
     const stream = Boolean(onDelta) && !schema;
+    const model = effectiveModel(settings, 'openai');
     const body = {
-      model: settings.model || 'gpt-5.4-mini',
+      model,
       max_completion_tokens: maxTokens,
       messages: [
         { role: 'system', content: system },
@@ -316,9 +344,11 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     });
     if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     if (stream) {
+      // see the anthropic branch's ponytail note above: same asymmetry, same reason.
       return readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
     }
     const data = await res.json();
+    reportUsage(onUsage, { provider: 'openai', model, usage: data.usage ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null } : null });
     return data.choices[0].message.content;
   }
 }
@@ -326,21 +356,32 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
 // Tool-use loop for the API providers: runs custom tools via execTool until the
 // model stops asking. Non-streaming rounds; emits status deltas so the UI shows
 // progress, then the final text as one delta.
-async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool, onUsage }) {
   const tools = [
     { type: 'web_search_20260209', name: 'web_search', max_uses: 3 },
     ...toolDefs.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
   ];
+  const model = effectiveModel(settings, 'anthropic');
   const messages = [{ role: 'user', content: user }];
+  // #93: usage isn't known until the loop's final round, so rounds accumulate
+  // into these and report once, at the end, instead of per-round.
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let sawUsage = false;
   for (let round = 0; round < 8; round++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: settings.model || 'claude-opus-4-8', max_tokens: maxTokens, system, tools, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     const data = await res.json();
+    if (data.usage) {
+      sawUsage = true;
+      inputTokens += data.usage.input_tokens ?? 0;
+      outputTokens += data.usage.output_tokens ?? 0;
+    }
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
     if (data.stop_reason === 'pause_turn') {
       messages.push({ role: 'assistant', content: data.content });
@@ -361,23 +402,35 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
     }
     const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
     if (onDelta) onDelta(text);
+    reportUsage(onUsage, { provider: 'anthropic', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
     return text;
   }
   throw new Error('tool loop exceeded 8 rounds');
 }
 
-async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool }) {
+async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool, onUsage }) {
   const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
+  const model = effectiveModel(settings, 'openai');
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
+  // #93: same round-aggregation as anthropicToolLoop above.
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let sawUsage = false;
   for (let round = 0; round < 8; round++) {
     const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
-      body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
+      body: JSON.stringify({ model, max_completion_tokens: maxTokens, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
-    const msg = (await res.json()).choices[0].message;
+    const data = await res.json();
+    if (data.usage) {
+      sawUsage = true;
+      inputTokens += data.usage.prompt_tokens ?? 0;
+      outputTokens += data.usage.completion_tokens ?? 0;
+    }
+    const msg = data.choices[0].message;
     if (msg.tool_calls?.length) {
       messages.push(msg);
       for (const call of msg.tool_calls) {
@@ -389,20 +442,21 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       continue;
     }
     if (onDelta) onDelta(msg.content ?? '');
+    reportUsage(onUsage, { provider: 'openai', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
     return msg.content ?? '';
   }
   throw new Error('tool loop exceeded 8 rounds');
 }
 
 // Free-form ask against the configured provider (used by the chat sidebar).
-export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null } = {}) {
+export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null, onUsage = null } = {}) {
   const provider = resolveProvider(settings);
-  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool };
+  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool, onUsage };
   if (toolDefs && execTool && provider === 'anthropic') return anthropicToolLoop(settings, system, user, opts);
   if (toolDefs && execTool && provider === 'openai') return openaiToolLoop(settings, system, user, opts);
   // pi (and tool-less fallbacks): context only — the sole tool surface is the
   // clamped skill registry via the API providers' native tool-calling.
-  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta });
+  return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, onUsage });
 }
 
 // Watcher runs on the trader's machine: state times in the machine's local
@@ -424,8 +478,17 @@ const LOCAL_FMT = localTimeFormatters(LOCAL_TZ);
 export const localHm = LOCAL_FMT.hm;
 export const localFull = LOCAL_FMT.full;
 
-async function llmVerdict(settings, payload, system) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+// #93: `[llm] <tag> <provider> <model> in=<n> out=<n>` — shared by processSignal's
+// filter (below) and bot.mjs's deliberate() so the MS_DEBUG_LLM one-liner
+// never drifts between the two background-completion call sites.
+export function llmUsageLine(tag, info) {
+  if (!info) return `[llm] ${tag} usage unavailable`;
+  const { provider, model, usage } = info;
+  return `[llm] ${tag} ${provider} ${model ?? 'default'} in=${usage ? usage.inputTokens : 'n/a'} out=${usage ? usage.outputTokens : 'n/a'}`;
+}
+
+async function llmVerdict(settings, payload, system, onUsage) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000, onUsage });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -448,8 +511,8 @@ function normalizeRecheckVerdict(v) {
   return { verdict: v.verdict, reason };
 }
 
-async function llmRecheckVerdict(settings, payload, system) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+async function llmRecheckVerdict(settings, payload, system, onUsage) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000, onUsage });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);
@@ -576,6 +639,9 @@ export async function processSignal(opts, result, candles) {
     const filterSystem = await resolveFilterSystem(opts.db);
     promptVersion = filterSystem.promptVersion;
     promptSystemText = filterSystem.system;
+    // MS_DEBUG_LLM (#93): a local dev flag, not a persisted setting — off is a
+    // zero-cost, zero-behavior-change no-op (no log line, no callback at all).
+    const onUsage = process.env.MS_DEBUG_LLM ? (info) => dbg(llmUsageLine('filter', info)) : null;
     try {
       verdict = await llmVerdict(settings, {
         current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
@@ -592,7 +658,7 @@ export async function processSignal(opts, result, candles) {
         traderNotes: notes,
         traderMemories: memoriesContext(opts.db) || undefined,
         sentinel: newsContextFor(opts.db, opts.instrument) || undefined,
-      }, filterSystem.system);
+      }, filterSystem.system, onUsage);
       verdictSource = 'llm';
     } catch (err) {
       // ponytail: fail open — a missed alert costs more than a noisy one
@@ -686,7 +752,7 @@ const round4 = (v) => Number(v.toFixed(4));
 // NEVER touches the signals/signal_snapshots rows — the flip, its axis
 // snapshot, and the price path/excursion since are read-only context fed to
 // the dedicated 'recheck' gate; the verdict is a NEW row in signal_rechecks.
-export async function recheckSignal(dbPath, settingsPath, instrument, granularity, signal) {
+export async function recheckSignal(dbPath, settingsPath, instrument, granularity, signal, onUsage = null) {
   const settings = applyProviderDefault(readSettings(settingsPath));
   if (resolveProvider(settings) === 'none') throw new Error('no LLM provider configured');
   // the candles table only ever holds complete bars (storeCandles filters
@@ -710,7 +776,7 @@ export async function recheckSignal(dbPath, settingsPath, instrument, granularit
     priceSince: candlesSince.slice(-60).map((c) => ({ t: localHm(c.time), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
     excursion,
   };
-  const out = await llmRecheckVerdict(settings, payload, recheckSystem.system);
+  const out = await llmRecheckVerdict(settings, payload, recheckSystem.system, onUsage);
 
   const at = new Date().toISOString();
   const { recordRecheck } = await import('./signal-rechecks.mjs');

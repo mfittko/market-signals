@@ -1457,3 +1457,84 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
     assert.equal(d.botDecision.action, 'hold', 'armed combo with a recorded decision carries botDecision');
   });
 });
+
+// --- MS_DEBUG_LLM (#93): local dev flag surfacing LLM provider/model/usage as headers/SSE events ---
+
+async function withDebugLlm(value, fn) {
+  const prev = process.env.MS_DEBUG_LLM;
+  if (value == null) delete process.env.MS_DEBUG_LLM; else process.env.MS_DEBUG_LLM = value;
+  try { await fn(); } finally {
+    if (prev == null) delete process.env.MS_DEBUG_LLM; else process.env.MS_DEBUG_LLM = prev;
+  }
+}
+
+test('MS_DEBUG_LLM unset: /api/recheck carries NO X-LLM-* headers (byte-identical off-behavior)', async () => {
+  await withDebugLlm(null, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+    await withServer(dir, async ({ base, settingsPath }) => {
+      const piBin = join(dir, 'pi');
+      writeFileSync(piBin, '#!/bin/sh\necho \'{"verdict": "valid", "reason": "holds"}\'\n');
+      chmodSync(piBin, 0o755);
+      writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+      const res = await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) });
+      assert.equal(res.status, 200);
+      for (const h of ['x-llm-provider', 'x-llm-model', 'x-llm-usage-input', 'x-llm-usage-output']) {
+        assert.equal(res.headers.get(h), null, `${h} absent when MS_DEBUG_LLM is unset`);
+      }
+    });
+  });
+});
+
+test('MS_DEBUG_LLM=1: /api/recheck (fake openai-compatible provider) carries the four X-LLM-* headers, never the API key', async () => {
+  await withDebugLlm('1', async () => {
+    const { createServer } = await import('node:http');
+    const srv = createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ verdict: 'valid', reason: 'still holds' }) } }], usage: { prompt_tokens: 210, completion_tokens: 18 } }));
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const base2 = `http://127.0.0.1:${srv.address().port}`;
+    const secretKey = 'sk-super-secret-test-key';
+    try {
+      const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+      await withServer(dir, async ({ base, settingsPath }) => {
+        writeFileSync(settingsPath, JSON.stringify({ provider: 'openai', OPENAI_API_KEY: secretKey, OPENAI_BASE_URL: base2, model: 'gpt-recheck-test' }));
+        const res = await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) });
+        assert.equal(res.status, 200);
+        assert.equal(res.headers.get('x-llm-provider'), 'openai');
+        assert.equal(res.headers.get('x-llm-model'), 'gpt-recheck-test');
+        assert.equal(res.headers.get('x-llm-usage-input'), '210');
+        assert.equal(res.headers.get('x-llm-usage-output'), '18');
+        for (const [name, value] of res.headers.entries()) {
+          assert.ok(!value.includes(secretKey), `header ${name} must never leak the API key`);
+        }
+      });
+    } finally { await new Promise((r) => srv.close(r)); }
+  });
+});
+
+test('MS_DEBUG_LLM=1: chat SSE carries X-LLM-Provider/Model headers up front + a trailing usage event (fake pi: usage null, never faked)', async () => {
+  await withDebugLlm('1', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+    await withServer(dir, async ({ base, settingsPath }) => {
+      const piBin = join(dir, 'pi');
+      writeFileSync(piBin, '#!/bin/sh\necho "chat reply"\n');
+      chmodSync(piBin, 0o755);
+      writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin, model: 'pi-chat-test' }));
+      const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'debug flag check', instrument: INSTRUMENT, granularity: 'M5' }) });
+      assert.equal(res.status, 200);
+      assert.equal(res.headers.get('x-llm-provider'), 'pi');
+      assert.equal(res.headers.get('x-llm-model'), 'pi-chat-test');
+      for (const [name, value] of res.headers.entries()) {
+        assert.ok(!value.includes(piBin), `header ${name} must never leak local paths/secrets`);
+      }
+      const events = sseEvents(await res.text());
+      const usage = events.find((e) => e.type === 'usage');
+      assert.ok(usage, 'trailing usage SSE event present');
+      assert.equal(usage.provider, 'pi');
+      assert.equal(usage.model, 'pi-chat-test');
+      assert.equal(usage.inputTokens, null, 'pi has no structured usage — null, never faked');
+      assert.equal(usage.outputTokens, null);
+    });
+  });
+});
