@@ -68,6 +68,7 @@ test('replaySpec: deterministic (identical hash on re-run), trades fill via ATR 
   assert.equal(r1.trades[0].entryPrice, fixtureMarket()[31].open, 'fills at the NEXT bar open — live execution truth, no flip-close flattery');
   assert.equal(r1.trades[0].signalTime, t(30));
   assert.equal(r1.trades[0].entryTime, t(31));
+  assert.ok(r1.trades[0].bars >= 1, 'even an entry-bar exit occupies at least one bar of exposure');
   assert.equal(typeof r1.metrics.expectancyPct, 'number');
   const bad = replaySpec({ schema_version: 1, entry: { minAxesAligned: 1 }, exit: {} }, snaps, candles);
   assert.equal(bad.ok, false, 'invalid spec rejected, not silently replayed');

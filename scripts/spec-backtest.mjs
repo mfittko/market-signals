@@ -23,9 +23,9 @@ export function loadReplayData(dbPath, instrument, granularity) {
   });
 }
 
-// Simulate one trade from entry at the flip-bar close, walking forward bars:
-// gap-aware stop/target fills (same ordering semantics as the live bot) plus
-// an optional time-stop at the close of bar N.
+// Simulate one trade filled at the NEXT bar's open after the signal bar
+// (live-execution truth), walking forward: gap-aware stop/target fills (same
+// ordering semantics as the live bot) plus an optional time-stop.
 function simulateTrade(candles, signalIdx, dir, spec, atrSeries) {
   // Live execution truth: deliberation happens AFTER the flip candle closes,
   // so the fill is the NEXT bar's open — entering at the flip close would
@@ -78,7 +78,7 @@ export function replaySpec(spec, snapshots, candles, { exposureBase = null } = {
     const fill = simulateTrade(candles, entryIdx, dir, spec, atrSeries);
     if (!fill) continue;
     const retPct = (dir * (fill.exitPrice - fill.entryPrice) / fill.entryPrice) * 100;
-    trades.push({ signalTime: s.time, entryTime: candles[fill.entryIdx].time, entryPrice: round(fill.entryPrice), exitTime: candles[fill.exitIdx].time, dir, retPct: round(retPct), reason: fill.reason, bars: fill.exitIdx - fill.entryIdx });
+    trades.push({ signalTime: s.time, entryTime: candles[fill.entryIdx].time, entryPrice: round(fill.entryPrice), exitTime: candles[fill.exitIdx].time, dir, retPct: round(retPct), reason: fill.reason, bars: Math.max(1, fill.exitIdx - fill.entryIdx) });
     openUntil = fill.exitIdx;
   }
   const rets = trades.map((t) => t.retPct);
