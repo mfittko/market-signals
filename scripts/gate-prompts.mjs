@@ -25,13 +25,25 @@ const DDL = `CREATE TABLE IF NOT EXISTS gate_prompts (
 // reject every 'recheck' draft. Guarded one-time rebuild (rename, recreate
 // with the current DDL, copy rows, drop) — a no-op once migrated, since the
 // stored CREATE TABLE sql then already contains 'recheck'.
-function migrateCheckConstraint(db) {
+// exported for the transactional-rollback test only (forces a mid-rebuild
+// failure via a monkeypatched db.exec)
+export function migrateCheckConstraint(db) {
   const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='gate_prompts'").get();
   if (row?.sql && !row.sql.includes("'recheck'")) {
-    db.exec('ALTER TABLE gate_prompts RENAME TO gate_prompts_pre70');
-    db.exec(DDL);
-    db.exec('INSERT INTO gate_prompts SELECT * FROM gate_prompts_pre70');
-    db.exec('DROP TABLE gate_prompts_pre70');
+    // Transactional (SQLite DDL is transactional): a crash mid-rebuild must
+    // never leave gate_prompts_pre70 lingering (the guard above would then
+    // see the ALREADY-RENAMED table as "no gate_prompts", not a migrated one).
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('ALTER TABLE gate_prompts RENAME TO gate_prompts_pre70');
+      db.exec(DDL);
+      db.exec('INSERT INTO gate_prompts SELECT * FROM gate_prompts_pre70');
+      db.exec('DROP TABLE gate_prompts_pre70');
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
   }
 }
 

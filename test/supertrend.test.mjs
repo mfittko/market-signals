@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -66,6 +66,30 @@ test('storeCandles upserts idempotently', () => {
   assert.equal(first.totalRows, candles.length);
   assert.equal(again.totalRows, candles.length, 'no duplicates on re-run');
   rmSync(dbPath, { force: true });
+});
+
+// --- excursionSince (#70): direction-adjusted current/best/worst since a signal ---
+test('excursionSince: direction-adjusted current/best/worst move since entry, for both buy and sell', () => {
+  const entryPrice = 100;
+  const candlesSince = [{ close: 102 }, { close: 95 }, { close: 108 }, { close: 101 }];
+  const buy = excursionSince(1, entryPrice, candlesSince);
+  assert.deepEqual(buy, { currentPct: 1, maxFavorablePct: 8, maxAdversePct: -5 });
+  const sell = excursionSince(-1, entryPrice, candlesSince);
+  assert.deepEqual(sell, { currentPct: -1, maxFavorablePct: 5, maxAdversePct: -8 });
+  assert.equal(excursionSince(1, 0, candlesSince), null, 'no entry price: no excursion');
+  assert.equal(excursionSince(1, entryPrice, []), null, 'no candles since: no excursion');
+});
+
+test('excursionSince: a very large candlesSince array computes without throwing (Math.max/min(...array) would stack-overflow on this size)', () => {
+  const entryPrice = 100;
+  const n = 200000;
+  const candlesSince = Array.from({ length: n }, (_, i) => ({ close: 100 + (i % 1000) - 500 }));
+  const result = excursionSince(1, entryPrice, candlesSince);
+  assert.ok(Number.isFinite(result.currentPct));
+  assert.ok(Number.isFinite(result.maxFavorablePct));
+  assert.ok(Number.isFinite(result.maxAdversePct));
+  assert.equal(result.maxFavorablePct, 499, 'best move: close hits 100+499');
+  assert.equal(result.maxAdversePct, -500, 'worst move: close hits 100-500');
 });
 
 test('--help exits 0 with usage, no network, no db writes', () => {
@@ -283,6 +307,65 @@ test('resolveRecheckSystem falls back to the builtin prompt when gate-prompt res
   const r = await resolveRecheckSystem('/nonexistent-dir/nope/db.sqlite');
   assert.equal(r.promptVersion, 'builtin');
   assert.equal(r.system, RECHECK_RULES + RECHECK_SCHEMA_SUFFIX, 'fallback is byte-identical to the shipped constant');
+});
+
+test('recheckSignal (#70): a verdict with a missing/non-string reason is rejected, never persisted as null/undefined', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  // valid verdict, but reason is missing entirely — the provider-schema mode
+  // constrains type shape, not content, so this can come back from a real LLM.
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  await assert.rejects(() => recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow), /invalid recheck verdict/);
+  assert.equal(latestRecheck(dbPath, 'WTICO/USD', 'M5', sig.time), null, 'a rejected verdict is never persisted');
+});
+
+test('recheckSignal (#70): a verdict with a non-string reason is rejected the same way', async () => {
+  const { recheckSignal, signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid", "reason": null}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  await assert.rejects(() => recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow), /invalid recheck verdict/);
+  assert.equal(latestRecheck(dbPath, 'WTICO/USD', 'M5', sig.time), null, 'a rejected verdict is never persisted');
+});
+
+test('recheckSignal (#70): a long reason is capped to the schema-advertised 90 chars, never stored raw', async () => {
+  const { recheckSignal } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const longReason = 'x'.repeat(300);
+  const piBin = fakeBin(dir, 'pi', `echo '{"verdict": "valid", "reason": "${longReason}"}'`);
+  writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = candles[30];
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: sig.time, signal: 'buy', price: sig.close }, 60);
+  const { signalOutcomes: outcomes } = await import('../scripts/supertrend.mjs');
+  const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
+
+  const result = await recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow);
+  assert.equal(result.reason.length, 90, 'reason capped to the schema-advertised max');
 });
 
 test('recheckSignal (#70) throws when no LLM provider is configured — caller (the HTTP route) turns this into a visible error, never a crash', async () => {

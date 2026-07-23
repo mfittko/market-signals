@@ -437,18 +437,30 @@ async function llmVerdict(settings, payload, system) {
   return JSON.parse(m[0]);
 }
 
+// Schema mode constrains type shape, not content — a provider can still return
+// a non-string/empty reason. Normalize (never persist null/undefined as the
+// UI's re-check reason line) and reject anything that isn't a valid verdict,
+// same "trust nothing past the wire" stance as the pi regex fallback below.
+function normalizeRecheckVerdict(v) {
+  if (!RECHECK_VERDICTS.includes(v?.verdict)) return null;
+  const reason = typeof v.reason === 'string' ? v.reason.trim().slice(0, 90) : '';
+  if (!reason) return null;
+  return { verdict: v.verdict, reason };
+}
+
 async function llmRecheckVerdict(settings, payload, system) {
   const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
-  const valid = (v) => RECHECK_VERDICTS.includes(v?.verdict);
   try {
     const whole = JSON.parse(out);
-    if (valid(whole)) return whole;
+    const norm = normalizeRecheckVerdict(whole);
+    if (norm) return norm;
   } catch { /* fall through to the pi regex fallback */ }
   const m = out.match(/\{[^{}]*"verdict"[^{}]*\}/);
   if (!m) throw new Error('no recheck verdict JSON in provider output');
   const parsed = JSON.parse(m[0]);
-  if (!valid(parsed)) throw new Error(`invalid recheck verdict "${parsed.verdict}"`);
-  return parsed;
+  const norm = normalizeRecheckVerdict(parsed);
+  if (!norm) throw new Error(`invalid recheck verdict "${parsed.verdict}"${parsed.reason == null ? ' (missing reason)' : ''}`);
+  return norm;
 }
 
 export function readSettings(settingsPath) {
@@ -646,13 +658,23 @@ export async function processSignal(opts, result, candles) {
 // (not a fixed 30-min horizon like signalOutcomes): current/best/worst move
 // since entry, as a percent of entry price — the "everything since" half of
 // the re-check's context.
-function excursionSince(dir, entryPrice, candlesSince) {
+// Single pass (not Math.max/min(...array)): a long-lived signal can have tens
+// of thousands of candles since, and spreading that many args into Math.max
+// throws "Maximum call stack size exceeded".
+export function excursionSince(dir, entryPrice, candlesSince) {
   if (!entryPrice || !candlesSince.length) return null;
-  const adjPct = candlesSince.map((c) => (dir * (c.close - entryPrice)) / entryPrice * 100);
+  let current = NaN;
+  let maxFavorable = -Infinity;
+  let maxAdverse = Infinity;
+  for (const c of candlesSince) {
+    current = (dir * (c.close - entryPrice)) / entryPrice * 100;
+    if (current > maxFavorable) maxFavorable = current;
+    if (current < maxAdverse) maxAdverse = current;
+  }
   return {
-    currentPct: round4(adjPct[adjPct.length - 1]),
-    maxFavorablePct: round4(Math.max(...adjPct)),
-    maxAdversePct: round4(Math.min(...adjPct)),
+    currentPct: round4(current),
+    maxFavorablePct: round4(maxFavorable),
+    maxAdversePct: round4(maxAdverse),
   };
 }
 const round4 = (v) => Number(v.toFixed(4));

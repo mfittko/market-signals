@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   saveGatePrompt, listGatePrompts, activateGatePrompt, deactivateGatePrompt, activeGatePrompt,
+  migrateCheckConstraint,
 } from '../scripts/gate-prompts.mjs';
 import { withDb } from '../scripts/supertrend.mjs';
 
@@ -109,4 +110,50 @@ test('gate_prompts CHECK-constraint migration (#70): a pre-#70 db (CHECK gate IN
   const preexisting = rows.find((r) => r.gate === 'filter');
   assert.equal(preexisting.prompt, RULES, 'pre-existing row content untouched');
   assert.equal(preexisting.active, 1, 'pre-existing active flag preserved across the rebuild');
+});
+
+test('migrateCheckConstraint (#70): a forced mid-rebuild failure rolls back cleanly — no stray gate_prompts_pre70, original CHECK and rows intact', () => {
+  const dbPath = fresh();
+  withDb(dbPath, (db) => {
+    db.exec(`CREATE TABLE gate_prompts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gate TEXT NOT NULL CHECK (gate IN ('filter')),
+      version INTEGER NOT NULL,
+      prompt TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (gate, version)
+    )`);
+    db.prepare(`INSERT INTO gate_prompts (gate, version, prompt, created_by, created_at, active)
+      VALUES ('filter', 1, ?, 'manual', '2020-01-01T00:00:00Z', 1)`).run(RULES);
+
+    // Simulate a crash right after the rename but before the rebuild completes.
+    const realExec = db.exec.bind(db);
+    let calls = 0;
+    db.exec = (sql) => {
+      calls += 1;
+      if (calls === 3) throw new Error('forced failure mid-rebuild');
+      return realExec(sql);
+    };
+    try {
+      assert.throws(() => migrateCheckConstraint(db), /forced failure mid-rebuild/);
+    } finally {
+      db.exec = realExec;
+    }
+
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='gate_prompts'").get();
+    assert.ok(row?.sql.includes("CHECK (gate IN ('filter'))"), 'original (narrower) CHECK constraint is back after rollback');
+    const stray = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='gate_prompts_pre70'").get();
+    assert.equal(stray, undefined, 'no gate_prompts_pre70 left lingering');
+    const rows = db.prepare('SELECT * FROM gate_prompts').all();
+    assert.equal(rows.length, 1, 'the pre-existing row survived the rollback');
+    assert.equal(rows[0].prompt, RULES);
+
+    // A retry (no monkeypatch this time) still succeeds — rollback left the db
+    // in the exact pre-migration state, not some half-migrated variant.
+    migrateCheckConstraint(db);
+    const after = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='gate_prompts'").get();
+    assert.ok(after.sql.includes("'recheck'"), 'a clean retry after rollback completes the migration');
+  });
 });
