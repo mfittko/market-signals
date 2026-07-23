@@ -1409,7 +1409,7 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   el.innerHTML =
     '<label for="bmStratSel" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="bmStratSel"><option value="">— none —</option>' +
     // an assigned name whose rows are all archived has no option of its own; show it
-    // disabled so the select still reflects `editing` and '— none —' stays a real change
+    // disabled so the select still mirrors the preview and none stays a real change
     (editing && !assignable.includes(editing) ? '<option value="' + esc(editing) + '" selected disabled>' + esc(editing) + ' — archived</option>' : '') +
     assignable.map((n) => {
       const av = activeVersionOf(n);
