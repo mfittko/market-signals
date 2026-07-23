@@ -46,7 +46,9 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings plumbi
     for (const id of ['pfdlg', 'botdlg', 'cfgdlg']) {
       const start = page.indexOf('<dialog id="' + id + '"');
       assert.ok(start >= 0, id + ' dialog exists');
-      const dlg = page.slice(start, page.indexOf('</dialog>', start));
+      const end = page.indexOf('</dialog>', start);
+      assert.ok(end > start, id + ' dialog is closed');
+      const dlg = page.slice(start, end);
       assert.ok(dlg.includes('class="dlg-x"'), id + ' has a top-right X');
       assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
