@@ -1043,6 +1043,7 @@ const PAGE = /* html */ `<!doctype html>
   .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
   /* one control height everywhere interactive chrome lives (#56) */
   #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
+  dialog textarea { box-sizing: border-box; }
   input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
@@ -1398,7 +1399,9 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   const names = [...byName.keys()];
   const assignable = showAll ? names : names.filter((n) => !mismatched(n));
   const current = entry.strategyName || '';
-  const editing = el.dataset.editing || current || '';
+  // an explicit '— none —' preview is an empty STRING, not 'unset' — falling back to
+  // current here made detaching a strategy impossible from the modal
+  const editing = 'editing' in el.dataset ? el.dataset.editing : current;
   const editRows = editing && byName.has(editing) ? byName.get(editing) : [];
   const editActiveRow = editRows.find((r) => r.active) || editRows[0] || null;
   let editFull = null;
@@ -1408,7 +1411,7 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     assignable.map((n) => {
       const av = activeVersionOf(n);
       const label = n + (av ? ' (active v' + av.version + ')' : ' — draft, no active version') + (mismatched(n) ? ' ⚠' : '');
-      return '<option value="' + esc(n) + '"' + (n === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+      return '<option value="' + esc(n) + '"' + (n === editing ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('') + '</select> ' +
     '<button type="button" id="bmAssignBtn"' + (editing === current ? ' disabled' : '') + '>+ assign</button>' +
     '<label><input type="checkbox" id="bmShowAll"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +

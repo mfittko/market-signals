@@ -867,6 +867,8 @@ test('strategy select (UI review finding 2) only previews on change — no write
     // the explicit, reachable single write path for select-driven assignment
     assert.match(html, /id="bmAssignBtn"/, 'explicit assign button present');
     assert.match(html, /getElementById\('bmAssignBtn'\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
+    assert.match(html, /n === editing \? ' selected' : ''/, 'the select shows the PREVIEWED name, i.e. exactly what + assign would write');
+    assert.match(html, /'editing' in el\.dataset \? el\.dataset\.editing : current/, "an explicit '— none —' preview stays representable so a strategy can be detached");
     assert.equal((html.match(/activation failed/g) || []).length, 2, 'both activation call sites surface a failed activation instead of assigning anyway');
     assert.match(html, /if \(!r\.ok\) \{ document\.getElementById\('bmEditErr'\)\.textContent = r\.error \|\| 'activation failed'; return; \}/, 'per-version activate checks the response before assigning');
   });
