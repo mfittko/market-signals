@@ -54,10 +54,19 @@ export function migrateNewsUniqueKey(db) {
   }
 }
 
+// The migration scan is idempotent but not free, and refreshNewsCache opens the
+// DB per write on the watcher tick — run the heavy check once per db per process.
+const migrated = new Set();
+
 function newsDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
+    // CREATE IF NOT EXISTS is cheap and must run on every fresh connection
+    // (:memory:, a recreated file); only the migrate scan is cached away.
     db.exec(NEWS_DDL);
-    migrateNewsUniqueKey(db);
+    if (!migrated.has(dbPath)) {
+      migrateNewsUniqueKey(db);
+      migrated.add(dbPath);
+    }
     return fn(db);
   });
 }
