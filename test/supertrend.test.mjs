@@ -252,9 +252,10 @@ test('refreshHtfCache: fresh granularity skipped, stale one fetched', async () =
   const dir = mkdtempSync(join(tmpdir(), 'htf-'));
   const dbPath = htfDb(dir);
   const now = Date.now();
-  seedBar(dbPath, 'WTICO/USD', 'M15', new Date(now - 5 * 60000).toISOString()); // fresh (< 15*1.5min)
-  seedBar(dbPath, 'WTICO/USD', 'H1', new Date(now - 3 * 3600000).toISOString()); // stale (> 1.5h)
-  // M30 and H4 have no cached bars at all -> also due.
+  seedBar(dbPath, 'WTICO/USD', 'M15', new Date(now - 5 * 60000).toISOString()); // fresh (5min < 15*2)
+  seedBar(dbPath, 'WTICO/USD', 'M30', new Date(now - 45 * 60000).toISOString()); // fresh (45min < 30*2), the boundary case that 1.5x would have wrongly refetched
+  seedBar(dbPath, 'WTICO/USD', 'H1', new Date(now - 3 * 3600000).toISOString()); // stale (3h > 2h)
+  // H4 has no cached bar at all -> also due.
   const calls = [];
   const fetcher = async ({ instrument, granularity }) => {
     calls.push(`${instrument}|${granularity}`);
@@ -263,8 +264,8 @@ test('refreshHtfCache: fresh granularity skipped, stale one fetched', async () =
   const { refreshed, skipped } = await refreshHtfCache(dbPath, [{ instrument: 'WTICO/USD', granularity: 'M5' }], {}, { fetcher, now });
   assert.equal(skipped.length, 0);
   assert.ok(!calls.includes('WTICO/USD|M15'), 'fresh M15 was not fetched');
+  assert.ok(!calls.includes('WTICO/USD|M30'), 'M30 at 45min (1.5x boundary) is fresh at 2x — not refetched before its next bar completes');
   assert.ok(calls.includes('WTICO/USD|H1'), 'stale H1 was fetched');
-  assert.ok(calls.includes('WTICO/USD|M30'), 'uncached M30 was fetched');
   assert.ok(calls.includes('WTICO/USD|H4'), 'uncached H4 was fetched');
   assert.deepEqual(refreshed.map((c) => `${c.instrument}|${c.granularity}`).sort(), calls.sort());
 });

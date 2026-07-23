@@ -769,7 +769,10 @@ export function parseWatchers(cfg, fallback) {
 // tick, walk a fixed ladder per tracked instrument and top up only what's
 // actually stale — cache-only, no signal evaluation, no notifications.
 const HTF_LADDER = ['M15', 'M30', 'H1', 'H4'];
-const HTF_STALE_GRACE = 1.5; // refetch once a cached bar is this many bar-durations old
+// candle `time` is the bar OPEN (see resampleCandles), so the next COMPLETED bar
+// only exists 2 durations after the current newest open — refetch then, not at 1.5
+// (which would fetch every tick for half a bar with nothing new to store)
+const HTF_STALE_GRACE = 2;
 const HTF_FETCH_CAP = 6; // bound fan-out after a long downtime instead of catching up unboundedly in one tick
 
 // Tracked = watched combos ∪ configured bot combos, regardless of enabled
