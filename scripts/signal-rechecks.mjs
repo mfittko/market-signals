@@ -24,12 +24,20 @@ function rdb(dbPath, fn) {
   });
 }
 
+const RECHECK_VERDICTS = ['valid', 'played-out', 'invalidated'];
+
 export function recordRecheck(dbPath, { signalTime, instrument, granularity, at, verdict, reason = null, promptVersion = null } = {}) {
+  // guard the row shape here too, not only at the LLM-parse site: a null/empty
+  // reason or unknown verdict must never reach signal_rechecks from any caller
+  if (!RECHECK_VERDICTS.includes(verdict)) throw new Error(`recordRecheck: invalid verdict ${JSON.stringify(verdict)}`);
+  const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+  if (!cleanReason) throw new Error('recordRecheck: reason is required');
+  if (!signalTime || !instrument || !granularity || !at) throw new Error('recordRecheck: signalTime/instrument/granularity/at are required');
   return rdb(dbPath, (db) => {
     const id = db.prepare(`INSERT INTO signal_rechecks (signal_time, instrument, granularity, at, verdict, reason, prompt_version)
       VALUES (?,?,?,?,?,?,?)`)
-      .run(signalTime, instrument, granularity, at, verdict, reason, promptVersion == null ? null : String(promptVersion)).lastInsertRowid;
-    return { id: Number(id), signalTime, instrument, granularity, at, verdict, reason, promptVersion };
+      .run(signalTime, instrument, granularity, at, verdict, cleanReason, promptVersion == null ? null : String(promptVersion)).lastInsertRowid;
+    return { id: Number(id), signalTime, instrument, granularity, at, verdict, reason: cleanReason, promptVersion };
   });
 }
 

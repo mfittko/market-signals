@@ -539,3 +539,16 @@ test('OPENAI_BASE_URL drives the request URL and the model passes through unchan
       /OPENAI_API_KEY is not set/, 'missing key fails fast with a clear message');
   } finally { await new Promise((r) => srv.close(r)); }
 });
+
+
+test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) from any caller (#70)', async () => {
+  const { recordRecheck } = await import('../scripts/signal-rechecks.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'rc-'));
+  const db = join(dir, 'db.sqlite');
+  const base = { signalTime: '2026-07-23T10:00:00Z', instrument: 'WTICO/USD', granularity: 'M5', at: '2026-07-23T10:05:00Z' };
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'maybe', reason: 'x' }), /invalid verdict/);
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'valid', reason: '   ' }), /reason is required/);
+  assert.throws(() => recordRecheck(db, { ...base, verdict: 'valid' }), /reason is required/);
+  const ok = recordRecheck(db, { ...base, verdict: 'valid', reason: '  still holds  ' });
+  assert.equal(ok.reason, 'still holds', 'reason is trimmed before persist');
+});
