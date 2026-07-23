@@ -890,6 +890,7 @@ const PAGE = /* html */ `<!doctype html>
      positioning context whether the toggle is on or off (no reflow on toggle). */
   [data-info] { position: relative; }
   body.info-on [data-info]:not(button):not(label):not(select):not(input) { cursor: help; }
+  @media (hover: hover) {
   body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
     content: attr(data-info); position: absolute; left: 0; top: 100%; margin-top: 4px;
     background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 6px 9px;
@@ -897,7 +898,8 @@ const PAGE = /* html */ `<!doctype html>
     z-index: 5; color: #e6edf3; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
     pointer-events: none;
   }
-  @media (max-width: 480px) {
+  }
+  @media (hover: hover) and (max-width: 480px) {
     body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
       max-width: calc(100vw - 32px);
     }
@@ -1036,7 +1038,7 @@ const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWA
 function indBar(d) {
   const on = new Set(d.activeInd || []);
   document.getElementById('indbar').innerHTML = 'indicators: ' + INDICATORS.map(([k, label]) =>
-    '<label data-info="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
+    '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
   document.getElementById('indbar').onchange = async () => {
     const next = [...document.querySelectorAll('#indbar input:checked')].map(el => el.dataset.ind);
     // persisted globally (#49): every view opens with this selection
