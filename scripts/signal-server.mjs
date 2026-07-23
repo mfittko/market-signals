@@ -78,7 +78,7 @@ export function writeSettings(settingsPath, patch) {
     if (patch.bot.leverage !== undefined && patch.bot.leverage !== null) {
       if (typeof patch.bot.leverage !== 'object' || Array.isArray(patch.bot.leverage)) throw new Error('bot.leverage must be an object keyed by instrument');
       for (const [li, lv] of Object.entries(patch.bot.leverage)) {
-        if (!/^[A-Za-z0-9/ _-]{3,20}$/.test(li)) throw new Error(`bot.leverage key '${li}' must be an instrument symbol`);
+        if (['__proto__', 'constructor', 'prototype'].includes(li) || !/^[A-Za-z0-9][A-Za-z0-9/ _-]{2,19}$/.test(li)) throw new Error(`bot.leverage key '${li}' must be an instrument symbol`);
         if (lv !== null && (!Number.isFinite(lv) || lv <= 0)) throw new Error(`bot.leverage['${li}'] must be a positive number`);
       }
     }
