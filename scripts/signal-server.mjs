@@ -193,8 +193,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
       else if (name === 'vwap') ind.vwap = vwap(candles);
     }
     out.indicators = ind;
-    out.axisGate = axisSnapshot(candles, { instrument, granularity }) ?? null;
   }
+  // the axis-gate chips are core context, independent of display toggles
+  out.axisGate = axisSnapshot(candles, { instrument, granularity }) ?? null;
   return out;
 }
 

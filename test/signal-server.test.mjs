@@ -701,6 +701,7 @@ test('chart ind= param serves display series + state axis gate; chat context car
     assert.ok(d.axisGate === null || d.axisGate.axes.trendStrength !== undefined, 'axis gate attached (state-only) when indicators requested');
     const plain = await (await fetch(base + '/api/chart')).json();
     assert.equal(plain.indicators, undefined, 'no ind param → no indicator payload');
+    assert.ok(plain.axisGate === null || plain.axisGate.axes, 'axis gate always attached, independent of display toggles');
   });
 });
 
