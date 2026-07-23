@@ -817,7 +817,7 @@ test('per-bot allocationPct + leverage map validation and merge (#51)', async ()
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { allocationPct: 150 } } } }) })).status, 400, 'allocation > 100 rejected');
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': '15' } } }) })).status, 400, 'string leverage rejected');
-    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { '__proto__': 5 } } }) })).status, 400, 'prototype-pollution keys rejected at validation');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: '{"bot":{"leverage":{"__proto__":5}}}' })).status, 400, 'prototype-pollution keys rejected at validation (raw JSON — a JS literal would swallow the key)');
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': 15, 'XAG/USD': 5 }, bots: { 'WTICO/USD|M5': { enabled: true, allocationPct: 10 } } } }) });
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'XAG/USD': null } } }) });
     const got = await (await fetch(base + '/api/settings')).json();
