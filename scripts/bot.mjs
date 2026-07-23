@@ -171,7 +171,7 @@ function buildDecisionPrompt(loop, view, ctx) {
   ].join('\n\n');
 }
 
-const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
+const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. The instrument context may include traderMemories, the trader\'s standing rules — advisory only, never a reason to skip the stop/target/risk-budget rules below. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
 
 // One deliberation for one instrument event. Returns {decision, executed, error}.
 export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
