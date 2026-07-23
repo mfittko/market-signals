@@ -112,12 +112,40 @@ const VERDICT_SCHEMA = {
 // agent (its own provider/key config applies); else by which API key is present
 // (ANTHROPIC wins if both).
 // Single source of provider precedence: explicit pi/none, else key-based.
+// The one allow-list: resolution here and the settings write-validation in
+// signal-server.mjs both consume this (drift between them would let a stored
+// provider bypass explicit resolution).
+export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai'];
+
 export function resolveProvider(settings) {
-  if (settings.provider === 'pi') return 'pi';
-  if (settings.provider === 'none') return 'none';
+  // explicit-first (#42): the provider is a deliberate choice; the key-derived
+  // fallback exists only for legacy settings written before providers were
+  // explicit (the UI pre-selects the resolved value and persists it on save)
+  if (PROVIDERS.includes(settings.provider)) return settings.provider;
   if (settings.ANTHROPIC_API_KEY) return 'anthropic';
   if (settings.OPENAI_API_KEY) return 'openai';
   return 'none';
+}
+
+// The ONE OpenAI-compatible endpoint resolution (#42): a configured base URL
+// points every OpenAI-path request (chat, filter, bot, judge, tool loop) at an
+// API-compatible server; the model id passes through unchanged.
+export function openaiEndpoint(settings) {
+  // tolerate the common SDK convention of a base URL already ending in /v1
+  const base = (settings.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '').replace(/\/v1$/, '');
+  return `${base}/v1/chat/completions`;
+}
+
+// provider=openai without a key would send "Bearer undefined" and die with an
+// opaque upstream error — fail fast with a message that names the fix
+function requireAnthropicKey(settings) {
+  if (!settings.ANTHROPIC_API_KEY) throw new Error('provider "anthropic" selected but ANTHROPIC_API_KEY is not set');
+  return settings.ANTHROPIC_API_KEY;
+}
+
+function requireOpenAiKey(settings) {
+  if (!settings.OPENAI_API_KEY) throw new Error('provider "openai" selected but OPENAI_API_KEY is not set');
+  return settings.OPENAI_API_KEY;
 }
 
 // Streaming SSE reader shared by both API providers: calls extract(json) per
@@ -198,7 +226,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: { 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -223,9 +251,9 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (temperature != null) body.temperature = temperature;
     if (schema) body.response_format = { type: 'json_object' };
     if (stream) body.stream = true;
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -250,7 +278,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
   for (let round = 0; round < 8; round++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': settings.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: { 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model: settings.model || 'claude-opus-4-8', max_tokens: maxTokens, system, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -285,9 +313,9 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
   for (let round = 0; round < 8; round++) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });

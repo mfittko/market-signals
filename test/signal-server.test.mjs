@@ -427,7 +427,7 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
     assert.ok(html.includes('threadSel') && html.includes('delThread'), 'timestamped thread select + delete-after-selection');
     assert.ok(html.includes('function md('), 'markdown renderer for assistant messages');
-    assert.ok(html.includes('auto (use API keys)'), 'provider select explains auto mode');
+    assert.ok(html.includes('openai (compatible via base URL)'), 'provider select is explicit (pi/anthropic/openai/none)');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
   });
@@ -829,5 +829,21 @@ test('per-bot allocationPct + leverage map validation and merge (#51)', async ()
     const row = bots.bots.find((b) => b.combo === 'WTICO/USD|M5');
     assert.equal(row.allocationPct, 10);
     assert.equal(row.leverage, 15, 'effective leverage exposed per bot');
+  });
+});
+
+test('settings: OPENAI_BASE_URL whitelisted + URL-validated; provider select is explicit-only (#42)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'not a url' }) })).status, 400);
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'ftp://x.example' }) })).status, 400, 'non-http(s) rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ provider: 'auto' }) })).status, 400, 'invalid provider strings rejected — no auto reintroduction');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'https://host.example?x=1' }) })).status, 400, 'query strings rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'https://user:pass@host.example' }) })).status, 400, 'embedded credentials rejected — the field is unmasked');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'http://localhost:9999' }) });
+    const got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.OPENAI_BASE_URL, 'http://localhost:9999', 'stored unmasked (not a secret)');
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(!html.includes('auto (use API keys)'), 'auto option gone — providers are explicit');
+    assert.ok(html.includes('openai (compatible via base URL)'), 'openai option present');
   });
 });

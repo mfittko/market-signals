@@ -156,3 +156,49 @@ test('parseWatchers: CSV combos with default granularity, falls back to single',
   ]);
   assert.deepEqual(parseWatchers({}, { instrument: 'WTICO/USD', granularity: 'M5' }), [{ instrument: 'WTICO/USD', granularity: 'M5' }]);
 });
+
+test('openaiEndpoint + explicit provider resolution (#42)', async () => {
+  const { openaiEndpoint, resolveProvider } = await import('../scripts/supertrend.mjs');
+  assert.equal(openaiEndpoint({}), 'https://api.openai.com/v1/chat/completions', 'default unchanged when unset');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/' }), 'http://localhost:8080/v1/chat/completions', 'trailing slash normalized');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1' }), 'http://localhost:8080/v1/chat/completions', 'base URLs already ending in /v1 do not double the segment');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1/' }), 'http://localhost:8080/v1/chat/completions');
+  assert.equal(resolveProvider({ provider: 'openai', ANTHROPIC_API_KEY: 'x' }), 'openai', 'explicit choice beats key-derived resolution');
+  assert.equal(resolveProvider({ provider: 'anthropic' }), 'anthropic');
+  assert.equal(resolveProvider({ ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'y' }), 'anthropic', 'legacy empty provider keeps key-derived behavior');
+  assert.equal(resolveProvider({}), 'none');
+});
+
+test('explicit anthropic provider without ANTHROPIC_API_KEY fails fast (no x-api-key: undefined) (#42)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  await assert.rejects(
+    llmRequest({ provider: 'anthropic' }, 'sys', 'user'),
+    /ANTHROPIC_API_KEY is not set/,
+  );
+});
+
+test('OPENAI_BASE_URL drives the request URL and the model passes through unchanged (#42)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const { createServer } = await import('node:http');
+  const hits = [];
+  const srv = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      hits.push({ url: req.url, model: JSON.parse(body).model });
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { content: 'ok-from-compatible' } }] }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const out = await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'llama-3.3-70b-local' }, 'sys', 'user', { timeoutMs: 10000 });
+    assert.equal(out, 'ok-from-compatible');
+    assert.equal(hits[0].url, '/v1/chat/completions', 'compatible endpoint hit');
+    assert.equal(hits[0].model, 'llama-3.3-70b-local', 'non-OpenAI model id passes through unchanged');
+    await assert.rejects(
+      () => llmRequest({ provider: 'openai', OPENAI_BASE_URL: base, model: 'x' }, 'sys', 'user', { timeoutMs: 5000 }),
+      /OPENAI_API_KEY is not set/, 'missing key fails fast with a clear message');
+  } finally { await new Promise((r) => srv.close(r)); }
+});
