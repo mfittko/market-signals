@@ -110,6 +110,7 @@ export function writeSettings(settingsPath, patch) {
     try { u = new URL(patch.OPENAI_BASE_URL); } catch { throw new Error('OPENAI_BASE_URL must be a valid URL'); }
     if (!['http:', 'https:'].includes(u.protocol)) throw new Error('OPENAI_BASE_URL must be http(s)');
     if (u.search || u.hash) throw new Error('OPENAI_BASE_URL must not carry a query string or fragment');
+    if (u.username || u.password) throw new Error('OPENAI_BASE_URL must not embed credentials (it is stored and displayed unmasked)');
   }
   const current = readSettings(settingsPath);
   const next = { ...current };
