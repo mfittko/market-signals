@@ -1161,6 +1161,13 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
     assert.ok(src, 'INFO map block extracted from the served page');
     assert.match(src[0], /botDecision:/, 'INFO map explains the inline bot decision annotation');
     assert.match(html, /botDecision\.reasoning/, 'verdict row renders the escaped bot annotation');
+    assert.match(html, /class="botnote"/, 'bot note is its own dimmed line, not an inline fragment (#78)');
+    assert.ok(!/reasoning\s*\.\s*slice\s*\(/.test(html), 'reasoning is no longer truncated at all (#78)');
+    // pin the LOGIC that applies the class, not just the class name existing in CSS
+    assert.match(html, /action\s*===\s*'hold'/, 'overruled state derives from a hold decision (#78)');
+    assert.match(html, /overruled\s*\?\s*'overruled'\s*:/, 'the side label picks overruled over buy/sell (#78)');
+    assert.equal((html.match(/overruled\s*\?\s*'overruled'\s*:/g) || []).length, 2, 'both the verdict row and history rows grey an overruled signal');
+    assert.match(html, /\.overruled \{ color: #8b949e; \}/, 'overruled styling present');
     assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
 
     const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString();
