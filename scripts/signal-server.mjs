@@ -265,6 +265,43 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   return out;
 }
 
+// Bot decisions for the chart's inline annotation (#73): journal 'decision'
+// rows carry {instrument,granularity,decision:{action,reasoning}} in context
+// and an `at` timestamp shortly AFTER the triggering signal's candle. Matched
+// by combo + at falling within [signal time, signal time + 2x candle] — no
+// client-side joins, bounded to the last ~50 decisions for this combo.
+function recentBotDecisions(dbPath, instrument, granularity) {
+  const rows = withDb(dbPath, (db) => {
+    try {
+      // both keys in the LIKE prefilter so the LIMIT counts rows of THIS combo —
+      // limiting before the granularity filter could starve M5 under M1 noise
+      return db.prepare("SELECT at, context FROM bot_journal WHERE action='decision' AND context LIKE ? AND context LIKE ? ORDER BY id DESC LIMIT 50")
+        .all(`%"instrument":"${instrument}"%`, `%"granularity":"${granularity}"%`);
+    } catch (err) {
+      if (/no such table/i.test(String(err.message))) return [];
+      throw err;
+    }
+  });
+  const out = [];
+  for (const r of rows) {
+    let ctx;
+    try { ctx = JSON.parse(r.context); } catch { continue; }
+    // exact-match BOTH keys — the LIKE prefilter is an index hint, not the contract
+    if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || !ctx?.decision?.action) continue;
+    // full reasoning travels (it backs the hover title); the client truncates the inline fragment
+    out.push({ at: r.at, action: ctx.decision.action, reasoning: String(ctx.decision.reasoning ?? '') });
+  }
+  return out;
+}
+
+// Newest decision (rows are id-DESC, so the first match wins) whose `at`
+// lands in the signal's candle window.
+function matchBotDecision(decisions, signalTime, candleMs) {
+  const sigMs = Date.parse(signalTime);
+  const d = decisions.find((x) => { const at = Date.parse(x.at); return at >= sigMs && at <= sigMs + 2 * candleMs; });
+  return d ? { action: d.action, reasoning: d.reasoning, at: d.at } : null;
+}
+
 const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,
@@ -573,6 +610,20 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           halted: pfB.halted,
           openPosition: pos ? { side: pos.side, unrealized: Math.round(pos.unrealized * 100) / 100 } : null,
         };
+        if (botFor.configured) {
+          const decisions = recentBotDecisions(dbPath, instrument, granularity);
+          const candleMs = granularityMs(granularity);
+          if (data.signal) {
+            const m = matchBotDecision(decisions, data.signal.time, candleMs);
+            if (m) data.botDecision = m;
+          }
+          const botDecisions = {};
+          for (const s of data.signals) {
+            const m = matchBotDecision(decisions, s.time, candleMs);
+            if (m) botDecisions[s.time] = m;
+          }
+          if (Object.keys(botDecisions).length) data.botDecisions = botDecisions;
+        }
         const configured = (cfg.instruments ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.instruments = configured.length ? configured : DEFAULT_INSTRUMENTS;
         if (!data.instruments.includes(instrument)) data.instruments = [instrument, ...data.instruments];
@@ -1069,6 +1120,7 @@ const INFO = {
   strategyActivate: 'Assign a saved strategy to this bot — it will not trade until one is assigned.',
   memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
   botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
+  botDecision: 'What the bot did on this signal: hold (no trade), open (entered a position), or close (exited one) — full reasoning and history in portfolio → audit.',
   info: 'Toggle styled hover explanations for metrics across the UI.',
   settings: 'Watcher and filter settings, and trader memories.',
 };
@@ -1109,7 +1161,7 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal); history(d.signals);
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision); history(d.signals, d.botDecisions);
   indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
@@ -1501,24 +1553,27 @@ function quoteStrip(q) {
     box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)', q.partial ? 'forming' : null);
 }
 
-function verdict(s) {
+function verdict(s, botDecision) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
+  const botNote = botDecision ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning.slice(0, 90)) + '</span>' : '';
   el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
-    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%';
+    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' + botNote;
 }
-function history(list) {
+function history(list, botDecisions) {
   const tb = document.querySelector('#hist tbody');
   tb.innerHTML = '';
   for (const s of list) {
     const tr = document.createElement('tr');
     tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
     const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
+    const bd = botDecisions && botDecisions[s.time];
+    const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
     tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
-      '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + '</td><td>' + esc(out) + '</td>';
+      '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + esc(out) + '</td>';
     tb.appendChild(tr);
   }
 }
