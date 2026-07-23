@@ -122,9 +122,13 @@ node scripts/signal-server.mjs [--port 8787] [--db data/candles.db] [--settings 
 
 ## Per-combo bots, strategies, and the virtual portfolio
 
-Each watched or explicitly-configured `instrument|granularity` combo can run
-its own paper-trading bot (`settings.bot.bots["INSTRUMENT|GRAN"]`, unset
-fields inherit global bot defaults). Deterministic work — candle fills,
+Each `instrument|granularity` combo can have its own paper-trading bot
+(`settings.bot.bots["INSTRUMENT|GRAN"]`, unset fields inherit global bot
+defaults). A bot only *deliberates* on ticks the watcher actually iterates —
+i.e. combos in `settings.watchers`; a bot configured for an unwatched combo
+stays configured (and its higher-timeframe + news caches stay fresh, since
+those track watchers ∪ bot combos) but won't trade until that combo is
+watched. Deterministic work — candle fills,
 mark-to-market, the drawdown kill-switch — runs every candle close; the LLM
 only deliberates on events (a fresh flip or an adverse move past the review
 trigger), and any malformed output, timeout, or provider error is a journaled
@@ -243,7 +247,7 @@ directly with `node` — also exposed to the dashboard chat/bot as tools:
 | [`market-sentinel`](skills/market-sentinel/SKILL.md) | Free breaking geopolitical/macro news, escalation-flagged; backs the watcher's news cache and the sentinel briefing digest. |
 | [`fxempire-analysis`](skills/fxempire-analysis/SKILL.md) | Multi-asset rates + news/forecasts → in-depth markdown report; also backs the `fxempire_articles` chat tool. |
 | [`fxempire-live-data`](skills/fxempire-live-data/SKILL.md) | Near-real-time candles/rates (FXEmpire/Oanda) — JSON for automation. |
-| [`briefing-publisher`](skills/briefing-publisher/SKILL.md) | Publish a markdown briefing to a GitHub Pages repo; sentinel is now the default `market` series source. |
+| [`briefing-publisher`](skills/briefing-publisher/SKILL.md) | Publish a markdown briefing to a GitHub Pages repo; the market-sentinel digest is now the recommended input, published as `--series sentinel` (the FXEmpire `--series market` input is deprecated; `publish_briefing.mjs` still defaults `--series` to `market`). |
 | [`hormuz-ais-watch`](skills/hormuz-ais-watch/SKILL.md) | Strait of Hormuz AIS vessel watcher — oil/geopolitics signal. |
 | [`truthsocial-trump-watch`](skills/truthsocial-trump-watch/SKILL.md) | Poll `@realDonaldTrump`, detect new posts, emit alert blocks. |
 
