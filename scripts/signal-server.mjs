@@ -102,6 +102,9 @@ export function writeSettings(settingsPath, patch) {
   if (patch.ind !== undefined && patch.ind !== '' && patch.ind !== null && !/^[a-z,]{1,40}$/.test(patch.ind)) {
     throw new Error('ind must be a csv of indicator keys');
   }
+  if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !['pi', 'anthropic', 'openai', 'none'].includes(patch.provider)) {
+    throw new Error('provider must be one of pi, anthropic, openai, none');
+  }
   if (patch.OPENAI_BASE_URL !== undefined && patch.OPENAI_BASE_URL !== '' && patch.OPENAI_BASE_URL !== null) {
     let u;
     try { u = new URL(patch.OPENAI_BASE_URL); } catch { throw new Error('OPENAI_BASE_URL must be a valid URL'); }
@@ -1320,7 +1323,7 @@ const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity',
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // legacy empty provider pre-resolves to the active one (#42); saving persists it
-  if (!s.provider) s.provider = s.activeProvider;
+  if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider; // legacy empty OR invalid pre-resolves; saving persists a valid choice
   const f = document.getElementById('cfg');
   f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
     FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
