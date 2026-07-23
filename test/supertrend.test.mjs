@@ -169,6 +169,14 @@ test('openaiEndpoint + explicit provider resolution (#42)', async () => {
   assert.equal(resolveProvider({}), 'none');
 });
 
+test('explicit anthropic provider without ANTHROPIC_API_KEY fails fast (no x-api-key: undefined) (#42)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  await assert.rejects(
+    llmRequest({ provider: 'anthropic' }, 'sys', 'user'),
+    /ANTHROPIC_API_KEY is not set/,
+  );
+});
+
 test('OPENAI_BASE_URL drives the request URL and the model passes through unchanged (#42)', async () => {
   const { llmRequest } = await import('../scripts/supertrend.mjs');
   const { createServer } = await import('node:http');

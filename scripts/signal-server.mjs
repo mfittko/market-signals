@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
@@ -102,7 +102,7 @@ export function writeSettings(settingsPath, patch) {
   if (patch.ind !== undefined && patch.ind !== '' && patch.ind !== null && !/^[a-z,]{1,40}$/.test(patch.ind)) {
     throw new Error('ind must be a csv of indicator keys');
   }
-  if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !['pi', 'anthropic', 'openai', 'none'].includes(patch.provider)) {
+  if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error('provider must be one of pi, anthropic, openai, none');
   }
   if (patch.OPENAI_BASE_URL !== undefined && patch.OPENAI_BASE_URL !== '' && patch.OPENAI_BASE_URL !== null) {
