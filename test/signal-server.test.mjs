@@ -971,7 +971,7 @@ test('settings: OPENAI_BASE_URL whitelisted + URL-validated; provider select is 
   });
 });
 
-test('info overlays (#57): one explanation map covers the axis keys, ⓘ toggle ships in the header', async () => {
+test('info overlays (#57/#67): one explanation map covers the axis keys, toggle lives in the settings dialog', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     const src = html.match(/const INFO = \{[\s\S]*?\n\};/);
@@ -979,9 +979,12 @@ test('info overlays (#57): one explanation map covers the axis keys, ⓘ toggle 
     for (const key of ['adx', 'regime', 'impulse', 'vwap', 'rsi']) {
       assert.match(src[0], new RegExp('\\b' + key + ':'), key + ' has an INFO map entry');
     }
-    assert.ok(html.includes('id="infoBtn"'), 'ⓘ toggle button present');
+    assert.ok(!html.includes('id="infoBtn"'), 'no dedicated header ⓘ button (#67 — toggle moved into settings)');
+    assert.ok(html.includes('f-infoToggle'), 'settings dialog carries the info-overlays checkbox');
     assert.ok(html.includes('data-info="'), 'at least one rendered element carries data-info');
-    assert.match(html, /body\.info-on \[data-info\]:hover::after/, 'CSS-only tooltip rule present, gated on body.info-on');
+    assert.match(html, /body\.info-on \[data-info\]:hover::before/, 'CSS-only tooltip rule on ::before — ::after belongs to the bot status dot (#67)');
+    assert.ok(!/info-on \[data-info\]:hover::after/.test(html), 'no tooltip rule on ::after (would merge with the bot dot)');
+    assert.match(html, /width: max-content/, 'tooltips lay out at natural width, not the trigger width (#67)');
   });
 });
 

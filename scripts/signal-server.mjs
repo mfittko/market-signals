@@ -883,16 +883,15 @@ const PAGE = /* html */ `<!doctype html>
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
-  #infoBtn { background: none; color: #8b949e; border: 1px solid #30363d;
-             border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
-  #infoBtn.on { background: #1f6feb33; color: #58a6ff; border-color: #1f6feb; }
   /* #57: info overlay — CSS-only tooltip, no JS positioning; [data-info] gets a
      positioning context whether the toggle is on or off (no reflow on toggle). */
   [data-info] { position: relative; }
   body.info-on [data-info]:not(button):not(label):not(select):not(input) { cursor: help; }
   @media (hover: hover) {
-  body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
+  /* ::before, NOT ::after — #botBtn's status dot lives on ::after and the rules would merge */
+  body.info-on [data-info]:hover::before, body.info-on [data-info]:focus::before {
     content: attr(data-info); position: absolute; left: 0; top: 100%; margin-top: 4px;
+    width: max-content;
     background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 6px 9px;
     font-size: 12px; line-height: 1.45; white-space: normal; max-width: 260px;
     z-index: 5; color: #e6edf3; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
@@ -900,7 +899,7 @@ const PAGE = /* html */ `<!doctype html>
   }
   }
   @media (hover: hover) and (max-width: 480px) {
-    body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
+    body.info-on [data-info]:hover::before, body.info-on [data-info]:focus::before {
       max-width: calc(100vw - 32px);
     }
   }
@@ -921,7 +920,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="infoBtn" type="button" aria-label="toggle hover explanations" title="toggle hover explanations for metrics across the UI">ⓘ</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -1015,7 +1014,7 @@ const INFO = {
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
-const STATIC_TITLES = { pfBtn: 'portfolio', infoBtn: 'info', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
+const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
@@ -1025,15 +1024,9 @@ for (const sid in STATIC_TITLES) {
 }
 function applyInfo(on) {
   document.body.classList.toggle('info-on', on);
-  const ib = document.getElementById('infoBtn');
-  ib.classList.toggle('on', on);
-  ib.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const cb = document.getElementById('f-infoToggle');
+  if (cb) cb.checked = on;
 }
-document.getElementById('infoBtn').addEventListener('click', async () => {
-  const on = !document.body.classList.contains('info-on');
-  applyInfo(on);
-  await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: on || null }) });
-});
 const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWAP'], ['rsi', 'RSI'], ['macd', 'MACD']];
 function indBar(d) {
   const on = new Set(d.activeInd || []);
@@ -1477,13 +1470,20 @@ async function cfg() {
   // legacy empty provider pre-resolves to the active one (#42); saving persists it
   if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider; // legacy empty OR invalid pre-resolves; saving persists a valid choice
   const f = document.getElementById('cfg');
+  const s2Info = !!s.info;
   const field = ([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
     ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
     : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">');
   f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
+    '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s2Info ? ' checked' : '') + '>' +
     FIELDS.map(field).join('') +
     '<details id="cfgAdv"><summary>advanced</summary><div class="advgrid">' + ADV_FIELDS.map(field).join('') + '</div></details>' +
     '<button>Save</button><span id="saved"></span>';
+  // the overlay toggle applies + persists immediately, independent of Save
+  document.getElementById('f-infoToggle').onchange = async (e) => {
+    applyInfo(e.target.checked);
+    await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: e.target.checked || null }) });
+  };
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
