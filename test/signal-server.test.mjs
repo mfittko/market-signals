@@ -579,6 +579,19 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
     /no sentinel query configured/,
     'an instrument with no committed sentinel entry fails loud instead of guessing',
   );
+
+  // Review fix: an unvalidated ctx.view.instrument must never reach the CLI
+  // verbatim — it gets the same guard as an explicit arg, falling back to
+  // the settings-default instrument (mirroring resolveView) instead.
+  const prevOffline2 = process.env.SENTINEL_NEWS_OFFLINE;
+  process.env.SENTINEL_NEWS_OFFLINE = '1';
+  try {
+    const withBadView = JSON.parse(execChatTool('sentinel_news', {}, { view: { instrument: '; rm -rf /', granularity: 'M5' } }));
+    assert.equal(withBadView.meta.instrument, 'WTICO/USD', 'an unvalidated view instrument falls back to the settings default, never passed through raw');
+  } finally {
+    if (prevOffline2 === undefined) delete process.env.SENTINEL_NEWS_OFFLINE;
+    else process.env.SENTINEL_NEWS_OFFLINE = prevOffline2;
+  }
 });
 
 test('mutating routes reject cross-origin requests (CSRF guard), same-origin and CLI pass', async () => {

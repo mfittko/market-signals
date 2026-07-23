@@ -291,25 +291,33 @@ Options:
   -h, --help            show this help (no network)
 `;
 
-function parseArgs(argv) {
+// Flags that never take a value. Checked BEFORE the value-consuming path
+// below so their position in argv can never cause the next token to be
+// mis-swallowed as a bogus value (e.g. `--json --instrument WTICO/USD` must
+// parse identically to `--instrument WTICO/USD --json`).
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'h']);
+
+export function parseArgs(argv) {
   const out = { instrument: null, query: null, yahooSymbol: null, hours: DEFAULT_HOURS, maxItems: TOTAL_CAP, json: false };
   const unknown = [];
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     if (!k.startsWith('--')) continue;
     const key = k.slice(2);
+    if (BOOLEAN_FLAGS.has(key)) {
+      if (key === 'json') out.json = true;
+      continue;
+    }
     const next = argv[i + 1];
     const hasValue = next !== undefined && !next.startsWith('--');
     const val = hasValue ? next : null;
     if (hasValue) i++;
 
-    if (key === 'help' || key === 'h') continue;
-    else if (key === 'instrument' && val) out.instrument = val;
+    if (key === 'instrument' && val) out.instrument = val;
     else if (key === 'query' && val) out.query = val;
     else if (key === 'yahoo-symbol' && val) out.yahooSymbol = val;
     else if (key === 'hours' && val) out.hours = Number(val);
     else if (key === 'max-items' && val) out.maxItems = Number(val);
-    else if (key === 'json') out.json = true;
     else unknown.push(`--${key}`);
   }
   if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);

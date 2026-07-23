@@ -425,7 +425,14 @@ export const CHAT_TOOLS = [
     description: 'Fetch breaking geopolitical/macro news for an instrument from free, query-driven sources (Google News, GDELT, Al Jazeera, OilPrice.com, a per-instrument Yahoo Finance feed) with an escalation flag (keyword hit or negative GDELT tone). Defaults to the currently viewed instrument. Only instruments with a committed sentinel query in config/instruments.yaml resolve.',
     input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max headlines after dedup (1-30, default 15)' } }, additionalProperties: false },
     run: (a, ctx) => {
-      const instrument = typeof a?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument) ? a.instrument : (ctx?.view?.instrument || DEFAULT_INSTRUMENT);
+      // Validate BOTH the explicit arg and the view fallback with the same
+      // guard resolveView uses — never pass ctx.view.instrument through to
+      // the CLI on trust alone (it should already be validated upstream, but
+      // this tool must not depend on every future caller getting that right).
+      const validInstrument = (v) => typeof v === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(v);
+      const instrument = validInstrument(a?.instrument) ? a.instrument
+        : validInstrument(ctx?.view?.instrument) ? ctx.view.instrument
+        : DEFAULT_INSTRUMENT;
       return execFileSync(process.execPath, ['skills/market-sentinel/scripts/sentinel_news.mjs', '--instrument', instrument, '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 30, 15)), '--json'], { encoding: 'utf8', timeout: 45000 });
     },
   },

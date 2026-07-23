@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   ESCALATION_LEXICON, GDELT_TONE_ESCALATION_THRESHOLD, computeEscalation,
   parseFeedItems, normalizeRssItem, normalizeGdeltArticle, dedupeItems,
-  fetchSentinelNews, createGdeltThrottle, resolveQuery,
+  fetchSentinelNews, createGdeltThrottle, resolveQuery, parseArgs,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../skills/market-sentinel/scripts/sentinel_news.mjs', import.meta.url));
@@ -176,6 +176,22 @@ test('createGdeltThrottle: spaces successive calls by minGapMs, first call never
   now += 1000; // only 1s elapsed
   await throttle();
   assert.deepEqual(sleeps, [4000], 'second call waits out the remaining gap to 5s');
+});
+
+// --- parseArgs: boolean flags (--json/--help) never consume the next token --
+test('parseArgs: --json before a value flag does not swallow the following flag/value (order-independent)', () => {
+  const withJsonFirst = parseArgs(['--json', '--instrument', 'WTICO/USD', '--hours', '6']);
+  const withJsonLast = parseArgs(['--instrument', 'WTICO/USD', '--hours', '6', '--json']);
+  assert.deepEqual(withJsonFirst, withJsonLast);
+  assert.equal(withJsonFirst.json, true);
+  assert.equal(withJsonFirst.instrument, 'WTICO/USD');
+  assert.equal(withJsonFirst.hours, 6);
+});
+
+test('parseArgs: --json followed by a bare positional does not get treated as its value', () => {
+  const out = parseArgs(['--json', 'unexpected-positional', '--max-items', '5']);
+  assert.equal(out.json, true);
+  assert.equal(out.maxItems, 5, 'the positional after --json never binds to --json, so --max-items still gets its own value');
 });
 
 // --- resolveQuery: never guesses ---------------------------------------------

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withDb } from '../scripts/supertrend.mjs';
 import {
-  refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS,
+  refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
 } from '../scripts/news.mjs';
 
 function dbPathIn(dir) {
@@ -188,13 +188,106 @@ test('newsContextFor: rows older than the context window are excluded (stale cac
   assert.equal(newsContextFor(dbPath, 'WTICO/USD', { now, windowHours: 24 }), null);
 });
 
-// --- upsertNews: idempotent on url ------------------------------------------
-test('upsertNews: idempotent upsert keyed on url — a re-seen url is not duplicated', () => {
+// --- upsertNews: idempotent on (instrument, url) -----------------------------
+test('upsertNews: idempotent upsert keyed on (instrument, url) — a re-seen url for the SAME instrument is not duplicated', () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));
   const dbPath = dbPathIn(dir);
   const item = { source: 'google-news', title: 'Same story', timeIso: new Date().toISOString(), url: 'https://x/7', escalation: false };
   const first = upsertNews(dbPath, 'WTICO/USD', [item], new Date().toISOString());
   const again = upsertNews(dbPath, 'WTICO/USD', [item], new Date().toISOString());
   assert.equal(first.added, 1);
-  assert.equal(again.added, 0, 'no duplicate row for a url already cached');
+  assert.equal(again.added, 0, 'no duplicate row for a url already cached for this instrument');
+});
+
+// --- shared-query correctness (review fix): two instruments sharing a
+// sentinel query (e.g. WTI + Brent both querying oil/OPEC/Hormuz, per
+// config/instruments.yaml) must each cache — and each see — the same
+// headline. A global UNIQUE(url) would bind it to only the first instrument. --
+test('upsertNews + newsContextFor: two instruments sharing a query each cache the same headline and each see it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T12:00:00Z');
+  const shared = { source: 'google-news', title: 'OPEC cuts supply amid Hormuz tensions', timeIso: new Date(now - 3600000).toISOString(), url: 'https://shared/1', escalation: true };
+
+  const wti = upsertNews(dbPath, 'WTICO/USD', [shared], new Date(now).toISOString());
+  const brent = upsertNews(dbPath, 'BCO/USD', [shared], new Date(now).toISOString());
+  assert.equal(wti.added, 1, 'first instrument caches the shared headline');
+  assert.equal(brent.added, 1, 'second instrument ALSO caches the same shared headline — not swallowed by a global UNIQUE(url)');
+
+  const wtiCtx = newsContextFor(dbPath, 'WTICO/USD', { now });
+  const brentCtx = newsContextFor(dbPath, 'BCO/USD', { now });
+  assert.ok(wtiCtx, 'WTI sees the shared headline');
+  assert.ok(brentCtx, 'Brent ALSO sees the shared headline (the actual bug this fixes)');
+  assert.equal(wtiCtx.headlines[0].title, shared.title);
+  assert.equal(brentCtx.headlines[0].title, shared.title);
+});
+
+// --- guarded migration: pre-existing single-column UNIQUE(url) tables -------
+test('migrateNewsUniqueKey: rebuilds a pre-existing UNIQUE(url) news table to (instrument, url), preserving rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  withDb(dbPath, (db) => {
+    db.exec(`CREATE TABLE news (
+      instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT,
+      summary TEXT, url TEXT NOT NULL UNIQUE, tone REAL, themes TEXT,
+      escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL
+    )`);
+    db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
+      VALUES ('WTICO/USD', 'google-news', 'Pre-migration headline', '2026-07-20T00:00:00Z', NULL, 'https://pre/1', NULL, NULL, 0, '2026-07-20T00:00:00Z')`).run();
+
+    migrateNewsUniqueKey(db);
+
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
+    assert.ok(/UNIQUE\s*\(\s*instrument\s*,\s*url\s*\)/i.test(row.sql), 're-keyed to UNIQUE(instrument, url)');
+    const stray = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='news_pre_instrument_key'").get();
+    assert.equal(stray, undefined, 'no news_pre_instrument_key left lingering');
+    const rows = db.prepare('SELECT * FROM news').all();
+    assert.equal(rows.length, 1, 'the pre-existing row survived the rebuild');
+    assert.equal(rows[0].title, 'Pre-migration headline');
+  });
+
+  // A fresh (already-migrated) db is a no-op — migrateNewsUniqueKey never
+  // rebuilds a table that already has the new key.
+  const upsertResult = upsertNews(dbPath, 'BCO/USD', [{ source: 'google-news', title: 'Brent shares this url', timeIso: '2026-07-20T00:00:00Z', url: 'https://pre/1', escalation: false }], '2026-07-20T00:00:00Z');
+  assert.equal(upsertResult.added, 1, 'a different instrument can now cache the same url the pre-migration row used');
+});
+
+test('migrateNewsUniqueKey (review fix for #86): a forced mid-rebuild failure rolls back cleanly — no stray table, original schema and rows intact', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  withDb(dbPath, (db) => {
+    db.exec(`CREATE TABLE news (
+      instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT,
+      summary TEXT, url TEXT NOT NULL UNIQUE, tone REAL, themes TEXT,
+      escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL
+    )`);
+    db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
+      VALUES ('WTICO/USD', 'google-news', 'Pre-migration headline', '2026-07-20T00:00:00Z', NULL, 'https://pre/2', NULL, NULL, 0, '2026-07-20T00:00:00Z')`).run();
+
+    const realExec = db.exec.bind(db);
+    let calls = 0;
+    db.exec = (sql) => {
+      calls += 1;
+      if (calls === 3) throw new Error('forced failure mid-rebuild');
+      return realExec(sql);
+    };
+    try {
+      assert.throws(() => migrateNewsUniqueKey(db), /forced failure mid-rebuild/);
+    } finally {
+      db.exec = realExec;
+    }
+
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
+    assert.ok(/url\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(row.sql), 'original single-column UNIQUE(url) is back after rollback');
+    const stray = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='news_pre_instrument_key'").get();
+    assert.equal(stray, undefined, 'no news_pre_instrument_key left lingering');
+    const rows = db.prepare('SELECT * FROM news').all();
+    assert.equal(rows.length, 1, 'the pre-existing row survived the rollback');
+    assert.equal(rows[0].title, 'Pre-migration headline');
+
+    // A retry (no monkeypatch this time) still succeeds.
+    migrateNewsUniqueKey(db);
+    const after = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
+    assert.ok(/UNIQUE\s*\(\s*instrument\s*,\s*url\s*\)/i.test(after.sql), 'a clean retry after rollback completes the migration');
+  });
 });

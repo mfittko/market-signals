@@ -13,26 +13,63 @@ import { withDb, trackedInstruments } from './supertrend.mjs';
 import { sentinelConfigForInstrument, loadInstrumentsConfig } from './lib/instruments.mjs';
 import { fetchSentinelNews, createGdeltThrottle } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
+// Keyed on (instrument, url), NOT url alone: two instruments can share a
+// sentinel query (e.g. WTI + Brent both query oil/OPEC/Hormuz, per
+// config/instruments.yaml) and so can both legitimately see the same
+// headline — a global UNIQUE(url) would bind a shared headline to only the
+// FIRST instrument that polled it, leaving the second with no cached row
+// (and an empty/wrong newsContextFor) for a story it should also see.
 const NEWS_DDL = `CREATE TABLE IF NOT EXISTS news (
   instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT,
-  summary TEXT, url TEXT NOT NULL UNIQUE, tone REAL, themes TEXT,
-  escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL
+  summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT,
+  escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL,
+  UNIQUE(instrument, url)
 )`;
+
+// Guarded rebuild (review fix for issue #86): an existing news table from
+// before this change has a single-column UNIQUE(url) — re-key it to
+// (instrument, url) so already-cached headlines survive. Same transactional
+// rename -> create -> copy -> drop pattern as gate-prompts.mjs's
+// migrateCheckConstraint: a crash mid-rebuild must never leave
+// news_pre_instrument_key lingering (BEGIN IMMEDIATE/COMMIT/ROLLBACK).
+// Every pre-migration row is unique on url alone, so re-inserting under the
+// new (instrument, url) key can never collide.
+// exported for the transactional-rollback test only (forces a mid-rebuild
+// failure via a monkeypatched db.exec, same convention as gate-prompts.mjs).
+export function migrateNewsUniqueKey(db) {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
+  if (row?.sql && /\burl\s+TEXT\s+NOT\s+NULL\s+UNIQUE\b/i.test(row.sql)) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec('ALTER TABLE news RENAME TO news_pre_instrument_key');
+      db.exec(NEWS_DDL);
+      db.exec(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
+        SELECT instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at FROM news_pre_instrument_key`);
+      db.exec('DROP TABLE news_pre_instrument_key');
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+}
 
 function newsDb(dbPath, fn) {
   return withDb(dbPath, (db) => {
     db.exec(NEWS_DDL);
+    migrateNewsUniqueKey(db);
     return fn(db);
   });
 }
 
-// Idempotent upsert keyed on url (same convention storeCandles uses on its own
-// key): a headline already cached (however it was first attributed) is never
-// duplicated by a later poll or a different instrument's overlapping query.
+// Idempotent upsert keyed on (instrument, url) (same convention storeCandles
+// uses on its own key): a headline already cached FOR THIS INSTRUMENT is
+// never duplicated by a later poll — but a different instrument sharing the
+// same query still gets its own row for the same headline (see NEWS_DDL).
 export function upsertNews(dbPath, instrument, items, fetchedAt) {
   return newsDb(dbPath, (db) => {
     const stmt = db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(url) DO NOTHING`);
+      VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(instrument, url) DO NOTHING`);
     let added = 0;
     for (const it of items) {
       if (!it.url || !it.title) continue;
@@ -58,7 +95,7 @@ function recordPollMarker(dbPath, instrument, fetchedAt) {
   return newsDb(dbPath, (db) => {
     db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
       VALUES (?, 'poll-marker', ?, NULL, NULL, ?, NULL, NULL, 0, ?)
-      ON CONFLICT(url) DO UPDATE SET fetched_at=excluded.fetched_at`)
+      ON CONFLICT(instrument, url) DO UPDATE SET fetched_at=excluded.fetched_at`)
       .run(instrument, `poll marker: ${instrument}`, `local://news-poll-marker/${instrument}`, fetchedAt);
   });
 }
