@@ -35,11 +35,14 @@ function sdb(dbPath, fn) {
 // Idempotent: ships the operator's seed rules once on an empty table.
 export function ensureSeedStrategy(dbPath) {
   return sdb(dbPath, (db) => {
-    const count = db.prepare('SELECT COUNT(*) c FROM strategies').get().c;
-    if (count > 0) return null;
-    const id = db.prepare(`INSERT INTO strategies (name, version, prompt, created_by, created_at)
-      VALUES (?, 1, ?, 'seed', ?)`).run(SEED_STRATEGY.name, SEED_STRATEGY.prompt, new Date().toISOString()).lastInsertRowid;
-    return Number(id);
+    // atomic ships-once: concurrent first-opens race the INSERT, and the
+    // UNIQUE(name,version) + WHERE NOT EXISTS guard makes the loser a no-op
+    // instead of a thrown constraint error (#45)
+    const res = db.prepare(`INSERT INTO strategies (name, version, prompt, created_by, created_at)
+      SELECT ?, 1, ?, 'seed', ?
+      WHERE NOT EXISTS (SELECT 1 FROM strategies)`)
+      .run(SEED_STRATEGY.name, SEED_STRATEGY.prompt, new Date().toISOString());
+    return res.changes > 0 ? Number(res.lastInsertRowid) : null;
   });
 }
 
@@ -84,8 +87,11 @@ export function activateStrategy(dbPath, id) {
     const changed = db.prepare(`UPDATE strategies SET active = CASE WHEN id=? THEN 1 ELSE 0 END
       WHERE (active=1 OR id=?)
         AND EXISTS (SELECT 1 FROM strategies t WHERE t.id=? AND t.archived=0)`).run(id, id, id).changes;
-    if (!db.prepare('SELECT active FROM strategies WHERE id=?').get(id)?.active) throw new Error('cannot activate an archived strategy');
     void changed;
+    // accurate post-write diagnosis (#45): unknown vs archived vs generic
+    const after = db.prepare('SELECT active, archived FROM strategies WHERE id=?').get(id);
+    if (!after) throw new Error('unknown strategy (removed concurrently)');
+    if (!after.active) throw new Error(after.archived ? 'cannot activate an archived strategy' : 'activation failed (concurrent write)');
     return { id: Number(id) };
   });
 }

@@ -71,6 +71,13 @@ test('delete blocked with journal references (archive instead); free versions de
   assert.equal(listStrategies(db, { includeArchived: true }).some((s) => s.id === a.id), true);
 });
 
+test('ensureSeedStrategy is race-safe: a pre-existing row makes it a silent no-op, never a throw', () => {
+  const db = fresh();
+  saveStrategy(db, { name: 'pre-existing', prompt: PROMPT });
+  assert.equal(ensureSeedStrategy(db), null, 'non-empty table: no-op without error');
+  assert.equal(listStrategies(db).length, 1, 'nothing inserted');
+});
+
 test('seed strategy ships once on an empty table and never again', () => {
   const db = fresh();
   const id = ensureSeedStrategy(db);
