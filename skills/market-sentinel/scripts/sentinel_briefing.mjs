@@ -57,7 +57,7 @@ function headlineLine(item) {
   const title = linkText(item?.title || 'Untitled');
   const safeUrl = sanitizeUrl(item?.url);
   const label = safeUrl ? `[${title}](<${safeUrl}>)` : title;
-  const when = item?.timeIso ? ` — ${item.timeIso}` : '';
+  const when = item?.timeIso ? ` — ${mdEscape(item.timeIso)}` : '';
   const flag = item?.escalation ? ' ⚠' : '';
   return `- [${source}] ${label}${when}${flag}`;
 }

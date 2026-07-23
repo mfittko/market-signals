@@ -193,6 +193,12 @@ test('mdEscape neutralizes HTML tag delimiters in an untrusted headline (publish
   ] });
   assert.ok(!md.includes('<img'), 'raw tag delimiter escaped');
   assert.ok(md.includes('&lt;img'), 'rendered as escaped text');
+  const md2 = renderSentinelBriefing({ asOf: '2026-07-23T00:00:00Z', instruments: [
+    { instrument: 'WTICO/USD', label: 'WTI', escalation: false, items: [
+      { source: 'x', title: 'clean', url: 'https://e.com', timeIso: '2026<img>|bad' },
+    ] },
+  ] });
+  assert.ok(!md2.includes('<img'), 'timeIso tag delimiter escaped too');
 });
 
 test('parseArgs: a flag-shaped token after a value-flag is not swallowed as its value (#91)', async () => {
