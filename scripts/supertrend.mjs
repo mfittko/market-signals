@@ -109,11 +109,21 @@ const VERDICT_SCHEMA = {
 // (ANTHROPIC wins if both).
 // Single source of provider precedence: explicit pi/none, else key-based.
 export function resolveProvider(settings) {
-  if (settings.provider === 'pi') return 'pi';
-  if (settings.provider === 'none') return 'none';
+  // explicit-first (#42): the provider is a deliberate choice; the key-derived
+  // fallback exists only for legacy settings written before providers were
+  // explicit (the UI pre-selects the resolved value and persists it on save)
+  if (['pi', 'none', 'anthropic', 'openai'].includes(settings.provider)) return settings.provider;
   if (settings.ANTHROPIC_API_KEY) return 'anthropic';
   if (settings.OPENAI_API_KEY) return 'openai';
   return 'none';
+}
+
+// The ONE OpenAI-compatible endpoint resolution (#42): a configured base URL
+// points every OpenAI-path request (chat, filter, bot, judge, tool loop) at an
+// API-compatible server; the model id passes through unchanged.
+export function openaiEndpoint(settings) {
+  const base = (settings.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
+  return `${base}/v1/chat/completions`;
 }
 
 // Streaming SSE reader shared by both API providers: calls extract(json) per
@@ -219,7 +229,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (temperature != null) body.temperature = temperature;
     if (schema) body.response_format = { type: 'json_object' };
     if (stream) body.stream = true;
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
       body: JSON.stringify(body),
@@ -281,7 +291,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
   for (let round = 0; round < 8; round++) {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
       body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
