@@ -152,7 +152,9 @@ test('processSignal fails open on filter error and records the verdict', async (
 
 test('processSignal filter: active gate-prompt override feeds the filter system text; promptVersion lands in provenance both ways (#58)', async () => {
   const { saveGatePrompt, activateGatePrompt } = await import('../scripts/gate-prompts.mjs');
-  const { FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const { FILTER_RULES, FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const { promptHash } = await import('../scripts/axis-snapshot.mjs');
+  const builtinHash = promptHash(FILTER_RULES + FILTER_SCHEMA_SUFFIX);
   const OVERRIDE_RULES = 'OVERRIDE-RULES-MARKER: require two confirming bars before any alert.';
 
   // Without an override: builtin rules used, promptVersion 'builtin' recorded.
@@ -164,8 +166,9 @@ test('processSignal filter: active gate-prompt override feeds the filter system 
     const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
     assert.ok(!args.includes('OVERRIDE-RULES-MARKER'), 'no override active: builtin rules used');
     assert.ok(args.includes(FILTER_SCHEMA_SUFFIX.trim()), 'code-owned schema suffix always present');
-    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version FROM signal_snapshots').get());
+    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version, filter_prompt_hash FROM signal_snapshots').get());
     assert.equal(row.filter_prompt_version, 'builtin');
+    assert.equal(row.filter_prompt_hash, builtinHash, 'no override active: hash matches the builtin prompt actually used');
   }
 
   // With an active override: its rules text feeds the filter (ending with the
@@ -183,8 +186,10 @@ test('processSignal filter: active gate-prompt override feeds the filter system 
     const schemaAt = args.indexOf(FILTER_SCHEMA_SUFFIX.trim());
     assert.ok(rulesAt >= 0, 'override rules text used as the system prompt');
     assert.ok(schemaAt > rulesAt, 'code-owned schema suffix appended AFTER the override text');
-    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version FROM signal_snapshots').get());
+    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version, filter_prompt_hash FROM signal_snapshots').get());
     assert.equal(row.filter_prompt_version, String(draft.version));
+    assert.notEqual(row.filter_prompt_hash, builtinHash, 'override active: recorded hash differs from the builtin prompt hash');
+    assert.equal(row.filter_prompt_hash, promptHash(OVERRIDE_RULES + FILTER_SCHEMA_SUFFIX), 'recorded hash matches the effective (override) prompt text actually used');
   }
 });
 

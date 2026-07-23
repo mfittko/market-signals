@@ -491,6 +491,7 @@ export async function processSignal(opts, result, candles) {
   let verdict = null;
   let verdictSource = 'none';
   let promptVersion = null;
+  let promptSystemText = null;
   if (hasFilter) {
     let notes = '';
     try { notes = readFileSync(settings.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
@@ -503,6 +504,7 @@ export async function processSignal(opts, result, candles) {
     // the filter call itself succeeds.
     const filterSystem = await resolveFilterSystem(opts.db);
     promptVersion = filterSystem.promptVersion;
+    promptSystemText = filterSystem.system;
     try {
       verdict = await llmVerdict(settings, {
         current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
@@ -547,7 +549,7 @@ export async function processSignal(opts, result, candles) {
       recordSnapshot(opts.db, gateSnapshot, {
         filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
         filterModel: hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.model || (settings.ANTHROPIC_API_KEY ? 'anthropic-default' : 'openai-default')) : null,
-        filterPromptHash: hasFilter ? promptHash(FILTER_SYSTEM) : null,
+        filterPromptHash: hasFilter ? promptHash(promptSystemText) : null,
         filterPromptVersion: promptVersion,
         context,
       });
