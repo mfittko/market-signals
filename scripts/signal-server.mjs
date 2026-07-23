@@ -16,7 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
@@ -628,8 +628,10 @@ async function readBody(req, res) {
   return raw + dec.decode();
 }
 
-function json(res, status, body) {
-  res.writeHead(status, { 'content-type': 'application/json' });
+// extraHeaders (#93): additive — every existing caller omits it and gets the
+// exact same two headers as before (byte-identical when MS_DEBUG_LLM is off).
+function json(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, { 'content-type': 'application/json', ...extraHeaders });
   res.end(JSON.stringify(body));
 }
 
@@ -701,8 +703,20 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const [signal] = signalOutcomes(dbPath, instrument, granularity, { limit: 1 });
         if (!signal) return json(res, 404, { ok: false, error: 'no signal recorded for this view yet' });
         try {
-          const result = await recheckSignal(dbPath, settingsPath, instrument, granularity, signal);
-          return json(res, 200, { ok: true, ...result });
+          // MS_DEBUG_LLM (#93): recheck is non-streamed, so all four X-LLM-*
+          // headers are available together, unlike chat's SSE split below.
+          const debugLlm = Boolean(process.env.MS_DEBUG_LLM);
+          let llmInfo = null;
+          const result = await recheckSignal(dbPath, settingsPath, instrument, granularity, signal, debugLlm ? (info) => { llmInfo = info; } : undefined);
+          const headers = {};
+          if (debugLlm && llmInfo) {
+            headers['X-LLM-Provider'] = llmInfo.provider;
+            headers['X-LLM-Model'] = llmInfo.model ?? 'n/a';
+            const tok = (v) => (v == null ? 'n/a' : String(v));
+            headers['X-LLM-Usage-Input'] = llmInfo.usage ? tok(llmInfo.usage.inputTokens) : 'n/a';
+            headers['X-LLM-Usage-Output'] = llmInfo.usage ? tok(llmInfo.usage.outputTokens) : 'n/a';
+          }
+          return json(res, 200, { ok: true, ...result }, headers);
         } catch (err) {
           // fail-open UX: never crash the server — a visible error line beats a 500 page
           return json(res, 502, { ok: false, error: err.message });
@@ -984,11 +998,29 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           .map((m) => `${m.role}: ${m.content}`).join('\n');
         const user = `context:\n${JSON.stringify(context)}\n\n${history ? `thread so far:\n${history}\n\n` : ''}question: ${message}`;
 
-        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        // MS_DEBUG_LLM (#93): provider+model are known up front, so they ride as
+        // headers before the stream starts; usage is only known once the
+        // completion finishes, well after headers have flushed — the SSE
+        // equivalent is a trailing {type:'usage'} event instead (asymmetric
+        // with /api/recheck's four headers together, but SSE can't un-send
+        // headers once written).
+        const debugLlm = Boolean(process.env.MS_DEBUG_LLM);
+        const chatProvider = resolveProvider(cfg);
+        const sseHeaders = { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' };
+        if (debugLlm) {
+          sseHeaders['X-LLM-Provider'] = chatProvider;
+          sseHeaders['X-LLM-Model'] = effectiveModel(cfg, chatProvider) ?? 'n/a';
+        }
+        res.writeHead(200, sseHeaders);
         const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
-          const reply = await llmChat(cfg, CHAT_SYSTEM, user, { onDelta: (text) => send({ type: 'delta', text }), toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })), execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity } }) });
+          const reply = await llmChat(cfg, CHAT_SYSTEM, user, {
+            onDelta: (text) => send({ type: 'delta', text }),
+            toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+            execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity } }),
+            onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
+          });
           const { text: cleanReply, title } = extractThreadTitle(reply);
           addMessage(dbPath, threadId, 'assistant', cleanReply);
           if (title) {

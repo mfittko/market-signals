@@ -6,7 +6,9 @@
 // output, timeout, or provider error is a journaled `hold` — the inverse of
 // the alert filter's fail-open, deliberately.
 import { createHash } from 'node:crypto';
-import { withDb, llmChat, sendNotification } from './supertrend.mjs';
+import { withDb, llmChat, sendNotification, llmUsageLine } from './supertrend.mjs';
+
+const dbg = (msg) => process.stderr.write(`[bot] ${msg}\n`);
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
@@ -239,8 +241,10 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   let decision = null;
   let error = null;
   try {
+    // MS_DEBUG_LLM (#93): local dev flag; off is a zero-cost no-op.
+    const onUsage = process.env.MS_DEBUG_LLM ? (info) => dbg(llmUsageLine('bot', info)) : undefined;
     const reply = await llmChat(settings, DECISION_SYSTEM, buildDecisionPrompt(loop, view, ctx), {
-      toolDefs: toolDefs || undefined, execTool: tracedExec || undefined,
+      toolDefs: toolDefs || undefined, execTool: tracedExec || undefined, onUsage,
     });
     decision = parseDecision(reply);
     if (!decision) error = 'malformed decision';
