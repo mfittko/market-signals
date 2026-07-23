@@ -252,6 +252,11 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   const quote = buildQuote(recent);
   if (quote && liveTail) quote.partial = true;
   const out = { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
+  // #70 follow-up: the re-check button re-checks the LATEST signal server-side
+  // (see /api/recheck), so the client must only render it when the shown
+  // signal IS that latest one — never on a deep-linked historical view (?t=),
+  // where a click would silently re-check a different signal than displayed.
+  out.isLatestSignal = signal ? signals[0]?.time === signal.time : true;
   // #70: the last re-check for the shown signal rides with the chart so a
   // reload shows it without a POST — the verdict/history rows it read stay untouched.
   if (signal) {
@@ -1263,7 +1268,7 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity }); history(d.signals, d.botDecisions);
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions);
   indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
 }
@@ -1798,13 +1803,20 @@ function verdict(s, botDecision, recheck, view) {
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
   const botNote = botDecision ? '<div class="botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning) + '</div>' : '';
   const overruled = botDecision && botDecision.action === 'hold';
+  // #70 follow-up: /api/recheck always re-checks the LATEST signal — the
+  // button must only render when the shown signal IS that latest one, never
+  // on a deep-linked historical view, or a click would re-check a different
+  // signal than the one displayed. A past re-check line (if any) still shows
+  // for a historical signal — read-only, no new-recheck affordance.
+  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
   el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' +
-    ' <button type="button" id="recheckBtn" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' +
+    recheckBtn +
     botNote + '<div id="recheckLine">' + renderRecheckLine(recheck) + '</div>';
-  document.getElementById('recheckBtn').onclick = async () => {
+  const recheckBtnEl = document.getElementById('recheckBtn');
+  if (recheckBtnEl) recheckBtnEl.onclick = async () => {
     const btn = document.getElementById('recheckBtn');
     const line = document.getElementById('recheckLine');
     btn.disabled = true;

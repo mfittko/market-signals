@@ -328,11 +328,19 @@ test('deep link to a signal older than the history window still resolves', async
     }
     let d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(old.time)}`)).json();
     assert.ok(d.signal, 'old signal found via direct lookup');
+    assert.equal(d.isLatestSignal, false, '#70 follow-up: deep-linked historical signal is never the latest');
     const short = old.time.replace('.000Z', 'Z').replace(/\.\d+Z$/, 'Z');
     d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(short)}`)).json();
     assert.ok(d.signal, 'second-precision t resolves via nanosecond variant');
     assert.equal(d.signal.time, old.time);
     assert.equal(d.signal.signal, 'buy');
+    assert.equal(d.isLatestSignal, false);
+
+    const latest = await (await fetch(`${base}/api/chart`)).json();
+    assert.equal(latest.isLatestSignal, true, 'no ?t deep-link — the latest view is always the latest signal');
+
+    const latestDeepLink = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(latest.signal.time)}`)).json();
+    assert.equal(latestDeepLink.isLatestSignal, true, 'deep-linking to the latest signal itself still counts as latest');
   });
 });
 
