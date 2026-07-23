@@ -94,7 +94,9 @@ export function entryDecision(spec, snapshot) {
     direction: axes.direction?.verdict === 'aligned',
     impulse: axes.impulse?.verdict === 'impulsive',
     location: axes.location?.verdict === 'aligned',
-    exhaustion: axes.exhaustion?.verdict === 'clear',
+    // with veto enforcement off the axis is a uniform non-factor, never a
+    // hidden penalty on the aligned count
+    exhaustion: spec.entry.enforceExhaustionVeto === false ? true : axes.exhaustion?.verdict === 'clear',
   };
   const aligned = Object.values(positive).filter(Boolean).length;
   if (aligned < spec.entry.minAxesAligned) {

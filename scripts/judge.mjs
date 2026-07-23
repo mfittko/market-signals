@@ -25,6 +25,12 @@ export const JUDGE_PROMPTS = {
 
 const CACHE_DIR = 'reports/backtests/cache';
 
+// Decision 5 applies to judges without exception: scrub instrument symbols and
+// dates from headline text before it reaches a payload (sentiment words stay).
+const SCRUB_SYMBOL_RE = /[A-Z]{3,6}\/[A-Z]{3,6}|WTICO|WTI|SPX500|SPX|XAU|BTC|Brent/gi;
+const SCRUB_DATE_RE = /\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{2,4}/g;
+export const scrubHeadline = (text) => String(text).replace(SCRUB_SYMBOL_RE, '[instrument]').replace(SCRUB_DATE_RE, '[date]');
+
 function cached(key, compute) {
   const path = `${CACHE_DIR}/${key}.json`;
   if (existsSync(path)) {
@@ -78,7 +84,7 @@ async function judgePerSignal(snapshots, settings) {
   if (!eligible.length) return { mode: 'per-signal', skipped: 'no snapshots carry a recorded context block; nothing to score (judge degrades gracefully)' };
   const scores = [];
   for (const s of eligible.slice(0, 50)) {
-    const payload = { snapshot: anonymized(s.snapshot), headlines: s.context.headlines };
+    const payload = { snapshot: anonymized(s.snapshot), headlines: s.context.headlines.map(scrubHeadline) };
     const key = `sig-${JUDGE_PROMPTS.perSignal.version}-${snapHash(payload)}`;
     const scored = await cached(key, async () => {
       const out = await llmRequest(settings, JUDGE_PROMPTS.perSignal.system, JSON.stringify(payload), {

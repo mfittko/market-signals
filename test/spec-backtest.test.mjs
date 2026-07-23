@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateSpec, entryDecision, EXAMPLE_SPECS, SPEC_SCHEMA_VERSION } from '../scripts/strategy-spec.mjs';
 import { replaySpec, walkForward, reportHash, canonical } from '../scripts/spec-backtest.mjs';
-import { anonymizedReport, JUDGE_PROMPTS } from '../scripts/judge.mjs';
+import { anonymizedReport, JUDGE_PROMPTS, scrubHeadline } from '../scripts/judge.mjs';
 
 const t = (i) => new Date(Date.parse('2026-07-23T00:00:00Z') + i * 300000).toISOString();
 const candle = (o, h, l, c, i) => ({ time: t(i), open: o, high: h, low: l, close: c, volume: 100, complete: 1 });
@@ -108,4 +108,8 @@ test('anonymizedReport: no window/instrument/timestamps reach the meta judge; pr
   assert.ok(!flat.includes('WTICO'), 'no instrument');
   assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(flat), 'no timestamps');
   assert.ok(JUDGE_PROMPTS.meta.version && JUDGE_PROMPTS.perSignal.version, 'judge prompts carry versions');
+  assert.equal(scrubHeadline('WTI crude jumps after 2026-07-23 OPEC note on WTICO/USD'), '[instrument] crude jumps after [date] OPEC note on [instrument]', 'headline symbols and dates scrubbed for the per-signal judge');
+  const vetoOff = { schema_version: 1, entry: { minAxesAligned: 3, enforceExhaustionVeto: false }, exit: { stopAtr: 1 } };
+  const vetoAxes = { ...goodAxes, trendStrength: { adx: 15, verdict: 'ranging' }, impulse: { verdict: 'thin' }, exhaustion: { rsi: 80, verdict: 'veto' } };
+  assert.equal(entryDecision(vetoOff, snap(0, 'buy', vetoAxes).snapshot).enter, true, 'disabled veto is a uniform non-factor: direction+location+exhaustion(non-factor) = 3 aligned');
 });
