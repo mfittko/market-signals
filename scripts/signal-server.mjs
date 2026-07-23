@@ -1024,7 +1024,8 @@ const PAGE = /* html */ `<!doctype html>
   .msg table { margin: 6px 0; font-size: 12px; } .msg td { padding: 2px 8px; border-bottom: 1px solid #21262d; }
   #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
   #chatForm input { flex: 1; }
-  #chatForm button { background: #238636; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; }
+  #chatForm button { background: #2b7a45; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
+  #chatForm button:hover { background: #33914f; } #chatForm button:active { background: #235f37; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
@@ -1056,9 +1057,13 @@ const PAGE = /* html */ `<!doctype html>
   #botBtn.dot-amber::after { display: block; background: #d29922; }
   #botBtn.ring-halt { box-shadow: 0 0 0 2px #f85149; border-radius: 6px; }
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
-  #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(360px, 92vw); }
+  /* #87: wide enough that the strategy tab's prompt/spec textareas breathe on
+     desktop; the max-width:900px query still caps dialogs at 92vw (box-sizing:
+     border-box) so 390px stays single-column with no overflow. */
+  #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(720px, 92vw); }
   #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
   #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
+  #botdlg #bmEditPrompt { min-height: 200px; } #botdlg #bmEditSpec { min-height: 66px; }
   .botwarn { color: #d29922; font-size: 12px; }
   #bmVersions { max-height: 160px; overflow-y: auto; }
   .botrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #30363d; border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; flex-wrap: wrap; }
@@ -1093,7 +1098,16 @@ const PAGE = /* html */ `<!doctype html>
   #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
   dialog textarea { box-sizing: border-box; }
   input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
-  button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  /* #87: one shared primary-green treatment — calmer green, readable weight,
+     subtle hover/active. Secondary/destructive buttons override background at
+     higher specificity (id/class) so they stay visually subordinate; :not(.dlg-x)
+     keeps the borderless × close untouched. */
+  button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #2b7a45; color: #fff; border: 0; border-radius: 4px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
+  button:not(.dlg-x):hover { background: #33914f; }
+  button:not(.dlg-x):active { background: #235f37; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  /* affordance parity for the subordinate grey controls (never the active tab) */
+  #cfgbtn:hover, .botrow .jump:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
