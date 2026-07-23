@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
-import { performHaltReset, resolveBotFor } from './bot.mjs';
+import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
@@ -108,7 +108,7 @@ export function writeSettings(settingsPath, patch) {
         else if (bk === 'bots') {
           // combo keys are normalized at write time (spaces around the pipe
           // stripped) so "A | M5" and "A|M5" can never coexist as duplicates
-          const normKey = (c) => c.split('|').map((x) => x.trim()).join('|');
+          const normKey = normCombo;
           const bots = {};
           for (const [combo, entry] of Object.entries(typeof merged.bots === 'object' && merged.bots ? merged.bots : {})) {
             bots[normKey(combo)] = entry; // re-key any stored unnormalized entries
@@ -481,7 +481,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const strat = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
         const pos = pfB.positions.find((pp) => pp.instrument === instrument) ?? null;
         data.botState = {
-          configured: botFor.enabled || botFor.strategyId != null || Object.keys(cfg.bot?.bots ?? {}).some((k) => k.split('|').map((x) => x.trim()).join('|') === `${instrument}|${granularity}`),
+          configured: botFor.configured === true,
           enabled: botFor.enabled,
           strategyName: strat ? `${strat.name} v${strat.version}` : null,
           halted: pfB.halted,
@@ -503,14 +503,17 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
         try {
-          // resetHalt is EPHEMERAL: perform the one-shot reset now, never
-          // persist the flag (a stored flag would re-baseline the peak per run)
-          if (patch?.bot?.resetHalt === true) {
-            performHaltReset(dbPath, readSettings(settingsPath));
+          // resetHalt is EPHEMERAL and runs ONLY after the rest of the patch
+          // validated+persisted — an invalid patch must never half-apply a
+          // safety-path mutation
+          const wantsReset = patch?.bot?.resetHalt === true;
+          if (wantsReset) {
             delete patch.bot.resetHalt;
             if (!Object.keys(patch.bot).length) delete patch.bot;
           }
-          return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) });
+          const settingsOut = writeSettings(settingsPath, patch);
+          if (wantsReset) performHaltReset(dbPath, readSettings(settingsPath));
+          return json(res, 200, { ok: true, settings: settingsOut });
         }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }

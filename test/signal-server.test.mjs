@@ -791,3 +791,24 @@ test('/api/bots serves the read-only activated-bots list; /api/chart carries bot
     assert.equal(d2.botState.configured, true);
   });
 });
+
+test('halt reset never half-applies: an invalid combined patch leaves the halt intact (#50 deep lens)', async () => {
+  const { botConfig, openPosition, markToMarket, portfolioView } = await import('../scripts/portfolio.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // force a halt: tiny portfolio, catastrophic mark
+    const cfg = botConfig({ bot: { riskPct: 100 } });
+    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 90000, price: 87 });
+    markToMarket(dbPath, cfg, { [INSTRUMENT]: 1 });
+    assert.equal(portfolioView(dbPath, cfg).halted, true, 'halted precondition');
+    // invalid patch alongside resetHalt → 400 AND the halt must survive
+    const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { resetHalt: true, bots: { 'nope': { enabled: true } } } }) });
+    assert.equal(bad.status, 400);
+    assert.equal(portfolioView(dbPath, cfg).halted, true, 'invalid patch did not clear the halt');
+    // clean reset works and is one-shot (flag never persisted)
+    const ok = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { resetHalt: true } }) })).json();
+    assert.equal(ok.error, undefined);
+    assert.equal(portfolioView(dbPath, cfg).halted, false, 'clean reset clears the halt');
+    const stored = await (await fetch(base + '/api/settings')).json();
+    assert.equal(stored.bot?.resetHalt, undefined, 'flag never persisted');
+  });
+});

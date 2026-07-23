@@ -22,27 +22,35 @@ export const BOT_LOOP_DEFAULTS = {
 // Per-combo bots (#49): settings.bot.bots maps "INSTRUMENT|GRAN" → per-bot
 // config; unset fields inherit the global bot defaults. The legacy flat shape
 // (bot.enabled + bot.watchers + globally-active strategy) migrates on read.
+// The ONE combo-key normalization rule — write path, resolve path, and the
+// server's configured-check must agree byte-for-byte.
+export const normCombo = (k) => String(k).split('|').map((p) => p.trim()).join('|');
+
 export function resolveBotFor(settings, instrument, granularity, dbPath = null) {
   const bot = settings?.bot ?? {};
   const key = `${instrument}|${granularity}`;
-  const norm = (k) => k.split('|').map((p) => p.trim()).join('|');
   let entry = null;
   if (bot.bots && typeof bot.bots === 'object') {
-    for (const [k, v] of Object.entries(bot.bots)) {
-      if (norm(k) === key && v && typeof v === 'object') { entry = v; break; }
-    }
+    // write path normalizes keys; the scan fallback covers settings files
+    // written before normalization shipped
+    entry = bot.bots[key] ?? Object.entries(bot.bots).find(([k, v]) => normCombo(k) === key && v && typeof v === 'object')?.[1] ?? null;
+    if (entry && typeof entry !== 'object') entry = null;
   } else if (bot.enabled === true) {
+    // NOTE deliberately superseded: once ANY bots map exists, this legacy
+    // branch is dead — legacy-watched combos not in the map stop trading
+    // (fail-safe direction; the overview list is the source of truth).
     // legacy migration-on-read: watchers CSV (or all combos when unset) become
     // implicit bot entries bound to the globally-active strategy
     const csv = typeof bot.watchers === 'string' ? bot.watchers.trim() : '';
-    const combos = csv ? csv.split(',').map(norm).filter((x) => x && x !== '|') : null;
+    const combos = csv ? csv.split(',').map(normCombo).filter((x) => x && x !== '|') : null;
     if (!combos || combos.includes(key)) {
       const act = dbPath ? (() => { try { return activeStrategy(dbPath); } catch { return null; } })() : null;
       entry = { enabled: true, strategyId: act?.id ?? null };
     }
   }
-  if (!entry) return { enabled: false };
+  if (!entry) return { enabled: false, configured: false };
   return {
+    configured: true,
     enabled: entry.enabled === true,
     strategyId: Number.isInteger(entry.strategyId) ? entry.strategyId : null,
     riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
