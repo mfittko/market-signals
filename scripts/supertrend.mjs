@@ -786,7 +786,7 @@ export function trackedInstruments(combos, cfg) {
   return [...new Set([...fromWatchers, ...fromBots])];
 }
 
-export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCandles, cap = HTF_FETCH_CAP, count = 100, now = Date.now() } = {}) {
+export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCandles, cap = HTF_FETCH_CAP, count = 100, now = Date.now(), log = dbg } = {}) {
   const instruments = trackedInstruments(combos, cfg);
   if (!instruments.length) return { refreshed: [], skipped: [] };
 
@@ -804,7 +804,10 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
   for (const instrument of instruments) {
     for (const granularity of HTF_LADDER) {
       const t = newest[`${instrument}|${granularity}`];
-      const ageMs = t ? now - Date.parse(t) : Infinity;
+      // a missing OR unparseable timestamp is treated as maximally stale so a bad
+      // row self-heals on the next fetch instead of freezing this rung forever
+      const parsed = t ? Date.parse(t) : NaN;
+      const ageMs = Number.isNaN(parsed) ? Infinity : now - parsed;
       if (ageMs > granularityMs(granularity) * HTF_STALE_GRACE) due.push({ instrument, granularity });
     }
   }
@@ -812,7 +815,7 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
   const toFetch = due.slice(0, cap);
   const skipped = due.slice(cap);
   if (skipped.length) {
-    dbg(`HTF cache: per-tick cap (${cap}) reached, skipped ${skipped.map((c) => `${c.instrument}|${c.granularity}`).join(', ')}`);
+    log(`HTF cache: per-tick cap (${cap}) reached, skipped ${skipped.map((c) => `${c.instrument}|${c.granularity}`).join(', ')}`);
   }
 
   const refreshed = [];
@@ -823,7 +826,7 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
       if (complete.length) storeCandles(dbPath, combo.instrument, combo.granularity, complete);
       refreshed.push(combo);
     } catch (err) {
-      dbg(`HTF cache refresh failed for ${combo.instrument}|${combo.granularity}: ${err.message}`);
+      log(`HTF cache refresh failed for ${combo.instrument}|${combo.granularity}: ${err.message}`);
     }
   }
   return { refreshed, skipped };

@@ -278,19 +278,26 @@ test('refreshHtfCache: per-tick cap truncates fan-out and logs what was skipped'
   const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }, { instrument: 'XAU/USD', granularity: 'M5' }];
   let calls = 0;
   const fetcher = async () => { calls++; return []; };
-  let stderr = '';
-  const origWrite = process.stderr.write;
-  process.stderr.write = (chunk) => { stderr += chunk; return true; };
-  let result;
-  try {
-    result = await refreshHtfCache(dbPath, combos, {}, { fetcher, now, cap: 3 });
-  } finally {
-    process.stderr.write = origWrite;
-  }
+  const logs = [];
+  const result = await refreshHtfCache(dbPath, combos, {}, { fetcher, now, cap: 3, log: (m) => logs.push(m) });
   assert.equal(calls, 3, 'only the capped number of fetches ran');
   assert.equal(result.refreshed.length, 3);
   assert.equal(result.skipped.length, 5);
-  assert.match(stderr, /per-tick cap \(3\) reached, skipped/, 'truncation is logged');
+  assert.ok(logs.some((m) => /per-tick cap \(3\) reached, skipped/.test(m)), 'truncation is logged');
+});
+
+test('refreshHtfCache: an unparseable cached timestamp is treated as stale (self-heals)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'htf-'));
+  const dbPath = htfDb(dir);
+  const now = Date.now();
+  seedBar(dbPath, 'WTICO/USD', 'H1', 'not-a-date'); // malformed → must not freeze the rung
+  const calls = [];
+  const fetcher = async ({ instrument, granularity }) => {
+    calls.push(`${instrument}|${granularity}`);
+    return [{ time: new Date(now).toISOString(), open: 1, high: 1, low: 1, close: 1, volume: 1, complete: true }];
+  };
+  await refreshHtfCache(dbPath, [{ instrument: 'WTICO/USD', granularity: 'M5' }], {}, { fetcher, now });
+  assert.ok(calls.includes('WTICO/USD|H1'), 'a bad timestamp is refetched, not skipped forever');
 });
 
 test('refreshHtfCache: a throwing fetch for one combo does not prevent the others', async () => {
