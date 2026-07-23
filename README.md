@@ -221,8 +221,10 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 - `settings.json` — provider/watcher/bot config (see above).
 - `notes.md` — free-form trader notes; read by the filter and chat.
 - `*-launchd.log` — LaunchAgent stdout/stderr.
-- `db.sqlite`, if present, is **not** used by the app — both scripts default to
-  `data/candles.db`; that name only appears as a test-fixture filename.
+- `db.sqlite`, if present, is not read by default — both scripts default their
+  `--db` to `data/candles.db` (a stray `db.sqlite` is leftover cruft, and the
+  name otherwise only appears as a test-fixture filename). It *would* be used
+  only if you explicitly pass `--db data/db.sqlite`.
 
 ## Setup
 
