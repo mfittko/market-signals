@@ -1099,15 +1099,20 @@ const PAGE = /* html */ `<!doctype html>
   dialog textarea { box-sizing: border-box; }
   input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   /* #87: one shared primary-green treatment — calmer green, readable weight,
-     subtle hover/active. Secondary/destructive buttons override background at
-     higher specificity (id/class) so they stay visually subordinate; :not(.dlg-x)
-     keeps the borderless × close untouched. */
+     subtle hover/active. Bare <button> is primary; secondary/destructive controls
+     opt out by overriding background at their own (id/class) specificity.
+     The green :hover/:active live in :where() so they carry ZERO specificity —
+     any secondary's own rest rule outranks them on every state, so nothing has to
+     "out-specify the blanket" to stay grey. :not(.dlg-x) spares the borderless ×. */
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #2b7a45; color: #fff; border: 0; border-radius: 4px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
-  button:not(.dlg-x):hover { background: #33914f; }
-  button:not(.dlg-x):active { background: #235f37; }
+  :where(button:not(.dlg-x)):hover { background: #33914f; }
+  :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
-  /* affordance parity for the subordinate grey controls (never the active tab) */
-  #cfgbtn:hover, .botrow .jump:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
+  #cfgbtn:hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  /* destructive: red text, no fill on every state */
+  #bmRemove { float: right; color: #f85149; background: none; border: 0; }
+  #bmRemove:hover, #bmRemove:active { background: none; color: #ff7b72; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
@@ -1426,7 +1431,7 @@ function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
     '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '● ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
-    '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>';
+    '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove">remove bot</button></p>';
   document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById('bmAlloc').onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
