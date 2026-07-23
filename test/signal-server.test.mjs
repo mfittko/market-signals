@@ -693,7 +693,8 @@ test('evaluation endpoint (#26): read-only, serves scoreboard+baselines+audit; p
 });
 
 test('chart ind= param serves display series + state axis gate; chat context carries axisGate (#32)', async () => {
-  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
     const d = await (await fetch(base + '/api/chart?ind=ema,rsi,vwap,bogus')).json();
     assert.ok(Array.isArray(d.indicators.ema.ema20) && d.indicators.ema.ema20.length === d.candles.length, 'ema series aligned to candles');
     assert.ok(Array.isArray(d.indicators.rsi) && Array.isArray(d.indicators.vwap));
@@ -702,6 +703,17 @@ test('chart ind= param serves display series + state axis gate; chat context car
     const plain = await (await fetch(base + '/api/chart')).json();
     assert.equal(plain.indicators, undefined, 'no ind param → no indicator payload');
     assert.ok(plain.axisGate === null || plain.axisGate.axes, 'axis gate always attached, independent of display toggles');
+
+    // and the chat context carries the same axis block
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, '#!/bin/sh\ncat > /dev/null\necho ok\n');
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'axis check', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const done = sseEvents(await res.text()).find((e) => e.type === 'done');
+    const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
+    const ctx = JSON.parse(messages[0].context);
+    assert.ok(ctx.axisGate && ctx.axisGate.trendStrength !== undefined, 'chat context carries the axis gate block');
   });
 });
 
