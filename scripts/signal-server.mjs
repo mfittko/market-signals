@@ -878,7 +878,7 @@ const PAGE = /* html */ `<!doctype html>
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
-           padding: 18px 20px; min-width: 420px; position: relative; }
+           padding: 18px 20px; min-width: min(420px, 92vw); position: relative; }
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
   dialog h2 { margin-top: 0; }
   .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
