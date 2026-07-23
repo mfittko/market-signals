@@ -1570,8 +1570,9 @@ async function renderGates() {
     '<button type="button" class="gateactivate"' + (d.active ? ' hidden' : '') + '>activate</button> ' +
     '<button type="button" class="gatedeactivate"' + (d.active ? '' : ' hidden') + '>deactivate</button></div>').join('')
     : '<div class="gateempty"><small>no drafts yet — ask the copilot to draft one</small></div>';
+  const filterVerLabel = g.filter.promptVersion === 'builtin' ? 'builtin' : 'v' + g.filter.promptVersion;
   list.innerHTML =
-    '<div class="gaterow"><b>filter</b> <small>— toolset: ' + toolsetLine(g.filter.toolset) + ' · active: v' + esc(String(g.filter.promptVersion)) + '</small>' + promptDetails(g.filter.prompt) + drafts + '</div>' +
+    '<div class="gaterow"><b>filter</b> <small>— toolset: ' + toolsetLine(g.filter.toolset) + ' · active: ' + esc(filterVerLabel) + '</small>' + promptDetails(g.filter.prompt) + drafts + '</div>' +
     '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
     (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') + '</div>' +
     '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>';

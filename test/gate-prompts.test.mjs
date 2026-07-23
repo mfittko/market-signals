@@ -59,3 +59,10 @@ test('listGatePrompts without a gate filter lists everything, newest version fir
   assert.equal(all.length, 2);
   assert.equal(all[0].version, 2);
 });
+
+test('listGatePrompts and activeGatePrompt reject unknown gates, same as saveGatePrompt', () => {
+  const db = fresh();
+  assert.throws(() => listGatePrompts(db, { gate: 'bot' }), /gate must be one of/);
+  assert.throws(() => activeGatePrompt(db, 'bot'), /gate must be one of/);
+  assert.equal(listGatePrompts(db).length, 0, 'no gate filter still lists everything (none yet)');
+});

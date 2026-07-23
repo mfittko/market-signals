@@ -45,6 +45,7 @@ export function saveGatePrompt(dbPath, { gate, prompt, createdBy = 'manual' } = 
 }
 
 export function listGatePrompts(dbPath, { gate = null } = {}) {
+  if (gate !== null && !GATES.includes(gate)) throw new Error(`gate must be one of: ${GATES.join(', ')}`);
   return gdb(dbPath, (db) => db.prepare(
     `SELECT id, gate, version, prompt, created_by, created_at, active FROM gate_prompts
      ${gate ? 'WHERE gate=?' : ''} ORDER BY gate, version DESC`).all(...(gate ? [gate] : [])));
@@ -73,5 +74,6 @@ export function deactivateGatePrompt(dbPath, id) {
 }
 
 export function activeGatePrompt(dbPath, gate) {
+  if (!GATES.includes(gate)) throw new Error(`gate must be one of: ${GATES.join(', ')}`);
   return gdb(dbPath, (db) => db.prepare('SELECT * FROM gate_prompts WHERE gate=? AND active=1 LIMIT 1').get(gate) ?? null);
 }
