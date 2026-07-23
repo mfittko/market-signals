@@ -822,6 +822,7 @@ const PAGE = /* html */ `<!doctype html>
     #wrap { height: 320px !important; }
 
     table { display: block; overflow-x: auto; white-space: nowrap; }
+    form, .advgrid { grid-template-columns: 1fr; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #pf { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
@@ -878,7 +879,7 @@ const PAGE = /* html */ `<!doctype html>
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
-           padding: 18px 20px; min-width: min(420px, 92vw); position: relative; }
+           padding: 18px 20px; min-width: min(420px, 92vw); max-width: 92vw; box-sizing: border-box; position: relative; }
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
   dialog h2 { margin-top: 0; }
   .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
