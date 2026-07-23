@@ -253,7 +253,7 @@ test('refreshHtfCache: fresh granularity skipped, stale one fetched', async () =
   const dbPath = htfDb(dir);
   const now = Date.now();
   seedBar(dbPath, 'WTICO/USD', 'M15', new Date(now - 5 * 60000).toISOString()); // fresh (5min < 15*2)
-  seedBar(dbPath, 'WTICO/USD', 'M30', new Date(now - 45 * 60000).toISOString()); // fresh (45min < 30*2), the boundary case that 1.5x would have wrongly refetched
+  seedBar(dbPath, 'WTICO/USD', 'M30', new Date(now - 46 * 60000).toISOString()); // 46min: DUE at 1.5x (>45), FRESH at 2x (<60) — pins that 1.5x refetched early
   seedBar(dbPath, 'WTICO/USD', 'H1', new Date(now - 3 * 3600000).toISOString()); // stale (3h > 2h)
   // H4 has no cached bar at all -> also due.
   const calls = [];
