@@ -865,9 +865,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (raw === null) return;
         let body;
         try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
-        const id = Number(body.id);
-        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
         try {
+          // #90: inline drafting from the dedicated gates modal — same writer
+          // (saveGatePrompt) as the chat tool, same gate-enum validation
+          // (filter|recheck only), always stored INACTIVE. Activation stays a
+          // separate action below, same human-only guardrail as before.
+          if (body.action === 'save') return json(res, 200, { ok: true, draft: saveGatePrompt(dbPath, { gate: body.gate, prompt: body.prompt, createdBy: 'manual' }) });
+          const id = Number(body.id);
+          if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
           if (body.action === 'activate') return json(res, 200, { ok: true, ...activateGatePrompt(dbPath, id) });
           if (body.action === 'deactivate') return json(res, 200, { ok: true, ...deactivateGatePrompt(dbPath, id) });
           return json(res, 400, { ok: false, error: 'unknown action' });
@@ -1082,6 +1087,19 @@ const PAGE = /* html */ `<!doctype html>
   #botdlg #bmEditPrompt { min-height: 200px; } #botdlg #bmEditSpec { min-height: 66px; }
   .botwarn { color: #d29922; font-size: 12px; }
   #bmVersions { max-height: 160px; overflow-y: auto; }
+  /* #90: memories/gates get their own wide modals (#87 width system) — room
+     to read/edit long text, same 92vw single-column mobile cap as #botdlg. */
+  #memdlg, #gatedlg { width: min(720px, 92vw); max-height: 85vh; overflow-y: auto; }
+  #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+  #memAddRow input[type=text] { flex: 1; }
+  .memrow { border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
+  .memrow .memcontent { width: 100%; min-height: 40px; box-sizing: border-box; }
+  .memrow .memmeta { display: flex; gap: 10px; align-items: center; margin-top: 6px; font-size: 12px; color: #8b949e; }
+  .memrow .memweight { width: 56px; }
+  .memempty, .gateempty { color: #8b949e; font-size: 13px; }
+  .gaterow { border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+  .gatedraft { margin: 4px 0; }
+  .gaterow textarea { width: 100%; box-sizing: border-box; min-height: 90px; margin-top: 4px; }
   .botrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #30363d; border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; flex-wrap: wrap; }
   .botrow .jump { cursor: pointer; background: #21262d; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; padding: 2px 10px; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
@@ -1170,7 +1188,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button> <button id="memBtn" type="button" title="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts">📜</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -1208,10 +1226,18 @@ const PAGE = /* html */ `<!doctype html>
 <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
-<h2>Trader memories</h2>
+<p><button type="button" id="cfgToMem">manage memories →</button> <button type="button" id="cfgToGates">manage gates →</button></p>
+</dialog>
+<dialog id="memdlg">
+<form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
+<h2>🧠 trader memories</h2>
+<div id="memAddRow"><input type="text" id="memNewContent" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5"><button type="button" id="memAddBtn">add</button></div>
 <div id="memList"></div>
 <details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
-<h2 data-info="Read-only per-gate transparency: effective system prompt and declared toolset for the filter, bot, and chat gates (#58).">Gates</h2>
+</dialog>
+<dialog id="gatedlg">
+<form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
+<h2 data-info="Per-gate transparency: effective system prompt and declared toolset for the filter, recheck, bot, and chat gates (#58). Filter and recheck accept drafted overrides, activated here — a human act, never automatic.">gates &amp; prompts</h2>
 <div id="gatesList"></div>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
@@ -1264,11 +1290,13 @@ const INFO = {
   botDecision: 'What the bot did on this signal: hold (no trade), open (entered a position), or close (exited one) — full reasoning and history in portfolio → audit.',
   recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded verdict above — the result renders as its own line.',
   info: 'Toggle styled hover explanations for metrics across the UI.',
-  settings: 'Watcher and filter settings, and trader memories.',
+  settings: 'Watcher and filter settings.',
+  memories: 'Standing notes/preferences the copilot and bot weigh as advisory context — never a substitute for the fail-safe clamps.',
+  gates: 'Per-gate transparency and overrides: effective system prompt and toolset for filter, recheck, bot, and chat — filter/recheck accept human-activated draft overrides.',
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
-const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
+const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', memBtn: 'memories', gateBtn: 'gates', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
@@ -1926,10 +1954,12 @@ async function cfg() {
     if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
-  renderMemories();
-  renderGates();
 }
-// #58: read-only gate transparency + the filter's chat-draftable overrides.
+// #58/#90: per-gate transparency + the overridable gates' (filter, recheck)
+// draft list (activate/deactivate) AND an inline draft editor — reuses the
+// #75 strategy-tab pattern (name/textarea + save-as-draft). Saving a draft
+// NEVER activates it: activation stays its own human-only click, same
+// money-path guardrail as before this dialog existed.
 async function renderGates() {
   const r = await (await fetch('/api/gate-prompts')).json();
   const list = document.getElementById('gatesList');
@@ -1942,14 +1972,19 @@ async function renderGates() {
     '<div class="gatedraft" data-id="' + d.id + '"><small>v' + d.version + ' · ' + esc(d.created_by) + (d.active ? ' · <b>active</b>' : '') + '</small> ' +
     '<button type="button" class="gateactivate"' + (d.active ? ' hidden' : '') + '>activate</button> ' +
     '<button type="button" class="gatedeactivate"' + (d.active ? '' : ' hidden') + '>deactivate</button></div>').join('')
-    : '<div class="gateempty"><small>no drafts yet — ask the copilot to draft one</small></div>';
+    : '<div class="gateempty"><small>no drafts yet — draft one below, or ask the copilot</small></div>';
   const verLabel = (eff) => eff.promptVersion === 'builtin' ? 'builtin' : 'v' + eff.promptVersion;
-  const overridableRow = (name, eff) => '<div class="gaterow"><b>' + esc(name) + '</b> <small>— toolset: ' + toolsetLine(eff.toolset) + ' · active: ' + esc(verLabel(eff)) + '</small>' + promptDetails(eff.prompt) + draftsBlock(eff.drafts) + '</div>';
+  const overridableRow = (gate, eff) => '<div class="gaterow" data-gate="' + gate + '"><b>' + esc(gate) + '</b> <small>— toolset: ' + toolsetLine(eff.toolset) + ' · active: ' + esc(verLabel(eff)) + '</small>' + promptDetails(eff.prompt) + draftsBlock(eff.drafts) +
+    '<details><summary>draft a new ' + esc(gate) + ' prompt</summary>' +
+    '<textarea class="gateEditPrompt" rows="6" placeholder="new ' + esc(gate) + ' system prompt…"></textarea>' +
+    '<p><button type="button" class="gateSaveDraft">save as draft</button></p>' +
+    '<div class="gateEditErr botwarn"></div></details></div>';
   list.innerHTML =
     overridableRow('filter', g.filter) +
     overridableRow('recheck', g.recheck) +
     '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
-    (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') + '</div>' +
+    (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') +
+    '<p><button type="button" id="gateToBot">' + (g.bot.strategyName ? 'view strategy in bot modal →' : 'assign a strategy in the bot modal →') + '</button></p></div>' +
     '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>';
   list.querySelectorAll('.gatedraft').forEach((row) => {
     const id = Number(row.dataset.id);
@@ -1958,6 +1993,18 @@ async function renderGates() {
     act.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: id }) }); renderGates(); };
     deact.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'deactivate', id: id }) }); renderGates(); };
   });
+  list.querySelectorAll('.gaterow[data-gate]').forEach((row) => {
+    const gate = row.dataset.gate;
+    row.querySelector('.gateSaveDraft').onclick = async () => {
+      const prompt = row.querySelector('.gateEditPrompt').value;
+      const err = row.querySelector('.gateEditErr');
+      const r2 = await (await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: gate, prompt: prompt }) })).json();
+      if (!r2.ok) { err.textContent = r2.error; return; }
+      renderGates();
+    };
+  });
+  const toBot = document.getElementById('gateToBot');
+  if (toBot) toBot.onclick = () => { document.getElementById('gatedlg').close(); openBotModal(); };
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();
@@ -1965,12 +2012,16 @@ async function renderMemories() {
   if (!r.ok) { list.textContent = ''; return; }
   list.innerHTML = r.memories.length ? r.memories.map(m =>
     '<div class="memrow" data-id="' + m.id + '">' +
-    '<span class="memcontent">' + esc(m.content) + '</span>' +
-    '<span class="memweightwrap" data-info="' + esc(INFO.memWeight) + '"><input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '"></span>' +
-    '<button type="button" class="memarchive">archive</button>' +
+    '<textarea class="memcontent" rows="2">' + esc(m.content) + '</textarea>' +
+    '<div class="memmeta"><span data-info="' + esc(INFO.memWeight) + '">weight <input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '"></span>' +
+    '<button type="button" class="memarchive">archive</button></div>' +
     '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
   list.querySelectorAll('.memrow').forEach(row => {
     const id = Number(row.dataset.id);
+    row.querySelector('.memcontent').onchange = async (e) => {
+      await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'edit', id: id, content: e.target.value }) });
+      renderMemories();
+    };
     row.querySelector('.memweight').onchange = async (e) => {
       await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'reweight', id: id, weight: Number(e.target.value) }) });
       renderMemories();
@@ -2124,6 +2175,21 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) load
 document.getElementById('cfgbtn').addEventListener('click', async () => {
   await cfg();
   document.getElementById('cfgdlg').showModal();
+});
+// #90: memories and gates got their own dedicated modals (out of the crowded
+// settings dialog) — same open pattern as portfolio/bot, reached from the
+// header buttons OR the 'manage ...' links inside settings.
+document.getElementById('memBtn').addEventListener('click', () => { document.getElementById('memdlg').showModal(); renderMemories(); });
+document.getElementById('gateBtn').addEventListener('click', () => { document.getElementById('gatedlg').showModal(); renderGates(); });
+document.getElementById('cfgToMem').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('memdlg').showModal(); renderMemories(); });
+document.getElementById('cfgToGates').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('gatedlg').showModal(); renderGates(); });
+document.getElementById('memAddBtn').addEventListener('click', async () => {
+  const content = document.getElementById('memNewContent').value.trim();
+  if (!content) return;
+  const weightRaw = document.getElementById('memNewWeight').value;
+  const weight = weightRaw === '' ? undefined : Number(weightRaw); // blank falls back to saveMemory's default (3)
+  const r = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: content, weight: weight }) })).json();
+  if (r.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
 });
 </script></body></html>
 `;
