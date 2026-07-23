@@ -15,6 +15,7 @@ const round = (v, p = 2) => (v == null || !Number.isFinite(v) ? null : Math.roun
 // flip: {signal: 'buy'|'sell'} when a flip triggered this snapshot (axes that
 // judge alignment need a direction; without one they report state only).
 export function axisSnapshot(candles, { instrument, granularity, flip = null } = {}) {
+  candles = candles.filter((c) => c.complete !== false && c.partial !== true); // gate axes judge completed bars only (db uses complete, chart tail uses partial)
   if (candles.length < 30) return null;
   const closes = candles.map((c) => c.close);
   const lastCandle = candles[candles.length - 1];
@@ -28,8 +29,10 @@ export function axisSnapshot(candles, { instrument, granularity, flip = null } =
   };
 
   // 2) direction/regime: EMA 50/200 relationship + HTF supertrend agreement
-  const e50 = last(ema(closes, 50));
-  const e200 = last(ema(closes, 200));
+  const e50 = closes.length >= 50 ? last(ema(closes, 50)) : null;
+  // a regime vote needs real 200-bar warm-up — ema() seeding would happily
+  // fabricate one from a handful of closes
+  const e200 = closes.length >= 200 ? last(ema(closes, 200)) : null;
   const regime = e50 != null && e200 != null ? (e50 >= e200 ? 'bull' : 'bear') : null;
   const htfM15 = htfSupertrend(candles, granularity, 'M15');
   const htfH1 = htfSupertrend(candles, granularity, 'H1');
@@ -141,14 +144,17 @@ export function recordSnapshot(dbPath, snapshot, { filterVerdict = null, filterM
 // expectancy of surviving alerts, not signal count (#32 locked design).
 export function axisExpectancy(dbPath, { instrument = null, granularity = null } = {}) {
   const snaps = withDb(dbPath, (db) => {
-    db.exec(SNAP_DDL);
     let sql = 'SELECT instrument, granularity, time, snapshot FROM signal_snapshots';
     const where = [];
     const args = [];
     if (instrument) { where.push('instrument = ?'); args.push(instrument); }
     if (granularity) { where.push('granularity = ?'); args.push(granularity); }
     if (where.length) sql += ` WHERE ${where.join(' AND ')}`;
-    return db.prepare(sql).all(...args);
+    // reporting never mutates: a db without the table simply has no snapshots
+    try { return db.prepare(sql).all(...args); } catch (err) {
+      if (/no such table/i.test(String(err.message))) return [];
+      throw err;
+    }
   });
   if (!snaps.length) return null;
   // outcomes are computed (30-min realized move), not stored: resolve per combo
@@ -158,7 +164,7 @@ export function axisExpectancy(dbPath, { instrument = null, granularity = null }
     const comboKey = `${row.instrument}|${row.granularity}`;
     if (!outcomesByCombo.has(comboKey)) {
       const map = new Map();
-      for (const o of signalOutcomes(dbPath, row.instrument, row.granularity)) {
+      for (const o of signalOutcomes(dbPath, row.instrument, row.granularity, { limit: 100000 })) {
         if (o.outcomePct != null) map.set(o.time, o.outcomePct);
       }
       outcomesByCombo.set(comboKey, map);

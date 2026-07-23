@@ -126,9 +126,9 @@ export function adx(candles, period = 14) {
 }
 
 export function volumeRatio(candles, period = 20) {
-  if (candles.length < 2) return null;
+  // a full window is required: partial-history ratios are incomparable
+  if (candles.length < period + 1) return null;
   const win = candles.slice(-(period + 1), -1).map((c) => c.volume || 0);
-  if (!win.length) return null;
   const avg = win.reduce((a, b) => a + b, 0) / win.length;
   const last = candles[candles.length - 1].volume || 0;
   return avg > 0 ? last / avg : null;
@@ -138,8 +138,10 @@ export function volumeRatio(candles, period = 20) {
 // duration) for higher-timeframe supertrend agreement.
 export function resampleCandles(candles, fromGranularity, toGranularity) {
   const toMs = granularityMs(toGranularity);
+  const fromMs = granularityMs(fromGranularity);
   const buckets = new Map();
   for (const c of candles) {
+    if (c.complete === false || c.partial === true) continue; // forming candles never enter coarse buckets
     const bucket = Math.floor(Date.parse(c.time) / toMs) * toMs;
     if (!buckets.has(bucket)) {
       buckets.set(bucket, { time: new Date(bucket).toISOString(), open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 0, complete: true });
@@ -151,12 +153,21 @@ export function resampleCandles(candles, fromGranularity, toGranularity) {
       b.volume += c.volume || 0;
     }
   }
-  return [...buckets.values()].sort((a, b) => a.time.localeCompare(b.time));
+  const out = [...buckets.values()].sort((a, b) => a.time.localeCompare(b.time));
+  // the trailing bucket is complete only when its full span is covered
+  if (out.length) {
+    const lastComplete = candles.filter((c) => c.complete !== false && c.partial !== true);
+    const lastSrc = lastComplete.length ? Date.parse(lastComplete[lastComplete.length - 1].time) + fromMs : 0;
+    const lastBucket = out[out.length - 1];
+    if (Date.parse(lastBucket.time) + toMs > lastSrc) lastBucket.complete = false;
+  }
+  return out;
 }
 
 // Higher-timeframe supertrend trend for the latest bar (agreement check).
 export function htfSupertrend(candles, fromGranularity, toGranularity, opts = { period: 10, multiplier: 3 }) {
-  const coarse = resampleCandles(candles, fromGranularity, toGranularity);
+  // agreement checks judge COMPLETED higher-timeframe bars only
+  const coarse = resampleCandles(candles, fromGranularity, toGranularity).filter((c) => c.complete !== false);
   if (coarse.length < opts.period + 2) return null;
   const st = computeSupertrend(coarse, opts);
   const last = st[st.length - 1];

@@ -75,6 +75,7 @@ test('volumeRatio: last bar vs 20-bar average, excluding itself', () => {
   const cs = [...Array.from({ length: 21 }, (_, i) => candle(1, 1, 1, 1, 100, t(i))), candle(1, 1, 1, 1, 300, t(21))];
   assert.equal(volumeRatio(cs, 20), 3);
   assert.equal(volumeRatio([candle(1, 1, 1, 1, 5, t(0))], 20), null);
+  assert.equal(volumeRatio(Array.from({ length: 15 }, (_, i) => candle(1, 1, 1, 1, 100, t(i))), 20), null, 'partial window never yields a ratio');
 });
 
 test('resample: M5→M15 buckets OHLCV correctly', () => {
@@ -88,6 +89,9 @@ test('resample: M5→M15 buckets OHLCV correctly', () => {
     { o: out[0].open, h: out[0].high, l: out[0].low, c: out[0].close, v: out[0].volume },
     { o: 10, h: 15, l: 9, c: 13.5, v: 15 });
   assert.equal(out[1].volume, 7);
+  assert.equal(out[1].complete, false, 'trailing bucket with partial coverage marked incomplete');
+  const withForming = resampleCandles([...cs, { ...candle(12, 13, 11, 12.5, 9, t(4)), partial: true }], 'M5', 'M15');
+  assert.equal(withForming.reduce((a, b) => a + b.volume, 0), 22, 'forming candles never enter buckets');
 });
 
 test('htfSupertrend: trending series agrees with its own direction; too-short series → null', () => {
