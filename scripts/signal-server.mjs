@@ -929,6 +929,7 @@ const PAGE = /* html */ `<!doctype html>
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
   tr { cursor: pointer; } tr:hover { background: #161b22; }
   form { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; max-width: 520px; }
+  #gatesList pre { white-space: pre-wrap; overflow-wrap: anywhere; }
   #cfgAdv { grid-column: 1 / -1; }
   #cfgAdv summary { cursor: pointer; color: #8b949e; margin: 4px 0; }
   .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
