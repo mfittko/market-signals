@@ -1003,9 +1003,9 @@ const PAGE = /* html */ `<!doctype html>
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs { display: flex; gap: 6px; margin: 10px 0; }
-  #pfTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, #bmTabs { display: flex; gap: 6px; margin: 10px 0; }
+  #pfTabs button, #bmTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, #bmTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   #botBtn { position: relative; }
   #botBtn.nobot { opacity: 0.45; }
   #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
@@ -1016,8 +1016,9 @@ const PAGE = /* html */ `<!doctype html>
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
   #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(360px, 92vw); }
   #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
-  #botdlg select, #botdlg input[type=number] { width: 100%; }
+  #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
   .botwarn { color: #d29922; font-size: 12px; }
+  #bmVersions { max-height: 160px; overflow-y: auto; }
   .botrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #30363d; border-radius: 6px; padding: 7px 10px; margin: 6px 0; font-size: 13px; flex-wrap: wrap; }
   .botrow .jump { cursor: pointer; background: #21262d; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; padding: 2px 10px; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
@@ -1042,7 +1043,7 @@ const PAGE = /* html */ `<!doctype html>
   .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
   /* one control height everywhere interactive chrome lives (#56) */
   #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
-  input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
+  input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
@@ -1351,7 +1352,10 @@ function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
   const body = document.getElementById('bm-setup');
   body.innerHTML =
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
-    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !entry.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
+    // review fix: gate on the RESOLVED active-version name (botStateCache,
+    // same value /api/bots + runBot see), not entry.strategyName — a name
+    // whose versions are all inactive must still show the warning.
+    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !botStateCache?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
     '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
     '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
     '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
@@ -1387,6 +1391,9 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   // "unknown scope" rather than throwing on byName.get(name)[0].
   const scopeOf = (name) => byName.get(name)?.[0]; // newest-first per name (server ORDER BY)
   const mismatched = (name) => { const s = scopeOf(name); return !!(s && s.instrument && (s.instrument !== inst || s.granularity !== gran)); };
+  // review fix: surface active-version state right in the option label so an
+  // operator can see "won't trade" risk before assigning, not after.
+  const activeVersionOf = (name) => byName.get(name)?.find((r) => r.active) || null;
   const showAll = el.dataset.showAll === '1';
   const names = [...byName.keys()];
   const assignable = showAll ? names : names.filter((n) => !mismatched(n));
@@ -1398,14 +1405,25 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   if (editActiveRow) editFull = (await (await fetch('/api/strategies?id=' + editActiveRow.id)).json()).strategy;
   el.innerHTML =
     '<label for="bmStratSel" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="bmStratSel"><option value="">— none —</option>' +
-    assignable.map((n) => '<option value="' + esc(n) + '"' + (n === current ? ' selected' : '') + '>' + esc(n) + (mismatched(n) ? ' ⚠' : '') + '</option>').join('') + '</select>' +
+    assignable.map((n) => {
+      const av = activeVersionOf(n);
+      const label = n + (av ? ' (active v' + av.version + ')' : ' — draft, no active version') + (mismatched(n) ? ' ⚠' : '');
+      return '<option value="' + esc(n) + '"' + (n === current ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('') + '</select> ' +
+    '<button type="button" id="bmAssignBtn"' + (editing === current ? ' disabled' : '') + '>+ assign</button>' +
     '<label><input type="checkbox" id="bmShowAll"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +
     (current && mismatched(current) ? '<div class="botwarn">declared for ' + esc(scopeOf(current).instrument) + '·' + esc(scopeOf(current).granularity) + ' — assigning to ' + esc(inst) + '·' + esc(gran) + '</div>' : '') +
     (current && !byName.has(current) ? '<div class="botwarn">assigned strategy "' + esc(current) + '" has no active versions (archived?) — reassign or reactivate a version</div>' : '') +
     (!rows.length ? '<div class="botwarn">No strategies yet — draft one below or with the copilot.</div>' : '') +
+    // review fix: an already-active version needs its own assign-only path
+    // (bmAssign) — bmActivate stays hidden for it since there's nothing to
+    // activate, but "assign the active version" must still be reachable.
     (editRows.length ? '<div id="bmVersions">' + editRows.map((v) =>
       '<div class="botrow" data-id="' + v.id + '"><span>v' + v.version + ' · ' + esc(v.created_by) + (v.active ? ' · <b>active</b>' : '') + '</span>' +
-      '<button type="button" class="bmActivate"' + (v.active ? ' hidden' : '') + '>activate' + (v.name === current ? '' : ' + assign') + '</button></div>').join('') + '</div>' : '') +
+      (v.active
+        ? (v.name === current ? '' : '<button type="button" class="bmAssign">assign</button>')
+        : '<button type="button" class="bmActivate">activate' + (v.name === current ? '' : ' + assign') + '</button>') +
+      '</div>').join('') + '</div>' : '') +
     '<details open><summary>' + (editing ? 'edit ' + esc(editing) + ' / draft a new version' : 'draft a strategy') + '</summary>' +
     '<label for="bmEditName">name</label><input type="text" id="bmEditName" value="' + esc(editing) + '" placeholder="kebab-case-name">' +
     '<label for="bmEditPrompt">prompt</label><textarea id="bmEditPrompt" rows="6">' + esc(editFull?.prompt ?? '') + '</textarea>' +
@@ -1415,10 +1433,17 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     '<div id="bmEditErr" class="botwarn"></div></details>' +
     '<p><small id="bmStratSaved">' + esc(savedMsg || '') + '</small></p>';
   document.getElementById('bmShowAll').onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(inst, gran, entry, save); };
-  document.getElementById('bmStratSel').onchange = async (e) => {
+  // review fix: browsing the select only PREVIEWS a name (version list +
+  // editor below) — it must never rebind (or disarm) a live bot on its own.
+  // Assignment is a separate, explicit write via #bmAssignBtn / .bmAssign.
+  document.getElementById('bmStratSel').onchange = (e) => {
     el.dataset.editing = e.target.value || '';
-    await save({ strategyName: e.target.value || null });
+    renderBotStrategyTab(inst, gran, entry, save);
   };
+  document.getElementById('bmAssignBtn').onclick = async () => { await save({ strategyName: editing || null }); };
+  el.querySelectorAll('.bmAssign').forEach((row) => {
+    row.onclick = async () => { await save({ strategyName: editing }); };
+  });
   el.querySelectorAll('.bmActivate').forEach((row) => {
     const id = Number(row.closest('[data-id]').dataset.id);
     row.onclick = async () => {

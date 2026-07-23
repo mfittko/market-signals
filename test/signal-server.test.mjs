@@ -842,6 +842,34 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
   });
 });
 
+test('bmWarn (UI review finding 1) is driven by the RESOLVED botState.strategyName, not the raw settings name, and options flag draft/no-active-version names', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    // the setup-tab warning span must gate on botStateCache (the resolved
+    // active-version name from /api/chart), never on entry.strategyName —
+    // an assigned name with zero active versions must still warn.
+    assert.match(html, /entry\.enabled && !botStateCache\?\.strategyName/, 'bmWarn gates on resolved botStateCache.strategyName');
+    assert.doesNotMatch(html, /entry\.enabled && !entry\.strategyName/, 'bmWarn no longer trusts the raw settings name alone');
+    // the assign <select> must label each option with its active-version
+    // state so an operator sees "won't trade" risk before assigning.
+    assert.match(html, /— draft, no active version/, 'select options flag names with no active version');
+    assert.match(html, /\(active v' \+ av\.version \+ '\)/, 'select options surface the active version number');
+  });
+});
+
+test('strategy select (UI review finding 2) only previews on change — no write — and assignment is a separate explicit action', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const onchangeBlock = html.match(/document\.getElementById\('bmStratSel'\)\.onchange = \(e\) => \{[\s\S]*?\};/);
+    assert.ok(onchangeBlock, 'bmStratSel onchange handler found');
+    assert.doesNotMatch(onchangeBlock[0], /save\(/, 'selecting a strategy name must never call save() directly — browsing must not rebind a live bot');
+    assert.match(onchangeBlock[0], /el\.dataset\.editing = e\.target\.value/, 'selecting still previews (updates editing state + rerenders)');
+    // the explicit, reachable single write path for select-driven assignment
+    assert.match(html, /id="bmAssignBtn"/, 'explicit assign button present');
+    assert.match(html, /getElementById\('bmAssignBtn'\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
+  });
+});
+
 test('served client scopeOf/mismatched tolerate an assigned name with zero visible rows, e.g. all-archived (review fix, escape-drift guard)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
