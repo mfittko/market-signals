@@ -130,6 +130,15 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     if (margin > (cfg.riskPct / 100) * equityNow) {
       throw new Error(`margin ${margin.toFixed(2)} exceeds risk budget (${cfg.riskPct}% of equity ${equityNow.toFixed(2)})`);
     }
+    if (Number.isFinite(cfg.allocationPct) && cfg.allocationPct > 0) {
+      // per-INSTRUMENT equity allocation (#51): positions carry no granularity,
+      // so the cap is shared by every bot on this instrument — same semantics
+      // as leverage; labeled accordingly in the UI
+      const lockedHere = db.prepare('SELECT COALESCE(SUM(margin),0) m FROM positions WHERE instrument=?').get(instrument).m;
+      if (lockedHere + margin > (cfg.allocationPct / 100) * equityNow) {
+        throw new Error(`allocation cap: ${(lockedHere + margin).toFixed(2)} would exceed ${cfg.allocationPct}% of equity ${equityNow.toFixed(2)}`);
+      }
+    }
     const spread = instrumentSpread(cfg, instrument);
     const entry = side === 'long' ? price + spread : price - spread;
     const units = notional / price;

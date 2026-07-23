@@ -254,7 +254,7 @@ test('resolveBotFor: per-combo map wins, legacy shape migrates on read, unset di
   // per-combo map: only listed combos, per-bot overrides respected
   const withBots = { bot: { bots: { 'WTICO/USD | M5': { enabled: true, strategyId: 7, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } };
   const wti = resolveBotFor(withBots, WTI, 'M5');
-  assert.deepEqual(wti, { configured: true, enabled: true, strategyId: 7, riskPct: 2, killSwitchDrawdownPct: null }, 'spaced keys normalize; overrides pass through');
+  assert.deepEqual(wti, { configured: true, enabled: true, strategyId: 7, riskPct: 2, allocationPct: null, killSwitchDrawdownPct: null }, 'spaced keys normalize; overrides pass through');
   assert.equal(resolveBotFor(withBots, 'SPX500/USD', 'M1').enabled, false);
   assert.equal(resolveBotFor(withBots, WTI, 'M1').enabled, false, 'unlisted combo has no bot');
   // legacy shape: enabled + watchers CSV migrates on read

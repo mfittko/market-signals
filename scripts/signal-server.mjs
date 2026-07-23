@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
+import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
@@ -45,7 +45,7 @@ try {
 // Keys the config page may read/write; API keys are write-only (masked on read).
 const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
-const PER_BOT_KEYS = ['enabled', 'strategyId', 'riskPct', 'killSwitchDrawdownPct'];
+const PER_BOT_KEYS = ['enabled', 'strategyId', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
 const MASK = '•••';
 
@@ -75,6 +75,13 @@ export function writeSettings(settingsPath, patch) {
     if (typeof patch.bot !== 'object' || Array.isArray(patch.bot)) throw new Error('bot must be an object');
     const unknownBot = Object.keys(patch.bot).filter((k) => !BOT_SETTING_KEYS.includes(k));
     if (unknownBot.length) throw new Error(`unknown bot key(s): ${unknownBot.join(', ')}`);
+    if (patch.bot.leverage !== undefined && patch.bot.leverage !== null) {
+      if (typeof patch.bot.leverage !== 'object' || Array.isArray(patch.bot.leverage)) throw new Error('bot.leverage must be an object keyed by instrument');
+      for (const [li, lv] of Object.entries(patch.bot.leverage)) {
+        if (['__proto__', 'constructor', 'prototype'].includes(li) || !/^[A-Za-z0-9/]{3,20}$/.test(li)) throw new Error(`bot.leverage key '${li}' must be an instrument symbol (same rule as resolveView)`);
+        if (lv !== null && (!Number.isFinite(lv) || lv <= 0)) throw new Error(`bot.leverage['${li}'] must be a positive number`);
+      }
+    }
     if (patch.bot.bots !== undefined && patch.bot.bots !== null) {
       if (typeof patch.bot.bots !== 'object' || Array.isArray(patch.bot.bots)) throw new Error('bot.bots must be an object keyed by "INSTRUMENT|GRANULARITY"');
       for (const [combo, entry] of Object.entries(patch.bot.bots)) {
@@ -85,6 +92,7 @@ export function writeSettings(settingsPath, patch) {
         if (unknown2.length) throw new Error(`bot.bots['${combo}']: unknown key(s) ${unknown2.join(', ')}`);
         if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') throw new Error(`bot.bots['${combo}'].enabled must be boolean`);
         if (entry.strategyId !== undefined && entry.strategyId !== null && !Number.isInteger(entry.strategyId)) throw new Error(`bot.bots['${combo}'].strategyId must be an integer id`);
+        if (entry.allocationPct !== undefined && entry.allocationPct !== null && (!Number.isFinite(entry.allocationPct) || entry.allocationPct <= 0 || entry.allocationPct > 100)) throw new Error(`bot.bots['${combo}'].allocationPct must be in (0,100]`);
         for (const nk of ['riskPct', 'killSwitchDrawdownPct']) {
           if (entry[nk] !== undefined && entry[nk] !== null && (!Number.isFinite(entry[nk]) || entry[nk] <= 0)) throw new Error(`bot.bots['${combo}'].${nk} must be a positive number`);
         }
@@ -105,7 +113,16 @@ export function writeSettings(settingsPath, patch) {
       const merged = { ...(typeof current.bot === 'object' && current.bot ? current.bot : {}) };
       for (const [bk, bv] of Object.entries(v)) {
         if (bv === '' || bv === null) delete merged[bk];
-        else if (bk === 'bots') {
+        else if (bk === 'leverage') {
+          // per-instrument merge (null deletes one override); own-keys only —
+          // __proto__/constructor and friends can never pollute the shape
+          const lev = { ...(typeof merged.leverage === 'object' && merged.leverage ? merged.leverage : {}) };
+          for (const [li, lv] of Object.entries(bv)) {
+            if (['__proto__', 'constructor', 'prototype'].includes(li)) continue;
+            if (lv === null) delete lev[li]; else lev[li] = lv;
+          }
+          merged.leverage = lev;
+        } else if (bk === 'bots') {
           // combo keys are normalized at write time (spaces around the pipe
           // stripped) so "A | M5" and "A|M5" can never coexist as duplicates
           const normKey = normCombo;
@@ -544,6 +561,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           }
           return { comboAgg: comboAgg2, soloUnattributed: solo };
         });
+        const engineCfg = botConfig(cfgB); // once per request, not per row
         const botsPerInstrument = new Map();
         for (const k of Object.keys(bots)) {
           const inst0 = k.split('|')[0].trim();
@@ -562,6 +580,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             strategyId: b.strategyId ?? null,
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
             riskPct: b.riskPct ?? null,
+            allocationPct: b.allocationPct ?? null,
+            leverage: instrumentLeverage(engineCfg, inst), // the engine's own resolution — no drift
             trades: agg.c,
             realized: Math.round(agg.r * 100) / 100,
             lastDecisionAt: lastDecision?.at ?? null,
@@ -986,7 +1006,9 @@ async function openBotModal() {
     (noStrat ? '<div class="botwarn">No strategies yet — draft one with the copilot, then assign it here.</div>' : '') +
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
     '<span id="bmWarn" class="botwarn"' + (entry.enabled && !entry.strategyId ? '' : ' hidden') + '> won\u2019t trade until a strategy is assigned</span>' +
-    '<label for="bmRisk">risk % / trade</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
+    '<label for="bmRisk">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
+    '<label for="bmAlloc">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
+    '<label for="bmLev">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
     '<details><summary>advanced</summary><label for="bmKill">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '\u25CF ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
@@ -1002,6 +1024,12 @@ async function openBotModal() {
   document.getElementById('bmStrat').onchange = (e) => save({ strategyId: e.target.value ? Number(e.target.value) : null });
   document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById('bmAlloc').onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById('bmLev').onchange = async (e) => {
+    const v = Number(e.target.value) > 0 ? Number(e.target.value) : null;
+    const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { [inst]: v } } }) })).json();
+    document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
+  };
   document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   document.getElementById('bmRemove').onclick = async () => { await save(null); document.getElementById('botdlg').close(); };
@@ -1026,7 +1054,7 @@ async function renderOverviewBots() {
   const off = r.bots.filter(b => !b.enabled);
   const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
     (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won\u2019t trade</span>') + '</span>' +
-    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
+    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '\u00d7' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
     (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
     '<button class="jump" data-combo="' + esc(b.combo) + '">\u2192</button></div>';
   list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click \ud83e\udd16 in the header to configure a bot for that view.</div>') +

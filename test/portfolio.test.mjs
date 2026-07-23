@@ -173,3 +173,15 @@ test('unit: unrealized math is symmetric', () => {
   assert.equal(unrealized(pos, 105), 10);
   assert.equal(unrealized({ ...pos, side: 'short' }, 105), -10);
 });
+
+test('allocation cap (#51): total locked margin per instrument stays within allocationPct of equity', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100, maxPositions: 5 } });
+  cfg.allocationPct = 3; // 3% of 10000 = 300 margin budget
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 2000, price: 87 }); // margin 200
+  assert.throws(() => openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1500, price: 87 }), /allocation cap/, 'stacking past the cap rejected');
+  openPosition(db, cfg, { instrument: WTI, side: 'short', notional: 900, price: 87 }); // margin 90 → 290 ≤ 300
+  assert.equal(portfolioView(db, cfg).positions.length, 2);
+  openPosition(db, cfg, { instrument: 'SPX500/USD', side: 'long', notional: 2000, price: 5000 });
+  assert.equal(portfolioView(db, cfg).positions.length, 3, 'cap is instrument-scoped, other instruments unaffected');
+});

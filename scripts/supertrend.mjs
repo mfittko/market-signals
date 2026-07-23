@@ -356,6 +356,15 @@ export function readSettings(settingsPath) {
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
 export function sendNotification(msg, deepLink, settings = {}) {
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  // An EXPLICITLY configured notifierBin is authoritative: if it does not
+  // exist, notifications are deliberately suppressed (tests pin a missing path
+  // for exactly this) — the osascript fallback applies only when nothing was
+  // configured. Without this, every test run pops phantom AppleScript
+  // notifications with fixture numbers.
+  if (settings.notifierBin && !existsSync(settings.notifierBin)) {
+    dbg(`notifierBin ${settings.notifierBin} missing — notification suppressed`);
+    return;
+  }
   const candidates = settings.notifierBin
     ? [settings.notifierBin]
     : ['/opt/homebrew/bin/terminal-notifier', '/usr/local/bin/terminal-notifier'];

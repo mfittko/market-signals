@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -136,7 +136,7 @@ test('writeSettings validates directly (unit)', () => {
   assert.equal(maskedSettings(p).provider, undefined);
 });
 
-test('sendNotification prefers terminal-notifier with -open deep link, falls back to osascript', () => {
+test('sendNotification: explicit notifierBin is authoritative — used when present, SUPPRESSES when missing (no phantom osascript)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const argsFile = join(dir, 'args.txt');
   const notifier = join(dir, 'terminal-notifier');
@@ -148,7 +148,9 @@ test('sendNotification prefers terminal-notifier with -open deep link, falls bac
   assert.ok(args.includes('-open http://127.0.0.1:8787/?t=x'), args);
   assert.ok(args.includes('WTI SELL @ 88.0'), args);
 
-  // Fallback: notifierBin missing → osascript path (shadowed via PATH, no real notification).
+  // Explicitly configured but MISSING → deliberate suppression: no osascript
+  // fallback (this is how tests silence notifications; the old fallback made
+  // every test run pop phantom AppleScript notifications with fixture numbers).
   const fakeOsa = join(dir, 'osascript');
   writeFileSync(fakeOsa, `#!/bin/sh\necho osascript-called > ${join(dir, 'osa.txt')}\n`);
   chmodSync(fakeOsa, 0o755);
@@ -156,7 +158,7 @@ test('sendNotification prefers terminal-notifier with -open deep link, falls bac
   process.env.PATH = `${dir}:${prevPath}`;
   try {
     sendNotification('msg', 'http://x', { notifierBin: join(dir, 'missing') });
-    assert.equal(readFileSync(join(dir, 'osa.txt'), 'utf8').trim(), 'osascript-called');
+    assert.ok(!existsSync(join(dir, 'osa.txt')), 'no osascript fallback for a configured-but-missing notifier');
   } finally {
     process.env.PATH = prevPath;
   }
@@ -810,5 +812,22 @@ test('halt reset never half-applies: an invalid combined patch leaves the halt i
     assert.equal(portfolioView(dbPath, cfg).halted, false, 'clean reset clears the halt');
     const stored = await (await fetch(base + '/api/settings')).json();
     assert.equal(stored.bot?.resetHalt, undefined, 'flag never persisted');
+  });
+});
+
+test('per-bot allocationPct + leverage map validation and merge (#51)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { allocationPct: 150 } } } }) })).status, 400, 'allocation > 100 rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': '15' } } }) })).status, 400, 'string leverage rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: '{"bot":{"leverage":{"__proto__":5}}}' })).status, 400, 'prototype-pollution keys rejected at validation (raw JSON — a JS literal would swallow the key)');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD ': 5 } } }) })).status, 400, 'trailing-space key rejected — exact-lookup keys must match the instrument rule');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': 15, 'XAG/USD': 5 }, bots: { 'WTICO/USD|M5': { enabled: true, allocationPct: 10 } } } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'XAG/USD': null } } }) });
+    const got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.leverage, { 'WTICO/USD': 15 }, 'per-instrument leverage merge with null-delete');
+    const bots = await (await fetch(base + '/api/bots')).json();
+    const row = bots.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(row.allocationPct, 10);
+    assert.equal(row.leverage, 15, 'effective leverage exposed per bot');
   });
 });
