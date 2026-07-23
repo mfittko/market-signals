@@ -781,7 +781,7 @@ const PAGE = /* html */ `<!doctype html>
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
     #msgs { max-height: 45vh; min-height: 120px; }
     #wrap { height: 320px !important; }
-    #cfgbtn { float: none; display: inline-block; margin-top: 6px; }
+
     table { display: block; overflow-x: auto; white-space: nowrap; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
@@ -813,7 +813,11 @@ const PAGE = /* html */ `<!doctype html>
   .botrow .jump { cursor: pointer; background: #21262d; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; padding: 2px 10px; }
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
   .audit-entry .meta { color: #8b949e; }
-  #indbar { display: flex; gap: 12px; margin: 6px 0; font-size: 12px; color: #8b949e; flex-wrap: wrap; }
+  #topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+  #topbar h1 { margin: 0; }
+  #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; }
+  #pfMini b { color: #e6edf3; }
+  #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; }
   #indbar label { cursor: pointer; }
   #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
@@ -826,7 +830,7 @@ const PAGE = /* html */ `<!doctype html>
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
-  #cfgbtn { float: right; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  #cfgbtn { margin-left: auto; background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
            padding: 18px 20px; min-width: 420px; }
@@ -843,8 +847,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<h1>market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button">⚙ settings</button></h1>
-<div id="indbar"></div>
+<header id="topbar"><h1>market-signals</h1> <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="indbar"></span> <span id="pfMini"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -922,21 +925,27 @@ async function load() {
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
 async function portfolio() {
+  // cleared up front so a failed refresh never leaves stale equity/P&L in the header
+  const mini = document.getElementById('pfMini');
+  mini.textContent = '';
   const r = await (await fetch('/api/portfolio')).json();
   if (!r.ok) return;
   const pf = r.portfolio;
   const el = document.getElementById('pf');
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
-  if (hasActivity) {
+  const status = pf.halted ? '<span class="halted">halted</span>' : '<span class="active">active</span>';
   const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
+  const totalPnl = realized + pf.unrealized;
+  mini.innerHTML =
+    '<b>' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
+  if (hasActivity) {
   const today = new Date().toDateString();
   const dayPnl = pf.trades.filter(t => new Date(t.close_time).toDateString() === today).reduce((a, t) => a + t.realized, 0) + pf.unrealized;
-  const status = pf.halted ? '<span class="halted">halted</span>' : '<span class="active">active</span>';
   document.getElementById('pfChips').innerHTML =
     '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b>' +
     '<span>cash ' + esc(pf.cash.toFixed(2)) + '</span>' +
-    '<span class="' + pnlCls(realized + pf.unrealized) + '">P&L ' + esc(money(realized + pf.unrealized)) + '</span>' +
+    '<span class="' + pnlCls(totalPnl) + '">P&L ' + esc(money(totalPnl)) + '</span>' +
     '<span class="' + pnlCls(dayPnl) + '">day ' + esc(money(dayPnl)) + '</span>' +
     '<span>' + pf.positions.length + ' pos</span>' + status;
   sparkline(pf);
