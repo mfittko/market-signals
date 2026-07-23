@@ -1,0 +1,24 @@
+{
+  "articles": [
+    {
+      "url": "https://news.example.com/houthi-tanker-attack",
+      "title": "Houthi tanker attack near Hormuz sparks crude oil surge",
+      "seendate": "20260723T090500Z",
+      "domain": "news.example.com",
+      "language": "English",
+      "sourcecountry": "United Kingdom",
+      "tone": -8.2,
+      "themes": "ARMEDCONFLICT;MARITIME_INCIDENT;ECON_OILPRICE"
+    },
+    {
+      "url": "https://news.example.com/opec-meeting-recap",
+      "title": "OPEC+ holds output steady after quarterly review",
+      "seendate": "20260723T060000Z",
+      "domain": "news.example.com",
+      "language": "English",
+      "sourcecountry": "United States",
+      "tone": 0.4,
+      "themes": "ECON_OILPRICE"
+    }
+  ]
+}

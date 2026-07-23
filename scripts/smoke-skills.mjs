@@ -24,6 +24,7 @@ const FXEMPIRE_LIVE = S('skills/fxempire-live-data/scripts/fxempire_live_data.mj
 const FXEMPIRE_ENRICH = S('skills/fxempire-analysis/scripts/fxempire_enrich.mjs');
 const TRUTHSOCIAL = S('skills/truthsocial-trump-watch/scripts/truthsocial_watch.mjs');
 const HORMUZ = S('skills/hormuz-ais-watch/scripts/hormuz_watch.mjs');
+const SENTINEL_NEWS = S('skills/market-sentinel/scripts/sentinel_news.mjs');
 const FETCH_POSTS = S('scripts/fetch-trump-posts.mjs');
 const EVENT_STUDY = S('scripts/event-study.mjs');
 
@@ -178,6 +179,28 @@ async function main() {
     const res = spawnSync('node', [HORMUZ], { encoding: 'utf8', env, timeout: 20000 });
     assert.notEqual(res.status, 0, 'hormuz did not exit non-zero without API key');
     assert.ok(res.stderr.includes('hormuz-ais-watch error:'), 'missing hormuz error prefix');
+  }, { retries: 1 });
+
+  // 8. sentinel_news (issue #86): --help + --json shape, both hermetic/offline.
+  await check('sentinel_news --help', () => {
+    const res = run(SENTINEL_NEWS, ['--help']);
+    assert.equal(res.status, 0, `--help exited ${res.status}: ${res.stderr}`);
+    assert.ok(res.stdout.includes('market-sentinel'), 'help missing usage marker');
+  }, { retries: 1 });
+
+  await check('sentinel_news --json shape (offline)', () => {
+    const res = run(SENTINEL_NEWS, ['--instrument', 'WTICO/USD', '--json'], { env: { SENTINEL_NEWS_OFFLINE: '1' } });
+    const out = parseJson(res, 'sentinel_news --json');
+    assert.ok(Array.isArray(out.items), 'items not an array');
+    assert.equal(typeof out.escalation, 'boolean', 'escalation not boolean');
+    assert.ok(typeof out.asOf === 'string' && out.asOf.length > 0, 'asOf missing');
+    assert.equal(out.meta?.instrument, 'WTICO/USD', 'meta.instrument missing/wrong');
+  }, { retries: 1 });
+
+  await check('sentinel_news unconfigured instrument fails loud (never guesses a query)', () => {
+    const res = run(SENTINEL_NEWS, ['--instrument', 'ZZZ/USD', '--json']);
+    assert.notEqual(res.status, 0, 'did not exit non-zero for an unconfigured instrument');
+    assert.match(res.stderr, /no sentinel query configured/);
   }, { retries: 1 });
 
   if (failures.length) {
