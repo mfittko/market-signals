@@ -928,7 +928,7 @@ async function main() {
 
   // HTF cache grounding runs AFTER the watched combos: the signal path is
   // latency/freshness-sensitive (barsAgo is measured from now), while this is
-  // best-effort with its own 1.5x grace, so it never delays a real alert.
+  // best-effort with its own staleness grace, so it never delays a real alert.
   if (opts.db) {
     try {
       await refreshHtfCache(opts.db, combos, cfg);
