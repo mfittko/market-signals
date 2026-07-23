@@ -781,7 +781,7 @@ const PAGE = /* html */ `<!doctype html>
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
     #msgs { max-height: 45vh; min-height: 120px; }
     #wrap { height: 320px !important; }
-    #cfgbtn { float: none; display: inline-block; margin-top: 6px; }
+
     table { display: block; overflow-x: auto; white-space: nowrap; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
@@ -814,6 +814,7 @@ const PAGE = /* html */ `<!doctype html>
   .audit-entry { border-left: 2px solid #30363d; padding: 4px 10px; margin: 6px 0; font-size: 12px; }
   .audit-entry .meta { color: #8b949e; }
   #topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+  #topbar h1 { margin: 0; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; }
   #pfMini b { color: #e6edf3; }
   #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; }
@@ -846,7 +847,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<h1 id="topbar">market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="indbar"></span> <span id="pfMini"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></h1>
+<header id="topbar"><h1>market-signals</h1> <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="indbar"></span> <span id="pfMini"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
