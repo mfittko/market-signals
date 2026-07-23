@@ -150,6 +150,12 @@ test('processSignal fails open on filter error and records the verdict', async (
   }
 });
 
+test('resolveFilterSystem falls back to the builtin prompt when gate-prompt resolution throws (fail-open, #58)', async () => {
+  const { resolveFilterSystem } = await import('../scripts/supertrend.mjs');
+  const r = await resolveFilterSystem('/nonexistent-dir/nope/db.sqlite');
+  assert.equal(r.promptVersion, 'builtin', 'resolution errors never break the alert path');
+});
+
 test('processSignal filter: active gate-prompt override feeds the filter system text; promptVersion lands in provenance both ways (#58)', async () => {
   const { saveGatePrompt, activateGatePrompt } = await import('../scripts/gate-prompts.mjs');
   const { FILTER_RULES, FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');

@@ -114,10 +114,15 @@ const FILTER_SYSTEM = FILTER_RULES + FILTER_SCHEMA_SUFFIX;
 // verdicts are attributable to the exact text that produced them.
 export async function resolveFilterSystem(dbPath) {
   if (dbPath) {
-    // lazy import: avoids a static cycle (gate-prompts.mjs imports withDb from here)
-    const { activeGatePrompt } = await import('./gate-prompts.mjs');
-    const override = activeGatePrompt(dbPath, 'filter');
-    if (override) return { system: override.prompt + FILTER_SCHEMA_SUFFIX, promptVersion: override.version };
+    try {
+      // lazy import: avoids a static cycle (gate-prompts.mjs imports withDb from here)
+      const { activeGatePrompt } = await import('./gate-prompts.mjs');
+      const override = activeGatePrompt(dbPath, 'filter');
+      if (override) return { system: override.prompt + FILTER_SCHEMA_SUFFIX, promptVersion: override.version };
+    } catch {
+      // prompt resolution is part of the filter surface: a locked/corrupt DB must
+      // fall back to the builtin prompt, never break the alert path (fail-open)
+    }
   }
   return { system: FILTER_SYSTEM, promptVersion: 'builtin' };
 }
