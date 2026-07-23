@@ -1158,6 +1158,7 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, sigTime }) => {
     const html = await (await fetch(base + '/')).text();
     const src = html.match(/const INFO = \{[\s\S]*?\n\};/);
+    assert.ok(src, 'INFO map block extracted from the served page');
     assert.match(src[0], /botDecision:/, 'INFO map explains the inline bot decision annotation');
     assert.match(html, /botDecision\.reasoning/, 'verdict row renders the escaped bot annotation');
     assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
