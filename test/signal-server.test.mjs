@@ -1161,6 +1161,10 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
     assert.ok(src, 'INFO map block extracted from the served page');
     assert.match(src[0], /botDecision:/, 'INFO map explains the inline bot decision annotation');
     assert.match(html, /botDecision\.reasoning/, 'verdict row renders the escaped bot annotation');
+    assert.match(html, /class="botnote"/, 'bot note is its own dimmed line, not an inline fragment (#78)');
+    assert.ok(!/reasoning\.slice\(0, 90\)/.test(html), 'reasoning is no longer truncated mid-sentence (#78)');
+    assert.match(html, /overruled/, 'a held signal renders its side label greyed (#78)');
+    assert.match(html, /\.overruled \{ color: #8b949e; \}/, 'overruled styling present');
     assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
 
     const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString();

@@ -977,6 +977,9 @@ const PAGE = /* html */ `<!doctype html>
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
+  /* the bot declined to act on this signal — the effective stance is neutral */
+  .overruled { color: #8b949e; }
+  .botnote { margin-top: 4px; color: #8b949e; font-size: 12px; }
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
   tr { cursor: pointer; } tr:hover { background: #161b22; }
   form { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; max-width: 520px; }
@@ -1557,8 +1560,9 @@ function verdict(s, botDecision) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-  const botNote = botDecision ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning.slice(0, 90)) + '</span>' : '';
-  el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
+  const botNote = botDecision ? '<div class="botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning) + '</div>' : '';
+  const overruled = botDecision && botDecision.action === 'hold';
+  el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' + botNote;
@@ -1572,7 +1576,8 @@ function history(list, botDecisions) {
     const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
     const bd = botDecisions && botDecisions[s.time];
     const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
-    tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    const overruled = bd && bd.action === 'hold';
+    tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
       '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + esc(out) + '</td>';
     tb.appendChild(tr);
   }
