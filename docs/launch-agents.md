@@ -118,9 +118,13 @@ Port defaults to 8787 (`settings.port` overrides; if you change it, the
 watcher builds deep links from the same settings file, so they stay in sync).
 
 Same `MS_DEBUG_LLM=1` flag as the watcher: set it in this LaunchAgent's
-environment to also surface `X-LLM-Provider`/`X-LLM-Model`/
-`X-LLM-Usage-Input`/`X-LLM-Usage-Output` response headers on `/api/recheck`
-and the chat SSE stream (the response body is byte-identical either way).
+environment to surface the completion's provider/model/usage. `/api/recheck`
+(non-streamed) gets all four `X-LLM-Provider`/`X-LLM-Model`/`X-LLM-Usage-Input`/
+`X-LLM-Usage-Output` headers; the chat SSE stream gets the `X-LLM-Provider`/
+`X-LLM-Model` headers plus a trailing `{type:'usage'}` SSE event (headers flush
+before the completion, so usage can't ride a header there). With the flag off,
+no headers/event are added; `/api/recheck` is byte-identical and the chat SSE
+body carries no usage event.
 
 ## Install / manage
 

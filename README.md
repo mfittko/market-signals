@@ -108,10 +108,13 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   clamped tool registry is the entire surface). Drafts saved via chat tools
   never take effect on their own — activation is always a separate human act.
 
-Set `MS_DEBUG_LLM=1` to also surface `X-LLM-Provider`/`X-LLM-Model`/
-`X-LLM-Usage-Input`/`X-LLM-Usage-Output` response headers on `/api/recheck`
-and the chat SSE stream (byte-identical response otherwise when the flag is
-off).
+Set `MS_DEBUG_LLM=1` to also surface the completion's provider/model/usage.
+The non-streamed `/api/recheck` carries all four as response headers:
+`X-LLM-Provider`/`X-LLM-Model`/`X-LLM-Usage-Input`/`X-LLM-Usage-Output`. The
+chat SSE stream flushes its headers before the completion finishes, so it
+carries only `X-LLM-Provider`/`X-LLM-Model` as headers and delivers the token
+usage as a trailing `{type:'usage'}` SSE event. With the flag off there are no
+headers, no usage event, and behavior is unchanged.
 
 ```bash
 node scripts/signal-server.mjs [--port 8787] [--db data/candles.db] [--settings data/settings.json]
