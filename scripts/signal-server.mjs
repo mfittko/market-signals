@@ -815,6 +815,7 @@ const PAGE = /* html */ `<!doctype html>
   .audit-entry .meta { color: #8b949e; }
   #topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
   #topbar h1 { margin: 0; }
+  #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: baseline; flex-wrap: wrap; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; }
   #pfMini b { color: #e6edf3; }
   #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; }
@@ -847,7 +848,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="indbar"></span> <span id="pfMini"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></header>
+<header id="topbar"><h1>market-signals</h1> <span id="indbar"></span> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
