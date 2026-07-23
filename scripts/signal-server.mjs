@@ -822,6 +822,8 @@ const PAGE = /* html */ `<!doctype html>
     #wrap { height: 320px !important; }
 
     table { display: block; overflow-x: auto; white-space: nowrap; }
+    dialog form, dialog .advgrid { grid-template-columns: 1fr; }
+    dialog form button { grid-column: auto; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #pf { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
@@ -866,6 +868,11 @@ const PAGE = /* html */ `<!doctype html>
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
   tr { cursor: pointer; } tr:hover { background: #161b22; }
   form { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; max-width: 520px; }
+  #cfgAdv { grid-column: 1 / -1; }
+  #cfgAdv summary { cursor: pointer; color: #8b949e; margin: 4px 0; }
+  .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
+  /* one control height everywhere interactive chrome lives (#56) */
+  #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
   input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }
@@ -873,11 +880,12 @@ const PAGE = /* html */ `<!doctype html>
   #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
-           padding: 18px 20px; min-width: 420px; }
+           padding: 18px 20px; min-width: min(420px, 92vw); max-width: 92vw; box-sizing: border-box; position: relative; }
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
   dialog h2 { margin-top: 0; }
-  .dlg-close { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px;
-               padding: 5px 14px; cursor: pointer; }
+  .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
+           font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto; }
+  .dlg-x:hover { color: #e6edf3; }
   #wrap { position: relative; }
   .quote { display: flex; gap: 22px; flex-wrap: wrap; padding: 8px 14px; border: 1px solid #30363d;
            border-radius: 6px; margin: 10px 0 0; }
@@ -897,6 +905,7 @@ const PAGE = /* html */ `<!doctype html>
   <canvas id="pfSpark" width="560" height="46"></canvas>
 </details>
 <dialog id="pfdlg">
+  <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
   <h2>virtual portfolio <small>(bot-only — view)</small></h2>
   <div id="pfHead"></div>
   <div id="haltBanner" hidden></div>
@@ -913,20 +922,20 @@ const PAGE = /* html */ `<!doctype html>
   </div>
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
-  <form method="dialog"><button>close</button></form>
 </dialog>
 <dialog id="botdlg">
+  <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
   <h2 id="botTitle">🤖 bot</h2>
   <div id="botBody"></div>
 </dialog>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
+<form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
 <h2>Trader memories</h2>
 <div id="memList"></div>
 <details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
-<p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
@@ -1075,7 +1084,7 @@ async function openBotModal() {
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '\u25CF ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
     '<p><button type="button" id="bmToPf">View in portfolio \u2192</button> <span id="bmSaved"></span> <button type="button" id="bmRemove" style="float:right;color:#f85149;background:none;border:none;cursor:pointer">remove bot</button></p>' +
-    '<form method="dialog"><button>close</button></form>';
+    '';
   const save = async (patch) => {
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
     document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
@@ -1373,21 +1382,25 @@ function history(list) {
     tb.appendChild(tr);
   }
 }
-const FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['watchers', 'text'], ['freshBars', 'number'], ['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password']];
+// operator-relevant fields up front; launch-config plumbing collapses behind "advanced" (#56)
+const FIELDS = [['watchers', 'text'], ['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password']];
+const ADV_FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // legacy empty provider pre-resolves to the active one (#42); saving persists it
   if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider; // legacy empty OR invalid pre-resolves; saving persists a valid choice
   const f = document.getElementById('cfg');
-  f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
-    FIELDS.map(([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
+  const field = ([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
     ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
-    : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">')).join('') +
+    : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">');
+  f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
+    FIELDS.map(field).join('') +
+    '<details id="cfgAdv"><summary>advanced</summary><div class="advgrid">' + ADV_FIELDS.map(field).join('') + '</div></details>' +
     '<button>Save</button><span id="saved"></span>';
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
-    for (const [k, kind] of FIELDS) {
+    for (const [k, kind] of [...FIELDS, ...ADV_FIELDS]) {
       const v = f.elements[k].value;
       patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
     }
