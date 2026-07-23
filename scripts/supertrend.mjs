@@ -122,8 +122,16 @@ export function resolveProvider(settings) {
 // points every OpenAI-path request (chat, filter, bot, judge, tool loop) at an
 // API-compatible server; the model id passes through unchanged.
 export function openaiEndpoint(settings) {
-  const base = (settings.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '');
+  // tolerate the common SDK convention of a base URL already ending in /v1
+  const base = (settings.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '').replace(/\/v1$/, '');
   return `${base}/v1/chat/completions`;
+}
+
+// provider=openai without a key would send "Bearer undefined" and die with an
+// opaque upstream error — fail fast with a message that names the fix
+function requireOpenAiKey(settings) {
+  if (!settings.OPENAI_API_KEY) throw new Error('provider "openai" selected but OPENAI_API_KEY is not set');
+  return settings.OPENAI_API_KEY;
 }
 
 // Streaming SSE reader shared by both API providers: calls extract(json) per
@@ -231,7 +239,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (stream) body.stream = true;
     const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -293,7 +301,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   for (let round = 0; round < 8; round++) {
     const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${settings.OPENAI_API_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify({ model: settings.model || 'gpt-5.4-mini', max_completion_tokens: maxTokens, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -161,6 +161,8 @@ test('openaiEndpoint + explicit provider resolution (#42)', async () => {
   const { openaiEndpoint, resolveProvider } = await import('../scripts/supertrend.mjs');
   assert.equal(openaiEndpoint({}), 'https://api.openai.com/v1/chat/completions', 'default unchanged when unset');
   assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/' }), 'http://localhost:8080/v1/chat/completions', 'trailing slash normalized');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1' }), 'http://localhost:8080/v1/chat/completions', 'base URLs already ending in /v1 do not double the segment');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1/' }), 'http://localhost:8080/v1/chat/completions');
   assert.equal(resolveProvider({ provider: 'openai', ANTHROPIC_API_KEY: 'x' }), 'openai', 'explicit choice beats key-derived resolution');
   assert.equal(resolveProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(resolveProvider({ ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'y' }), 'anthropic', 'legacy empty provider keeps key-derived behavior');
@@ -187,5 +189,8 @@ test('OPENAI_BASE_URL drives the request URL and the model passes through unchan
     assert.equal(out, 'ok-from-compatible');
     assert.equal(hits[0].url, '/v1/chat/completions', 'compatible endpoint hit');
     assert.equal(hits[0].model, 'llama-3.3-70b-local', 'non-OpenAI model id passes through unchanged');
-  } finally { srv.close(); }
+    await assert.rejects(
+      () => llmRequest({ provider: 'openai', OPENAI_BASE_URL: base, model: 'x' }, 'sys', 'user', { timeoutMs: 5000 }),
+      /OPENAI_API_KEY is not set/, 'missing key fails fast with a clear message');
+  } finally { await new Promise((r) => srv.close(r)); }
 });
