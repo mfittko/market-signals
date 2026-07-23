@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
-import { resolveBotFor } from './bot.mjs';
+import { performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
@@ -497,7 +497,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (raw === null) return;
         let patch;
         try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
-        try { return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) }); }
+        try {
+          // resetHalt is EPHEMERAL: perform the one-shot reset now, never
+          // persist the flag (a stored flag would re-baseline the peak per run)
+          if (patch?.bot?.resetHalt === true) {
+            performHaltReset(dbPath, readSettings(settingsPath));
+            delete patch.bot.resetHalt;
+            if (!Object.keys(patch.bot).length) delete patch.bot;
+          }
+          return json(res, 200, { ok: true, settings: writeSettings(settingsPath, patch) });
+        }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/bots' && req.method === 'GET') {
@@ -506,20 +515,41 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const bots = (cfgB.bot && typeof cfgB.bot.bots === 'object' && cfgB.bot.bots) || {};
         const pf = portfolioView(dbPath, botConfig(cfgB));
         const audit = decisionAudit(dbPath, { limit: 200 });
-        // complete per-instrument aggregates straight from the table — never the
-        // last-50 view slice
-        const aggregates = withDb(dbPath, (db) => {
-          try {
-            return new Map(db.prepare('SELECT instrument, COUNT(*) c, COALESCE(SUM(realized),0) r FROM bot_trades GROUP BY instrument').all().map((x) => [x.instrument, x]));
-          } catch (err) { if (/no such table/i.test(String(err.message))) return new Map(); throw err; }
+        // complete aggregates straight from the tables — attributed PER COMBO via
+        // the decision journal (position → combo); a bot that is the sole bot on
+        // its instrument also absorbs unattributed trades for that instrument
+        const { comboAgg, soloUnattributed } = withDb(dbPath, (db) => {
+          const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
+          const posCombo = new Map();
+          for (const jrow of safe("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC LIMIT 5000")) {
+            try {
+              const c = JSON.parse(jrow.context);
+              if (c?.executed?.opened && c.instrument && c.granularity) posCombo.set(c.executed.opened, `${c.instrument}|${c.granularity}`);
+            } catch { /* skip */ }
+          }
+          const comboAgg2 = new Map();
+          const solo = new Map();
+          for (const t of safe('SELECT position_id, instrument, realized FROM bot_trades')) {
+            const combo = posCombo.get(t.position_id);
+            const bump = (map, key) => { const cur = map.get(key) ?? { c: 0, r: 0 }; cur.c += 1; cur.r += t.realized; map.set(key, cur); };
+            if (combo) bump(comboAgg2, combo); else bump(solo, t.instrument);
+          }
+          return { comboAgg: comboAgg2, soloUnattributed: solo };
         });
+        const botsPerInstrument = new Map();
+        for (const k of Object.keys(bots)) {
+          const inst0 = k.split('|')[0].trim();
+          botsPerInstrument.set(inst0, (botsPerInstrument.get(inst0) ?? 0) + 1);
+        }
         const rows = Object.entries(bots).map(([combo, b]) => {
           const [inst, gran] = combo.split('|').map((x) => x.trim());
           const strat = Number.isInteger(b.strategyId) ? strategyById(dbPath, b.strategyId) : null;
-          const agg = aggregates.get(inst) ?? { c: 0, r: 0 };
+          const attributed = comboAgg.get(`${inst}|${gran}`) ?? { c: 0, r: 0 };
+          const orphan = botsPerInstrument.get(inst) === 1 ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
+          const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
           const lastDecision = audit.find((a) => a.instrument === inst && (a.granularity == null || a.granularity === gran));
           return {
-            combo, instrument: inst, granularity: gran,
+            combo: `${inst}|${gran}`, instrument: inst, granularity: gran,
             enabled: b.enabled === true,
             strategyId: b.strategyId ?? null,
             strategyName: strat ? `${strat.name} v${strat.version}` : null,

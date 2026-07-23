@@ -116,6 +116,21 @@ function setHalted(dbPath, cfg, halted) {
   });
 }
 
+// One-shot halt reset for the settings surface (#49): performed immediately,
+// never persisted as a flag.
+export function performHaltReset(dbPath, settings = {}) {
+  const cfg = botConfig(settings);
+  if (!portfolioView(dbPath, cfg).halted) return { reset: false, reason: 'not halted' };
+  setHalted(dbPath, cfg, false);
+  const eq = portfolioView(dbPath, cfg).equity;
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+    db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('peak_equity', eq);
+  });
+  journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (settings UI); peak re-baselined', { peakEquity: eq });
+  return { reset: true };
+}
+
 // --- decision layer ---------------------------------------------------------
 
 const DECISION_RE = /\{[\s\S]*"action"[\s\S]*\}/;
@@ -238,7 +253,9 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   const cfg = botConfig(settings);
   if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
 
-  if (loop.resetHalt) {
+  if (loop.resetHalt && portfolioView(dbPath, cfg).halted) {
+    // guard on halted: a stale persisted flag on a healthy portfolio must not
+    // re-baseline the peak every run (that would neuter the kill-switch)
     setHalted(dbPath, cfg, false);
     // Re-baseline the peak to current equity, else the same drawdown re-halts
     // on this very run and the operator reset is a no-op.
