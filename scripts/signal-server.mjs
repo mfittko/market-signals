@@ -968,7 +968,7 @@ const PAGE = /* html */ `<!doctype html>
   .audit-entry .meta { color: #8b949e; }
   #topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
   #topbar h1 { margin: 0; }
-  #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: baseline; flex-wrap: wrap; }
+  #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: center; flex-wrap: wrap; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; margin-left: auto; }
   #pfMini b { color: #e6edf3; }
   #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; margin-left: auto; }
