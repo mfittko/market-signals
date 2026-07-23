@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
+import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
@@ -577,7 +577,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
             riskPct: b.riskPct ?? null,
             allocationPct: b.allocationPct ?? null,
-            leverage: (cfgB.bot?.leverage && Number.isFinite(cfgB.bot.leverage[inst]) ? Math.min(cfgB.bot.leverage[inst], 20) : 10),
+            leverage: instrumentLeverage(botConfig(cfgB), inst), // the engine's own resolution — no drift
             trades: agg.c,
             realized: Math.round(agg.r * 100) / 100,
             lastDecisionAt: lastDecision?.at ?? null,
