@@ -712,8 +712,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           if (debugLlm && llmInfo) {
             headers['X-LLM-Provider'] = llmInfo.provider;
             headers['X-LLM-Model'] = llmInfo.model ?? 'n/a';
-            headers['X-LLM-Usage-Input'] = llmInfo.usage ? String(llmInfo.usage.inputTokens) : 'n/a';
-            headers['X-LLM-Usage-Output'] = llmInfo.usage ? String(llmInfo.usage.outputTokens) : 'n/a';
+            const tok = (v) => (v == null ? 'n/a' : String(v));
+            headers['X-LLM-Usage-Input'] = llmInfo.usage ? tok(llmInfo.usage.inputTokens) : 'n/a';
+            headers['X-LLM-Usage-Output'] = llmInfo.usage ? tok(llmInfo.usage.outputTokens) : 'n/a';
           }
           return json(res, 200, { ok: true, ...result }, headers);
         } catch (err) {

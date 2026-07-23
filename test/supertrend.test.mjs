@@ -703,3 +703,10 @@ test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) fro
   const ok = recordRecheck(db, { ...base, verdict: 'valid', reason: '  still holds  ' });
   assert.equal(ok.reason, 'still holds', 'reason is trimmed before persist');
 });
+
+
+test('llmUsageLine renders n/a for a present-but-null token field, and reportUsage swallows an async rejection (#93)', async () => {
+  const { llmUsageLine } = await import('../scripts/supertrend.mjs');
+  assert.match(llmUsageLine('filter', { provider: 'openai', model: 'x', usage: { inputTokens: 12, outputTokens: null } }), /in=12 out=n\/a/);
+  assert.match(llmUsageLine('bot', { provider: 'pi', model: 'x', usage: null }), /in=n\/a out=n\/a/);
+});

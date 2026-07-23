@@ -207,7 +207,12 @@ export function effectiveModel(settings, provider) {
 // request/response path.
 function reportUsage(onUsage, info) {
   if (typeof onUsage !== 'function') return;
-  try { onUsage(info); } catch { /* debug callback errors never break the request */ }
+  // debug callback errors never break the request — cover BOTH a synchronous
+  // throw and an async callback whose returned promise rejects later
+  try {
+    const r = onUsage(info);
+    if (r && typeof r.then === 'function') r.catch(() => {});
+  } catch { /* swallow */ }
 }
 
 // provider=openai without a key would send "Bearer undefined" and die with an
@@ -484,7 +489,8 @@ export const localFull = LOCAL_FMT.full;
 export function llmUsageLine(tag, info) {
   if (!info) return `[llm] ${tag} usage unavailable`;
   const { provider, model, usage } = info;
-  return `[llm] ${tag} ${provider} ${model ?? 'default'} in=${usage ? usage.inputTokens : 'n/a'} out=${usage ? usage.outputTokens : 'n/a'}`;
+  const tok = (v) => (v == null ? 'n/a' : v);
+  return `[llm] ${tag} ${provider} ${model ?? 'default'} in=${usage ? tok(usage.inputTokens) : 'n/a'} out=${usage ? tok(usage.outputTokens) : 'n/a'}`;
 }
 
 async function llmVerdict(settings, payload, system, onUsage) {
