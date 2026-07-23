@@ -6,6 +6,6 @@
   "description": "Agent skills for market analysis and market-moving signal watching.",
   "scripts": {
     "verify": "node scripts/verify-packaging.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "MS_NO_NOTIFY=1 node --test test/*.test.mjs"
   }
 }
