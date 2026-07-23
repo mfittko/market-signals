@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -136,7 +136,7 @@ test('writeSettings validates directly (unit)', () => {
   assert.equal(maskedSettings(p).provider, undefined);
 });
 
-test('sendNotification prefers terminal-notifier with -open deep link, falls back to osascript', () => {
+test('sendNotification: explicit notifierBin is authoritative — used when present, SUPPRESSES when missing (no phantom osascript)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const argsFile = join(dir, 'args.txt');
   const notifier = join(dir, 'terminal-notifier');
@@ -148,7 +148,9 @@ test('sendNotification prefers terminal-notifier with -open deep link, falls bac
   assert.ok(args.includes('-open http://127.0.0.1:8787/?t=x'), args);
   assert.ok(args.includes('WTI SELL @ 88.0'), args);
 
-  // Fallback: notifierBin missing → osascript path (shadowed via PATH, no real notification).
+  // Explicitly configured but MISSING → deliberate suppression: no osascript
+  // fallback (this is how tests silence notifications; the old fallback made
+  // every test run pop phantom AppleScript notifications with fixture numbers).
   const fakeOsa = join(dir, 'osascript');
   writeFileSync(fakeOsa, `#!/bin/sh\necho osascript-called > ${join(dir, 'osa.txt')}\n`);
   chmodSync(fakeOsa, 0o755);
@@ -156,7 +158,7 @@ test('sendNotification prefers terminal-notifier with -open deep link, falls bac
   process.env.PATH = `${dir}:${prevPath}`;
   try {
     sendNotification('msg', 'http://x', { notifierBin: join(dir, 'missing') });
-    assert.equal(readFileSync(join(dir, 'osa.txt'), 'utf8').trim(), 'osascript-called');
+    assert.ok(!existsSync(join(dir, 'osa.txt')), 'no osascript fallback for a configured-but-missing notifier');
   } finally {
     process.env.PATH = prevPath;
   }
