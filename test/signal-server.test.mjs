@@ -477,7 +477,7 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
 
 test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
   const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
-  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy']);
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory']);
   for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
@@ -697,6 +697,95 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.deepEqual(merged.leverage, { 'WTICO/USD': 12 }, 'partial save preserves the leverage map');
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { maxPositions: null } }) });
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).bot.maxPositions, undefined, 'null deletes a bot key');
+  });
+});
+
+test('trader memories (#44): save_memory chat tool is trader-initiated (chat-only, no bot side effect)', async () => {
+  const { execChatTool } = await import('../scripts/signal-server.mjs');
+  const { listMemories } = await import('../scripts/memories.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ dbPath }) => {
+    // mirrors save_strategy's test: the tool executes directly against the
+    // registry with a db ctx, not through the pi loop, so no pi fixture needed
+    const out = execChatTool('save_memory', { content: 'Never chase a flip older than 2 bars.', weight: 4 }, { dbPath });
+    assert.match(out, /weight 4/);
+    assert.match(out, /Never chase a flip older than 2 bars\./);
+    const rows = listMemories(dbPath);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].source, 'chat', 'chat tool saves are source=chat');
+    assert.equal(rows[0].weight, 4);
+
+    // default weight when omitted
+    execChatTool('save_memory', { content: 'Default weight rule.' }, { dbPath });
+    assert.equal(listMemories(dbPath).find((r) => r.content === 'Default weight rule.').weight, 3);
+
+    // numeric-string weight coerces; garbage throws instead of silently defaulting
+    assert.match(execChatTool('save_memory', { content: 'Numeric string coerces.', weight: '5' }, { dbPath }), /weight 5/);
+    assert.throws(() => execChatTool('save_memory', { content: 'Bad weight.', weight: 'high' }, { dbPath }), /weight/);
+
+    // the bot deliberation loop's tool surface (botToolDefs, the same helper
+    // supertrend.mjs wires up for the bot run) excludes both save_strategy AND
+    // save_memory: memory saves are chat-only, never a side effect of a trade decision
+    const { CHAT_TOOLS, botToolDefs } = await import('../scripts/signal-server.mjs');
+    const chatToolNames = CHAT_TOOLS.map((t) => t.name);
+    assert.ok(chatToolNames.includes('save_memory') && chatToolNames.includes('save_strategy'), 'full chat surface includes both');
+    const botToolNames = botToolDefs().map((t) => t.name);
+    assert.ok(!botToolNames.includes('save_memory') && !botToolNames.includes('save_strategy'), 'bot deliberation tool surface excludes both');
+  });
+});
+
+test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rejected, injected as advisory context', async () => {
+  const { memoriesContext } = await import('../scripts/memories.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const empty = await (await fetch(base + '/api/memories')).json();
+    assert.deepEqual(empty, { ok: true, memories: [], archivedCount: 0 });
+
+    const saved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Trail stops on WTI after a 1% move.', weight: 4 }) })).json();
+    const strSaved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Numeric-string weight via API.', weight: '2' }) })).json();
+    assert.equal(strSaved.ok && strSaved.memory.weight, 2, 'API save coerces numeric-string weights like the chat tool');
+    const xss = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: '<img src=x onerror=alert(1)>', weight: 1 }) })).json();
+    const served = await (await fetch(base + '/')).text();
+    assert.match(served, /esc\(m\.content\)/, 'the memories list renders content through esc() — markup in a memory can never become live DOM');
+    await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: xss.memory.id }) });
+    await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: strSaved.memory.id }) });
+    assert.equal(saved.ok, true);
+    assert.equal(saved.memory.source, 'manual', 'HTTP-driven saves are source=manual, never chat');
+    const id = saved.memory.id;
+
+    const listed = await (await fetch(base + '/api/memories')).json();
+    assert.equal(listed.memories.length, 1);
+    assert.equal(listed.memories[0].content, 'Trail stops on WTI after a 1% move.');
+
+    const reweighted = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'reweight', id, weight: 2 }) })).json();
+    assert.equal(reweighted.ok, true);
+    assert.equal((await (await fetch(base + '/api/memories')).json()).memories[0].weight, 2);
+
+    const edited = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'edit', id, content: 'Trail stops after a 1.5% move.' }) })).json();
+    assert.equal(edited.ok, true);
+    assert.equal((await (await fetch(base + '/api/memories')).json()).memories[0].content, 'Trail stops after a 1.5% move.');
+
+    const badAction = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'nope', id }) })).json();
+    assert.equal(badAction.ok, false);
+    const badWeight = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'reweight', id, weight: 99 }) })).json();
+    assert.equal(badWeight.ok, false, 'weight validated server-side');
+
+    const archived = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id }) })).json();
+    assert.equal(archived.ok, true);
+    const afterArchive = await (await fetch(base + '/api/memories')).json();
+    assert.equal(afterArchive.memories.length, 0, 'archived memory drops from the active list');
+    assert.equal(afterArchive.archivedCount, 3, 'all fixture memories (coercion + XSS probe) are archived');
+
+    // cross-origin POST rejected by the same CSRF guard as /api/settings
+    const cross = await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403);
+
+    // advisory context injection: non-empty once an active memory exists
+    await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Hold through FOMC unless stopped out.', weight: 5 }) });
+    const ctx = memoriesContext(dbPath);
+    assert.match(ctx, /Hold through FOMC unless stopped out\./);
+
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'settings modal ships the trader memories section');
   });
 });
 

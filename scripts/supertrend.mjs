@@ -99,7 +99,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
   });
 }
 
-const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. When present, traderMemories lists the trader\'s standing rules — advisory context, never a substitute for the chop/volume checks above. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
 
 const VERDICT_SCHEMA = {
   type: 'object',
@@ -463,6 +463,8 @@ export async function processSignal(opts, result, candles) {
     try { notes = readFileSync(settings.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
     const history = signalOutcomes(opts.db, opts.instrument, opts.granularity).filter((s) => s.time !== sig.time);
     dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
+    // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
+    const { memoriesContext } = await import('./memories.mjs');
     try {
       verdict = await llmVerdict(settings, {
         current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
@@ -477,6 +479,7 @@ export async function processSignal(opts, result, candles) {
         pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
         axisGate: gateSnapshot?.axes ?? null,
         traderNotes: notes,
+        traderMemories: memoriesContext(opts.db) || undefined,
       });
       verdictSource = 'llm';
     } catch (err) {
@@ -753,7 +756,7 @@ async function runOne(opts) {
       const settings = readSettings(opts.settings);
       if (settings.bot && (settings.bot.enabled === true || (settings.bot.bots && typeof settings.bot.bots === 'object'))) {
         const { runBot } = await import('./bot.mjs');
-        const { CHAT_TOOLS, execChatTool } = await import('./signal-server.mjs');
+        const { botToolDefs, execChatTool } = await import('./signal-server.mjs');
         // A flip is a bot event only the run that records it: alert sent, filter
         // suppression, notify-off recording, or notification failure — never on
         // 'already processed' / 'duplicate' re-sightings of the same flip.
@@ -767,13 +770,15 @@ async function runOne(opts) {
             botAxes = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity })?.axes ?? null;
           } catch { /* axes optional */ }
         }
+        const { memoriesContext } = await import('./memories.mjs');
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes },
+          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, traderMemories: memoriesContext(opts.db) || undefined },
           // read-only tools for the trading loop: the bot must never write
-          // strategy drafts (or anything else) as a side effect of deciding
-          toolDefs: CHAT_TOOLS.filter((t) => t.name !== 'save_strategy').map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+          // strategy drafts, memories, or anything else as a side effect of
+          // deciding — memory saves are trader-initiated, chat-only (#44)
+          toolDefs: botToolDefs().map(({ name, description, input_schema }) => ({ name, description, input_schema })),
           execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db }),
         });
       }

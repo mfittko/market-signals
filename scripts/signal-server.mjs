@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
+import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
@@ -392,7 +393,25 @@ export const CHAT_TOOLS = [
       return JSON.stringify({ ...saved, note: 'draft saved — NOT active; the trader activates strategies in settings' });
     },
   },
+  {
+    name: 'save_memory',
+    description: 'Save a durable trader memory: a standing rule or preference to keep in view across future chat, filter, and bot-deliberation prompts (advisory only — never overrides fail-safe clamps). Use when the trader states a lasting instruction, not a one-off fact.',
+    input_schema: { type: 'object', properties: { content: { type: 'string', description: 'the memory text (max 500 chars)' }, weight: { type: 'integer', description: 'importance 1-5, default 3' } }, required: ['content'], additionalProperties: false },
+    run: (a, ctx) => {
+      if (!ctx?.dbPath) throw new Error('save_memory needs a db context');
+      // coerce numeric strings, then let saveMemory's 1-5 integer validation throw on garbage
+      const saved = saveMemory(ctx.dbPath, { content: a?.content, weight: a?.weight === undefined || a?.weight === null ? 3 : Number(a.weight), source: 'chat' });
+      return `saved memory (weight ${saved.weight}): ${saved.content}`;
+    },
+  },
 ];
+// Tools available to the bot's deliberation loop: full CHAT_TOOLS minus the
+// trader-initiated writes (memory saves and strategy drafts are chat-only,
+// never a side effect of a trade decision — real source of truth for both
+// the runtime call site and its test).
+export function botToolDefs() {
+  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory');
+}
 export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
   if (!tool) throw new Error(`unknown tool ${name}`);
@@ -410,7 +429,7 @@ export function extractThreadTitle(reply) {
   return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -614,6 +633,25 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { activateStrategy(dbPath, id); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
         return json(res, 200, { ok: true, activeId: id });
       }
+      if (url.pathname === '/api/memories' && req.method === 'GET') {
+        const all = listMemories(dbPath, { includeArchived: true });
+        return json(res, 200, { ok: true, memories: all.filter((m) => !m.archived), archivedCount: all.filter((m) => m.archived).length });
+      }
+      if (url.pathname === '/api/memories' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const id = Number(body.id);
+        try {
+          if (body.action === 'save') return json(res, 200, { ok: true, memory: saveMemory(dbPath, { content: body.content, weight: body.weight === undefined || body.weight === null ? undefined : Number(body.weight), source: 'manual' }) });
+          if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
+          if (body.action === 'reweight') return json(res, 200, { ok: true, ...reweightMemory(dbPath, id, Number(body.weight)) });
+          if (body.action === 'edit') return json(res, 200, { ok: true, ...editMemory(dbPath, id, body.content) });
+          if (body.action === 'archive') return json(res, 200, { ok: true, ...archiveMemory(dbPath, id) });
+          return json(res, 400, { ok: false, error: 'unknown action' });
+        } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
       if (url.pathname === '/api/evaluation') {
         // Read-only like every portfolio surface (#22 guarantee).
         if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'evaluation is read-only over HTTP' });
@@ -691,6 +729,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           traderNotes: notes,
           botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
           axisGate: axisSnapshot(view.candles, { instrument, granularity })?.axes ?? null,
+          traderMemories: memoriesContext(dbPath) || undefined,
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
@@ -884,6 +923,9 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="cfgdlg">
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
+<h2>Trader memories</h2>
+<div id="memList"></div>
+<details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
 <p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
@@ -1353,6 +1395,32 @@ async function cfg() {
     if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
+  renderMemories();
+}
+async function renderMemories() {
+  const r = await (await fetch('/api/memories')).json();
+  const list = document.getElementById('memList');
+  if (!r.ok) { list.textContent = ''; return; }
+  list.innerHTML = r.memories.length ? r.memories.map(m =>
+    '<div class="memrow" data-id="' + m.id + '">' +
+    '<span class="memcontent">' + esc(m.content) + '</span>' +
+    '<input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '">' +
+    '<button type="button" class="memarchive">archive</button>' +
+    '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
+  list.querySelectorAll('.memrow').forEach(row => {
+    const id = Number(row.dataset.id);
+    row.querySelector('.memweight').onchange = async (e) => {
+      await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'reweight', id: id, weight: Number(e.target.value) }) });
+      renderMemories();
+    };
+    row.querySelector('.memarchive').onclick = async () => {
+      await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: id }) });
+      renderMemories();
+    };
+  });
+  const wrap = document.getElementById('memArchivedWrap');
+  wrap.hidden = !r.archivedCount;
+  document.getElementById('memArchivedCount').textContent = r.archivedCount + ' archived';
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
