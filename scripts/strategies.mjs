@@ -36,8 +36,13 @@ export const SEED_STRATEGY = {
   prompt: 'Follow supertrend flips on the watched combos, conservatively. Open only in the flip direction with a stop just beyond the supertrend line and notional within the risk budget. Skip mid-range entries: require the flip bar to break the recent range with volume above the 20-bar average. Respect the lock-in cooldown — never chase a flip older than 2 bars. Close on the opposite flip or at target. When any condition is unclear, hold.',
 };
 
+// The schema check is idempotent but not free, and resolvedStrategy() puts it on
+// the bot's per-deliberation path — run it once per db file per process.
+const migrated = new Set();
+
 function sdb(dbPath, fn) {
   return withDb(dbPath, (db) => {
+    if (migrated.has(dbPath)) return fn(db);
     db.exec(DDL);
     // #75 scope columns: guarded ALTER for dbs created before this migration —
     // same pattern axis-snapshot.mjs uses for filter_prompt_version.
@@ -48,6 +53,7 @@ function sdb(dbPath, fn) {
         if (!/duplicate column/i.test(String(err?.message))) throw err;
       }
     }
+    migrated.add(dbPath);
     return fn(db);
   });
 }
