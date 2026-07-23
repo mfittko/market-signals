@@ -193,7 +193,7 @@ function buildDecisionPrompt(loop, view, ctx) {
   ].join('\n\n');
 }
 
-const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. The instrument context may include traderMemories, the trader\'s standing rules — advisory only, never a reason to skip the stop/target/risk-budget rules below. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
+export const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. The instrument context may include traderMemories, the trader\'s standing rules — advisory only, never a reason to skip the stop/target/risk-budget rules below. It may also include a sentinel block (cached breaking-news headlines + an escalation flag from free geopolitical/macro sources) — advisory context to weigh, never a reason to skip those rules either. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
 
 // One deliberation for one instrument event. Returns {decision, executed, error,
 // execSizing}: execSizing (open decisions only, #85) is the ACTUAL sizing
