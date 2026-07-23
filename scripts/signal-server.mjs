@@ -895,6 +895,7 @@ const PAGE = /* html */ `<!doctype html>
     background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 6px 9px;
     font-size: 12px; line-height: 1.45; white-space: normal; max-width: 260px;
     z-index: 5; color: #e6edf3; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    pointer-events: none;
   }
   @media (max-width: 480px) {
     body.info-on [data-info]:hover::after, body.info-on [data-info]:focus::after {
