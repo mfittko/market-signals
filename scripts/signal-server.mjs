@@ -625,6 +625,25 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try { activateStrategy(dbPath, id); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
         return json(res, 200, { ok: true, activeId: id });
       }
+      if (url.pathname === '/api/memories' && req.method === 'GET') {
+        const all = listMemories(dbPath, { includeArchived: true });
+        return json(res, 200, { ok: true, memories: all.filter((m) => !m.archived), archivedCount: all.filter((m) => m.archived).length });
+      }
+      if (url.pathname === '/api/memories' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const id = Number(body.id);
+        try {
+          if (body.action === 'save') return json(res, 200, { ok: true, memory: saveMemory(dbPath, { content: body.content, weight: body.weight, source: 'manual' }) });
+          if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
+          if (body.action === 'reweight') return json(res, 200, { ok: true, ...reweightMemory(dbPath, id, Number(body.weight)) });
+          if (body.action === 'edit') return json(res, 200, { ok: true, ...editMemory(dbPath, id, body.content) });
+          if (body.action === 'archive') return json(res, 200, { ok: true, ...archiveMemory(dbPath, id) });
+          return json(res, 400, { ok: false, error: 'unknown action' });
+        } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
       if (url.pathname === '/api/evaluation') {
         // Read-only like every portfolio surface (#22 guarantee).
         if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'evaluation is read-only over HTTP' });
@@ -896,6 +915,9 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="cfgdlg">
 <h2>Watcher &amp; filter settings</h2>
 <form id="cfg"></form>
+<h2>Trader memories</h2>
+<div id="memList"></div>
+<details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
 <p><button type="button" class="dlg-close" onclick="document.getElementById('cfgdlg').close()">Close</button></p>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
@@ -1365,6 +1387,32 @@ async function cfg() {
     if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
+  renderMemories();
+}
+async function renderMemories() {
+  const r = await (await fetch('/api/memories')).json();
+  const list = document.getElementById('memList');
+  if (!r.ok) { list.textContent = ''; return; }
+  list.innerHTML = r.memories.length ? r.memories.map(m =>
+    '<div class="memrow" data-id="' + m.id + '">' +
+    '<span class="memcontent">' + esc(m.content) + '</span>' +
+    '<input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '">' +
+    '<button type="button" class="memarchive">archive</button>' +
+    '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
+  list.querySelectorAll('.memrow').forEach(row => {
+    const id = Number(row.dataset.id);
+    row.querySelector('.memweight').onchange = async (e) => {
+      await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'reweight', id: id, weight: Number(e.target.value) }) });
+      renderMemories();
+    };
+    row.querySelector('.memarchive').onclick = async () => {
+      await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: id }) });
+      renderMemories();
+    };
+  });
+  const wrap = document.getElementById('memArchivedWrap');
+  wrap.hidden = !r.archivedCount;
+  document.getElementById('memArchivedCount').textContent = r.archivedCount + ' archived';
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
