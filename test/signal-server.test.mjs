@@ -837,6 +837,7 @@ test('settings: OPENAI_BASE_URL whitelisted + URL-validated; provider select is 
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'not a url' }) })).status, 400);
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'ftp://x.example' }) })).status, 400, 'non-http(s) rejected');
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ provider: 'auto' }) })).status, 400, 'invalid provider strings rejected — no auto reintroduction');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'https://host.example?x=1' }) })).status, 400, 'query strings rejected');
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ OPENAI_BASE_URL: 'http://localhost:9999' }) });
     const got = await (await fetch(base + '/api/settings')).json();
     assert.equal(got.OPENAI_BASE_URL, 'http://localhost:9999', 'stored unmasked (not a secret)');
