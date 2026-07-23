@@ -54,6 +54,7 @@ export function resolveBotFor(settings, instrument, granularity, dbPath = null) 
     enabled: entry.enabled === true,
     strategyId: Number.isInteger(entry.strategyId) ? entry.strategyId : null,
     riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
+    allocationPct: Number.isFinite(entry.allocationPct) && entry.allocationPct > 0 ? entry.allocationPct : null,
     killSwitchDrawdownPct: Number.isFinite(entry.killSwitchDrawdownPct) && entry.killSwitchDrawdownPct > 0 ? entry.killSwitchDrawdownPct : null,
   };
 }
@@ -260,6 +261,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   if (botFor.killSwitchDrawdownPct) loop.killSwitchDrawdownPct = botFor.killSwitchDrawdownPct;
   const cfg = botConfig(settings);
   if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
+  if (botFor.allocationPct) cfg.allocationPct = botFor.allocationPct;
 
   if (loop.resetHalt && portfolioView(dbPath, cfg).halted) {
     // guard on halted: a stale persisted flag on a healthy portfolio must not

@@ -812,3 +812,18 @@ test('halt reset never half-applies: an invalid combined patch leaves the halt i
     assert.equal(stored.bot?.resetHalt, undefined, 'flag never persisted');
   });
 });
+
+test('per-bot allocationPct + leverage map validation and merge (#51)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { allocationPct: 150 } } } }) })).status, 400, 'allocation > 100 rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': '15' } } }) })).status, 400, 'string leverage rejected');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'WTICO/USD': 15, 'XAG/USD': 5 }, bots: { 'WTICO/USD|M5': { enabled: true, allocationPct: 10 } } } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { 'XAG/USD': null } } }) });
+    const got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.leverage, { 'WTICO/USD': 15 }, 'per-instrument leverage merge with null-delete');
+    const bots = await (await fetch(base + '/api/bots')).json();
+    const row = bots.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(row.allocationPct, 10);
+    assert.equal(row.leverage, 15, 'effective leverage exposed per bot');
+  });
+});
