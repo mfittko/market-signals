@@ -822,7 +822,7 @@ const PAGE = /* html */ `<!doctype html>
     #wrap { height: 320px !important; }
 
     table { display: block; overflow-x: auto; white-space: nowrap; }
-    form, .advgrid { grid-template-columns: 1fr; }
+    dialog form, dialog .advgrid { grid-template-columns: 1fr; }
   }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #pf { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
