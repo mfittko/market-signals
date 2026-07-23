@@ -925,6 +925,9 @@ async function load() {
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
 async function portfolio() {
+  // cleared up front so a failed refresh never leaves stale equity/P&L in the header
+  const mini = document.getElementById('pfMini');
+  mini.textContent = '';
   const r = await (await fetch('/api/portfolio')).json();
   if (!r.ok) return;
   const pf = r.portfolio;
@@ -932,17 +935,17 @@ async function portfolio() {
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
   const status = pf.halted ? '<span class="halted">halted</span>' : '<span class="active">active</span>';
-  const totalPnl = pf.trades.reduce((a, t) => a + t.realized, 0) + pf.unrealized;
-  document.getElementById('pfMini').innerHTML =
+  const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
+  const totalPnl = realized + pf.unrealized;
+  mini.innerHTML =
     '<b>' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
-  const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
   const today = new Date().toDateString();
   const dayPnl = pf.trades.filter(t => new Date(t.close_time).toDateString() === today).reduce((a, t) => a + t.realized, 0) + pf.unrealized;
   document.getElementById('pfChips').innerHTML =
     '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b>' +
     '<span>cash ' + esc(pf.cash.toFixed(2)) + '</span>' +
-    '<span class="' + pnlCls(realized + pf.unrealized) + '">P&L ' + esc(money(realized + pf.unrealized)) + '</span>' +
+    '<span class="' + pnlCls(totalPnl) + '">P&L ' + esc(money(totalPnl)) + '</span>' +
     '<span class="' + pnlCls(dayPnl) + '">day ' + esc(money(dayPnl)) + '</span>' +
     '<span>' + pf.positions.length + ' pos</span>' + status;
   sparkline(pf);
