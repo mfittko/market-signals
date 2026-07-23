@@ -10,7 +10,7 @@
 // imports news.mjs at call sites instead, the same lazy-import convention it
 // already uses for bot.mjs/memories.mjs/signal-server.mjs to dodge cycles).
 import { withDb, trackedInstruments } from './supertrend.mjs';
-import { sentinelConfigForInstrument } from './lib/instruments.mjs';
+import { sentinelConfigForInstrument, loadInstrumentsConfig } from './lib/instruments.mjs';
 import { fetchSentinelNews, createGdeltThrottle } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 const NEWS_DDL = `CREATE TABLE IF NOT EXISTS news (
@@ -83,8 +83,10 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
 
   // Never guess a query: an instrument with no committed sentinel/yahooSymbol
   // entry in config/instruments.yaml is simply not tracked here.
+  // parse the instruments config ONCE per tick, not per instrument
+  const instrCfg = loadInstrumentsConfig();
   const withConfig = instruments
-    .map((instrument) => ({ instrument, sentinel: sentinelConfigForInstrument(instrument) }))
+    .map((instrument) => ({ instrument, sentinel: sentinelConfigForInstrument(instrument, instrCfg) }))
     .filter((x) => x.sentinel);
   if (!withConfig.length) return { refreshed: [], skipped: [] };
 

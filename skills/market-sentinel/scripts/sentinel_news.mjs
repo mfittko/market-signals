@@ -187,7 +187,7 @@ async function fetchSourceSafe(name, run, log) {
   try {
     return await run();
   } catch (err) {
-    log(`${name} failed: ${err.message}`);
+    log(`${name} failed: ${err && err.message ? err.message : String(err)}`);
     return [];
   }
 }

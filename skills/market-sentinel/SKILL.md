@@ -32,7 +32,7 @@ Every source is failure-isolated: a dead feed logs and yields `[]`, never throws
 
 ## Escalation
 
-`escalationFlag` is true when a GDELT tone score is below `GDELT_TONE_ESCALATION_THRESHOLD` (-5) OR the
+The top-level `escalation` boolean is true when a GDELT tone score is below `GDELT_TONE_ESCALATION_THRESHOLD` (-5) OR the
 title/summary hits a word in the `ESCALATION_LEXICON` constant (attack, strike, sanction, embargo, Hormuz,
 tanker, missile, drone, escalat*, war, OPEC cut, supply disruption).
 
