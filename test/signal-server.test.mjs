@@ -755,6 +755,111 @@ test('strategy management (#25): chat drafts never activate, human activation vi
   });
 });
 
+test('dedicated per-combo strategies (#75): /api/strategies id lookup + manual draft POST, cross-origin rejected, scope carried', async () => {
+  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, {
+      name: 'xag-scalper', prompt: 'Scalp XAG on confirmed flips only, tight stop, no chop.',
+      spec: { schema_version: 1, entry: { minAxesAligned: 2 }, exit: { stopAtr: 1 } },
+      instrument: 'XAG/USD', granularity: 'M5', dedicated: true,
+    });
+    const full = await (await fetch(base + '/api/strategies?id=' + st.id)).json();
+    assert.equal(full.strategy.prompt, 'Scalp XAG on confirmed flips only, tight stop, no chop.', 'full prompt (not the 120-char preview) is served');
+    assert.deepEqual(full.strategy.spec, { schema_version: 1, entry: { minAxesAligned: 2 }, exit: { stopAtr: 1 } }, 'spec round-trips parsed, not a JSON string');
+    assert.equal(full.strategy.dedicated, 1);
+    assert.equal(full.strategy.instrument, 'XAG/USD');
+
+    const missing = await fetch(base + '/api/strategies?id=999999');
+    assert.equal(missing.status, 404);
+    const badId = await fetch(base + '/api/strategies?id=nope');
+    assert.equal(badId.status, 400);
+
+    // manual draft save (bot-modal inline edit path): new INACTIVE version
+    const saved = await (await fetch(base + '/api/strategies', { method: 'POST', body: JSON.stringify({ name: 'xag-scalper', prompt: 'Scalp XAG, revised chop filter, tighter stop discipline.', dedicated: true, instrument: 'XAG/USD', granularity: 'M5' }) })).json();
+    assert.equal(saved.ok, true);
+    assert.equal(saved.strategy.version, 2);
+    const list = await (await fetch(base + '/api/strategies')).json();
+    assert.equal(list.strategies.find((s) => s.id === saved.strategy.id).active, 0, 'manual draft never activates itself');
+
+    const invalid = await (await fetch(base + '/api/strategies', { method: 'POST', body: JSON.stringify({ name: 'bad', prompt: 'too short' }) })).json();
+    assert.equal(invalid.ok, false);
+
+    const cross = await fetch(base + '/api/strategies', { method: 'POST', body: JSON.stringify({ name: 'evil', prompt: 'x'.repeat(30) }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403, 'cross-origin strategy save rejected (same-origin guard applies to every non-GET route)');
+  });
+});
+
+test('save_strategy scope defaulting from the current view (#75): dedicated drafts default instrument/granularity, chat copy points at the bot modal', async () => {
+  const { execChatTool } = await import('../scripts/signal-server.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ dbPath }) => {
+    const out = JSON.parse(execChatTool('save_strategy', { name: 'view-scoped', prompt: 'Dedicated strategy for the currently viewed combo, holds otherwise.', dedicated: true }, { dbPath, view: { instrument: 'XAG/USD', granularity: 'M5' } }));
+    assert.match(out.note, /bot modal/, 'chat confirmation copy points at the bot modal, not settings (#75 decision 6)');
+    const { strategyById } = await import('../scripts/strategies.mjs');
+    const row = strategyById(dbPath, out.id);
+    assert.equal(row.instrument, 'XAG/USD', 'scope defaulted from ctx.view since dedicated was requested without an explicit combo');
+    assert.equal(row.granularity, 'M5');
+    assert.equal(row.dedicated, 1);
+
+    // non-dedicated saves never pick up a scope from the view — shared/unscoped stays the default
+    const shared = JSON.parse(execChatTool('save_strategy', { name: 'shared-copilot-strat', prompt: 'A shared strategy usable on any watched combo, holds when unclear.' }, { dbPath, view: { instrument: 'XAG/USD', granularity: 'M5' } }));
+    assert.equal(strategyById(dbPath, shared.id).instrument, null);
+
+    // an explicit instrument/granularity always wins over the view default
+    const explicit = JSON.parse(execChatTool('save_strategy', { name: 'explicit-scope', prompt: 'Dedicated to a different combo than the current view, holds otherwise.', dedicated: true, instrument: 'WTICO/USD', granularity: 'H1' }, { dbPath, view: { instrument: 'XAG/USD', granularity: 'M5' } }));
+    assert.equal(strategyById(dbPath, explicit.id).instrument, 'WTICO/USD');
+  });
+});
+
+test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped');
+    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
+    assert.ok(html.includes('id="bm-setup"') && html.includes('id="bm-strategy"'), 'both tab bodies present');
+    assert.match(html, /bmStratSel/, 'scope-filtered strategy assignment select present');
+    assert.match(html, /bmShowAll/, '"show all" scope-escape checkbox present');
+    assert.match(html, /assigning to /, 'scope mismatch warning copy present');
+    assert.match(html, /bmActivate/, 'per-version activate control present');
+    assert.match(html, /bmSaveVersion/, 'inline edit → new version control present');
+  });
+});
+
+test('silver flow (#75): bot follows a strategy NAME\'s active version across chat iterations, without ever touching bot config', async () => {
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  const { runBot } = await import('../scripts/bot.mjs');
+  const { botConfig, portfolioView } = await import('../scripts/portfolio.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath, settingsPath }) => {
+    // v1: drafted dedicated to XAG/M5, activated + assigned via the bot modal's flow
+    const v1 = saveStrategy(dbPath, { name: 'silver-flow', prompt: 'Hold unless a confirmed flip breaks the recent range with volume.', instrument: 'XAG/USD', granularity: 'M5', dedicated: true, createdBy: 'chat' });
+    activateStrategy(dbPath, v1.id);
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'XAG/USD|M5': { enabled: true, strategyName: 'silver-flow' } } } }) });
+
+    const holdBin = join(dir, 'pi-silver');
+    writeFileSync(holdBin, '#!/bin/sh\ncat > /dev/null\necho \'{"action":"hold","reasoning":"per strategy"}\'\n');
+    chmodSync(holdBin, 0o755);
+    const botSettings = { ...JSON.parse(readFileSync(settingsPath, 'utf8')), provider: 'pi', piBin: holdBin };
+
+    await runBot(dbPath, botSettings, { instrument: 'XAG/USD', granularity: 'M5', candle: { open: 24, high: 24.1, low: 23.9, close: 24, time: '2026-07-23T08:00:00Z' }, quote: { last: 24 }, freshFlip: { signal: 'buy' } });
+    const j1 = JSON.parse(portfolioView(dbPath, botConfig(botSettings)).journal.find((j) => j.action === 'decision').context);
+    assert.equal(j1.strategyDbVersion, 1, 'first deliberation used v1');
+
+    // chat iterates a v2 draft; activating it moves the pointer — bot config untouched
+    const v2 = saveStrategy(dbPath, { name: 'silver-flow', prompt: 'Hold unless a confirmed flip breaks the recent range with volume; tighter chop filter now.', instrument: 'XAG/USD', granularity: 'M5', dedicated: true, createdBy: 'chat' });
+    activateStrategy(dbPath, v2.id);
+    const cfgAfter = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(cfgAfter.bot.bots['XAG/USD|M5'], { enabled: true, strategyName: 'silver-flow' }, 'bot config never changed across the v2 activation');
+
+    await runBot(dbPath, botSettings, { instrument: 'XAG/USD', granularity: 'M5', candle: { open: 24, high: 24.1, low: 23.9, close: 24, time: '2026-07-23T08:05:00Z' }, quote: { last: 24 }, freshFlip: { signal: 'sell' } });
+    const j2 = JSON.parse(portfolioView(dbPath, botConfig(botSettings)).journal.find((j) => j.action === 'decision').context);
+    assert.equal(j2.strategyDbVersion, 2, 'the bot picked up v2 at the next deliberation, unassisted');
+    assert.equal(j2.strategyName, 'silver-flow');
+
+    const bots = await (await fetch(base + '/api/bots')).json();
+    assert.equal(bots.bots.find((b) => b.combo === 'XAG/USD|M5').strategyName, 'silver-flow v2', '/api/bots reflects the active version too');
+  });
+});
+
 test('trader memories (#44): save_memory chat tool is trader-initiated (chat-only, no bot side effect)', async () => {
   const { execChatTool } = await import('../scripts/signal-server.mjs');
   const { listMemories } = await import('../scripts/memories.mjs');
@@ -1008,9 +1113,10 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
 });
 
 test('/api/bots serves the read-only activated-bots list; /api/chart carries botState (#49 design)', async () => {
-  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
     const st = saveStrategy(dbPath, { name: 'ux-strat', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    activateStrategy(dbPath, st.id); // #75: bots follow the ACTIVE version of a name, not a frozen row
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: st.id }, 'XAG/USD|M1': { enabled: false } } } }) });
     const r = await (await fetch(base + '/api/bots')).json();
     assert.equal(r.bots.length, 2);
