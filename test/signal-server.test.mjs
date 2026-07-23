@@ -689,12 +689,8 @@ test('trader memories (#44): save_memory chat tool is trader-initiated (chat-onl
   const { listMemories } = await import('../scripts/memories.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ dbPath }) => {
-    // fake pi wiring mirrors save_strategy's test: the tool executes directly
-    // against the registry with a db ctx, not through the (tool-less) pi loop
-    const piBin = join(dir, 'pi');
-    writeFileSync(piBin, '#!/bin/sh\ncat > /dev/null\necho \'{"tool":"save_memory","input":{"content":"Never chase a flip older than 2 bars.","weight":4}}\'\necho done\n');
-    chmodSync(piBin, 0o755);
-
+    // mirrors save_strategy's test: the tool executes directly against the
+    // registry with a db ctx, not through the pi loop, so no pi fixture needed
     const out = execChatTool('save_memory', { content: 'Never chase a flip older than 2 bars.', weight: 4 }, { dbPath });
     assert.match(out, /weight 4/);
     assert.match(out, /Never chase a flip older than 2 bars\./);
@@ -707,11 +703,14 @@ test('trader memories (#44): save_memory chat tool is trader-initiated (chat-onl
     execChatTool('save_memory', { content: 'Default weight rule.' }, { dbPath });
     assert.equal(listMemories(dbPath).find((r) => r.content === 'Default weight rule.').weight, 3);
 
-    // the bot deliberation loop's tool surface excludes both save_strategy AND
+    // the bot deliberation loop's tool surface (botToolDefs, the same helper
+    // supertrend.mjs wires up for the bot run) excludes both save_strategy AND
     // save_memory: memory saves are chat-only, never a side effect of a trade decision
-    const { CHAT_TOOLS } = await import('../scripts/signal-server.mjs');
-    const botToolNames = CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory').map((t) => t.name);
-    assert.ok(!botToolNames.includes('save_memory') && !botToolNames.includes('save_strategy'));
+    const { CHAT_TOOLS, botToolDefs } = await import('../scripts/signal-server.mjs');
+    const chatToolNames = CHAT_TOOLS.map((t) => t.name);
+    assert.ok(chatToolNames.includes('save_memory') && chatToolNames.includes('save_strategy'), 'full chat surface includes both');
+    const botToolNames = botToolDefs().map((t) => t.name);
+    assert.ok(!botToolNames.includes('save_memory') && !botToolNames.includes('save_strategy'), 'bot deliberation tool surface excludes both');
   });
 });
 

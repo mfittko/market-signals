@@ -756,7 +756,7 @@ async function runOne(opts) {
       const settings = readSettings(opts.settings);
       if (settings.bot && (settings.bot.enabled === true || (settings.bot.bots && typeof settings.bot.bots === 'object'))) {
         const { runBot } = await import('./bot.mjs');
-        const { CHAT_TOOLS, execChatTool } = await import('./signal-server.mjs');
+        const { botToolDefs, execChatTool } = await import('./signal-server.mjs');
         // A flip is a bot event only the run that records it: alert sent, filter
         // suppression, notify-off recording, or notification failure — never on
         // 'already processed' / 'duplicate' re-sightings of the same flip.
@@ -778,7 +778,7 @@ async function runOne(opts) {
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)
-          toolDefs: CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory').map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+          toolDefs: botToolDefs().map(({ name, description, input_schema }) => ({ name, description, input_schema })),
           execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db }),
         });
       }

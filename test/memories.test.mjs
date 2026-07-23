@@ -26,6 +26,18 @@ test('saveMemory validates content/weight/source; defaults weight 3, source chat
   assert.equal(rows.length, 2);
 });
 
+test('saveMemory normalizes content: trims first (500-char trimmed boundary accepted) and collapses newlines/whitespace to single spaces', () => {
+  const db = fresh();
+  // 500 real chars plus trailing padding that would push the untrimmed
+  // length over 500 — must validate against the trimmed length, not raw
+  const padded = saveMemory(db, { content: `${'x'.repeat(500)}${' '.repeat(20)}` });
+  assert.equal(padded.content.length, 500, 'trimmed to exactly 500 chars, accepted');
+
+  const multiline = saveMemory(db, { content: '  Line one.\n\nLine two.\t\tLine three.  ' });
+  assert.equal(multiline.content, 'Line one. Line two. Line three.', 'newlines/tabs/runs collapsed to single spaces, single line');
+  assert.ok(!multiline.content.includes('\n'));
+});
+
 test('listMemories orders weight DESC then updated_at DESC; includeArchived toggles visibility', () => {
   const db = fresh();
   const low = saveMemory(db, { content: 'low weight rule', weight: 1 });

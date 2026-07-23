@@ -404,6 +404,13 @@ export const CHAT_TOOLS = [
     },
   },
 ];
+// Tools available to the bot's deliberation loop: full CHAT_TOOLS minus the
+// trader-initiated writes (memory saves and strategy drafts are chat-only,
+// never a side effect of a trade decision — real source of truth for both
+// the runtime call site and its test).
+export function botToolDefs() {
+  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory');
+}
 export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
   if (!tool) throw new Error(`unknown tool ${name}`);

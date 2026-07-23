@@ -23,8 +23,15 @@ function mdb(dbPath, fn) {
   });
 }
 
-function checkContent(content) {
-  if (typeof content !== 'string' || content.trim().length < 1 || content.length > 500) {
+// Trim + collapse all internal whitespace runs (including newlines) to a
+// single space, so stored content is always one line — memoriesContext()'s
+// one-bullet-per-line format and budget math depend on this.
+function normalizeContent(content) {
+  return typeof content === 'string' ? content.trim().replace(/\s+/g, ' ') : content;
+}
+
+function checkContent(normalized) {
+  if (typeof normalized !== 'string' || normalized.length < 1 || normalized.length > 500) {
     throw new Error('content must be 1-500 chars');
   }
 }
@@ -34,14 +41,15 @@ function checkWeight(weight) {
 }
 
 export function saveMemory(dbPath, { content, weight = 3, source = 'chat' } = {}) {
-  checkContent(content);
+  const normalized = normalizeContent(content);
+  checkContent(normalized);
   checkWeight(weight);
   if (!['chat', 'manual'].includes(source)) throw new Error('source must be chat|manual');
   return mdb(dbPath, (db) => {
     const now = new Date().toISOString();
     const id = db.prepare(`INSERT INTO memories (content, weight, source, created_at, updated_at)
-      VALUES (?,?,?,?,?)`).run(content.trim(), weight, source, now, now).lastInsertRowid;
-    return { id: Number(id), content: content.trim(), weight, source };
+      VALUES (?,?,?,?,?)`).run(normalized, weight, source, now, now).lastInsertRowid;
+    return { id: Number(id), content: normalized, weight, source };
   });
 }
 
@@ -62,12 +70,13 @@ export function reweightMemory(dbPath, id, weight) {
 }
 
 export function editMemory(dbPath, id, content) {
-  checkContent(content);
+  const normalized = normalizeContent(content);
+  checkContent(normalized);
   return mdb(dbPath, (db) => {
     const row = db.prepare('SELECT id FROM memories WHERE id=?').get(id);
     if (!row) throw new Error('unknown memory');
-    db.prepare('UPDATE memories SET content=?, updated_at=? WHERE id=?').run(content.trim(), new Date().toISOString(), id);
-    return { id: Number(id), content: content.trim() };
+    db.prepare('UPDATE memories SET content=?, updated_at=? WHERE id=?').run(normalized, new Date().toISOString(), id);
+    return { id: Number(id), content: normalized };
   });
 }
 
