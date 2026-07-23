@@ -125,17 +125,24 @@ export const promptHash = (text) => createHash('sha256').update(String(text)).di
 // optional context block (headline digest, #40 decision 4) is replay-only:
 // sentiment is NOT scored here — the per-signal judge scores it from this
 // recorded digest at backtest time, never from a live fetch.
-export function recordSnapshot(dbPath, snapshot, { filterVerdict = null, filterModel = null, filterPromptHash = null, context = null } = {}) {
+export function recordSnapshot(dbPath, snapshot, { filterVerdict = null, filterModel = null, filterPromptHash = null, filterPromptVersion = null, context = null } = {}) {
   if (!snapshot) return false;
   return withDb(dbPath, (db) => {
     db.exec(SNAP_DDL);
+    // Pre-#58 dbs lack this column; another process can win the same ALTER
+    // between our PRAGMA check and exec — only that loss is benign.
+    if (!db.prepare('PRAGMA table_info(signal_snapshots)').all().some((c) => c.name === 'filter_prompt_version')) {
+      try { db.exec('ALTER TABLE signal_snapshots ADD COLUMN filter_prompt_version TEXT'); } catch (err) {
+        if (!/duplicate column/i.test(String(err?.message))) throw err;
+      }
+    }
     let ctx = null;
     if (context) { try { ctx = JSON.stringify(context); } catch { ctx = null; } }
     return db.prepare(`INSERT OR IGNORE INTO signal_snapshots
-      (instrument, granularity, time, schema_version, snapshot, filter_verdict, filter_model, filter_prompt_hash, context)
-      VALUES (?,?,?,?,?,?,?,?,?)`)
+      (instrument, granularity, time, schema_version, snapshot, filter_verdict, filter_model, filter_prompt_hash, filter_prompt_version, context)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .run(snapshot.instrument, snapshot.granularity, snapshot.at, snapshot.schema_version,
-        JSON.stringify(snapshot), filterVerdict, filterModel, filterPromptHash, ctx).changes > 0;
+        JSON.stringify(snapshot), filterVerdict, filterModel, filterPromptHash, filterPromptVersion == null ? null : String(filterPromptVersion), ctx).changes > 0;
   });
 }
 

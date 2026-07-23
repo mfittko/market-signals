@@ -16,10 +16,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveFilterSystem, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
+import { activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
@@ -407,13 +408,23 @@ export const CHAT_TOOLS = [
       return `saved memory (weight ${saved.weight}): ${saved.content}`;
     },
   },
+  {
+    name: 'save_gate_prompt',
+    description: 'Save a DRAFT revision of a gate\'s advisory rules text (new version each save; append-only). Drafts NEVER take effect: activation is a human act in the settings gates section. Only the filter gate is overridable in v1 — the bot prompt is strategy-owned and the chat prompt is constant. Use when the trader asks to draft or iterate the filter\'s rules conversationally.',
+    input_schema: { type: 'object', properties: { gate: { type: 'string', enum: ['filter'] }, prompt: { type: 'string', description: 'the gate rules text (max 4000 chars) — advisory only; it can never grant tools or change the JSON verdict schema, which is always appended server-side' } }, required: ['gate', 'prompt'], additionalProperties: false },
+    run: (a, ctx) => {
+      if (!ctx?.dbPath) throw new Error('save_gate_prompt needs a db context');
+      const saved = saveGatePrompt(ctx.dbPath, { gate: a?.gate, prompt: a?.prompt, createdBy: 'chat' });
+      return JSON.stringify({ ...saved, note: 'draft saved — NOT active; the trader activates gate prompts in settings' });
+    },
+  },
 ];
 // Tools available to the bot's deliberation loop: full CHAT_TOOLS minus the
-// trader-initiated writes (memory saves and strategy drafts are chat-only,
-// never a side effect of a trade decision — real source of truth for both
-// the runtime call site and its test).
+// trader-initiated writes (memory saves, strategy drafts, and gate-prompt
+// drafts are chat-only, never a side effect of a trade decision — real
+// source of truth for both the runtime call site and its test).
 export function botToolDefs() {
-  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory');
+  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory' && t.name !== 'save_gate_prompt');
 }
 export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
@@ -432,7 +443,32 @@ export function extractThreadTitle(reply) {
   return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; a gatePrompts block carries the alert filter's current effective rules text (its note explains the bot/chat prompts) — use it if the trader wants to discuss or draft a revision (save_gate_prompt saves a draft; activation is a human act in settings); prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+
+// Gate transparency (#58): server-built (no secrets) so the settings gates
+// section and the chat context both read the SAME effective prompt/toolset
+// per gate — one source of truth, never re-derived client-side.
+async function gatesInfo(dbPath) {
+  const filterEff = await resolveFilterSystem(dbPath);
+  const strat = activeStrategy(dbPath);
+  return {
+    filter: {
+      toolset: [],
+      prompt: filterEff.system,
+      promptVersion: filterEff.promptVersion,
+      drafts: listGatePrompts(dbPath, { gate: 'filter' }),
+    },
+    bot: {
+      toolset: [...botToolDefs().map((t) => t.name), 'web_search'],
+      strategyName: strat ? `${strat.name} v${strat.version}` : null,
+      prompt: strat ? strat.prompt : null,
+    },
+    chat: {
+      toolset: CHAT_TOOLS.map((t) => t.name),
+      prompt: CHAT_SYSTEM,
+    },
+  };
+}
 
 // Current course info from the latest stored candles (at most one candle stale).
 function buildQuote(recent) {
@@ -656,6 +692,22 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           return json(res, 400, { ok: false, error: 'unknown action' });
         } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
+      if (url.pathname === '/api/gate-prompts' && req.method === 'GET') {
+        return json(res, 200, { ok: true, gates: await gatesInfo(dbPath) });
+      }
+      if (url.pathname === '/api/gate-prompts' && req.method === 'POST') {
+        const raw = await readBody(req, res);
+        if (raw === null) return;
+        let body;
+        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const id = Number(body.id);
+        if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
+        try {
+          if (body.action === 'activate') return json(res, 200, { ok: true, ...activateGatePrompt(dbPath, id) });
+          if (body.action === 'deactivate') return json(res, 200, { ok: true, ...deactivateGatePrompt(dbPath, id) });
+          return json(res, 400, { ok: false, error: 'unknown action' });
+        } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
       if (url.pathname === '/api/evaluation') {
         // Read-only like every portfolio surface (#22 guarantee).
         if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'evaluation is read-only over HTTP' });
@@ -734,6 +786,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
           axisGate: axisSnapshot(view.candles, { instrument, granularity })?.axes ?? null,
           traderMemories: memoriesContext(dbPath) || undefined,
+          // #58: the filter's effective rules text only (the gate the operator
+          // tunes most, and the only one with a chat-draftable override) — kept
+          // cheap; bot/chat prompts are surfaced in the settings gates section
+          // instead of duplicated here in full.
+          gatePrompts: { filter: (await resolveFilterSystem(dbPath)).system, note: 'the bot prompt is strategy-owned and the chat prompt is a constant — see settings > gates for both; only the filter is overridable here' },
         };
 
         let threadId = Number.isInteger(body.threadId) ? body.threadId : null;
@@ -961,6 +1018,8 @@ const PAGE = /* html */ `<!doctype html>
 <h2>Trader memories</h2>
 <div id="memList"></div>
 <details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
+<h2 data-info="Read-only per-gate transparency: effective system prompt and declared toolset for the filter, bot, and chat gates (#58).">Gates</h2>
+<div id="gatesList"></div>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
@@ -1496,6 +1555,33 @@ async function cfg() {
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
   renderMemories();
+  renderGates();
+}
+// #58: read-only gate transparency + the filter's chat-draftable overrides.
+async function renderGates() {
+  const r = await (await fetch('/api/gate-prompts')).json();
+  const list = document.getElementById('gatesList');
+  if (!r.ok) { list.textContent = ''; return; }
+  const g = r.gates;
+  const toolsetLine = (names) => names.length ? esc(names.join(', ')) : 'none';
+  const promptDetails = (text) => '<details><summary>system prompt</summary><pre>' + esc(text || '') + '</pre></details>';
+  const drafts = g.filter.drafts.length ? g.filter.drafts.map((d) =>
+    '<div class="gatedraft" data-id="' + d.id + '"><small>v' + d.version + ' · ' + esc(d.created_by) + (d.active ? ' · <b>active</b>' : '') + '</small> ' +
+    '<button type="button" class="gateactivate"' + (d.active ? ' hidden' : '') + '>activate</button> ' +
+    '<button type="button" class="gatedeactivate"' + (d.active ? '' : ' hidden') + '>deactivate</button></div>').join('')
+    : '<div class="gateempty"><small>no drafts yet — ask the copilot to draft one</small></div>';
+  list.innerHTML =
+    '<div class="gaterow"><b>filter</b> <small>— toolset: ' + toolsetLine(g.filter.toolset) + ' · active: v' + esc(String(g.filter.promptVersion)) + '</small>' + promptDetails(g.filter.prompt) + drafts + '</div>' +
+    '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
+    (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') + '</div>' +
+    '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>';
+  list.querySelectorAll('.gatedraft').forEach((row) => {
+    const id = Number(row.dataset.id);
+    const act = row.querySelector('.gateactivate');
+    const deact = row.querySelector('.gatedeactivate');
+    act.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: id }) }); renderGates(); };
+    deact.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'deactivate', id: id }) }); renderGates(); };
+  });
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();

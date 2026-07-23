@@ -522,7 +522,7 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
 
 test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
   const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
-  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory']);
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory', 'save_gate_prompt']);
   for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
@@ -831,6 +831,86 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
 
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'settings modal ships the trader memories section');
+  });
+});
+
+test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, excluded from botToolDefs, human-only activation via /api/gate-prompts', async () => {
+  const { execChatTool, botToolDefs } = await import('../scripts/signal-server.mjs');
+  const { activeGatePrompt, listGatePrompts } = await import('../scripts/gate-prompts.mjs');
+  const { FILTER_RULES, FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // the tool executes directly against the registry with a db ctx, no pi fixture needed
+    const out = JSON.parse(execChatTool('save_gate_prompt', { gate: 'filter', prompt: 'Draft: require two confirming bars before any alert.' }, { dbPath }));
+    assert.equal(out.gate, 'filter');
+    assert.equal(out.version, 1);
+    assert.match(out.note, /NOT active/);
+    assert.equal(activeGatePrompt(dbPath, 'filter'), null, 'drafting cannot activate — chat tool has no activate param at all');
+    assert.equal(botToolDefs().map((t) => t.name).includes('save_gate_prompt'), false, 'gate-prompt drafting is chat-only, never a bot deliberation side effect');
+
+    // GET /api/gate-prompts: no active override yet — filter effective prompt is the builtin, byte-identical
+    const g1 = await (await fetch(base + '/api/gate-prompts')).json();
+    assert.equal(g1.ok, true);
+    assert.equal(g1.gates.filter.prompt, FILTER_RULES + FILTER_SCHEMA_SUFFIX, 'unset: fallback is byte-identical to the shipped constant');
+    assert.equal(g1.gates.filter.promptVersion, 'builtin');
+    assert.equal(g1.gates.filter.drafts.length, 1);
+    assert.equal(g1.gates.filter.drafts[0].active, 0);
+    assert.deepEqual(g1.gates.bot.toolset, [...botToolDefs().map((t) => t.name), 'web_search']);
+    assert.equal(g1.gates.bot.strategyName, null, 'no active strategy — the bot does not trade');
+    assert.ok(g1.gates.chat.toolset.includes('save_memory') && g1.gates.chat.toolset.includes('save_gate_prompt'));
+
+    // human activation: same-origin POST works, cross-origin rejected
+    const draftId = g1.gates.filter.drafts[0].id;
+    const cross = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: draftId }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403, 'cross-origin activation rejected');
+    assert.equal(activeGatePrompt(dbPath, 'filter'), null, 'rejected cross-origin call never activated anything');
+    const act = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: draftId }) })).json();
+    assert.equal(act.ok, true);
+    assert.equal(activeGatePrompt(dbPath, 'filter').id, draftId);
+
+    // now-active override is what /api/gate-prompts and the chat context both carry
+    const g2 = await (await fetch(base + '/api/gate-prompts')).json();
+    assert.equal(g2.gates.filter.promptVersion, 1);
+    assert.match(g2.gates.filter.prompt, /Draft: require two confirming bars/);
+    assert.ok(g2.gates.filter.prompt.endsWith(FILTER_SCHEMA_SUFFIX), 'schema suffix always appended after the override text');
+
+    const bad = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: 99999 }) })).json();
+    assert.equal(bad.ok, false);
+
+    // human-only deactivation restores the builtin fallback
+    const deact = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'deactivate', id: draftId }) })).json();
+    assert.equal(deact.ok, true);
+    assert.equal(activeGatePrompt(dbPath, 'filter'), null);
+
+    // settings modal ships the gates section
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('id="gatesList"'), 'settings modal ships the gates transparency section');
+  });
+});
+
+test('gate prompts (#58): chat context carries the effective per-gate prompt for discussion', async () => {
+  const { activateGatePrompt, saveGatePrompt } = await import('../scripts/gate-prompts.mjs');
+  const { FILTER_RULES, FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, '#!/bin/sh\necho ok\n');
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const draft = saveGatePrompt(dbPath, { gate: 'filter', prompt: 'Chat-visible override rules text.' });
+    const res1 = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'what are your filter rules?', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const done1 = sseEvents(await res1.text()).find((e) => e.type === 'done');
+    const msgs1 = await (await fetch(base + `/api/messages?thread=${done1.threadId}`)).json();
+    const ctx1 = JSON.parse(msgs1.messages[0].context);
+    assert.equal(ctx1.gatePrompts.filter, FILTER_RULES + FILTER_SCHEMA_SUFFIX, 'no active override: builtin carried');
+    assert.match(ctx1.gatePrompts.note, /bot prompt is strategy-owned/);
+
+    activateGatePrompt(dbPath, draft.id);
+    const res2 = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'and now?', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const done2 = sseEvents(await res2.text()).find((e) => e.type === 'done');
+    const msgs2 = await (await fetch(base + `/api/messages?thread=${done2.threadId}`)).json();
+    const ctx2 = JSON.parse(msgs2.messages[msgs2.messages.length - 2].context);
+    assert.match(ctx2.gatePrompts.filter, /Chat-visible override rules text\./, 'active override reflected in the next chat context');
   });
 });
 

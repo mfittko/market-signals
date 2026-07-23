@@ -99,7 +99,28 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
   });
 }
 
-const FILTER_SYSTEM = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. When present, traderMemories lists the trader\'s standing rules — advisory context, never a substitute for the chop/volume checks above. Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+// Split so a chat-drafted override (issue #58) can only ever replace the
+// advisory RULES text — the JSON verdict instruction stays code-owned and is
+// always appended server-side, so a draft can never break parsing.
+export const FILTER_RULES = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. When present, traderMemories lists the trader\'s standing rules — advisory context, never a substitute for the chop/volume checks above.';
+export const FILTER_SCHEMA_SUFFIX = ' Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
+const FILTER_SYSTEM = FILTER_RULES + FILTER_SCHEMA_SUFFIX;
+
+// Resolves the filter's effective system prompt: an active gate-prompt
+// override when present (advisory rules text only — the schema suffix is
+// ALWAYS appended here, outside the override, so a draft can never change the
+// verdict contract), else the shipped FILTER_SYSTEM constant. promptVersion
+// ('builtin' or the override's version) rides into filter provenance so
+// verdicts are attributable to the exact text that produced them.
+export async function resolveFilterSystem(dbPath) {
+  if (dbPath) {
+    // lazy import: avoids a static cycle (gate-prompts.mjs imports withDb from here)
+    const { activeGatePrompt } = await import('./gate-prompts.mjs');
+    const override = activeGatePrompt(dbPath, 'filter');
+    if (override) return { system: override.prompt + FILTER_SCHEMA_SUFFIX, promptVersion: override.version };
+  }
+  return { system: FILTER_SYSTEM, promptVersion: 'builtin' };
+}
 
 const VERDICT_SCHEMA = {
   type: 'object',
@@ -367,8 +388,8 @@ const LOCAL_FMT = localTimeFormatters(LOCAL_TZ);
 export const localHm = LOCAL_FMT.hm;
 export const localFull = LOCAL_FMT.full;
 
-async function llmVerdict(settings, payload) {
-  const out = await llmRequest(settings, FILTER_SYSTEM, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
+async function llmVerdict(settings, payload, system) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000 });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -469,6 +490,7 @@ export async function processSignal(opts, result, candles) {
 
   let verdict = null;
   let verdictSource = 'none';
+  let promptVersion = null;
   if (hasFilter) {
     let notes = '';
     try { notes = readFileSync(settings.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
@@ -476,6 +498,11 @@ export async function processSignal(opts, result, candles) {
     dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
     // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
     const { memoriesContext } = await import('./memories.mjs');
+    // Resolved once, before the network/pi call, so promptVersion lands in
+    // provenance ('builtin' or the active override's version) whether or not
+    // the filter call itself succeeds.
+    const filterSystem = await resolveFilterSystem(opts.db);
+    promptVersion = filterSystem.promptVersion;
     try {
       verdict = await llmVerdict(settings, {
         current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
@@ -491,7 +518,7 @@ export async function processSignal(opts, result, candles) {
         axisGate: gateSnapshot?.axes ?? null,
         traderNotes: notes,
         traderMemories: memoriesContext(opts.db) || undefined,
-      });
+      }, filterSystem.system);
       verdictSource = 'llm';
     } catch (err) {
       // ponytail: fail open — a missed alert costs more than a noisy one
@@ -521,6 +548,7 @@ export async function processSignal(opts, result, candles) {
         filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
         filterModel: hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.model || (settings.ANTHROPIC_API_KEY ? 'anthropic-default' : 'openai-default')) : null,
         filterPromptHash: hasFilter ? promptHash(FILTER_SYSTEM) : null,
+        filterPromptVersion: promptVersion,
         context,
       });
     } catch (err) { dbg(`snapshot record failed: ${err.message}`); }
