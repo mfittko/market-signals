@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
+import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { normCombo, performHaltReset, resolveBotFor } from './bot.mjs';
 import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
@@ -390,6 +391,16 @@ export const CHAT_TOOLS = [
       if (!ctx?.dbPath) throw new Error('save_strategy needs a db context');
       const saved = saveStrategy(ctx.dbPath, { name: a?.name, prompt: a?.prompt, instruments: a?.instruments ?? null, createdBy: 'chat' });
       return JSON.stringify({ ...saved, note: 'draft saved — NOT active; the trader activates strategies in settings' });
+    },
+  },
+  {
+    name: 'save_memory',
+    description: 'Save a durable trader memory: a standing rule or preference to keep in view across future chat, filter, and bot-deliberation prompts (advisory only — never overrides fail-safe clamps). Use when the trader states a lasting instruction, not a one-off fact.',
+    input_schema: { type: 'object', properties: { content: { type: 'string', description: 'the memory text (max 500 chars)' }, weight: { type: 'integer', description: 'importance 1-5, default 3' } }, required: ['content'], additionalProperties: false },
+    run: (a, ctx) => {
+      if (!ctx?.dbPath) throw new Error('save_memory needs a db context');
+      const saved = saveMemory(ctx.dbPath, { content: a?.content, weight: Number.isInteger(a?.weight) ? a.weight : 3, source: 'chat' });
+      return `saved memory (weight ${saved.weight}): ${saved.content}`;
     },
   },
 ];
