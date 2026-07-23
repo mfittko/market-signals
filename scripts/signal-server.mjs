@@ -100,10 +100,17 @@ export function writeSettings(settingsPath, patch) {
       for (const [bk, bv] of Object.entries(v)) {
         if (bv === '' || bv === null) delete merged[bk];
         else if (bk === 'bots') {
-          const bots = { ...(typeof merged.bots === 'object' && merged.bots ? merged.bots : {}) };
+          // combo keys are normalized at write time (spaces around the pipe
+          // stripped) so "A | M5" and "A|M5" can never coexist as duplicates
+          const normKey = (c) => c.split('|').map((x) => x.trim()).join('|');
+          const bots = {};
+          for (const [combo, entry] of Object.entries(typeof merged.bots === 'object' && merged.bots ? merged.bots : {})) {
+            bots[normKey(combo)] = entry; // re-key any stored unnormalized entries
+          }
           for (const [combo, entry] of Object.entries(bv)) {
-            if (entry === null) delete bots[combo];
-            else bots[combo] = { ...(bots[combo] ?? {}), ...entry };
+            const k2 = normKey(combo);
+            if (entry === null) delete bots[k2];
+            else bots[k2] = { ...(bots[k2] ?? {}), ...entry };
           }
           merged.bots = bots;
         } else merged[bk] = bv;

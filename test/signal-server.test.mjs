@@ -739,6 +739,11 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
     let got = await (await fetch(base + '/api/settings')).json();
     assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyId: 3, riskPct: 1.5 }, 'per-combo merge keeps sibling fields');
     assert.ok(got.bot.bots['SPX500/USD|M1'], 'sibling bot untouched');
+    // key normalization: a spaced patch merges INTO the normalized entry, never duplicates
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD | M5': { riskPct: 3 } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(Object.keys(got.bot.bots).filter((k) => k.startsWith('WTICO')).length, 1, 'no duplicate spaced/unspaced keys');
+    assert.equal(got.bot.bots['WTICO/USD|M5'].riskPct, 3, 'spaced patch reached the normalized entry');
     // null deletes exactly one bot entry
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'SPX500/USD|M1': null } } }) });
     got = await (await fetch(base + '/api/settings')).json();
