@@ -510,7 +510,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const [inst, gran] = combo.split('|').map((x) => x.trim());
           const strat = Number.isInteger(b.strategyId) ? strategyById(dbPath, b.strategyId) : null;
           const trades = pf.trades.filter((t) => t.instrument === inst);
-          const lastDecision = audit.find((a) => a.instrument === inst && (a.event == null || true));
+          const lastDecision = audit.find((a) => a.instrument === inst && (a.granularity == null || a.granularity === gran));
           return {
             combo, instrument: inst, granularity: gran,
             enabled: b.enabled === true,
