@@ -42,8 +42,11 @@ const migrated = new Set();
 
 function sdb(dbPath, fn) {
   return withDb(dbPath, (db) => {
-    if (migrated.has(dbPath)) return fn(db);
+    // DDL is CREATE IF NOT EXISTS and cheap — always run it, since withDb opens a
+    // fresh connection each call and the same dbPath (:memory:, a recreated file)
+    // may be a brand-new empty DB. Only the PRAGMA/ALTER scan is cached away.
     db.exec(DDL);
+    if (migrated.has(dbPath)) return fn(db);
     // #75 scope columns: guarded ALTER for dbs created before this migration —
     // same pattern axis-snapshot.mjs uses for filter_prompt_version.
     const cols = new Set(db.prepare('PRAGMA table_info(strategies)').all().map((c) => c.name));
