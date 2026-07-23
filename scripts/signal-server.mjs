@@ -78,6 +78,7 @@ export function writeSettings(settingsPath, patch) {
     if (patch.bot.leverage !== undefined && patch.bot.leverage !== null) {
       if (typeof patch.bot.leverage !== 'object' || Array.isArray(patch.bot.leverage)) throw new Error('bot.leverage must be an object keyed by instrument');
       for (const [li, lv] of Object.entries(patch.bot.leverage)) {
+        if (!/^[A-Za-z0-9/ _-]{3,20}$/.test(li)) throw new Error(`bot.leverage key '${li}' must be an instrument symbol`);
         if (lv !== null && (!Number.isFinite(lv) || lv <= 0)) throw new Error(`bot.leverage['${li}'] must be a positive number`);
       }
     }
@@ -113,9 +114,11 @@ export function writeSettings(settingsPath, patch) {
       for (const [bk, bv] of Object.entries(v)) {
         if (bv === '' || bv === null) delete merged[bk];
         else if (bk === 'leverage') {
-          // per-instrument merge (null deletes one instrument's override)
+          // per-instrument merge (null deletes one override); own-keys only —
+          // __proto__/constructor and friends can never pollute the shape
           const lev = { ...(typeof merged.leverage === 'object' && merged.leverage ? merged.leverage : {}) };
           for (const [li, lv] of Object.entries(bv)) {
+            if (['__proto__', 'constructor', 'prototype'].includes(li)) continue;
             if (lv === null) delete lev[li]; else lev[li] = lv;
           }
           merged.leverage = lev;
@@ -558,6 +561,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           }
           return { comboAgg: comboAgg2, soloUnattributed: solo };
         });
+        const engineCfg = botConfig(cfgB); // once per request, not per row
         const botsPerInstrument = new Map();
         for (const k of Object.keys(bots)) {
           const inst0 = k.split('|')[0].trim();
@@ -577,7 +581,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
             riskPct: b.riskPct ?? null,
             allocationPct: b.allocationPct ?? null,
-            leverage: instrumentLeverage(botConfig(cfgB), inst), // the engine's own resolution — no drift
+            leverage: instrumentLeverage(engineCfg, inst), // the engine's own resolution — no drift
             trades: agg.c,
             realized: Math.round(agg.r * 100) / 100,
             lastDecisionAt: lastDecision?.at ?? null,
