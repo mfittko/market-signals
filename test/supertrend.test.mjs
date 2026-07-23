@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -91,7 +91,7 @@ function fakeBin(dir, name, script) {
   return p;
 }
 
-function fixture(dir, { notify = true, settings = {} } = {}) {
+function fixture(dir, { notify = true, settings = {}, candleCount = 20 } = {}) {
   const settingsPath = join(dir, 'settings.json');
   // Defense in depth: even without the MS_NO_NOTIFY env guard, a fixture-pinned
   // missing notifierBin trips the explicitly-configured-missing suppression in
@@ -103,7 +103,7 @@ function fixture(dir, { notify = true, settings = {} } = {}) {
     signal: { time: '2026-07-22T10:15:00Z', signal: 'sell', price: 88.35, barsAgo: 0, fresh: true },
     backtest: { winRatePct: 50, totalReturnPct: 1, trades: 4 },
   };
-  return { opts, result, candles: candles.slice(0, 20) };
+  return { opts, result, candles: candles.slice(0, candleCount) };
 }
 
 test('processSignal records fresh flips with notify off, and dedups', async () => {
@@ -147,6 +147,55 @@ test('processSignal fails open on filter error and records the verdict', async (
     assert.equal(row.notified, 1);
   } finally {
     process.env.PATH = prevPath;
+  }
+});
+
+test('resolveFilterSystem falls back to the builtin prompt when gate-prompt resolution throws (fail-open, #58)', async () => {
+  const { resolveFilterSystem } = await import('../scripts/supertrend.mjs');
+  const r = await resolveFilterSystem('/nonexistent-dir/nope/db.sqlite');
+  assert.equal(r.promptVersion, 'builtin', 'resolution errors never break the alert path');
+});
+
+test('processSignal filter: active gate-prompt override feeds the filter system text; promptVersion lands in provenance both ways (#58)', async () => {
+  const { saveGatePrompt, activateGatePrompt } = await import('../scripts/gate-prompts.mjs');
+  const { FILTER_RULES, FILTER_SCHEMA_SUFFIX } = await import('../scripts/supertrend.mjs');
+  const { promptHash } = await import('../scripts/axis-snapshot.mjs');
+  const builtinHash = promptHash(FILTER_RULES + FILTER_SCHEMA_SUFFIX);
+  const OVERRIDE_RULES = 'OVERRIDE-RULES-MARKER: require two confirming bars before any alert.';
+
+  // Without an override: builtin rules used, promptVersion 'builtin' recorded.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": true, "reason": "ok"}'`);
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin }, candleCount: 40 });
+    await processSignal(opts, result, c);
+    const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+    assert.ok(!args.includes('OVERRIDE-RULES-MARKER'), 'no override active: builtin rules used');
+    assert.ok(args.includes(FILTER_SCHEMA_SUFFIX.trim()), 'code-owned schema suffix always present');
+    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version, filter_prompt_hash FROM signal_snapshots').get());
+    assert.equal(row.filter_prompt_version, 'builtin');
+    assert.equal(row.filter_prompt_hash, builtinHash, 'no override active: hash matches the builtin prompt actually used');
+  }
+
+  // With an active override: its rules text feeds the filter (ending with the
+  // code-owned schema suffix, never overridable), and its version is recorded.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const dbPath = join(dir, 'db.sqlite');
+    const draft = saveGatePrompt(dbPath, { gate: 'filter', prompt: OVERRIDE_RULES });
+    activateGatePrompt(dbPath, draft.id);
+    const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": true, "reason": "ok"}'`);
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin }, candleCount: 40 });
+    await processSignal(opts, result, c);
+    const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+    const rulesAt = args.indexOf(OVERRIDE_RULES);
+    const schemaAt = args.indexOf(FILTER_SCHEMA_SUFFIX.trim());
+    assert.ok(rulesAt >= 0, 'override rules text used as the system prompt');
+    assert.ok(schemaAt > rulesAt, 'code-owned schema suffix appended AFTER the override text');
+    const row = withDb(opts.db, (d) => d.prepare('SELECT filter_prompt_version, filter_prompt_hash FROM signal_snapshots').get());
+    assert.equal(row.filter_prompt_version, String(draft.version));
+    assert.notEqual(row.filter_prompt_hash, builtinHash, 'override active: recorded hash differs from the builtin prompt hash');
+    assert.equal(row.filter_prompt_hash, promptHash(OVERRIDE_RULES + FILTER_SCHEMA_SUFFIX), 'recorded hash matches the effective (override) prompt text actually used');
   }
 });
 
