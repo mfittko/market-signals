@@ -399,7 +399,8 @@ export const CHAT_TOOLS = [
     input_schema: { type: 'object', properties: { content: { type: 'string', description: 'the memory text (max 500 chars)' }, weight: { type: 'integer', description: 'importance 1-5, default 3' } }, required: ['content'], additionalProperties: false },
     run: (a, ctx) => {
       if (!ctx?.dbPath) throw new Error('save_memory needs a db context');
-      const saved = saveMemory(ctx.dbPath, { content: a?.content, weight: Number.isInteger(a?.weight) ? a.weight : 3, source: 'chat' });
+      // coerce numeric strings, then let saveMemory's 1-5 integer validation throw on garbage
+      const saved = saveMemory(ctx.dbPath, { content: a?.content, weight: a?.weight === undefined || a?.weight === null ? 3 : Number(a.weight), source: 'chat' });
       return `saved memory (weight ${saved.weight}): ${saved.content}`;
     },
   },

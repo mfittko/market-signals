@@ -703,6 +703,10 @@ test('trader memories (#44): save_memory chat tool is trader-initiated (chat-onl
     execChatTool('save_memory', { content: 'Default weight rule.' }, { dbPath });
     assert.equal(listMemories(dbPath).find((r) => r.content === 'Default weight rule.').weight, 3);
 
+    // numeric-string weight coerces; garbage throws instead of silently defaulting
+    assert.match(execChatTool('save_memory', { content: 'Numeric string coerces.', weight: '5' }, { dbPath }), /weight 5/);
+    assert.throws(() => execChatTool('save_memory', { content: 'Bad weight.', weight: 'high' }, { dbPath }), /weight/);
+
     // the bot deliberation loop's tool surface (botToolDefs, the same helper
     // supertrend.mjs wires up for the bot run) excludes both save_strategy AND
     // save_memory: memory saves are chat-only, never a side effect of a trade decision
