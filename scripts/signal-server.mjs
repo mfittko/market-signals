@@ -870,7 +870,7 @@ const PAGE = /* html */ `<!doctype html>
   #cfgAdv summary { cursor: pointer; color: #8b949e; margin: 4px 0; }
   .advgrid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; margin-top: 6px; }
   /* one control height everywhere interactive chrome lives (#56) */
-  #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x), form input:not([type=checkbox]), form select, form button { height: 30px; box-sizing: border-box; }
+  #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
   input, select { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
   button { grid-column: 2; justify-self: start; padding: 5px 14px; background: #238636; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
   #saved { color: #3fb950; margin-left: 8px; }

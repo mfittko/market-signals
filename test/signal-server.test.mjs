@@ -44,9 +44,11 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings plumbi
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
     for (const id of ['pfdlg', 'botdlg', 'cfgdlg']) {
-      const dlg = page.slice(page.indexOf('<dialog id="' + id + '"'), page.indexOf('</dialog>', page.indexOf('<dialog id="' + id + '"')));
+      const start = page.indexOf('<dialog id="' + id + '"');
+      assert.ok(start >= 0, id + ' dialog exists');
+      const dlg = page.slice(start, page.indexOf('</dialog>', start));
       assert.ok(dlg.includes('class="dlg-x"'), id + ' has a top-right X');
-      assert.ok(!/method="dialog"><button>close<\/button>/.test(dlg), id + ' has no bottom close row');
+      assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
     assert.match(page, /const ADV_FIELDS = \[\['instrument'/, 'plumbing fields render behind the advanced disclosure');
