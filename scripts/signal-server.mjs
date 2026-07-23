@@ -918,7 +918,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="infoBtn" type="button" title="toggle hover explanations for metrics across the UI">ⓘ</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="infoBtn" type="button" aria-label="toggle hover explanations" title="toggle hover explanations for metrics across the UI">ⓘ</button> <button id="cfgbtn" type="button" title="settings">⚙</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -1015,7 +1015,8 @@ const INFO = {
 const STATIC_TITLES = { pfBtn: 'portfolio', infoBtn: 'info', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
-  if (el && INFO[STATIC_TITLES[sid]]) { el.title = INFO[STATIC_TITLES[sid]]; el.dataset.info = INFO[STATIC_TITLES[sid]]; }
+  // symbol-only buttons need an accessible name too — title alone is unreliable for AT
+  if (el && INFO[STATIC_TITLES[sid]]) { el.title = INFO[STATIC_TITLES[sid]]; el.dataset.info = INFO[STATIC_TITLES[sid]]; if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', INFO[STATIC_TITLES[sid]]); }
 }
 function applyInfo(on) {
   document.body.classList.toggle('info-on', on);
@@ -1496,7 +1497,7 @@ async function renderMemories() {
   list.innerHTML = r.memories.length ? r.memories.map(m =>
     '<div class="memrow" data-id="' + m.id + '">' +
     '<span class="memcontent">' + esc(m.content) + '</span>' +
-    '<input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '" data-info="' + esc(INFO.memWeight) + '">' +
+    '<span class="memweightwrap" data-info="' + esc(INFO.memWeight) + '"><input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '"></span>' +
     '<button type="button" class="memarchive">archive</button>' +
     '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
   list.querySelectorAll('.memrow').forEach(row => {
