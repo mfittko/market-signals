@@ -1447,7 +1447,10 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   el.querySelectorAll('.bmActivate').forEach((row) => {
     const id = Number(row.closest('[data-id]').dataset.id);
     row.onclick = async () => {
-      await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id }) });
+      // a failed activation must NOT be followed by an assign — that would read
+      // as 'activated' while the bot silently has no active version to trade
+      const r = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id }) })).json();
+      if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error || 'activation failed'; return; }
       await save({ strategyName: editing });
     };
   });
@@ -1464,7 +1467,8 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error; return; }
     el.dataset.editing = name;
     if (activate) {
-      await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: r.strategy.id }) });
+      const a = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: r.strategy.id }) })).json();
+      if (!a.ok) { document.getElementById('bmEditErr').textContent = a.error || 'activation failed'; return; }
       await save({ strategyName: name });
     } else {
       await renderBotStrategyTab(inst, gran, entry, save);
