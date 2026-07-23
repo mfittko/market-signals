@@ -658,7 +658,12 @@ test('strategy management (#25): chat drafts never activate, human activation vi
 
     // page ships the bot settings section
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="botcfg"'), 'bot config section in the settings dialog');
+    assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
+    assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
+    assert.ok(html.includes('id="botBtn"'), 'contextual bot icon in the header');
+    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped');
+    assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
+    assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
     // settings whitelist accepts the bot object, rejects junk bot keys
     const okSet = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { enabled: false, riskPct: 2 } }) })).json();
@@ -723,5 +728,87 @@ test('page ships the indicator toggle row and oscillator panel (#32)', async () 
     assert.ok(html.includes('id="indbar"'), 'indicator toggle row present');
     assert.ok(html.includes('id="oscwrap"') && html.includes('id="osc"'), 'oscillator sub-panel canvas present');
     assert.ok(html.includes("data-ind"), 'toggles carry indicator keys');
+  });
+});
+
+test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored indicator default', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    // validation: bad combo key and unknown per-bot keys rejected
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'nope': { enabled: true } } } }) })).status, 400);
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { evil: 1 } } } }) })).status, 400);
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyId: '3' } } } }) })).status, 400, 'string strategyId rejected — no silent never-running bots');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { riskPct: '1.5' } } } }) })).status, 400, 'string riskPct rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: 'yes' } } } }) })).status, 400, 'non-boolean enabled rejected');
+    // add two bots, then patch one field — the other bot and other fields survive
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: 3, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { riskPct: 1.5 } } } }) });
+    let got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyId: 3, riskPct: 1.5 }, 'per-combo merge keeps sibling fields');
+    assert.ok(got.bot.bots['SPX500/USD|M1'], 'sibling bot untouched');
+    // key normalization: a spaced patch merges INTO the normalized entry, never duplicates
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD | M5': { riskPct: 3 } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(Object.keys(got.bot.bots).filter((k) => k.startsWith('WTICO')).length, 1, 'no duplicate spaced/unspaced keys');
+    assert.equal(got.bot.bots['WTICO/USD|M5'].riskPct, 3, 'spaced patch reached the normalized entry');
+    // null deletes exactly one bot entry
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'SPX500/USD|M1': null } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.bot.bots['SPX500/USD|M1'], undefined);
+    assert.ok(got.bot.bots['WTICO/USD|M5']);
+    // stored indicator selection becomes the chart default when the URL has none
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ ind: 'ema,rsi' }) });
+    const d = await (await fetch(base + '/api/chart')).json();
+    assert.deepEqual(d.activeInd, ['ema', 'rsi'], 'global selection applies without URL params');
+    assert.ok(d.indicators.ema && d.indicators.rsi, 'series served from the stored default');
+    const overridden = await (await fetch(base + '/api/chart?ind=vwap')).json();
+    assert.deepEqual(overridden.activeInd, ['vwap'], 'URL still overrides');
+  });
+});
+
+test('/api/bots serves the read-only activated-bots list; /api/chart carries botState (#49 design)', async () => {
+  const { saveStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, { name: 'ux-strat', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: st.id }, 'XAG/USD|M1': { enabled: false } } } }) });
+    const r = await (await fetch(base + '/api/bots')).json();
+    assert.equal(r.bots.length, 2);
+    const wti = r.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(wti.enabled, true);
+    assert.equal(wti.strategyName, 'ux-strat v1');
+    assert.equal(typeof wti.trades, 'number');
+    assert.equal(r.halted, false);
+    for (const method of ['POST', 'PUT', 'DELETE']) {
+      const resp = await fetch(base + '/api/bots', { method, body: '{}' });
+      assert.ok([404, 405].includes(resp.status), method + ' has no mutation surface on /api/bots');
+    }
+    const d = await (await fetch(base + '/api/chart')).json();
+    assert.equal(d.botState.configured, true);
+    assert.equal(d.botState.enabled, true);
+    assert.equal(d.botState.strategyName, 'ux-strat v1');
+    assert.equal(d.botState.halted, false);
+    const d2 = await (await fetch(base + '/api/chart?instrument=XAG/USD&granularity=M1')).json();
+    assert.equal(d2.botState.enabled, false);
+    assert.equal(d2.botState.configured, true);
+  });
+});
+
+test('halt reset never half-applies: an invalid combined patch leaves the halt intact (#50 deep lens)', async () => {
+  const { botConfig, openPosition, markToMarket, portfolioView } = await import('../scripts/portfolio.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // force a halt: tiny portfolio, catastrophic mark
+    const cfg = botConfig({ bot: { riskPct: 100 } });
+    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 90000, price: 87 });
+    markToMarket(dbPath, cfg, { [INSTRUMENT]: 1 });
+    assert.equal(portfolioView(dbPath, cfg).halted, true, 'halted precondition');
+    // invalid patch alongside resetHalt → 400 AND the halt must survive
+    const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { resetHalt: true, bots: { 'nope': { enabled: true } } } }) });
+    assert.equal(bad.status, 400);
+    assert.equal(portfolioView(dbPath, cfg).halted, true, 'invalid patch did not clear the halt');
+    // clean reset works and is one-shot (flag never persisted)
+    const ok = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { resetHalt: true } }) })).json();
+    assert.equal(ok.error, undefined);
+    assert.equal(portfolioView(dbPath, cfg).halted, false, 'clean reset clears the halt');
+    const stored = await (await fetch(base + '/api/settings')).json();
+    assert.equal(stored.bot?.resetHalt, undefined, 'flag never persisted');
   });
 });

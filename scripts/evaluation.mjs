@@ -153,7 +153,7 @@ export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
     if (strategyId != null && j.action === 'decision' && ctx?.strategyId !== strategyId) continue;
     out.push({
       id: j.id, at: j.at, action: j.action, reason: j.reason,
-      instrument: ctx?.instrument ?? null, event: ctx?.event ?? null,
+      instrument: ctx?.instrument ?? null, granularity: ctx?.granularity ?? null, event: ctx?.event ?? null,
       decision: ctx?.decision ?? null, executed: ctx?.executed ?? null, error: ctx?.error ?? null,
       strategyId: ctx?.strategyId ?? null, strategyName: ctx?.strategyName ?? null,
       strategyDbVersion: ctx?.strategyDbVersion ?? null,

@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy, ensureSeedStrategy } from './strategies.mjs';
+import { activeStrategy, ensureSeedStrategy, strategyById } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -19,13 +19,43 @@ export const BOT_LOOP_DEFAULTS = {
   strategy: 'Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume).',
 };
 
-// Bot-scoped watchers: when settings.bot.watchers is set, the bot only runs
-// on those combos (the alert watcher keeps its own top-level list).
-export function botWatchesCombo(settings, instrument, granularity) {
-  const csv = settings?.bot?.watchers;
-  if (typeof csv !== 'string' || !csv.trim()) return true;
-  const combos = csv.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x && x !== '|');
-  return combos.includes(`${instrument}|${granularity}`);
+// Per-combo bots (#49): settings.bot.bots maps "INSTRUMENT|GRAN" → per-bot
+// config; unset fields inherit the global bot defaults. The legacy flat shape
+// (bot.enabled + bot.watchers + globally-active strategy) migrates on read.
+// The ONE combo-key normalization rule — write path, resolve path, and the
+// server's configured-check must agree byte-for-byte.
+export const normCombo = (k) => String(k).split('|').map((p) => p.trim()).join('|');
+
+export function resolveBotFor(settings, instrument, granularity, dbPath = null) {
+  const bot = settings?.bot ?? {};
+  const key = `${instrument}|${granularity}`;
+  let entry = null;
+  if (bot.bots && typeof bot.bots === 'object') {
+    // write path normalizes keys; the scan fallback covers settings files
+    // written before normalization shipped
+    entry = bot.bots[key] ?? Object.entries(bot.bots).find(([k, v]) => normCombo(k) === key && v && typeof v === 'object')?.[1] ?? null;
+    if (entry && typeof entry !== 'object') entry = null;
+  } else if (bot.enabled === true) {
+    // NOTE deliberately superseded: once ANY bots map exists, this legacy
+    // branch is dead — legacy-watched combos not in the map stop trading
+    // (fail-safe direction; the overview list is the source of truth).
+    // legacy migration-on-read: watchers CSV (or all combos when unset) become
+    // implicit bot entries bound to the globally-active strategy
+    const csv = typeof bot.watchers === 'string' ? bot.watchers.trim() : '';
+    const combos = csv ? csv.split(',').map(normCombo).filter((x) => x && x !== '|') : null;
+    if (!combos || combos.includes(key)) {
+      const act = dbPath ? (() => { try { return activeStrategy(dbPath); } catch { return null; } })() : null;
+      entry = { enabled: true, strategyId: act?.id ?? null };
+    }
+  }
+  if (!entry) return { enabled: false, configured: false };
+  return {
+    configured: true,
+    enabled: entry.enabled === true,
+    strategyId: Number.isInteger(entry.strategyId) ? entry.strategyId : null,
+    riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
+    killSwitchDrawdownPct: Number.isFinite(entry.killSwitchDrawdownPct) && entry.killSwitchDrawdownPct > 0 ? entry.killSwitchDrawdownPct : null,
+  };
 }
 
 export function botLoopConfig(settings = {}) {
@@ -92,6 +122,21 @@ function setHalted(dbPath, cfg, halted) {
     db.exec('CREATE TABLE IF NOT EXISTS portfolio (id INTEGER PRIMARY KEY CHECK (id = 1), starting_balance REAL NOT NULL, cash REAL NOT NULL, halted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)');
     db.prepare('UPDATE portfolio SET halted=? WHERE id=1').run(halted ? 1 : 0);
   });
+}
+
+// One-shot halt reset for the settings surface (#49): performed immediately,
+// never persisted as a flag.
+export function performHaltReset(dbPath, settings = {}) {
+  const cfg = botConfig(settings);
+  if (!portfolioView(dbPath, cfg).halted) return { reset: false, reason: 'not halted' };
+  setHalted(dbPath, cfg, false);
+  const eq = portfolioView(dbPath, cfg).equity;
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+    db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('peak_equity', eq);
+  });
+  journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (settings UI); peak re-baselined', { peakEquity: eq });
+  return { reset: true };
 }
 
 // --- decision layer ---------------------------------------------------------
@@ -209,11 +254,16 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
 // fired this run. Returns a summary for logs/tests.
 export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, toolDefs = null, execTool = null }) {
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (!botFor.enabled) return { skipped: 'disabled' };
   const loop = botLoopConfig(settings);
-  if (!loop.enabled) return { skipped: 'disabled' };
+  if (botFor.killSwitchDrawdownPct) loop.killSwitchDrawdownPct = botFor.killSwitchDrawdownPct;
   const cfg = botConfig(settings);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
 
-  if (loop.resetHalt) {
+  if (loop.resetHalt && portfolioView(dbPath, cfg).halted) {
+    // guard on halted: a stale persisted flag on a healthy portfolio must not
+    // re-baseline the peak every run (that would neuter the kill-switch)
     setHalted(dbPath, cfg, false);
     // Re-baseline the peak to current equity, else the same drawdown re-halts
     // on this very run and the operator reset is a no-op.
@@ -253,11 +303,11 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
 
   // Active strategy scoping: an instruments CSV on the active strategy limits
   // deliberation to those combos (deterministic fills always run).
-  // Seed idempotently (ships INACTIVE), then require a human-activated
-  // strategy: a fresh db pauses instead of trading the hardcoded default.
+  // Seed idempotently (ships unassigned), then require a human-assigned
+  // strategy for THIS bot: an unbound bot pauses instead of trading a default.
   ensureSeedStrategy(dbPath);
-  const strategyRow = activeStrategy(dbPath);
-  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
+  const strategyRow = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
+  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no strategy assigned to this bot' };
   if (strategyRow?.instruments) {
     // normalize each combo the same way the watchers parser does — spaces
     // around the pipe must not silently unscope a combo
