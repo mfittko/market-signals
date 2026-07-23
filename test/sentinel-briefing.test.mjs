@@ -182,3 +182,23 @@ test('sentinel_briefing unknown flag fails loud', () => {
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /unknown flag/);
 });
+
+
+test('mdEscape neutralizes HTML tag delimiters in an untrusted headline (published md->HTML) (#91)', async () => {
+  const { renderSentinelBriefing } = await import('../skills/market-sentinel/scripts/sentinel_briefing.mjs');
+  const md = renderSentinelBriefing({ asOf: '2026-07-23T00:00:00Z', instruments: [
+    { instrument: 'WTICO/USD', label: 'WTI', escalation: false, items: [
+      { source: 'x', title: 'Oil <img src=x onerror=alert(1)> jumps', url: 'https://e.com', timeIso: '2026-07-23T00:00:00Z' },
+    ] },
+  ] });
+  assert.ok(!md.includes('<img'), 'raw tag delimiter escaped');
+  assert.ok(md.includes('&lt;img'), 'rendered as escaped text');
+});
+
+test('parseArgs: a flag-shaped token after a value-flag is not swallowed as its value (#91)', async () => {
+  const { parseArgs } = await import('../skills/market-sentinel/scripts/sentinel_briefing.mjs');
+  assert.throws(() => parseArgs(['--hours', '-x']), /unknown|unrecognized|-x/i);
+  // a negative number is still a valid value
+  const ok = parseArgs(['--hours', '6']);
+  assert.equal(String(ok.hours), '6');
+});

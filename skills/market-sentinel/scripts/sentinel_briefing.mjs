@@ -27,7 +27,14 @@ export const DEFAULT_HOURS = NEWS_DEFAULT_HOURS;
 export const MAX_HEADLINES_PER_INSTRUMENT = 5;
 
 function mdEscape(text) {
-  return String(text ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
+  // published as markdown -> HTML on GitHub Pages: neutralize raw-HTML chars so an
+  // untrusted headline can't inject markup, plus table-pipe and newline handling
+  // strip the HTML-tag delimiters (the actual injection vector for an untrusted
+  // headline rendered md->HTML) plus table-pipe/newline; a bare & is left as-is —
+  // it can't open a tag and escaping it would mangle legit labels like 'S&P 500'
+  return String(text ?? '')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').trim();
 }
 
 // Markdown link text: escape ] and [ so a headline containing brackets can
@@ -161,7 +168,10 @@ export function parseArgs(argv) {
     const key = token.slice(2);
     if (BOOLEAN_FLAGS.has(key)) continue;
     const next = argv[i + 1];
-    const hasValue = next !== undefined && !next.startsWith('--');
+    // a following token that starts with '-' is another flag, not this flag's value —
+    // except a negative number (e.g. --hours -3); otherwise '--hours -x' would swallow -x
+    const nextIsFlag = next !== undefined && next.startsWith('-') && !/^-\d/.test(next);
+    const hasValue = next !== undefined && !nextIsFlag;
     const val = hasValue ? next : null;
     if (hasValue) i++;
 
