@@ -184,7 +184,7 @@ test('server-side sizing (#83): an oversized LLM notional sizes down and opens; 
   assert.equal(r2.execSizing.requestedNotional, 900000);
   v = portfolioView(db, cfg);
   assert.equal(v.positions.length, 1, 'no second position opened once the allocation is exhausted');
-  assert.ok(v.journal.some((j) => j.action === 'skip' && j.reason === 'no budget (allocation full)'), 'portfolio-level audit trail records the skip');
+  assert.ok(v.journal.some((j) => j.action === 'skip' && j.reason === 'no budget (allocation cap exhausted)'), 'portfolio-level audit trail records the skip');
 });
 
 test('kill-switch: drawdown past threshold halts, notifies once, stays halted until operator reset', async () => {

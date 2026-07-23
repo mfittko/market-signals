@@ -147,10 +147,12 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     const bindingCap = effectiveNotional >= requestedNotional - EPS ? 'none' : (riskCap <= allocCap ? 'risk' : 'allocation');
 
     if (maxMargin <= EPS || effectiveNotional <= EPS) {
-      // Allocation/risk budget for this instrument is genuinely exhausted —
-      // a legitimate no-trade skip, not an execution rejection (#83).
-      journal(db, 'skip', null, 'no budget (allocation full)', {
-        instrument, side, requestedNotional, effectiveNotional: 0, bindingCap, leverage, equityNow, lockedHere,
+      // Budget for this instrument is genuinely exhausted — a legitimate
+      // no-trade skip, not an execution rejection (#83). Name the cap that
+      // actually bound (risk vs allocation), not always 'allocation'.
+      const skipCap = riskCap <= allocCap ? 'risk' : 'allocation';
+      journal(db, 'skip', null, `no budget (${skipCap} cap exhausted)`, {
+        instrument, side, requestedNotional, effectiveNotional: 0, bindingCap: skipCap, leverage, equityNow, lockedHere,
       });
       return null;
     }
@@ -164,7 +166,7 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
       throw new Error(`invariant violated: sized margin ${margin.toFixed(2)} exceeds risk cap ${riskCap.toFixed(2)}`);
     }
     if (margin > allocCap + EPS) {
-      throw new Error(`invariant violated: sized margin ${margin.toFixed(2)} exceeds allocation cap`);
+      throw new Error(`invariant violated: sized margin ${margin.toFixed(2)} exceeds allocation cap ${allocCap.toFixed(2)}`);
     }
     const spread = instrumentSpread(cfg, instrument);
     const entry = side === 'long' ? price + spread : price - spread;

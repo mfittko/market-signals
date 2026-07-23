@@ -278,7 +278,10 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
         // for this instrument is genuinely exhausted — a legitimate skip,
         // not an execution failure (#83). Never surface this as `error`
         // (the UI renders `error` as a rejection).
-        decision = { ...decision, action: 'hold', reasoning: 'no budget (allocation full)' };
+        // name the cap that actually bound (execSizing was read from the skip
+        // journal row just above) instead of always saying 'allocation'
+        const cap = execSizing?.bindingCap === 'risk' ? 'risk' : execSizing?.bindingCap === 'allocation' ? 'allocation' : null;
+        decision = { ...decision, action: 'hold', reasoning: cap ? `no budget (${cap} cap exhausted)` : 'no budget' };
       } else {
         executed = { opened: id };
       }

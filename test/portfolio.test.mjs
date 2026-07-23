@@ -205,7 +205,7 @@ test('allocation cap (#51): oversize sizes down (#83) to the remaining budget; e
   v = portfolioView(db, cfg);
   assert.equal(v.positions.length, 2, 'no third position opened');
   const skipRow = v.journal.find((j) => j.action === 'skip');
-  assert.equal(skipRow.reason, 'no budget (allocation full)');
+  assert.equal(skipRow.reason, 'no budget (allocation cap exhausted)');
   openPosition(db, cfg, { instrument: 'SPX500/USD', side: 'long', notional: 2000, price: 5000 });
   assert.equal(portfolioView(db, cfg).positions.length, 3, 'cap is instrument-scoped, other instruments unaffected');
 });
