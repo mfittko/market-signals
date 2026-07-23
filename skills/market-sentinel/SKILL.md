@@ -42,6 +42,18 @@ tanker, missile, drone, escalat*, war, OPEC cut, supply disruption).
 (oil, gold, silver, natural gas, platinum, spx). An instrument without a committed entry is never guessed —
 `--instrument` on one resolves nothing and errors instead of fabricating a query.
 
+## Briefing digest (issue #91)
+
+`scripts/sentinel_briefing.mjs` renders a markdown digest (title, asOf, an escalation
+summary, and top headlines grouped per instrument) across every instrument with a
+committed sentinel query. It feeds `skills/briefing-publisher/scripts/publish_briefing.mjs --series sentinel`
+— the replacement for the FXEmpire market-analysis briefing input, which dried out (#11/#28).
+
+```bash
+node skills/market-sentinel/scripts/sentinel_briefing.mjs --output-file /tmp/sentinel-briefing.md
+# offline/test path (no network): --fixture <path-to-json-array>
+```
+
 ## Background cache + context injection (issue #86)
 
 `scripts/news.mjs`'s `refreshNewsCache` polls this skill in-process on every watcher tick, staleness-gated
