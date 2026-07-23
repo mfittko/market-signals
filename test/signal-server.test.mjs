@@ -980,7 +980,7 @@ test('info overlays (#57/#67): one explanation map covers the axis keys, toggle 
       assert.match(src[0], new RegExp('\\b' + key + ':'), key + ' has an INFO map entry');
     }
     assert.ok(!html.includes('id="infoBtn"'), 'no dedicated header ⓘ button (#67 — toggle moved into settings)');
-    assert.ok(html.includes('f-infoToggle'), 'settings dialog carries the info-overlays checkbox');
+    assert.ok(html.includes('for="f-infoToggle"') && html.includes('id="f-infoToggle"'), 'settings dialog renders the info-overlays label + checkbox markup, not just JS references');
     assert.ok(html.includes('data-info="'), 'at least one rendered element carries data-info');
     assert.match(html, /body\.info-on \[data-info\]:hover::before/, 'CSS-only tooltip rule on ::before — ::after belongs to the bot status dot (#67)');
     assert.ok(!/info-on \[data-info\]:hover::after/.test(html), 'no tooltip rule on ::after (would merge with the bot dot)');
