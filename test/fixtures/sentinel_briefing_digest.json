@@ -1,0 +1,43 @@
+[
+  {
+    "instrument": "WTICO/USD",
+    "label": "WTI Oil",
+    "escalation": true,
+    "items": [
+      {
+        "source": "google-news",
+        "title": "Houthi tanker attack near Hormuz sparks crude oil surge",
+        "url": "https://news.example.com/houthi-tanker-attack",
+        "timeIso": "2026-07-23T09:00:00Z",
+        "escalation": true
+      },
+      {
+        "source": "oilprice",
+        "title": "Oil prices steady amid summer demand outlook",
+        "url": "https://oilprice.example.com/steady-demand",
+        "timeIso": "2026-07-23T06:00:00Z",
+        "escalation": false
+      }
+    ]
+  },
+  {
+    "instrument": "XAU/USD",
+    "label": "Gold",
+    "escalation": false,
+    "items": [
+      {
+        "source": "google-news",
+        "title": "Gold holds steady as Fed weighs rate path",
+        "url": "https://news.example.com/gold-fed-rate-path",
+        "timeIso": "2026-07-23T08:00:00Z",
+        "escalation": false
+      }
+    ]
+  },
+  {
+    "instrument": "SPX500/USD",
+    "label": "S&P 500",
+    "escalation": false,
+    "items": []
+  }
+]

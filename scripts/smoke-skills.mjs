@@ -25,6 +25,9 @@ const FXEMPIRE_ENRICH = S('skills/fxempire-analysis/scripts/fxempire_enrich.mjs'
 const TRUTHSOCIAL = S('skills/truthsocial-trump-watch/scripts/truthsocial_watch.mjs');
 const HORMUZ = S('skills/hormuz-ais-watch/scripts/hormuz_watch.mjs');
 const SENTINEL_NEWS = S('skills/market-sentinel/scripts/sentinel_news.mjs');
+const SENTINEL_BRIEFING = S('skills/market-sentinel/scripts/sentinel_briefing.mjs');
+const SENTINEL_BRIEFING_FIXTURE = S('test/fixtures/sentinel_briefing_digest.json');
+const PUBLISH_BRIEFING = S('skills/briefing-publisher/scripts/publish_briefing.mjs');
 const FETCH_POSTS = S('scripts/fetch-trump-posts.mjs');
 const EVENT_STUDY = S('scripts/event-study.mjs');
 
@@ -201,6 +204,31 @@ async function main() {
     const res = run(SENTINEL_NEWS, ['--instrument', 'ZZZ/USD', '--json']);
     assert.notEqual(res.status, 0, 'did not exit non-zero for an unconfigured instrument');
     assert.match(res.stderr, /no sentinel query configured/);
+  }, { retries: 1 });
+
+  // 9. sentinel_briefing (issue #91): the briefing-publisher input that
+  // replaces the dried-up FXEmpire market-analysis report (#11/#28). Both
+  // checks are offline (fixture-driven), no network.
+  await check('sentinel_briefing --help', () => {
+    const res = run(SENTINEL_BRIEFING, ['--help']);
+    assert.equal(res.status, 0, `--help exited ${res.status}: ${res.stderr}`);
+    assert.ok(res.stdout.includes('sentinel_briefing'), 'help missing usage marker');
+  }, { retries: 1 });
+
+  await check('sentinel_briefing --fixture renders a valid digest, feeds publish_briefing.mjs --series sentinel', () => {
+    const res = run(SENTINEL_BRIEFING, ['--fixture', SENTINEL_BRIEFING_FIXTURE]);
+    assert.equal(res.status, 0, `sentinel_briefing exited ${res.status}: ${res.stderr}`);
+    assert.ok(res.stdout.includes('# Market Sentinel Briefing'), 'briefing missing title');
+    assert.ok(res.stdout.includes('## Escalation summary'), 'briefing missing escalation summary');
+    assert.ok(res.stdout.includes('## Headlines by instrument'), 'briefing missing grouped headlines');
+
+    const tmp = mkTmp();
+    const inputFile = path.join(tmp, 'sentinel-briefing.md');
+    fs.writeFileSync(inputFile, res.stdout);
+    const publishRes = run(PUBLISH_BRIEFING, ['--input-file', inputFile, '--series', 'sentinel', '--dry-run']);
+    const out = parseJson(publishRes, 'publish_briefing --dry-run');
+    assert.equal(out.dryRun, true, 'publish_briefing did not report dryRun');
+    assert.equal(out.series, 'sentinel', 'publish_briefing did not accept --series sentinel');
   }, { retries: 1 });
 
   if (failures.length) {
