@@ -35,6 +35,9 @@ function sdb(dbPath, fn) {
 // Idempotent: ships the operator's seed rules once on an empty table.
 export function ensureSeedStrategy(dbPath) {
   return sdb(dbPath, (db) => {
+    // read-only fast path: the common case (table already seeded) must never
+    // attempt a write lock — GET routes and the bot loop call this per run
+    if (db.prepare('SELECT 1 FROM strategies LIMIT 1').get()) return null;
     // atomic ships-once: concurrent first-opens race the INSERT, and the
     // UNIQUE(name,version) + WHERE NOT EXISTS guard makes the loser a no-op
     // instead of a thrown constraint error (#45)
