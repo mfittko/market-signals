@@ -16,10 +16,10 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, fetchCandles, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { computeSupertrend, detectFlips, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recordSignal, resolveProvider, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, portfolioView } from './portfolio.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy } from './strategies.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -94,11 +94,6 @@ export function writeSettings(settingsPath, patch) {
   renameSync(tmp, settingsPath);
   return maskedSettings(settingsPath);
 }
-
-const granularityMs = (g) => {
-  const m = /^([MH])(\d+)$/.exec(g);
-  return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
-};
 
 const lastLiveFetch = new Map(); // key -> { at, tail }: one upstream fetch per ~minute, forming candle cached in between
 
@@ -472,7 +467,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const fromTime = earliestAttributedEntry(dbPath, { instrument: inst, strategyId });
         return json(res, 200, {
           ok: true,
-          scoreboard: board,
+          scoreboard: transportScoreboard(board),
           baselines: baselines(dbPath, inst, gran, { fromTime }),
           audit: decisionAudit(dbPath, { strategyId, limit: 50 }),
         });
@@ -797,7 +792,7 @@ async function renderEvaluation() {
   const rowsHtml = r.scoreboard.map(s =>
     '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + s.trades +
     '</td><td>' + esc(s.winRatePct ?? '—') + '%</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
-    '</td><td>' + esc(s.profitFactor === null ? '—' : (s.profitFactor === Infinity ? '∞' : s.profitFactor.toFixed(2))) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
+    '</td><td>' + esc(s.profitFactor == null ? '—' : (s.profitFactor === 'inf' ? '∞' : Number(s.profitFactor).toFixed(2))) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
   const b = r.baselines;
   perf.innerHTML = '<table><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th>PF</th><th>max DD</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="6">no attributed trades yet</td></tr>') + '</tbody></table>' +
     (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + esc(b.flipFollowing.winRatePct ?? '—') + '% win / ' + esc(b.flipFollowing.totalReturnPct ?? '—') + '% return (' + esc(b.flipFollowing.trades ?? 0) + ' trades) · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');

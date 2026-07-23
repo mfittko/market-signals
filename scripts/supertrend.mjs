@@ -374,7 +374,7 @@ export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
   if (!opts.db) return { sent: false, reason: 'signal persistence requires --db' };
-  const granMs = (() => { const m = /^([MH])(\d+)$/.exec(opts.granularity); return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000; })();
+  const granMs = granularityMs(opts.granularity);
   const sigMs = Date.parse(sig.time);
   const nearby = signalOutcomes(opts.db, opts.instrument, opts.granularity, { limit: 10 })
     .find((s) => s.time !== sig.time && Math.abs(Date.parse(s.time) - sigMs) <= 3 * granMs);
@@ -476,6 +476,12 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
     return { stored: candles.length, totalRows: Number(n) };
   });
 }
+
+// The one granularity→duration rule (M=minutes, H=hours; unknown → 5min).
+export const granularityMs = (g) => {
+  const m = /^([MH])(\d+)$/.exec(g);
+  return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
+};
 
 export function computeSupertrend(candles, { period = 10, multiplier = 3 } = {}) {
   const n = candles.length;

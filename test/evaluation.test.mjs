@@ -27,6 +27,7 @@ test('tradeMetrics: hand-computed fixture incl. drawdown across reopened peaks',
   assert.equal(empty.profitFactor, null);
   const onlyWins = tradeMetrics([5, 5], 100);
   assert.equal(onlyWins.profitFactor, Infinity);
+
 });
 
 async function seededBotTrade(db) {
@@ -84,6 +85,24 @@ test('earliestAttributedEntry scopes by instrument and skips unattributed trades
   assert.ok(t, 'attributed WTI entry found');
   assert.equal(earliestAttributedEntry(db, { instrument: WTI, strategyId: 99999 }), null, 'foreign strategy filter yields null');
   assert.equal(earliestAttributedEntry(db, { instrument: WTI, strategyId: st.id }), t);
+});
+
+test('transport scoreboard carries Infinity as the inf sentinel (JSON-safe)', async () => {
+  const { transportScoreboard } = await import('../scripts/evaluation.mjs');
+  const out = transportScoreboard([{ profitFactor: Infinity }, { profitFactor: 1.5 }, { profitFactor: null }]);
+  assert.equal(JSON.parse(JSON.stringify(out))[0].profitFactor, 'inf', 'flawless strategy survives serialization');
+  assert.equal(out[1].profitFactor, 1.5);
+  assert.equal(out[2].profitFactor, null);
+});
+
+test('halt/reset audit rows survive a strategy filter', async () => {
+  const db = fresh();
+  const st = await seededBotTrade(db);
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+    .run(new Date().toISOString(), 'halt', 'kill-switch: drawdown', JSON.stringify({ peak: 10000, equity: 7000 })));
+  const filtered = decisionAudit(db, { strategyId: st.id });
+  assert.ok(filtered.some((a) => a.action === 'halt'), 'kill-switch rows visible under a strategy filter');
 });
 
 test('unattributed trades label as "unattributed", never "hash null"', () => {

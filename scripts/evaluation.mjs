@@ -2,7 +2,7 @@
 // Evaluation layer (issue #26, epic #27): per-strategy performance from the
 // trades journal, baselines from the same candle windows, and the decision
 // audit — all read-only, computed on demand from what #22/#23 already record.
-import { withDb, computeSupertrend, detectFlips, backtestFlips } from './supertrend.mjs';
+import { withDb, computeSupertrend, detectFlips, backtestFlips, granularityMs } from './supertrend.mjs';
 
 function rows(dbPath, sql, args = []) {
   return withDb(dbPath, (db) => {
@@ -107,8 +107,6 @@ export function strategyScoreboard(dbPath, startingBalance = 10000) {
 // Baselines over the SAME stored-candle window the strategy traded (or the
 // full stored history when no fromTime is given): raw flip-following via the
 // existing backtest math, and buy-and-hold first→last close.
-const GRAN_MS = { M1: 60000, M5: 300000, M15: 900000, M30: 1800000, H1: 3600000, H4: 14400000 };
-
 export function baselines(dbPath, instrument, granularity, opts = {}) {
   const candles = rows(dbPath,
     'SELECT time, open, high, low, close, volume, 1 AS complete FROM candles WHERE instrument=? AND granularity=? ORDER BY time',
@@ -118,7 +116,7 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
   if (opts.fromTime) {
     // fromTime is a wall-clock entry time; anchor the window at the CANDLE
     // containing it so a mid-bar entry doesn't skew the window by one bar
-    const dur = GRAN_MS[granularity] ?? 300000;
+    const dur = granularityMs(granularity);
     let start = candles.findIndex((c) => c.time >= opts.fromTime);
     if (start === -1) {
       const last = candles[candles.length - 1];
@@ -150,7 +148,9 @@ export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
   for (const j of rows(dbPath, `SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC LIMIT ${scan}`)) {
     let ctx = null;
     try { ctx = JSON.parse(j.context); } catch { /* keep raw-less entry */ }
-    if (strategyId != null && ctx?.strategyId !== strategyId) continue;
+    // halt/reset rows carry no strategyId but ARE the 'why did it stop' story —
+    // a strategy filter keeps them
+    if (strategyId != null && j.action === 'decision' && ctx?.strategyId !== strategyId) continue;
     out.push({
       id: j.id, at: j.at, action: j.action, reason: j.reason,
       instrument: ctx?.instrument ?? null, event: ctx?.event ?? null,
@@ -164,8 +164,28 @@ export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
   return out;
 }
 
+// Transport-safe scoreboard: JSON has no Infinity, so a flawless strategy's
+// profit factor travels as the sentinel 'inf' instead of degrading to null.
+export function transportScoreboard(board) {
+  return board.map((s) => ({ ...s, profitFactor: s.profitFactor === Infinity ? 'inf' : s.profitFactor }));
+}
+
 // Compact summary for the chat context — only meaningful once trades exist.
+// Cached per db keyed on (max journal id, max trade id): /api/chat calls this
+// on EVERY message and the attribution walk must not grow with journal size.
+const summaryCache = new Map();
 export function botPerformanceSummary(dbPath, startingBalance = 10000) {
+  const jMax = rows(dbPath, "SELECT COALESCE(MAX(id),0) m FROM bot_journal")[0]?.m ?? 0;
+  const tMax = rows(dbPath, "SELECT COALESCE(MAX(id),0) m FROM bot_trades")[0]?.m ?? 0;
+  const key = `${dbPath}|${startingBalance}`;
+  const hit = summaryCache.get(key);
+  if (hit && hit.jMax === jMax && hit.tMax === tMax) return hit.value;
+  const value = computeSummary(dbPath, startingBalance);
+  summaryCache.set(key, { jMax, tMax, value });
+  return value;
+}
+
+function computeSummary(dbPath, startingBalance) {
   const board = strategyScoreboard(dbPath, startingBalance);
   if (!board.length) return null;
   const total = board.reduce((a, s) => a + s.totalRealized, 0);
