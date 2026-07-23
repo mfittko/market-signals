@@ -50,7 +50,7 @@ function simulateTrade(candles, entryIdx, dir, spec, atrSeries) {
 }
 
 // Pure replay of one spec over one window. Returns the mechanical report.
-export function replaySpec(spec, snapshots, candles) {
+export function replaySpec(spec, snapshots, candles, { exposureBase = null } = {}) {
   const validation = validateSpec(spec);
   if (!validation.ok) return { ok: false, errors: validation.errors };
   const idxByTime = new Map(candles.map((c, i) => [c.time, i]));
@@ -91,7 +91,7 @@ export function replaySpec(spec, snapshots, candles) {
       expectancyPct: rets.length ? round(rets.reduce((a, b) => a + b, 0) / rets.length) : null,
       totalReturnPct: round(rets.reduce((a, b) => a + b, 0)),
       maxDrawdownPct: round(maxDD),
-      exposurePct: candles.length ? round((exposureBars / candles.length) * 100, 1) : null,
+      exposurePct: (exposureBase ?? candles.length) ? round((exposureBars / (exposureBase ?? candles.length)) * 100, 1) : null,
     },
     vetoAttribution: vetoes,
   };
@@ -105,7 +105,13 @@ export function canonical(value) {
   }
   return JSON.stringify(value);
 }
-export const reportHash = (report) => createHash('sha256').update(canonical(report)).digest('hex').slice(0, 16);
+// the hash field itself (and judge output, which is non-deterministic LLM
+// content) never participates in the hash — reloading a written artifact and
+// recomputing must agree
+export const reportHash = (report) => {
+  const { hash, judge, ...rest } = report;
+  return createHash('sha256').update(canonical(rest)).digest('hex').slice(0, 16);
+};
 
 // Walk-forward: evaluate candidates on the train window, promote mechanically
 // on validation-window thresholds (never a judge). candidatesTried is always
@@ -120,7 +126,7 @@ export function walkForward(specs, snapshots, candles, { trainPct = 0.6, minVali
   const results = [];
   for (const [name, spec] of Object.entries(specs)) {
     const train = replaySpec(spec, trainSnaps, trainCandles);
-    const validation = replaySpec(spec, validationSnaps, validationCandles);
+    const validation = replaySpec(spec, validationSnaps, validationCandles, { exposureBase: Math.max(1, candles.length - splitIdx) }); // exposure vs the true validation window, not the ATR warm-up overlap
     if (!train.ok || !validation.ok) { results.push({ name, ok: false, errors: train.errors ?? validation.errors }); continue; }
     const promoted = validation.metrics.entered >= minValidationTrades && (validation.metrics.expectancyPct ?? -1) > minValidationExpectancy;
     results.push({ name, ok: true, train: train.metrics, validation: validation.metrics, vetoAttribution: validation.vetoAttribution, promoted });

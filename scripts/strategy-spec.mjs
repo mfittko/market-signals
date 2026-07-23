@@ -25,7 +25,10 @@ function scanStrings(value, path, errors) {
   } else if (Array.isArray(value)) {
     value.forEach((v, i) => scanStrings(v, `${path}[${i}]`, errors));
   } else if (value && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value)) scanStrings(v, `${path}.${k}`, errors);
+    for (const [k, v] of Object.entries(value)) {
+      scanStrings(k, `${path}.<key>`, errors); // keys can smuggle symbols/dates too
+      scanStrings(v, `${path}.${k}`, errors);
+    }
   }
 }
 
@@ -48,7 +51,7 @@ export function validateSpec(spec) {
         if (!AXES.includes(axis)) { errors.push(`entry.require.${axis}: unknown axis`); continue; }
         const list = Array.isArray(verdicts) ? verdicts : [verdicts];
         for (const v of list) {
-          if (!AXIS_VERDICTS[axis].includes(v)) errors.push(`entry.require.${axis}: '${v}' is not a ${axis} verdict`);
+          if (!AXIS_VERDICTS[axis].includes(v)) errors.push(`entry.require.${axis}: '${v}' is not a valid ${axis} verdict`);
         }
       }
     }
@@ -66,7 +69,7 @@ export function validateSpec(spec) {
   }
 
   const risk = spec.risk ?? {};
-  if (risk.riskPct != null && (!(risk.riskPct > 0) || risk.riskPct > 100)) errors.push('risk.riskPct must be in (0,100]');
+  if (risk.riskPct != null && (!Number.isFinite(risk.riskPct) || risk.riskPct <= 0 || risk.riskPct > 100)) errors.push('risk.riskPct must be a number in (0,100]');
 
   scanStrings(spec, 'spec', errors);
   return { ok: errors.length === 0, errors };

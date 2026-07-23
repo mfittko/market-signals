@@ -23,9 +23,11 @@ test('validateSpec: examples pass; anonymization rejects dates and symbols at sc
   }
   assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2, note: 'buy WTICO/USD' }, exit: { stopAtr: 1 } }).errors.join(' '), /symbols are forbidden/);
   assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2, note: 'since 2026-07-01' }, exit: { stopAtr: 1 } }).errors.join(' '), /dates are forbidden/);
+  assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2, 'WTICO/USD-rule': true }, exit: { stopAtr: 1 } }).errors.join(' '), /symbols are forbidden/, 'keys are scanned too');
+  assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2 }, exit: { stopAtr: 1 }, risk: { riskPct: '1' } }).errors.join(' '), /must be a number/, 'string riskPct rejected');
   assert.match(validateSpec({ schema_version: 2, entry: { minAxesAligned: 2 }, exit: { stopAtr: 1 } }).errors.join(' '), /schema_version/);
   assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 9 }, exit: { stopAtr: 1 } }).errors.join(' '), /1-5/);
-  assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2, require: { impulse: ['huge'] } }, exit: { stopAtr: 1 } }).errors.join(' '), /not a impulse verdict/);
+  assert.match(validateSpec({ schema_version: 1, entry: { minAxesAligned: 2, require: { impulse: ['huge'] } }, exit: { stopAtr: 1 } }).errors.join(' '), /not a valid impulse verdict/);
 });
 
 test('entryDecision: N-of-axes voting, exhaustion veto, required-verdict attribution', () => {
@@ -60,7 +62,7 @@ test('replaySpec: deterministic (identical hash on re-run), trades fill via ATR 
   const r2 = replaySpec(spec, snaps, candles);
   assert.equal(r1.ok, true);
   assert.equal(reportHash(r1), reportHash(r2), 'same input, same hash — CI determinism contract');
-  assert.equal(r1.metrics.entered, 1, 'veto blocked the second signal');
+  assert.equal(r1.metrics.entered, 1, 'the vetoed first signal never entered; only the clean one traded');
   assert.equal(r1.vetoAttribution.exhaustion, 1);
   assert.ok(['target', 'stop', 'time-stop'].includes(r1.trades[0].reason));
   assert.equal(typeof r1.metrics.expectancyPct, 'number');
@@ -91,8 +93,11 @@ test('walkForward: split boundaries, candidatesTried, mechanical promotion gate'
   assert.equal(trainSignals + valSignals, snaps.length, 'no signal is in both windows (no leakage)');
 });
 
-test('canonical(): key order never changes the hash', () => {
+test('canonical(): key order never changes the hash; hash/judge fields never feed the hash', () => {
   assert.equal(canonical({ b: 1, a: [2, { d: 3, c: 4 }] }), canonical({ a: [2, { c: 4, d: 3 }], b: 1 }));
+  const report = { candidatesTried: 1, results: [] };
+  const h = reportHash(report);
+  assert.equal(reportHash({ ...report, hash: h, judge: { mode: 'meta' } }), h, 'reloaded artifacts recompute to the same hash');
 });
 
 test('anonymizedReport: no window/instrument/timestamps reach the meta judge; prompts are versioned', () => {
