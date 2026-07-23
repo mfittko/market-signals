@@ -161,6 +161,7 @@ async function main() {
   const granularity = get('granularity', 'M5');
   const judge = get('judge', 'off');
   const trainPct = Number(get('train-pct', '0.6'));
+  if (!Number.isFinite(trainPct) || trainPct <= 0 || trainPct >= 1) throw new Error('--train-pct must be a number in (0,1)');
   const specArg = get('spec', Object.keys(EXAMPLE_SPECS).join(','));
   const specs = {};
   for (const nameOrPath of specArg.split(',').map((x) => x.trim()).filter(Boolean)) {
@@ -168,6 +169,7 @@ async function main() {
     else specs[nameOrPath.replace(/[^a-z0-9-]/gi, '_')] = JSON.parse(readFileSync(nameOrPath, 'utf8'));
   }
   const { snapshots, candles } = loadReplayData(dbPath, instrument, granularity);
+  if (!candles.length) throw new Error(`no stored candles for ${instrument} ${granularity} in ${dbPath} — wrong db or window?`);
   const report = walkForward(specs, snapshots, candles, { trainPct });
   report.hash = reportHash(report);
   report.window = { instrument, granularity, snapshots: snapshots.length, candles: candles.length };

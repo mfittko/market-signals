@@ -55,8 +55,8 @@ export function validateSpec(spec) {
         }
       }
     }
-    if (entry.forbidExhaustionVeto !== undefined && typeof entry.forbidExhaustionVeto !== 'boolean') {
-      errors.push('entry.forbidExhaustionVeto must be boolean');
+    if (entry.enforceExhaustionVeto !== undefined && typeof entry.enforceExhaustionVeto !== 'boolean') {
+      errors.push('entry.enforceExhaustionVeto must be boolean');
     }
   }
 
@@ -81,7 +81,7 @@ export function validateSpec(spec) {
 export function entryDecision(spec, snapshot) {
   const axes = snapshot?.axes;
   if (!axes || !snapshot.flip) return { enter: false, vetoedBy: 'no-flip' };
-  if (spec.entry.forbidExhaustionVeto !== false && axes.exhaustion?.verdict === 'veto') {
+  if (spec.entry.enforceExhaustionVeto !== false && axes.exhaustion?.verdict === 'veto') {
     return { enter: false, vetoedBy: 'exhaustion' };
   }
   for (const [axis, verdicts] of Object.entries(spec.entry.require ?? {})) {
@@ -108,13 +108,13 @@ export function entryDecision(spec, snapshot) {
 export const EXAMPLE_SPECS = {
   'conservative-trend': {
     schema_version: 1,
-    entry: { minAxesAligned: 3, require: { trendStrength: ['trending'], direction: ['aligned'] }, forbidExhaustionVeto: true },
+    entry: { minAxesAligned: 3, require: { trendStrength: ['trending'], direction: ['aligned'] }, enforceExhaustionVeto: true },
     exit: { stopAtr: 1.5, targetAtr: 3, timeStopBars: 36 },
     risk: { riskPct: 1 },
   },
   'impulse-scalp': {
     schema_version: 1,
-    entry: { minAxesAligned: 2, require: { impulse: ['impulsive'] }, forbidExhaustionVeto: true },
+    entry: { minAxesAligned: 2, require: { impulse: ['impulsive'] }, enforceExhaustionVeto: true },
     exit: { stopAtr: 1, targetAtr: 1.5, timeStopBars: 12 },
     risk: { riskPct: 0.5 },
   },

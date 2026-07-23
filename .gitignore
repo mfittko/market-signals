@@ -2,3 +2,6 @@ data/
 posts.json
 node_modules/
 tmp/
+
+# judge response cache (content-hash keyed; recomputable)
+reports/backtests/cache/
