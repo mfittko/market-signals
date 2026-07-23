@@ -56,6 +56,10 @@ export function withDb(dbPath, fn) {
   mkdirSync(dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
+    // cross-process writers (bot loop + server share this file) wait up to 5s
+    // for the lock instead of throwing SQLITE_BUSY immediately; a writer can
+    // still see SQLITE_BUSY if the lock outlives the timeout
+    db.exec('PRAGMA busy_timeout = 5000');
     db.exec(CANDLES_DDL);
     db.exec(SIGNALS_DDL);
     return fn(db);
