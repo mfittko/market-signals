@@ -736,6 +736,9 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
     // validation: bad combo key and unknown per-bot keys rejected
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'nope': { enabled: true } } } }) })).status, 400);
     assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { evil: 1 } } } }) })).status, 400);
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyId: '3' } } } }) })).status, 400, 'string strategyId rejected — no silent never-running bots');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { riskPct: '1.5' } } } }) })).status, 400, 'string riskPct rejected');
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: 'yes' } } } }) })).status, 400, 'non-boolean enabled rejected');
     // add two bots, then patch one field — the other bot and other fields survive
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: 3, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } }) });
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { riskPct: 1.5 } } } }) });

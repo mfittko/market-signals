@@ -83,6 +83,11 @@ export function writeSettings(settingsPath, patch) {
         if (typeof entry !== 'object' || Array.isArray(entry)) throw new Error(`bot.bots['${combo}'] must be an object`);
         const unknown2 = Object.keys(entry).filter((k) => !PER_BOT_KEYS.includes(k));
         if (unknown2.length) throw new Error(`bot.bots['${combo}']: unknown key(s) ${unknown2.join(', ')}`);
+        if (entry.enabled !== undefined && typeof entry.enabled !== 'boolean') throw new Error(`bot.bots['${combo}'].enabled must be boolean`);
+        if (entry.strategyId !== undefined && entry.strategyId !== null && !Number.isInteger(entry.strategyId)) throw new Error(`bot.bots['${combo}'].strategyId must be an integer id`);
+        for (const nk of ['riskPct', 'killSwitchDrawdownPct']) {
+          if (entry[nk] !== undefined && entry[nk] !== null && (!Number.isFinite(entry[nk]) || entry[nk] <= 0)) throw new Error(`bot.bots['${combo}'].${nk} must be a positive number`);
+        }
       }
     }
   }
@@ -916,7 +921,7 @@ async function portfolio() {
       ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD + ' · ' + age + 'm' +
       (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
       '</div>';
-  }).join('') || '<div class="pfcard">' + (hasActivity ? 'no open positions' : 'no bot activity yet — configure a bot in the bots tab and assign a strategy') + '</div>';
+  }).join('') || '<div class="pfcard">' + (hasActivity ? 'no open positions' : 'no bot activity yet — click \ud83e\udd16 in the header to configure a bot for a view and assign a strategy') + '</div>';
   const tb = document.querySelector('#pfTrades tbody');
   tb.innerHTML = '';
   for (const t of pf.trades) {
