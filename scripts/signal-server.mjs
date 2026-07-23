@@ -506,10 +506,17 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const bots = (cfgB.bot && typeof cfgB.bot.bots === 'object' && cfgB.bot.bots) || {};
         const pf = portfolioView(dbPath, botConfig(cfgB));
         const audit = decisionAudit(dbPath, { limit: 200 });
+        // complete per-instrument aggregates straight from the table — never the
+        // last-50 view slice
+        const aggregates = withDb(dbPath, (db) => {
+          try {
+            return new Map(db.prepare('SELECT instrument, COUNT(*) c, COALESCE(SUM(realized),0) r FROM bot_trades GROUP BY instrument').all().map((x) => [x.instrument, x]));
+          } catch (err) { if (/no such table/i.test(String(err.message))) return new Map(); throw err; }
+        });
         const rows = Object.entries(bots).map(([combo, b]) => {
           const [inst, gran] = combo.split('|').map((x) => x.trim());
           const strat = Number.isInteger(b.strategyId) ? strategyById(dbPath, b.strategyId) : null;
-          const trades = pf.trades.filter((t) => t.instrument === inst);
+          const agg = aggregates.get(inst) ?? { c: 0, r: 0 };
           const lastDecision = audit.find((a) => a.instrument === inst && (a.granularity == null || a.granularity === gran));
           return {
             combo, instrument: inst, granularity: gran,
@@ -517,8 +524,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             strategyId: b.strategyId ?? null,
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
             riskPct: b.riskPct ?? null,
-            trades: trades.length,
-            realized: Math.round(trades.reduce((a, t) => a + t.realized, 0) * 100) / 100,
+            trades: agg.c,
+            realized: Math.round(agg.r * 100) / 100,
             lastDecisionAt: lastDecision?.at ?? null,
             lastDecisionReason: lastDecision?.reason ?? null,
           };
