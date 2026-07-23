@@ -290,3 +290,14 @@ test('sequential trades fit within allocation (#83): $100-margin opens until the
   assert.equal(skipped, null, 'allocation fully consumed: the 11th is a no-budget skip, not a reject');
   assert.equal(portfolioView(db, cfg).positions.length, 10, 'skip never opens a position');
 });
+
+
+test('server-side sizing (#83): a tiny requested notional with budget available opens, is not mislabeled no-budget', () => {
+  const db = fresh();
+  const cfg = { ...CFG, riskPct: 1, allocationPct: 10 };
+  // budget is ample (1% of 10k = 100 margin); a tiny in-budget request must OPEN,
+  // not be treated as no-budget (the skip keys on maxMargin, not effectiveNotional)
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 5, price: 87, stop: 86 });
+  assert.ok(id != null, 'a tiny in-budget request opens rather than skipping as no-budget');
+  assert.equal(portfolioView(db, cfg).positions.length, 1);
+});

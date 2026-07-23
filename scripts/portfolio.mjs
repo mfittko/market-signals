@@ -146,7 +146,7 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     const EPS = 1e-9;
     const bindingCap = effectiveNotional >= requestedNotional - EPS ? 'none' : (riskCap <= allocCap ? 'risk' : 'allocation');
 
-    if (maxMargin <= EPS || effectiveNotional <= EPS) {
+    if (maxMargin <= EPS) {
       // Budget for this instrument is genuinely exhausted — a legitimate
       // no-trade skip, not an execution rejection (#83). Name the cap that
       // actually bound (risk vs allocation), not always 'allocation'.
