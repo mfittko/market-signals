@@ -727,6 +727,10 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     const saved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Trail stops on WTI after a 1% move.', weight: 4 }) })).json();
     const strSaved = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: 'Numeric-string weight via API.', weight: '2' }) })).json();
     assert.equal(strSaved.ok && strSaved.memory.weight, 2, 'API save coerces numeric-string weights like the chat tool');
+    const xss = await (await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: '<img src=x onerror=alert(1)>', weight: 1 }) })).json();
+    const served = await (await fetch(base + '/')).text();
+    assert.match(served, /esc\(m\.content\)/, 'the memories list renders content through esc() — markup in a memory can never become live DOM');
+    await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: xss.memory.id }) });
     await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id: strSaved.memory.id }) });
     assert.equal(saved.ok, true);
     assert.equal(saved.memory.source, 'manual', 'HTTP-driven saves are source=manual, never chat');
@@ -753,7 +757,7 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.equal(archived.ok, true);
     const afterArchive = await (await fetch(base + '/api/memories')).json();
     assert.equal(afterArchive.memories.length, 0, 'archived memory drops from the active list');
-    assert.equal(afterArchive.archivedCount, 2, 'both the main and the coercion-fixture memories are archived');
+    assert.equal(afterArchive.archivedCount, 3, 'all fixture memories (coercion + XSS probe) are archived');
 
     // cross-origin POST rejected by the same CSRF guard as /api/settings
     const cross = await fetch(base + '/api/memories', { method: 'POST', body: JSON.stringify({ action: 'archive', id }), headers: { origin: 'https://evil.example' } });

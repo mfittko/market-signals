@@ -93,7 +93,9 @@ export function archiveMemory(dbPath, id) {
 
 // Advisory context block for prompts: top-weighted active memories, one per
 // line, cut BEFORE the entry that would exceed the char budget — the
-// highest-weight memories always win a spot. Empty table → null (callers
+// highest-weight memories win spots in order until the budget runs out (an
+// entry that would overflow the budget is dropped, even the first — unreachable
+// at the default 1200 budget since content caps at 500). Empty table → null (callers
 // emit no block at all).
 export function memoriesContext(dbPath, budget = 1200) {
   return mdb(dbPath, (db) => {
