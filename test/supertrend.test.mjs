@@ -293,7 +293,7 @@ test('recheckSignal (#70): an active recheck gate-prompt override feeds the rech
   const [signalRow] = outcomes(dbPath, 'WTICO/USD', 'M5', { time: sig.time });
 
   const result = await recheckSignal(dbPath, settingsPath, 'WTICO/USD', 'M5', signalRow);
-  assert.equal(result.promptVersion, draft.version);
+  assert.equal(result.promptVersion, String(draft.version), 'promptVersion is a string, consistent with /api/chart');
 
   const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
   const rulesAt = args.indexOf(OVERRIDE_RULES);

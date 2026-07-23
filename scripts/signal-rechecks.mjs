@@ -30,14 +30,17 @@ export function recordRecheck(dbPath, { signalTime, instrument, granularity, at,
   // guard the row shape here too, not only at the LLM-parse site: a null/empty
   // reason or unknown verdict must never reach signal_rechecks from any caller
   if (!RECHECK_VERDICTS.includes(verdict)) throw new Error(`recordRecheck: invalid verdict ${JSON.stringify(verdict)}`);
-  const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+  // cap to the schema's advertised 90 chars at the persist boundary too
+  const cleanReason = (typeof reason === 'string' ? reason.trim() : '').slice(0, 90);
   if (!cleanReason) throw new Error('recordRecheck: reason is required');
   if (!signalTime || !instrument || !granularity || !at) throw new Error('recordRecheck: signalTime/instrument/granularity/at are required');
   return rdb(dbPath, (db) => {
     const id = db.prepare(`INSERT INTO signal_rechecks (signal_time, instrument, granularity, at, verdict, reason, prompt_version)
       VALUES (?,?,?,?,?,?,?)`)
       .run(signalTime, instrument, granularity, at, verdict, cleanReason, promptVersion == null ? null : String(promptVersion)).lastInsertRowid;
-    return { id: Number(id), signalTime, instrument, granularity, at, verdict, reason: cleanReason, promptVersion };
+    // promptVersion travels as a string everywhere (the column is TEXT and /api/chart
+    // reads it back as text) so both API surfaces return the same type
+    return { id: Number(id), signalTime, instrument, granularity, at, verdict, reason: cleanReason, promptVersion: promptVersion == null ? null : String(promptVersion) };
   });
 }
 

@@ -712,7 +712,9 @@ export async function recheckSignal(dbPath, settingsPath, instrument, granularit
   const at = new Date().toISOString();
   const { recordRecheck } = await import('./signal-rechecks.mjs');
   recordRecheck(dbPath, { signalTime: signal.time, instrument, granularity, at, verdict: out.verdict, reason: out.reason, promptVersion: recheckSystem.promptVersion });
-  return { verdict: out.verdict, reason: out.reason, at, promptVersion: recheckSystem.promptVersion };
+  // promptVersion as a string here matches /api/chart's persisted TEXT column,
+  // so both endpoints return the same type to the client
+  return { verdict: out.verdict, reason: out.reason, at, promptVersion: String(recheckSystem.promptVersion) };
 }
 
 // Upsert complete candles so history accumulates with every run — future
