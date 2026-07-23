@@ -53,7 +53,7 @@ function seedDecision(dbPath, { instrument = INSTRUMENT, granularity = 'M5', at,
 test('modal chrome (#56): every dialog closes via a top-right X; settings plumbing collapses behind advanced', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
-    for (const id of ['pfdlg', 'botdlg', 'cfgdlg']) {
+    for (const id of ['pfdlg', 'botdlg', 'cfgdlg', 'memdlg', 'gatedlg']) {
       const start = page.indexOf('<dialog id="' + id + '"');
       assert.ok(start >= 0, id + ' dialog exists');
       const end = page.indexOf('</dialog>', start);
@@ -1055,7 +1055,13 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.match(ctx, /Hold through FOMC unless stopped out\./);
 
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'settings modal ships the trader memories section');
+    // #90: memories live in their own dedicated modal, not the settings dialog
+    const cfgSection = html.slice(html.indexOf('<dialog id="cfgdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="cfgdlg"')));
+    assert.ok(!cfgSection.includes('id="memList"'), 'settings modal no longer ships the trader memories section');
+    const memSection = html.slice(html.indexOf('<dialog id="memdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="memdlg"')));
+    assert.ok(memSection.includes('id="memList"') && memSection.includes('id="memArchivedWrap"'), 'dedicated memories modal ships list + archived count');
+    assert.ok(memSection.includes('id="memNewContent"') && memSection.includes('id="memAddBtn"'), 'dedicated memories modal ships an add affordance (new memory input + button)');
+    assert.ok(html.includes('id="memBtn"'), 'header carries a dedicated memories entry point');
   });
 });
 
@@ -1106,9 +1112,49 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     assert.equal(deact.ok, true);
     assert.equal(activeGatePrompt(dbPath, 'filter'), null);
 
-    // settings modal ships the gates section
+    // #90: gates live in their own dedicated modal, not the settings dialog
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="gatesList"'), 'settings modal ships the gates transparency section');
+    const cfgSection = html.slice(html.indexOf('<dialog id="cfgdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="cfgdlg"')));
+    assert.ok(!cfgSection.includes('id="gatesList"'), 'settings modal no longer ships the gates transparency section');
+    const gateSection = html.slice(html.indexOf('<dialog id="gatedlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="gatedlg"')));
+    assert.ok(gateSection.includes('id="gatesList"'), 'dedicated gates modal ships the gates transparency section');
+    assert.ok(html.includes('id="gateBtn"'), 'header carries a dedicated gates entry point');
+  });
+});
+
+test('gate prompts (#90): inline "save" draft action from the dedicated gates modal — same writer as the chat tool, gate-enum-validated, stored INACTIVE, cross-origin rejected, activation stays its own human-only step', async () => {
+  const { activeGatePrompt } = await import('../scripts/gate-prompts.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // cross-origin rejected by the same generic CSRF guard as every other non-GET route
+    const cross = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'Cross-origin draft attempt.' }), headers: { origin: 'https://evil.example' } });
+    assert.equal(cross.status, 403, 'cross-origin save rejected');
+
+    // same-origin save creates a new INACTIVE draft version for the gate
+    const saved = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'Inline UI draft: require two confirming bars.' }) })).json();
+    assert.equal(saved.ok, true);
+    assert.equal(saved.draft.gate, 'filter');
+    assert.equal(saved.draft.version, 1);
+    assert.equal(activeGatePrompt(dbPath, 'filter'), null, 'saving a draft never activates it — activation is a separate call');
+
+    const g = await (await fetch(base + '/api/gate-prompts')).json();
+    assert.equal(g.gates.filter.drafts.length, 1);
+    assert.equal(g.gates.filter.drafts[0].active, 0);
+
+    // gate enum validated — only filter/recheck are overridable; bot/chat rejected
+    const badGate = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'bot', prompt: 'Not overridable.' }) })).json();
+    assert.equal(badGate.ok, false);
+    assert.match(badGate.error, /gate must be one of/);
+
+    // human-only activation still requires the separate 'activate' action + id, same-origin
+    const draftId = g.gates.filter.drafts[0].id;
+    const act = await (await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: draftId }) })).json();
+    assert.equal(act.ok, true);
+    assert.equal(activeGatePrompt(dbPath, 'filter').id, draftId);
+
+    // the dedicated gates modal ships the inline draft editor (reuses the #75 strategy-tab pattern)
+    const html = await (await fetch(base + '/')).text();
+    assert.match(html, /gateSaveDraft/, 'inline save-as-draft control present');
+    assert.match(html, /gateEditPrompt/, 'inline draft textarea present');
   });
 });
 
