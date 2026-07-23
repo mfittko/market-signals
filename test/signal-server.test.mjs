@@ -40,6 +40,20 @@ async function withServer(dir, fn) {
   }
 }
 
+test('modal chrome (#56): every dialog closes via a top-right X; settings plumbing collapses behind advanced', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    for (const id of ['pfdlg', 'botdlg', 'cfgdlg']) {
+      const dlg = page.slice(page.indexOf('<dialog id="' + id + '"'), page.indexOf('</dialog>', page.indexOf('<dialog id="' + id + '"')));
+      assert.ok(dlg.includes('class="dlg-x"'), id + ' has a top-right X');
+      assert.ok(!/method="dialog"><button>close<\/button>/.test(dlg), id + ' has no bottom close row');
+    }
+    assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
+    assert.match(page, /const ADV_FIELDS = \[\['instrument'/, 'plumbing fields render behind the advanced disclosure');
+    for (const k of ['watchers', 'provider', 'model']) assert.ok(page.includes("['" + k + "'"), k + ' stays a primary field');
+  });
+});
+
 test('header structure: two rows — pfMini right-clusters on row 1, indicators live in hdr2 after the bot button (#63)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
