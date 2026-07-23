@@ -128,8 +128,10 @@ Each `instrument|granularity` combo can have its own paper-trading bot
 (`settings.bot.bots["INSTRUMENT|GRAN"]`, unset fields inherit global bot
 defaults). A bot only *deliberates* on ticks the watcher actually iterates —
 i.e. combos in `settings.watchers`; a bot configured for an unwatched combo
-stays configured (and its higher-timeframe + news caches stay fresh, since
-those track watchers ∪ bot combos) but won't trade until that combo is
+stays configured (its higher-timeframe cache still refreshes, since that
+tracks watchers ∪ bot combos; the news cache also refreshes it only if the
+instrument has a committed sentinel query in `config/instruments.yaml`) but
+won't trade until that combo is
 watched. Deterministic work — candle fills,
 mark-to-market, the drawdown kill-switch — runs every candle close; the LLM
 only deliberates on events (a fresh flip or an adverse move past the review
