@@ -245,16 +245,22 @@ test('strategy scoping (#25): spaced combos normalize; no-active-strategy pauses
   // strategies exist but none active: pause, never trade the default prompt
   archiveStrategy(db, st.id);
   const r3 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy' } });
-  assert.equal(r3.skipped, 'no active strategy');
+  assert.equal(r3.skipped, 'no strategy assigned to this bot');
   assert.equal(r3.deliberated, false);
 });
 
-test('botWatchesCombo: unset watches all, spaced CSV normalizes, non-listed combos excluded', async () => {
-  const { botWatchesCombo } = await import('../scripts/bot.mjs');
-  assert.equal(botWatchesCombo({}, WTI, 'M5'), true, 'no bot.watchers = all combos');
-  assert.equal(botWatchesCombo({ bot: { watchers: '' } }, WTI, 'M5'), true);
-  const s = { bot: { watchers: 'WTICO/USD | M5, SPX500/USD|M1' } };
-  assert.equal(botWatchesCombo(s, WTI, 'M5'), true, 'spaces normalize');
-  assert.equal(botWatchesCombo(s, 'SPX500/USD', 'M1'), true);
-  assert.equal(botWatchesCombo(s, WTI, 'M1'), false);
+test('resolveBotFor: per-combo map wins, legacy shape migrates on read, unset disables', async () => {
+  const { resolveBotFor } = await import('../scripts/bot.mjs');
+  // per-combo map: only listed combos, per-bot overrides respected
+  const withBots = { bot: { bots: { 'WTICO/USD | M5': { enabled: true, strategyId: 7, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } };
+  const wti = resolveBotFor(withBots, WTI, 'M5');
+  assert.deepEqual(wti, { enabled: true, strategyId: 7, riskPct: 2, killSwitchDrawdownPct: null }, 'spaced keys normalize; overrides pass through');
+  assert.equal(resolveBotFor(withBots, 'SPX500/USD', 'M1').enabled, false);
+  assert.equal(resolveBotFor(withBots, WTI, 'M1').enabled, false, 'unlisted combo has no bot');
+  // legacy shape: enabled + watchers CSV migrates on read
+  const legacy = { bot: { enabled: true, watchers: 'WTICO/USD | M5' } };
+  assert.equal(resolveBotFor(legacy, WTI, 'M5').enabled, true);
+  assert.equal(resolveBotFor(legacy, WTI, 'M1').enabled, false);
+  assert.equal(resolveBotFor({ bot: { enabled: false } }, WTI, 'M5').enabled, false);
+  assert.equal(resolveBotFor({}, WTI, 'M5').enabled, false);
 });

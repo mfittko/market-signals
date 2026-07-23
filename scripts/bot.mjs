@@ -10,7 +10,7 @@ import { withDb, llmChat, sendNotification } from './supertrend.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { activeStrategy, ensureSeedStrategy } from './strategies.mjs';
+import { activeStrategy, ensureSeedStrategy, strategyById } from './strategies.mjs';
 
 export const BOT_LOOP_DEFAULTS = {
   enabled: false,
@@ -19,13 +19,35 @@ export const BOT_LOOP_DEFAULTS = {
   strategy: 'Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume).',
 };
 
-// Bot-scoped watchers: when settings.bot.watchers is set, the bot only runs
-// on those combos (the alert watcher keeps its own top-level list).
-export function botWatchesCombo(settings, instrument, granularity) {
-  const csv = settings?.bot?.watchers;
-  if (typeof csv !== 'string' || !csv.trim()) return true;
-  const combos = csv.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x && x !== '|');
-  return combos.includes(`${instrument}|${granularity}`);
+// Per-combo bots (#49): settings.bot.bots maps "INSTRUMENT|GRAN" → per-bot
+// config; unset fields inherit the global bot defaults. The legacy flat shape
+// (bot.enabled + bot.watchers + globally-active strategy) migrates on read.
+export function resolveBotFor(settings, instrument, granularity, dbPath = null) {
+  const bot = settings?.bot ?? {};
+  const key = `${instrument}|${granularity}`;
+  const norm = (k) => k.split('|').map((p) => p.trim()).join('|');
+  let entry = null;
+  if (bot.bots && typeof bot.bots === 'object') {
+    for (const [k, v] of Object.entries(bot.bots)) {
+      if (norm(k) === key && v && typeof v === 'object') { entry = v; break; }
+    }
+  } else if (bot.enabled === true) {
+    // legacy migration-on-read: watchers CSV (or all combos when unset) become
+    // implicit bot entries bound to the globally-active strategy
+    const csv = typeof bot.watchers === 'string' ? bot.watchers.trim() : '';
+    const combos = csv ? csv.split(',').map(norm).filter((x) => x && x !== '|') : null;
+    if (!combos || combos.includes(key)) {
+      const act = dbPath ? (() => { try { return activeStrategy(dbPath); } catch { return null; } })() : null;
+      entry = { enabled: true, strategyId: act?.id ?? null };
+    }
+  }
+  if (!entry) return { enabled: false };
+  return {
+    enabled: entry.enabled === true,
+    strategyId: Number.isInteger(entry.strategyId) ? entry.strategyId : null,
+    riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
+    killSwitchDrawdownPct: Number.isFinite(entry.killSwitchDrawdownPct) && entry.killSwitchDrawdownPct > 0 ? entry.killSwitchDrawdownPct : null,
+  };
 }
 
 export function botLoopConfig(settings = {}) {
@@ -209,9 +231,12 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
 // fired this run. Returns a summary for logs/tests.
 export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, toolDefs = null, execTool = null }) {
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (!botFor.enabled) return { skipped: 'disabled' };
   const loop = botLoopConfig(settings);
-  if (!loop.enabled) return { skipped: 'disabled' };
+  if (botFor.killSwitchDrawdownPct) loop.killSwitchDrawdownPct = botFor.killSwitchDrawdownPct;
   const cfg = botConfig(settings);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
 
   if (loop.resetHalt) {
     setHalted(dbPath, cfg, false);
@@ -253,11 +278,11 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
 
   // Active strategy scoping: an instruments CSV on the active strategy limits
   // deliberation to those combos (deterministic fills always run).
-  // Seed idempotently (ships INACTIVE), then require a human-activated
-  // strategy: a fresh db pauses instead of trading the hardcoded default.
+  // Seed idempotently (ships unassigned), then require a human-assigned
+  // strategy for THIS bot: an unbound bot pauses instead of trading a default.
   ensureSeedStrategy(dbPath);
-  const strategyRow = activeStrategy(dbPath);
-  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no active strategy' };
+  const strategyRow = botFor.strategyId != null ? strategyById(dbPath, botFor.strategyId) : null;
+  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no strategy assigned to this bot' };
   if (strategyRow?.instruments) {
     // normalize each combo the same way the watchers parser does — spaces
     // around the pipe must not silently unscope a combo

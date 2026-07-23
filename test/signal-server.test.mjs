@@ -658,7 +658,9 @@ test('strategy management (#25): chat drafts never activate, human activation vi
 
     // page ships the bot settings section
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="botcfg"'), 'bot config section in the settings dialog');
+    assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
+    assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
+    assert.ok(html.includes('data-tab="bots"') && html.includes('id="botTable"'), 'bots tab in the portfolio modal');
 
     // settings whitelist accepts the bot object, rejects junk bot keys
     const okSet = await (await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { enabled: false, riskPct: 2 } }) })).json();
@@ -723,5 +725,31 @@ test('page ships the indicator toggle row and oscillator panel (#32)', async () 
     assert.ok(html.includes('id="indbar"'), 'indicator toggle row present');
     assert.ok(html.includes('id="oscwrap"') && html.includes('id="osc"'), 'oscillator sub-panel canvas present');
     assert.ok(html.includes("data-ind"), 'toggles carry indicator keys');
+  });
+});
+
+test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored indicator default', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    // validation: bad combo key and unknown per-bot keys rejected
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'nope': { enabled: true } } } }) })).status, 400);
+    assert.equal((await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { evil: 1 } } } }) })).status, 400);
+    // add two bots, then patch one field — the other bot and other fields survive
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: 3, riskPct: 2 }, 'SPX500/USD|M1': { enabled: false } } } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { riskPct: 1.5 } } } }) });
+    let got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyId: 3, riskPct: 1.5 }, 'per-combo merge keeps sibling fields');
+    assert.ok(got.bot.bots['SPX500/USD|M1'], 'sibling bot untouched');
+    // null deletes exactly one bot entry
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'SPX500/USD|M1': null } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.bot.bots['SPX500/USD|M1'], undefined);
+    assert.ok(got.bot.bots['WTICO/USD|M5']);
+    // stored indicator selection becomes the chart default when the URL has none
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ ind: 'ema,rsi' }) });
+    const d = await (await fetch(base + '/api/chart')).json();
+    assert.deepEqual(d.activeInd, ['ema', 'rsi'], 'global selection applies without URL params');
+    assert.ok(d.indicators.ema && d.indicators.rsi, 'series served from the stored default');
+    const overridden = await (await fetch(base + '/api/chart?ind=vwap')).json();
+    assert.deepEqual(overridden.activeInd, ['vwap'], 'URL still overrides');
   });
 });

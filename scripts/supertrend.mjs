@@ -710,8 +710,8 @@ async function runOne(opts) {
   if (opts.db) {
     try {
       const settings = readSettings(opts.settings);
-      if (settings.bot?.enabled === true) {
-        const { runBot, botWatchesCombo } = await import('./bot.mjs');
+      if (settings.bot && (settings.bot.enabled === true || (settings.bot.bots && typeof settings.bot.bots === 'object'))) {
+        const { runBot } = await import('./bot.mjs');
         const { CHAT_TOOLS, execChatTool } = await import('./signal-server.mjs');
         // A flip is a bot event only the run that records it: alert sent, filter
         // suppression, notify-off recording, or notification failure — never on
@@ -726,9 +726,7 @@ async function runOne(opts) {
             botAxes = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity })?.axes ?? null;
           } catch { /* axes optional */ }
         }
-        result.bot = !botWatchesCombo(settings, opts.instrument, opts.granularity)
-          ? { skipped: 'combo not in bot.watchers' }
-          : await runBot(opts.db, settings, {
+        result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
           ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes },

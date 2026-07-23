@@ -124,6 +124,11 @@ export function listStrategies(dbPath, { includeArchived = false } = {}) {
      FROM strategies ${includeArchived ? '' : 'WHERE archived=0'} ORDER BY name, version DESC`).all());
 }
 
+// Per-bot strategy binding (#49): bots reference strategies by id.
+export function strategyById(dbPath, id) {
+  return sdb(dbPath, (db) => db.prepare('SELECT * FROM strategies WHERE id=? AND archived=0').get(id) ?? null);
+}
+
 export function activeStrategy(dbPath) {
   return sdb(dbPath, (db) => db.prepare('SELECT * FROM strategies WHERE active=1 LIMIT 1').get() ?? null);
 }
