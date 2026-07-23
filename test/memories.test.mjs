@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   saveMemory, listMemories, reweightMemory, editMemory, archiveMemory, memoriesContext,
 } from '../scripts/memories.mjs';
+import { withDb } from '../scripts/supertrend.mjs';
 
 const fresh = () => join(mkdtempSync(join(tmpdir(), 'mem-')), 'm.sqlite');
 
@@ -47,6 +48,19 @@ test('listMemories orders weight DESC then updated_at DESC; includeArchived togg
   archiveMemory(db, mid.id);
   assert.deepEqual(listMemories(db).map((r) => r.id), [high.id, low.id], 'archived hidden by default');
   assert.deepEqual(listMemories(db, { includeArchived: true }).map((r) => r.id).sort(), [high.id, low.id, mid.id].sort());
+});
+
+test('listMemories tie-breaks equal weight by updated_at DESC', () => {
+  const db = fresh();
+  const older = saveMemory(db, { content: 'same weight, older update', weight: 3 });
+  const newer = saveMemory(db, { content: 'same weight, newer update', weight: 3 });
+  // Set explicit, distinct updated_at values (no reliance on wall-clock/sleep
+  // timing) so the tie-break is exercised deterministically.
+  withDb(db, (handle) => {
+    handle.prepare('UPDATE memories SET updated_at=? WHERE id=?').run('2024-01-01T00:00:00.000Z', older.id);
+    handle.prepare('UPDATE memories SET updated_at=? WHERE id=?').run('2024-06-01T00:00:00.000Z', newer.id);
+  });
+  assert.deepEqual(listMemories(db).map((r) => r.id), [newer.id, older.id], 'newer updated_at sorts first among equal weights');
 });
 
 test('reweightMemory and editMemory validate input and update the row; unknown id throws', () => {
