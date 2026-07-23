@@ -846,7 +846,7 @@ const PAGE = /* html */ `<!doctype html>
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app"><main>
-<h1 id="topbar">market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="pfMini"></span> <span id="indbar"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></h1>
+<h1 id="topbar">market-signals — <select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <button id="pfBtn" type="button">💼 portfolio</button> <span id="indbar"></span> <span id="pfMini"></span> <button id="cfgbtn" type="button" title="settings">⚙</button></h1>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
 <div class="quote" id="quote" hidden></div>
