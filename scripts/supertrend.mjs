@@ -102,7 +102,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
 // Split so a chat-drafted override (issue #58) can only ever replace the
 // advisory RULES text — the JSON verdict instruction stays code-owned and is
 // always appended server-side, so a draft can never break parsing.
-export const FILTER_RULES = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. When present, traderMemories lists the trader\'s standing rules — advisory context, never a substitute for the chop/volume checks above.';
+export const FILTER_RULES = 'You filter intraday supertrend flip alerts for a leveraged oil/index CFD trader. Given the current flip, recent candles, the fetched-window backtest, past signals with realized 30-minute outcomes, and the trader\'s notes, decide if this alert deserves attention. Timestamps are in the trader\'s local timezone (current.timezone) — quote them as-is. Suppress likely chop: rapidly alternating recent flips with negative outcomes, price mid-range, weak impulse. Use volumeContext: a flip on volume well above the recent average is conviction; a flip on thin volume is suspect. When present, traderMemories lists the trader\'s standing rules — advisory context, never a substitute for the chop/volume checks above. When present, a sentinel block carries cached breaking-news headlines and an escalation flag from free geopolitical/macro sources — advisory context to weigh, never a reason to bypass the chop/volume checks above.';
 export const FILTER_SCHEMA_SUFFIX = ' Reply JSON: {"alert": boolean, "reason": "<max 90 chars>"}.';
 const FILTER_SYSTEM = FILTER_RULES + FILTER_SCHEMA_SUFFIX;
 
@@ -568,6 +568,8 @@ export async function processSignal(opts, result, candles) {
     dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
     // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
     const { memoriesContext } = await import('./memories.mjs');
+    // lazy import: avoids a static cycle (news.mjs imports withDb from here)
+    const { newsContextFor } = await import('./news.mjs');
     // Resolved once, before the network/pi call, so promptVersion lands in
     // provenance ('builtin' or the active override's version) whether or not
     // the filter call itself succeeds.
@@ -589,6 +591,7 @@ export async function processSignal(opts, result, candles) {
         axisGate: gateSnapshot?.axes ?? null,
         traderNotes: notes,
         traderMemories: memoriesContext(opts.db) || undefined,
+        sentinel: newsContextFor(opts.db, opts.instrument) || undefined,
       }, filterSystem.system);
       verdictSource = 'llm';
     } catch (err) {
@@ -959,6 +962,21 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
   return { refreshed, skipped };
 }
 
+// Bot deliberation context (issue #86): extracted so it's testable without the
+// network-heavy runOne() pipeline it's assembled inside of. traderMemories and
+// sentinel are both advisory-only blocks, present only when their source has
+// something to say (memoriesContext/newsContextFor return null when empty).
+// Lazy imports avoid a static cycle (memories.mjs/news.mjs import withDb from here).
+export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate } = {}) {
+  const { memoriesContext } = await import('./memories.mjs');
+  const { newsContextFor } = await import('./news.mjs');
+  return {
+    supertrend, trend, backtest, axisGate,
+    traderMemories: memoriesContext(dbPath) || undefined,
+    sentinel: newsContextFor(dbPath, instrument) || undefined,
+  };
+}
+
 async function runOne(opts) {
   const all = await fetchCandles(opts);
   const candles = all.filter((c) => c.complete);
@@ -1012,11 +1030,10 @@ async function runOne(opts) {
             botAxes = axisSnapshot(candles, { instrument: opts.instrument, granularity: opts.granularity })?.axes ?? null;
           } catch { /* axes optional */ }
         }
-        const { memoriesContext } = await import('./memories.mjs');
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, traderMemories: memoriesContext(opts.db) || undefined },
+          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes }),
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)
@@ -1064,6 +1081,15 @@ async function main() {
       await refreshHtfCache(opts.db, combos, cfg);
     } catch (err) {
       dbg(`HTF cache refresh failed: ${err.message}`);
+    }
+    // Sentinel news cache grounding (issue #86): same after-the-signal-path,
+    // best-effort placement as the HTF cache above — cache-only, never delays
+    // a real alert.
+    try {
+      const { refreshNewsCache } = await import('./news.mjs');
+      await refreshNewsCache(opts.db, combos, cfg);
+    } catch (err) {
+      dbg(`news cache refresh failed: ${err.message}`);
     }
   }
 

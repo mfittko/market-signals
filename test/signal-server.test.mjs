@@ -540,7 +540,7 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
 
 test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
   const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
-  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory', 'save_gate_prompt']);
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'sentinel_news', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory', 'save_gate_prompt']);
   for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);
@@ -552,6 +552,33 @@ test('chat tools: registry executes with clamped args, rejects unknown tools and
   } catch (err) {
     assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
   }
+});
+
+test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs (read-only), view-defaults the instrument, never guesses an unconfigured one', async () => {
+  const { CHAT_TOOLS, botToolDefs, execChatTool } = await import('../scripts/signal-server.mjs');
+  assert.ok(CHAT_TOOLS.some((t) => t.name === 'sentinel_news'), 'present in the chat surface');
+  assert.ok(botToolDefs().some((t) => t.name === 'sentinel_news'), 'read-only news belongs in the bot deliberation surface too');
+
+  // Hermetic: SENTINEL_NEWS_OFFLINE short-circuits the skill script before any
+  // network call, so this exercises real arg/view-default wiring, not a live fetch.
+  const prevOffline = process.env.SENTINEL_NEWS_OFFLINE;
+  process.env.SENTINEL_NEWS_OFFLINE = '1';
+  try {
+    const out = JSON.parse(execChatTool('sentinel_news', {}, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
+    assert.equal(out.meta.instrument, 'XAU/USD', 'defaults to the current view instrument when none is given');
+
+    const explicit = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
+    assert.equal(explicit.meta.instrument, 'WTICO/USD', 'an explicit instrument arg wins over the view default');
+  } finally {
+    if (prevOffline === undefined) delete process.env.SENTINEL_NEWS_OFFLINE;
+    else process.env.SENTINEL_NEWS_OFFLINE = prevOffline;
+  }
+
+  assert.throws(
+    () => execChatTool('sentinel_news', { instrument: 'ZZZ/USD' }, {}),
+    /no sentinel query configured/,
+    'an instrument with no committed sentinel entry fails loud instead of guessing',
+  );
 });
 
 test('mutating routes reject cross-origin requests (CSRF guard), same-origin and CLI pass', async () => {

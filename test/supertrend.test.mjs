@@ -155,6 +155,36 @@ test('processSignal suppresses when the filter says no (fake pi), no notificatio
   assert.equal(row.notified, 0);
 });
 
+test('processSignal filter payload (#86): a sentinel block is injected only when the news cache has recent rows for the instrument, framed as advisory', async () => {
+  const { upsertNews } = await import('../scripts/news.mjs');
+  const { FILTER_RULES } = await import('../scripts/supertrend.mjs');
+
+  // No cache rows: the sentinel key is entirely absent from the filter payload.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": true, "reason": "ok"}'`);
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin } });
+    await processSignal(opts, result, c);
+    const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+    assert.ok(!args.includes('"sentinel"'), 'empty news cache: sentinel block omitted');
+  }
+
+  // Cache has a recent row for the instrument: sentinel block present with escalation+headlines.
+  {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": true, "reason": "ok"}'`);
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin } });
+    upsertNews(opts.db, 'WTICO/USD', [
+      { source: 'google-news', title: 'Tanker attack near Hormuz', timeIso: new Date().toISOString(), url: 'https://x/86-filter', escalation: true },
+    ], new Date().toISOString());
+    await processSignal(opts, result, c);
+    const args = readFileSync(join(dir, 'pi-args.txt'), 'utf8');
+    assert.match(args, /"sentinel":\{"escalation":true,"headlines":\[\{"title":"Tanker attack near Hormuz"/);
+  }
+
+  assert.match(FILTER_RULES, /sentinel/i, 'the filter prompt frames the sentinel block as advisory');
+});
+
 test('processSignal fails open on filter error and records the verdict', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-'));
   fakeBin(dir, 'osascript', 'exit 0'); // shadow real osascript via PATH
@@ -495,6 +525,34 @@ test('refreshHtfCache: a throwing fetch for one combo does not prevent the other
   assert.ok(!refreshed.some((c) => c.granularity === 'H1'), 'the failing combo is absent from refreshed');
   assert.ok(refreshed.some((c) => c.granularity === 'M15'), 'other combos still refreshed despite the throw');
   assert.ok(refreshed.some((c) => c.granularity === 'H4'), 'the tick did not abort after the throw');
+});
+
+// --- bot deliberation context (issue #86): sentinel present only when the news cache has rows ---
+test('buildBotContext: sentinel omitted when the news cache is empty for the instrument, present when it has recent rows', async () => {
+  const { buildBotContext } = await import('../scripts/supertrend.mjs');
+  const { upsertNews } = await import('../scripts/news.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'bot-ctx-'));
+  const dbPath = join(dir, 'db.sqlite');
+
+  const empty = await buildBotContext(dbPath, 'WTICO/USD', { supertrend: 1, trend: 'up', backtest: {}, axisGate: null });
+  assert.equal(empty.sentinel, undefined, 'empty cache: sentinel key entirely absent');
+  assert.ok(!('sentinel' in JSON.parse(JSON.stringify(empty))), 'JSON-serialized ctx drops the key, not just nulls it');
+
+  upsertNews(dbPath, 'WTICO/USD', [
+    { source: 'oilprice', title: 'Tanker attack near Hormuz', timeIso: new Date().toISOString(), url: 'https://x/86-bot', escalation: true },
+  ], new Date().toISOString());
+  const withNews = await buildBotContext(dbPath, 'WTICO/USD', { supertrend: 1, trend: 'up', backtest: {}, axisGate: null });
+  assert.equal(withNews.sentinel.escalation, true);
+  assert.equal(withNews.sentinel.headlines[0].title, 'Tanker attack near Hormuz');
+
+  // A different instrument's cache never leaks into this one's context.
+  const otherInstrument = await buildBotContext(dbPath, 'XAU/USD', { supertrend: 1, trend: 'up', backtest: {}, axisGate: null });
+  assert.equal(otherInstrument.sentinel, undefined);
+});
+
+test('DECISION_SYSTEM (bot.mjs) frames the sentinel block as advisory, same as traderMemories', async () => {
+  const { DECISION_SYSTEM } = await import('../scripts/bot.mjs');
+  assert.match(DECISION_SYSTEM, /sentinel block.*advisory/i);
 });
 
 test('refreshHtfCache: writes candles only — no signal rows, no notifications', async () => {
