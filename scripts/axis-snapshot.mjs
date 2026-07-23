@@ -146,6 +146,23 @@ export function recordSnapshot(dbPath, snapshot, { filterVerdict = null, filterM
   });
 }
 
+// One recorded snapshot for one signal (issue #70: the re-check gate's view of
+// "what the axes said at flip time"). Read-only, tolerant of a missing table.
+export function getSnapshot(dbPath, instrument, granularity, time) {
+  return withDb(dbPath, (db) => {
+    let row;
+    try {
+      row = db.prepare('SELECT snapshot FROM signal_snapshots WHERE instrument=? AND granularity=? AND time=?')
+        .get(instrument, granularity, time);
+    } catch (err) {
+      if (/no such table/i.test(String(err.message))) return null;
+      throw err;
+    }
+    if (!row) return null;
+    try { return JSON.parse(row.snapshot); } catch { return null; }
+  });
+}
+
 // Flip-outcome expectancy conditioned per axis verdict: joins recorded
 // snapshots with realized signal outcomes — proves or rejects each voter on
 // expectancy of surviving alerts, not signal count (#32 locked design).
