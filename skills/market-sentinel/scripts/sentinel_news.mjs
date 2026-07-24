@@ -454,13 +454,13 @@ export async function fetchSentinelNews({
       log(`newsapi-ai query unsupported, using free stack: ${newsApiOutcome.error}`);
     }
     if (keywords) {
-      const startedAt = performance.now();
+      const startedAt = Date.now();
       try {
         const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
-        newsApiOutcome = { ok: true, requestMade: true, status: 200, items: r.items, durationMs: Math.round(performance.now() - startedAt) };
+        newsApiOutcome = { ok: true, requestMade: true, status: 200, items: r.items, durationMs: Date.now() - startedAt };
       } catch (err) {
         // A network attempt WAS made (chargeable): requestMade stays true.
-        newsApiOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err), durationMs: Math.round(performance.now() - startedAt) };
+        newsApiOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err), durationMs: Date.now() - startedAt };
         log(`newsapi-ai failed: ${newsApiOutcome.error}`);
       }
     }

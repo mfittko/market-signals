@@ -96,9 +96,16 @@ export function tradingRelevance(db, instrument, obs, sinceIso, provider = NAI) 
   const events = tableExists('bot_journal')
     ? db.prepare("SELECT at FROM bot_journal WHERE at>=? AND (context LIKE ? OR reason LIKE ?)").all(sinceIso, `%${instrument}%`, `%${instrument}%`).map((r) => Date.parse(r.at)).filter(Number.isFinite) : [];
   // "Available at decision time": the headline must have been first-seen AT OR
-  // BEFORE the event and within the window — a headline that arrives AFTER a flip
-  // could not have informed it, so Math.abs() would wrongly credit it.
-  const within = (eventTs, mins) => eventTs.filter((ts) => naiSeen.some((n) => n <= ts && ts - n <= mins * 60000)).length;
+  // BEFORE the event and within the window — a headline arriving AFTER a flip
+  // could not have informed it. Sort once + binary-search the window per event
+  // (O(events·log headlines)) instead of scanning every headline per event.
+  const seen = naiSeen.slice().sort((a, b) => a - b);
+  const lowerBound = (target) => { let lo = 0; let hi = seen.length; while (lo < hi) { const m = (lo + hi) >> 1; if (seen[m] < target) lo = m + 1; else hi = m; } return lo; };
+  const within = (eventTs, mins) => eventTs.filter((ts) => {
+    const lo = lowerBound(ts - mins * 60000); // first index >= ts - window
+    const hi = lowerBound(ts + 1); // first index > ts (headlines first-seen <= ts)
+    return hi > lo; // any headline in [ts - window, ts]
+  }).length;
   const buckets = [5, 10, 15, 30];
   const cover = (eventTs) => Object.fromEntries(buckets.map((m) => [`within${m}min`, `${within(eventTs, m)}/${eventTs.length}`]));
   return { freshFlips: flips.length, flipsCovered: cover(flips), botEvents: events.length, botEventsCovered: cover(events) };
