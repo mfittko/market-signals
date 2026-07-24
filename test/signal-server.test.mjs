@@ -113,18 +113,21 @@ test('GET /api/chart returns candles, supertrend, and the deep-linked signal', a
 
 test('settings round-trip: unknown keys rejected, secrets masked and preserved, atomic file', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
-    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', port: 9000 }) });
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', NEWSAPI_AI_KEY: 'nai-secret', port: 9000 }) });
     assert.equal(res.status, 200);
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
     assert.equal(got.activeProvider, 'pi', 'resolved provider surfaced');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
+    assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret', 'secret stored');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'NewsAPI.ai key stored');
 
     // Re-saving the masked value must not clobber the stored secret.
-    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', model: 'x' }) });
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', NEWSAPI_AI_KEY: '•••', model: 'x' }) });
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'masked re-save keeps the stored NewsAPI.ai key');
 
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ nope: 1 }) });
     assert.equal(res.status, 400);
