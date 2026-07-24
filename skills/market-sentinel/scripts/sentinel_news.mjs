@@ -138,8 +138,8 @@ export function normalizeGdeltArticle(article) {
 // --- NewsAPI.ai / Event Registry provider (issue #104) ----------------------
 // A preferred commercial provider layered onto the free stack: same normalized
 // item shape (extended with optional provider metadata), same failure-isolation
-// contract. Two endpoints, one adapter: getArticles for on-demand --hours
-// lookback, minuteStreamArticles for the cursor-based background cache. Host is
+// contract. One adapter over the query-filtered getArticles endpoint, used for
+// both the on-demand --hours lookback and the decision-point pull. Host is
 // eventregistry.org (newsapi.ai is an alias for the same API).
 export const NEWSAPI_AI_HOST = 'https://eventregistry.org';
 export const NEWSAPI_AI_GET_ARTICLES_URL = `${NEWSAPI_AI_HOST}/api/v1/article/getArticles`;
