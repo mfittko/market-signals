@@ -882,3 +882,16 @@ test('openai malformed/empty-choices response throws a readable error, not a Typ
     );
   } finally { await new Promise((r) => srv.close(r)); }
 });
+
+test('buildFilterPayload volumeContext: zero/missing volume yields avg20:null + ratio:null, not a misleading 0 (Copilot #103)', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const zeroVol = Array.from({ length: 21 }, (_, i) => ({ time: `2026-07-23T${String(i).padStart(2, '0')}:00:00.000Z`, open: 70, high: 71, low: 69, close: 70, volume: 0 }));
+  storeCandles(dbPath, 'WTICO/USD', 'M5', zeroVol);
+  const sig = { time: zeroVol[20].time, signal: 'buy', price: 70, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: 70, trend: 'up', supertrend: 69, backtest: { winRatePct: 50, totalReturnPct: 0, trades: 0 } };
+  const payload = await buildFilterPayload({ dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result, candles: zeroVol, history: [], gateSnapshot: null, notes: '' });
+  assert.equal(payload.volumeContext.avg20, null, 'zero avg volume -> null, not 0');
+  assert.equal(payload.volumeContext.ratio, null, 'no meaningful ratio without avg volume');
+});

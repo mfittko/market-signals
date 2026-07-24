@@ -171,3 +171,9 @@ test('--help exits 0 with usage, no db access', async () => {
   const { existsSync } = await import('node:fs');
   assert.equal(existsSync(join(dir, 'data')), false, '--help must not touch the db');
 });
+
+test('parseArgs: a known value-flag with no value fails loud (not "unknown flag") (Copilot #103)', () => {
+  assert.throws(() => parseArgs(['--db']), /--db requires a value/);
+  assert.throws(() => parseArgs(['--limit', '--json']), /--limit requires a value/);
+  assert.throws(() => parseArgs(['--instrument']), /--instrument requires a value/);
+});

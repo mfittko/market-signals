@@ -657,7 +657,8 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
       const flip = candles[sig.index] ?? candles[candles.length - 1];
       const win = candles.slice(-21, -1).map((c) => c.volume || 0);
       const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
-      return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
+      // avg20 null/0 (no/zero volume data) -> null, not a misleading 0; ratio then null too (no divide-by-zero).
+      return { flipVolume: flip?.volume ?? null, avg20: avg20 ? Number(avg20.toFixed(1)) : null, ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
     })(),
     pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
     axisGate: gateSnapshot?.axes ?? null,

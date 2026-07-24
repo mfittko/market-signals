@@ -184,20 +184,21 @@ export function parseArgs(argv) {
       else if (key === 'json') out.json = true;
       continue;
     }
+    const VALUE_FLAGS = ['db', 'settings', 'predicate', 'since', 'instrument', 'granularity', 'limit'];
+    if (!VALUE_FLAGS.includes(key)) { unknown.push(`--${key}`); continue; }
     const next = argv[i + 1];
     const nextIsFlag = next !== undefined && next.startsWith('-') && !/^-\d/.test(next);
-    const hasValue = next !== undefined && !nextIsFlag;
-    const val = hasValue ? next : null;
-    if (hasValue) i++;
-
-    if (key === 'db' && val) out.db = val;
-    else if (key === 'settings' && val) out.settings = val;
-    else if (key === 'predicate' && val) out.predicate = val;
-    else if (key === 'since' && val) out.since = val;
-    else if (key === 'instrument' && val) out.instrument = val;
-    else if (key === 'granularity' && val) out.granularity = val;
-    else if (key === 'limit' && val) out.limit = val;
-    else unknown.push(`--${key}`);
+    // A known value-flag with no value (end of argv, or another flag next) is a
+    // usage error — fail loud, don't mislabel it "unknown flag".
+    if (next === undefined || nextIsFlag) throw new Error(`--${key} requires a value`);
+    const val = next; i++;
+    if (key === 'db') out.db = val;
+    else if (key === 'settings') out.settings = val;
+    else if (key === 'predicate') out.predicate = val;
+    else if (key === 'since') out.since = val;
+    else if (key === 'instrument') out.instrument = val;
+    else if (key === 'granularity') out.granularity = val;
+    else if (key === 'limit') out.limit = val;
   }
   if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
   // --limit must be a positive integer: NaN would skip the LIMIT clause (unbounded)
