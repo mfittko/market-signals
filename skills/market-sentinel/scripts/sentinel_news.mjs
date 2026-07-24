@@ -297,7 +297,7 @@ function stripPublisherSuffix(title) {
   return looksLikePublisher ? s.slice(0, idx) : s;
 }
 
-function normTitle(t) {
+export function normTitle(t) {
   return stripPublisherSuffix(String(t || '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
@@ -417,15 +417,22 @@ export async function fetchSentinelNews({
   // NewsAPI.ai (issue #104): failure-isolated like every other source. Fetched
   // via the on-demand getArticles path; a failure yields [] + a log line and
   // the free stack carries the tick. shadow mode records but never merges.
+  // The outcome (ok/status) is captured — not swallowed — so the persistence
+  // layer (scripts/news.mjs) can drive the request budget + circuit breaker.
   let newsApiItems = [];
   let shadowItems = [];
+  let newsApiOutcome = null;
   if (newsApiAi?.enabled) {
     if (newsApiAi.warn) log(newsApiAi.warn);
     providersAttempted.unshift('newsapi-ai');
-    const fetched = await fetchSourceSafe('newsapi-ai', async () => {
+    try {
       const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
-      return r.items;
-    }, log);
+      newsApiOutcome = { ok: true, status: 200, items: r.items };
+    } catch (err) {
+      newsApiOutcome = { ok: false, status: err?.status ?? null, error: err?.message || String(err) };
+      log(`newsapi-ai failed: ${newsApiOutcome.error}`);
+    }
+    const fetched = newsApiOutcome.items || [];
     if (newsApiAi.shadow) shadowItems = fetched; else newsApiItems = fetched;
   } else if (newsApiAi?.warn) {
     log(newsApiAi.warn);
@@ -448,10 +455,16 @@ export async function fetchSentinelNews({
     out.newsApiAi = {
       mode: newsApiAi.mode,
       requestMade: newsApiAi.enabled === true,
+      ok: newsApiOutcome ? newsApiOutcome.ok : null,
+      status: newsApiOutcome ? newsApiOutcome.status : null,
       shadow: newsApiAi.shadow === true,
       itemsReturned: newsApiAi.shadow ? shadowItems.length : newsApiItems.length,
     };
     out.providersAttempted = providersAttempted;
+    // Pre-dedup, in-window, provider-tagged items for provenance recording:
+    // every provider's sighting is kept (dedup would drop the free-source twin).
+    out.observed = [...(newsApiAi.shadow ? shadowItems : newsApiItems), ...results.flat()]
+      .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs);
     if (newsApiAi.shadow) out.shadowItems = shadowItems;
   }
   return out;

@@ -6,7 +6,29 @@ import { join } from 'node:path';
 import { withDb } from '../scripts/supertrend.mjs';
 import {
   refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
+  NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen,
+  recordProviderCall, recordProviderObservations,
 } from '../scripts/news.mjs';
+
+// getArticles JSON body for the WTI oil query — one article, newest-first.
+function naiJson(title = 'Iran strikes tanker near Hormuz', uri = 'nai-1', dateTimePub = '2026-07-23T09:45:00Z') {
+  return JSON.stringify({ articles: { results: [{
+    uri, url: `https://eventregistry.org/a/${uri}`, title, body: 'body text',
+    dateTimePub, source: { uri: 'reuters.com', title: 'Reuters' }, eventUri: 'evt-1', sentiment: -0.4, isDuplicate: false,
+  }] } });
+}
+// Fetcher that also answers the NewsAPI.ai getArticles endpoint. `naiStatus`
+// forces a non-200 (e.g. 401 for the circuit-breaker path).
+function naiFetcher({ googleXml = EMPTY_RSS, nai = naiJson(), naiStatus = 200 } = {}) {
+  return async (url) => {
+    if (url.includes('getArticles')) return { ok: naiStatus < 300, status: naiStatus, text: async () => (naiStatus < 300 ? nai : 'err') };
+    if (url.includes('news.google.com')) return { ok: true, status: 200, text: async () => googleXml };
+    if (url.includes('gdeltproject.org')) return { ok: true, status: 200, text: async () => EMPTY_GDELT };
+    return { ok: true, status: 200, text: async () => EMPTY_RSS };
+  };
+}
+const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+const WTI = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
 
 function dbPathIn(dir) {
   const p = join(dir, 'news-test.sqlite');
@@ -290,4 +312,93 @@ test('migrateNewsUniqueKey (review fix for #86): a forced mid-rebuild failure ro
     const after = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
     assert.ok(/UNIQUE\s*\(\s*instrument\s*,\s*url\s*\)/i.test(after.sql), 'a clean retry after rollback completes the migration');
   });
+});
+
+// --- NewsAPI.ai provider persistence (issue #104) --------------------------
+test('refreshNewsCache: no NEWSAPI_AI_KEY => byte-for-byte free behavior, no provider rows written', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: {} });
+  assert.equal(providerRequestsUsed(dbPath), 0, 'no chargeable requests without a key');
+  withDb(dbPath, (db) => {
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_state').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations').get().n, 0);
+  });
+});
+
+test('refreshNewsCache: with a key, charges the budget once per tick and records observations', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: NAI_ENV });
+  assert.equal(r.refreshed[0].newsApiAi.requestMade, true);
+  assert.equal(providerRequestsUsed(dbPath), 1, 'exactly one chargeable request this tick');
+  withDb(dbPath, (db) => {
+    const obs = db.prepare("SELECT provider, provider_item_id, event_uri, sentiment FROM news_provider_observations WHERE provider=?").all(NEWSAPI_AI_PROVIDER);
+    assert.equal(obs.length, 1, 'the newsapi-ai sighting is logged');
+    assert.equal(obs[0].event_uri, 'evt-1');
+    assert.equal(obs[0].sentiment, -0.4);
+  });
+});
+
+test('refreshNewsCache: budget survives restart and, once exhausted, falls back to free without an API call', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const env = { ...NAI_ENV, NEWSAPI_AI_REQUEST_BUDGET: '1' };
+  let calledGetArticles = 0;
+  const countingFetcher = (inner) => async (url, opts) => { if (url.includes('getArticles')) calledGetArticles++; return inner(url, opts); };
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  // Tick 1 spends the single budgeted request.
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now, log: () => {}, env });
+  assert.equal(calledGetArticles, 1);
+  assert.equal(providerRequestsUsed(dbPath), 1);
+  // Tick 2 (a fresh call = simulated restart, budget read from disk) must NOT hit the API.
+  const later = now + NEWS_POLL_INTERVAL_MS + 60000;
+  const r2 = await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now: later, log: () => {}, env });
+  assert.equal(calledGetArticles, 1, 'exhausted budget => no further API calls');
+  // Free stack still refreshed the instrument.
+  assert.ok(r2.refreshed.length === 1 && (r2.refreshed[0].newsApiAi === null || r2.refreshed[0].newsApiAi.requestMade === false));
+});
+
+test('refreshNewsCache: a 401 opens a persistent circuit; the next tick skips NewsAPI.ai (no repeated auth call)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = (naiStatus) => async (url, opts) => {
+    if (url.includes('getArticles')) { calls++; return { ok: false, status: naiStatus, text: async () => 'unauthorized' }; }
+    return naiFetcher()(url, opts);
+  };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f(401), now, log: () => {}, env: NAI_ENV });
+  assert.equal(calls, 1, 'first tick attempts and gets 401');
+  assert.ok(providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, 'WTICO/USD', now), 'circuit is open after 401');
+  const later = now + NEWS_POLL_INTERVAL_MS + 60000;
+  const r2 = await refreshNewsCache(dbPath, WTI, {}, { fetcher: f(401), now: later, log: () => {}, env: NAI_ENV });
+  assert.equal(calls, 1, 'circuit open => NewsAPI.ai not called again');
+  assert.ok(r2.refreshed.length === 1, 'free stack still carries the tick');
+});
+
+test('recordProviderObservations: first_seen_at is preserved across repeat polls (who-saw-it-first)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const item = { provider: 'newsapi-ai', providerItemId: 'x1', url: 'https://x/1', title: 'T', source: 'Reuters', sourceUri: 'reuters.com', timeIso: '2026-07-23T09:00:00Z', sentiment: -0.2 };
+  recordProviderObservations(dbPath, 'WTICO/USD', [item], Date.parse('2026-07-23T09:05:00Z'));
+  recordProviderObservations(dbPath, 'WTICO/USD', [item], Date.parse('2026-07-23T09:30:00Z'));
+  withDb(dbPath, (db) => {
+    const rows = db.prepare('SELECT first_seen_at FROM news_provider_observations WHERE provider_item_id=?').all('x1');
+    assert.equal(rows.length, 1, 'one row, not duplicated');
+    assert.equal(rows[0].first_seen_at, '2026-07-23T09:05:00.000Z', 'first sighting preserved, not overwritten');
+  });
+});
+
+test('refreshNewsCache: mode=off ignores a present key entirely', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env: { ...NAI_ENV, NEWSAPI_AI_MODE: 'off' } });
+  assert.equal(calls, 0, 'off => no NewsAPI.ai call even with a key');
+  assert.equal(providerRequestsUsed(dbPath), 0);
 });
