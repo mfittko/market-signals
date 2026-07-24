@@ -287,25 +287,10 @@ test('fetchNewsApiAiArticles: getArticles path parses results, sends the key onl
   const { fetcher, calls } = mockFetcher([{ json: jsonFixture('newsapi_ai_get_articles.json') }]);
   const r = await fetchNewsApiAiArticles({ query: '(oil OR OPEC)', apiKey: 'SECRET', fetcher, hours: 24, now: Date.parse('2026-07-24T20:00:00Z') });
   assert.equal(r.endpoint, 'getArticles');
-  assert.equal(r.cursor, null);
   assert.ok(r.items.length >= 1 && r.items.every((it) => it.provider === 'newsapi-ai'));
   assert.match(calls[0].url, /getArticles$/);
   assert.equal(calls[0].body.apiKey, 'SECRET');
   assert.deepEqual(calls[0].body.keyword, ['oil', 'OPEC']);
-});
-test('fetchNewsApiAiArticles: minuteStream path advances the cursor from the response', async () => {
-  const fx = jsonFixture('newsapi_ai_minute_stream.json');
-  const { fetcher, calls } = mockFetcher([{ json: fx }]);
-  const r = await fetchNewsApiAiArticles({ query: '(oil)', apiKey: 'SECRET', fetcher, cursor: 'prev-cursor' });
-  assert.equal(r.endpoint, 'minuteStream');
-  assert.equal(r.cursor, fx.recentActivityArticles.newestUri.news);
-  assert.match(calls[0].url, /minuteStreamArticles$/);
-  assert.equal(calls[0].body.recentActivityArticlesNewsUpdatesAfterUri, 'prev-cursor');
-});
-test('fetchNewsApiAiArticles: keeps the prior cursor when the response omits newestUri', async () => {
-  const { fetcher } = mockFetcher([{ json: { recentActivityArticles: { activity: [] } } }]);
-  const r = await fetchNewsApiAiArticles({ query: '(oil)', apiKey: 'K', fetcher, cursor: 'keep-me' });
-  assert.equal(r.cursor, 'keep-me');
 });
 test('fetchNewsApiAiArticles: requires an apiKey', async () => {
   await assert.rejects(() => fetchNewsApiAiArticles({ query: '(oil)' }), /requires an apiKey/);

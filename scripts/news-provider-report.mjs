@@ -69,7 +69,7 @@ export function latency(obs, provider = NAI) {
     if (leadMin > 0) naiWins++; else if (leadMin < 0) freeWins++;
   }
   // Acquisition latency vs publish time (includes our poll cadence).
-  const acqMin = obs.filter((o) => o.provider === NAI && o.published_at && o.first_seen_at)
+  const acqMin = obs.filter((o) => o.provider === provider && o.published_at && o.first_seen_at)
     .map((o) => (Date.parse(o.first_seen_at) - Date.parse(o.published_at)) / 60000).filter((x) => Number.isFinite(x) && x >= 0);
   return {
     matchedStories: leads.length,

@@ -143,9 +143,7 @@ export function normalizeGdeltArticle(article) {
 // eventregistry.org (newsapi.ai is an alias for the same API).
 export const NEWSAPI_AI_HOST = 'https://eventregistry.org';
 export const NEWSAPI_AI_GET_ARTICLES_URL = `${NEWSAPI_AI_HOST}/api/v1/article/getArticles`;
-export const NEWSAPI_AI_MINUTE_STREAM_URL = `${NEWSAPI_AI_HOST}/api/v1/minuteStreamArticles`;
 export const NEWSAPI_AI_MAX_KEYWORDS = 15;         // trial limit
-export const NEWSAPI_AI_STREAM_CAP = 100;          // per minuteStream response
 export const NEWSAPI_AI_MODES = ['auto', 'primary', 'shadow', 'off'];
 export const DEFAULT_NEWSAPI_AI_BUDGET = 1800;
 // Initial API filters — named so they can be tuned from trial evidence.
@@ -172,9 +170,9 @@ export function parseSentinelQueryToKeywords(query) {
   return keywords;
 }
 
-// Normalize a NewsAPI.ai article (same shape from getArticles.results[] and
-// minuteStream.activity[]) into the common item, extended with provider
-// metadata. dateTimePub is preferred (publish time) over dateTime (ingest time).
+// Normalize a NewsAPI.ai article (getArticles.results[]) into the common item,
+// extended with provider metadata. dateTimePub is preferred (publish time) over
+// dateTime (ingest time).
 export function normalizeNewsApiAiArticle(article) {
   const title = article?.title || '';
   const body = article?.body || '';
@@ -215,35 +213,15 @@ async function safeFetchJson(url, { fetcher, timeoutMs, body }) {
   return JSON.parse(await res.text());
 }
 
-// The provider adapter. cursor === null => on-demand getArticles path (returns
-// {items, cursor:null}); a string (incl. '') => background minuteStream path
-// (returns {items, cursor:<advanced-or-prior>}). The key is only ever sent in
-// the request body, never returned, logged, or persisted by this function.
+// The provider adapter: the query-filtered getArticles endpoint (newest-first),
+// with the requested lookback enforced locally. The key is only ever sent in the
+// request body, never returned, logged, or persisted by this function.
 export async function fetchNewsApiAiArticles({
-  query, hours = DEFAULT_HOURS, maxItems = PER_SOURCE_CAP, cursor = null,
+  query, hours = DEFAULT_HOURS, maxItems = PER_SOURCE_CAP,
   apiKey, fetcher = defaultFetcher, timeoutMs = FETCH_TIMEOUT_MS, now = Date.now(),
 } = {}) {
   if (!apiKey) throw new Error('fetchNewsApiAiArticles requires an apiKey');
   const keywords = parseSentinelQueryToKeywords(query); // throws on unsupported/over-limit
-
-  if (cursor !== null) {
-    const body = {
-      action: 'getMinuteStreamArticles',
-      recentActivityArticlesMaxArticleCount: Math.min(maxItems, NEWSAPI_AI_STREAM_CAP),
-      recentActivityArticlesDataType: NEWSAPI_AI_FILTERS.dataType,
-      lang: NEWSAPI_AI_FILTERS.lang,
-      includeArticleConcepts: true, includeArticleSentiment: true, includeArticleEventUri: true,
-      apiKey,
-    };
-    if (cursor) body.recentActivityArticlesNewsUpdatesAfterUri = cursor;
-    const json = await safeFetchJson(NEWSAPI_AI_MINUTE_STREAM_URL, { fetcher, timeoutMs, body });
-    const ra = json?.recentActivityArticles || {};
-    const arr = Array.isArray(ra.activity) ? ra.activity : [];
-    // Advance the cursor only from a parsed response; keep the prior cursor when absent.
-    const nextCursor = ra?.newestUri?.news ?? cursor;
-    return { items: arr.map(normalizeNewsApiAiArticle), cursor: nextCursor, endpoint: 'minuteStream' };
-  }
-
   const body = {
     action: 'getArticles',
     keyword: keywords, keywordOper: NEWSAPI_AI_FILTERS.keywordOper, keywordLoc: NEWSAPI_AI_FILTERS.keywordLoc,
@@ -257,7 +235,7 @@ export async function fetchNewsApiAiArticles({
   const cutoffMs = now - hours * 3600000;
   const items = arr.map(normalizeNewsApiAiArticle)
     .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs); // locally enforce --hours
-  return { items, cursor: null, endpoint: 'getArticles' };
+  return { items, endpoint: 'getArticles' };
 }
 
 // The NEWSAPI_AI_* config keys, read from settings.json first then the process
@@ -454,13 +432,12 @@ export async function fetchSentinelNews({
       log(`newsapi-ai query unsupported, using free stack: ${newsApiOutcome.error}`);
     }
     if (keywords) {
-      const startedAt = Date.now();
       try {
         const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
-        newsApiOutcome = { ok: true, requestMade: true, status: 200, items: r.items, durationMs: Date.now() - startedAt };
+        newsApiOutcome = { ok: true, requestMade: true, status: 200, items: r.items };
       } catch (err) {
         // A network attempt WAS made (chargeable): requestMade stays true.
-        newsApiOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err), durationMs: Date.now() - startedAt };
+        newsApiOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err) };
         log(`newsapi-ai failed: ${newsApiOutcome.error}`);
       }
     }

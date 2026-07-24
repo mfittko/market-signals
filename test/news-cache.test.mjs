@@ -485,3 +485,12 @@ test('refreshNewsForDecision: reason reflects the outcome (ok / request-failed /
 test('DECISION_FETCH_TIMEOUT_MS is tighter than the default, so a slow source cannot stall alert delivery', () => {
   assert.ok(DECISION_FETCH_TIMEOUT_MS <= 6000 && DECISION_FETCH_TIMEOUT_MS < 15000);
 });
+
+test('sentinelDecisionContext: fails open — a DB error degrades to null, never throws into the alert path', async () => {
+  // A bogus dbPath (a directory) makes the underlying withDb/reads throw; the
+  // decision context must swallow it and return null, not propagate (dropping an alert).
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD' };
+  const ctx = await sentinelDecisionContext(dir /* a directory, not a db file */, 'WTICO/USD', { env, fetcher: naiFetcher(), now: Date.now(), log: () => {} });
+  assert.equal(ctx, null, 'a DB failure degrades to no-context, not a throw');
+});

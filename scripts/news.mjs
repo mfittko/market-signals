@@ -17,14 +17,12 @@ import {
 
 // NewsAPI.ai provider persistence (issue #104), kept separate from the canonical
 // `news` cache. news_provider_state holds the per-instrument request budget +
-// circuit-breaker (cursor_news reserved, unused: the background poll uses the
-// query-filtered getArticles endpoint, not the global minuteStream firehose).
-// news_provider_observations is the append-only provenance log the trial
-// benchmark reads — one row per (instrument, provider, item), first_seen_at
-// preserved so "which provider saw it first" survives repeat polls.
+// circuit-breaker. news_provider_observations is the append-only provenance log
+// the trial benchmark reads — one row per (instrument, provider, item),
+// first_seen_at preserved so "which provider saw it first" survives repeat polls.
 const PROVIDER_STATE_DDL = `CREATE TABLE IF NOT EXISTS news_provider_state (
   provider TEXT NOT NULL, instrument TEXT NOT NULL,
-  cursor_news TEXT, last_attempt_at TEXT, last_success_at TEXT,
+  last_attempt_at TEXT, last_success_at TEXT,
   disabled_reason TEXT, disabled_until TEXT,
   requests_used INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (provider, instrument)
@@ -354,8 +352,18 @@ export async function refreshNewsForDecision(dbPath, instrument, { env = process
 // return the ranked advisory block. The filter/bot call this instead of the bare
 // cache read so the news is freshest at the exact moment a decision is made.
 export async function sentinelDecisionContext(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {}, windowHours, topN } = {}) {
-  await refreshNewsForDecision(dbPath, instrument, { env, fetcher, now, log });
-  return newsContextFor(dbPath, instrument, { now, windowHours, topN });
+  // Fail-open: this runs on the hot alert-decision path, and news is advisory. Any
+  // failure here — including a SQLITE_BUSY from the pre-checks/cache reads under a
+  // concurrent writer — must degrade to "no news context", NEVER throw and abort
+  // the alert/bot decision. (The filter's own fail-open handler wraps llmVerdict,
+  // not this awaited call, so the guard belongs here.)
+  try {
+    await refreshNewsForDecision(dbPath, instrument, { env, fetcher, now, log });
+    return newsContextFor(dbPath, instrument, { now, windowHours, topN });
+  } catch (err) {
+    log(`sentinel decision context failed for ${instrument}: ${err.message}`);
+    return null;
+  }
 }
 
 // Advisory context block for the filter + bot prompts (mirrors
