@@ -425,13 +425,27 @@ export async function fetchSentinelNews({
   if (newsApiAi?.enabled) {
     if (newsApiAi.warn) log(newsApiAi.warn);
     providersAttempted.unshift('newsapi-ai');
-    const startedAt = performance.now();
+    // Validate the query -> keywords locally FIRST. A parse/keyword-limit failure
+    // is NOT chargeable (no network, no token) — log a sanitized warning, fall
+    // back to the free stack, and report requestMade:false so the persistence
+    // layer never charges the budget or trips the circuit for a bad query.
+    let keywords = null;
     try {
-      const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
-      newsApiOutcome = { ok: true, status: 200, items: r.items, durationMs: Math.round(performance.now() - startedAt) };
+      keywords = parseSentinelQueryToKeywords(query);
     } catch (err) {
-      newsApiOutcome = { ok: false, status: err?.status ?? null, error: err?.message || String(err), durationMs: Math.round(performance.now() - startedAt) };
-      log(`newsapi-ai failed: ${newsApiOutcome.error}`);
+      newsApiOutcome = { ok: false, requestMade: false, status: null, items: [], error: err?.message || String(err) };
+      log(`newsapi-ai query unsupported, using free stack: ${newsApiOutcome.error}`);
+    }
+    if (keywords) {
+      const startedAt = performance.now();
+      try {
+        const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
+        newsApiOutcome = { ok: true, requestMade: true, status: 200, items: r.items, durationMs: Math.round(performance.now() - startedAt) };
+      } catch (err) {
+        // A network attempt WAS made (chargeable): requestMade stays true.
+        newsApiOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err), durationMs: Math.round(performance.now() - startedAt) };
+        log(`newsapi-ai failed: ${newsApiOutcome.error}`);
+      }
     }
     const fetched = newsApiOutcome.items || [];
     if (newsApiAi.shadow) shadowItems = fetched; else newsApiItems = fetched;
@@ -452,10 +466,13 @@ export async function fetchSentinelNews({
     escalation: items.some((it) => it.escalation),
     asOf: new Date(now).toISOString(),
   };
-  if (newsApiAi) {
+  // Diagnostics attach ONLY when the provider actually ran (enabled). Without a
+  // key — or in primary-mode-without-a-key (disabled + warn) — the output shape
+  // stays byte-for-byte the free stack, per the #104 acceptance criteria.
+  if (newsApiAi?.enabled) {
     out.newsApiAi = {
       mode: newsApiAi.mode,
-      requestMade: newsApiAi.enabled === true,
+      requestMade: newsApiOutcome?.requestMade === true,
       ok: newsApiOutcome ? newsApiOutcome.ok : null,
       status: newsApiOutcome ? newsApiOutcome.status : null,
       shadow: newsApiAi.shadow === true,

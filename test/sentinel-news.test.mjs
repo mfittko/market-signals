@@ -394,3 +394,29 @@ test('fetchSentinelNews: a NewsAPI.ai failure never aborts the aggregate (free s
   assert.ok(res.items.some((it) => it.title === 'Oil steady'), 'free-stack item survived NewsAPI.ai failure');
   assert.equal(res.newsApiAi.itemsReturned, 0);
 });
+
+// --- Copilot review fixes (PR #105) ----------------------------------------
+test('fetchSentinelNews: an over-limit/unsupported query is a local parse error — non-chargeable (requestMade false), no network call', async () => {
+  const overLimit = `(${Array.from({ length: 20 }, (_, i) => `k${i}`).join(' OR ')})`;
+  let getArticlesCalls = 0;
+  const routes = async (url) => {
+    if (/getArticles/.test(url)) { getArticlesCalls++; return { ok: true, status: 200, text: async () => '{}' }; }
+    throw new Error('free offline');
+  };
+  const res = await fetchSentinelNews({
+    query: overLimit, now: Date.now(), fetcher: routes,
+    newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K', shadow: false },
+  });
+  assert.equal(getArticlesCalls, 0, 'no network call for a query that fails local parse');
+  assert.equal(res.newsApiAi.requestMade, false, 'a local parse failure is not chargeable');
+  assert.equal(res.newsApiAi.ok, false);
+});
+
+test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no-key output stays byte-for-byte free)', async () => {
+  const failing = async () => { throw new Error('offline'); };
+  // enabled:false is what resolveNewsApiAiConfig returns without a key (incl. primary-mode warn).
+  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'primary', warn: 'primary but no key' } });
+  assert.equal(res.newsApiAi, undefined, 'no diagnostics when the provider did not run');
+  assert.equal(res.providersAttempted, undefined);
+  assert.equal(res.observed, undefined);
+});

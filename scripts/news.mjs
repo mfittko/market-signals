@@ -281,10 +281,15 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
   const gdeltThrottle = createGdeltThrottle(sleep ? { sleep, now: () => now } : {});
   const refreshed = [];
   for (const { instrument, sentinel, nai } of toFetch) {
+    // Re-check the budget against the LIVE budgetUsed right before the call, not
+    // the tick-start snapshot: when several instruments are eligible in one tick,
+    // an earlier one may have spent the last budgeted request, and the global cap
+    // must hold across all of them.
+    const naiActiveNow = nai.active && budgetUsed < nai.cfg.requestBudget;
     try {
       const result = await fetchSentinelNews({
         query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, gdeltThrottle,
-        newsApiAi: nai.active ? nai.cfg : null,
+        newsApiAi: naiActiveNow ? nai.cfg : null,
       });
       const fetchedAt = new Date(now).toISOString();
       const { added } = upsertNews(dbPath, instrument, result.items, fetchedAt);
@@ -295,7 +300,7 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
         budgetUsed += 1;
       }
       // Provenance for the trial benchmark: every provider's in-window sighting.
-      if (nai.active && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+      if (naiActiveNow && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
       refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null });
     } catch (err) {
       log(`refresh failed for ${instrument}: ${err.message}`);

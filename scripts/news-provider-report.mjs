@@ -88,9 +88,14 @@ export function tradingRelevance(db, instrument, obs, sinceIso) {
     ? db.prepare('SELECT time FROM signals WHERE instrument=? AND time>=?').all(instrument, sinceIso).map((r) => Date.parse(r.time)).filter(Number.isFinite) : [];
   // bot_journal is created by the bot pipeline, not by withDb — absent in a fresh
   // candles.db, so guard rather than assume it exists (read-only, never creates).
+  // It has no instrument column; the instrument lives in the context JSON, so
+  // best-effort filter on a context match (else the report mixes other instruments).
   const events = tableExists('bot_journal')
-    ? db.prepare('SELECT at FROM bot_journal WHERE at>=?').all(sinceIso).map((r) => Date.parse(r.at)).filter(Number.isFinite) : [];
-  const within = (eventTs, mins) => eventTs.filter((ts) => naiSeen.some((n) => Math.abs(n - ts) <= mins * 60000)).length;
+    ? db.prepare("SELECT at FROM bot_journal WHERE at>=? AND (context LIKE ? OR reason LIKE ?)").all(sinceIso, `%${instrument}%`, `%${instrument}%`).map((r) => Date.parse(r.at)).filter(Number.isFinite) : [];
+  // "Available at decision time": the headline must have been first-seen AT OR
+  // BEFORE the event and within the window — a headline that arrives AFTER a flip
+  // could not have informed it, so Math.abs() would wrongly credit it.
+  const within = (eventTs, mins) => eventTs.filter((ts) => naiSeen.some((n) => n <= ts && ts - n <= mins * 60000)).length;
   const buckets = [5, 10, 15, 30];
   const cover = (eventTs) => Object.fromEntries(buckets.map((m) => [`within${m}min`, `${within(eventTs, m)}/${eventTs.length}`]));
   return { freshFlips: flips.length, flipsCovered: cover(flips), botEvents: events.length, botEventsCovered: cover(events) };
