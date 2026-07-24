@@ -286,6 +286,24 @@ test('watcher fields round-trip and oversize body gets 413', async () => {
   });
 });
 
+test('maxCompletionTokens (#98): round-trips as a positive integer, rejects non-positive/non-integer values', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: 16000 }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.maxCompletionTokens, 16000);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: 0 }) });
+    assert.equal(res.status, 400, 'zero is not a positive integer');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: -1 }) });
+    assert.equal(res.status, 400);
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: 1.5 }) });
+    assert.equal(res.status, 400, 'must be an integer');
+    // clearing it back out (empty string deletes) is still valid
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: '' }) });
+    assert.equal(res.status, 200);
+  });
+});
+
 test('page escapes db-backed fields (no raw script injection vector)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();

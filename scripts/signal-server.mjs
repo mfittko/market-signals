@@ -46,7 +46,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
@@ -73,6 +73,11 @@ export function writeSettings(settingsPath, patch) {
   }
   if (patch.freshBars !== undefined && patch.freshBars !== '' && patch.freshBars !== null && (!Number.isInteger(patch.freshBars) || patch.freshBars < 0)) {
     throw new Error('freshBars must be a non-negative integer');
+  }
+  // #98: openai-compatible reasoning-model completion budget (floor default
+  // lives in supertrend.mjs's OPENAI_REASONING_FLOOR); operator-tunable here.
+  if (patch.maxCompletionTokens !== undefined && patch.maxCompletionTokens !== '' && patch.maxCompletionTokens !== null && (!Number.isInteger(patch.maxCompletionTokens) || patch.maxCompletionTokens <= 0)) {
+    throw new Error('maxCompletionTokens must be a positive integer');
   }
   if (patch.bot !== undefined && patch.bot !== '' && patch.bot !== null) {
     if (typeof patch.bot !== 'object' || Array.isArray(patch.bot)) throw new Error('bot must be an object');
@@ -1955,7 +1960,7 @@ function history(list, botDecisions) {
 }
 // operator-relevant fields up front; launch-config plumbing collapses behind "advanced" (#56)
 const FIELDS = [['watchers', 'text'], ['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password']];
-const ADV_FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
+const ADV_FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['maxCompletionTokens', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // legacy empty provider pre-resolves to the active one (#42); saving persists it

@@ -256,6 +256,31 @@ test('deliberation survives a throwing tool executor (pi path: tools never invok
   assert.equal(r.decision.action, 'hold', 'deliberation survives a throwing tool executor');
 });
 
+test('deliberate (#98): an openai reasoning-model null-content decision still fail-safe holds, with a readable reason (not "malformed decision")', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: null } }] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const db = fresh();
+    const settings = { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, bot: { enabled: true, riskPct: 100 } };
+    const r = await deliberate(db, settings, {
+      instrument: WTI, granularity: 'M5', event: 'flip', ctx: { close: 87 },
+      toolDefs: [{ name: 't', description: 'd', input_schema: { type: 'object' } }],
+      execTool: async () => 'tool-output',
+    });
+    assert.equal(r.decision.action, 'hold', 'fail-safe hold, never a crash');
+    assert.match(r.decision.reasoning, /fail-safe hold/);
+    assert.match(r.decision.reasoning, /no content/, 'the readable llmRequest message');
+    assert.match(r.decision.reasoning, /finish_reason=length/);
+    assert.doesNotMatch(r.decision.reasoning, /reading 'match'/, 'never the cryptic null.match TypeError text');
+    assert.doesNotMatch(r.decision.reasoning, /malformed decision/, 'a thrown provider error, not a parse failure');
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
 test('strategy scoping (#25): spaced combos normalize; no-active-strategy pauses deliberation', async () => {
   const { saveStrategy, activateStrategy, archiveStrategy } = await import('../scripts/strategies.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
