@@ -135,6 +135,151 @@ export function normalizeGdeltArticle(article) {
   };
 }
 
+// --- NewsAPI.ai / Event Registry provider (issue #104) ----------------------
+// A preferred commercial provider layered onto the free stack: same normalized
+// item shape (extended with optional provider metadata), same failure-isolation
+// contract. Two endpoints, one adapter: getArticles for on-demand --hours
+// lookback, minuteStreamArticles for the cursor-based background cache. Host is
+// eventregistry.org (newsapi.ai is an alias for the same API).
+export const NEWSAPI_AI_HOST = 'https://eventregistry.org';
+export const NEWSAPI_AI_GET_ARTICLES_URL = `${NEWSAPI_AI_HOST}/api/v1/article/getArticles`;
+export const NEWSAPI_AI_MINUTE_STREAM_URL = `${NEWSAPI_AI_HOST}/api/v1/minuteStreamArticles`;
+export const NEWSAPI_AI_MAX_KEYWORDS = 15;         // trial limit
+export const NEWSAPI_AI_STREAM_CAP = 100;          // per minuteStream response
+export const NEWSAPI_AI_MODES = ['auto', 'primary', 'shadow', 'off'];
+export const DEFAULT_NEWSAPI_AI_BUDGET = 1800;
+// Initial API filters — named so they can be tuned from trial evidence.
+export const NEWSAPI_AI_FILTERS = {
+  dataType: ['news'], lang: ['eng'], keywordOper: 'or', keywordLoc: 'title', isDuplicateFilter: 'skipDuplicates',
+};
+
+// Convert a committed sentinel OR-query into a NewsAPI.ai keyword array.
+// `(oil OR crude OR "supply disruption")` -> ['oil','crude','supply disruption'].
+// Splits only on case-insensitive ` OR `, strips one surrounding paren pair and
+// surrounding quotes, preserves multi-word phrases, rejects empty, and never
+// silently truncates: >15 keywords throws so the caller falls back to free.
+export function parseSentinelQueryToKeywords(query) {
+  let q = String(query || '').trim();
+  if (q.startsWith('(') && q.endsWith(')')) q = q.slice(1, -1).trim();
+  if (!q) throw new Error('empty sentinel query');
+  const keywords = q.split(/\s+OR\s+/i)
+    .map((t) => t.trim().replace(/^["']|["']$/g, '').trim())
+    .filter(Boolean);
+  if (!keywords.length) throw new Error('sentinel query produced no keywords');
+  if (keywords.length > NEWSAPI_AI_MAX_KEYWORDS) {
+    throw new Error(`sentinel query has ${keywords.length} keywords, exceeds trial limit of ${NEWSAPI_AI_MAX_KEYWORDS}`);
+  }
+  return keywords;
+}
+
+// Normalize a NewsAPI.ai article (same shape from getArticles.results[] and
+// minuteStream.activity[]) into the common item, extended with provider
+// metadata. dateTimePub is preferred (publish time) over dateTime (ingest time).
+export function normalizeNewsApiAiArticle(article) {
+  const title = article?.title || '';
+  const body = article?.body || '';
+  return {
+    provider: 'newsapi-ai',
+    providerItemId: article?.uri || null,
+    source: article?.source?.title || article?.source?.uri || 'unknown',
+    sourceUri: article?.source?.uri || null,
+    title,
+    timeIso: parseFeedDate(article?.dateTimePub || article?.dateTime),
+    summary: body ? body.slice(0, 500) : null,
+    url: article?.url || null,
+    eventUri: article?.eventUri || null,
+    sentiment: Number.isFinite(article?.sentiment) ? article.sentiment : null,
+    concepts: Array.isArray(article?.concepts) ? article.concepts : null,
+    isDuplicate: typeof article?.isDuplicate === 'boolean' ? article.isDuplicate : null,
+    tone: null,
+    themes: null,
+    escalation: computeEscalation({ title, summary: body }),
+  };
+}
+
+async function safeFetchJson(url, { fetcher, timeoutMs, body }) {
+  const res = await fetcher(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return JSON.parse(await res.text());
+}
+
+// The provider adapter. cursor === null => on-demand getArticles path (returns
+// {items, cursor:null}); a string (incl. '') => background minuteStream path
+// (returns {items, cursor:<advanced-or-prior>}). The key is only ever sent in
+// the request body, never returned, logged, or persisted by this function.
+export async function fetchNewsApiAiArticles({
+  query, hours = DEFAULT_HOURS, maxItems = PER_SOURCE_CAP, cursor = null,
+  apiKey, fetcher = defaultFetcher, timeoutMs = FETCH_TIMEOUT_MS, now = Date.now(),
+} = {}) {
+  if (!apiKey) throw new Error('fetchNewsApiAiArticles requires an apiKey');
+  const keywords = parseSentinelQueryToKeywords(query); // throws on unsupported/over-limit
+
+  if (cursor !== null) {
+    const body = {
+      action: 'getMinuteStreamArticles',
+      recentActivityArticlesMaxArticleCount: Math.min(maxItems, NEWSAPI_AI_STREAM_CAP),
+      recentActivityArticlesDataType: NEWSAPI_AI_FILTERS.dataType,
+      lang: NEWSAPI_AI_FILTERS.lang,
+      includeArticleConcepts: true, includeArticleSentiment: true, includeArticleEventUri: true,
+      apiKey,
+    };
+    if (cursor) body.recentActivityArticlesNewsUpdatesAfterUri = cursor;
+    const json = await safeFetchJson(NEWSAPI_AI_MINUTE_STREAM_URL, { fetcher, timeoutMs, body });
+    const ra = json?.recentActivityArticles || {};
+    const arr = Array.isArray(ra.activity) ? ra.activity : [];
+    // Advance the cursor only from a parsed response; keep the prior cursor when absent.
+    const nextCursor = ra?.newestUri?.news ?? cursor;
+    return { items: arr.map(normalizeNewsApiAiArticle), cursor: nextCursor, endpoint: 'minuteStream' };
+  }
+
+  const body = {
+    action: 'getArticles',
+    keyword: keywords, keywordOper: NEWSAPI_AI_FILTERS.keywordOper, keywordLoc: NEWSAPI_AI_FILTERS.keywordLoc,
+    lang: NEWSAPI_AI_FILTERS.lang, dataType: NEWSAPI_AI_FILTERS.dataType, isDuplicateFilter: NEWSAPI_AI_FILTERS.isDuplicateFilter,
+    articlesSortBy: 'date', articlesCount: Math.min(maxItems, 100),
+    includeArticleConcepts: true, includeArticleSentiment: true, includeArticleEventUri: true,
+    resultType: 'articles', apiKey,
+  };
+  const json = await safeFetchJson(NEWSAPI_AI_GET_ARTICLES_URL, { fetcher, timeoutMs, body });
+  const arr = Array.isArray(json?.articles?.results) ? json.articles.results : [];
+  const cutoffMs = now - hours * 3600000;
+  const items = arr.map(normalizeNewsApiAiArticle)
+    .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs); // locally enforce --hours
+  return { items, cursor: null, endpoint: 'getArticles' };
+}
+
+// Resolve provider config from env (mode/key/budget/instrument allowlist) into a
+// single `enabled/shadow` verdict. `off` and a missing key both disable it;
+// `primary` without a key warns but still falls back to the free stack (never a
+// single point of failure). An empty allowlist means "all sentinel instruments".
+export function resolveNewsApiAiConfig(env = process.env, { instrument = null } = {}) {
+  const apiKey = env.NEWSAPI_AI_KEY || null;
+  let mode = String(env.NEWSAPI_AI_MODE || 'auto').toLowerCase();
+  if (!NEWSAPI_AI_MODES.includes(mode)) mode = 'auto';
+  const parsedBudget = Number.parseInt(env.NEWSAPI_AI_REQUEST_BUDGET, 10);
+  const requestBudget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : DEFAULT_NEWSAPI_AI_BUDGET;
+  const allow = String(env.NEWSAPI_AI_INSTRUMENTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const instrumentAllowed = !allow.length || !instrument || allow.includes(instrument);
+
+  let enabled = false;
+  let warn = null;
+  if (mode === 'off') enabled = false;
+  else if (!apiKey) { if (mode === 'primary') warn = 'NEWSAPI_AI_MODE=primary but NEWSAPI_AI_KEY missing — falling back to free stack'; }
+  else if (!instrumentAllowed) enabled = false;
+  else enabled = true;
+
+  return { apiKey, mode, enabled, shadow: enabled && mode === 'shadow', requestBudget, allow, instrumentAllowed, warn };
+}
+
 // --- dedup: exact url match, else fuzzy (normalized) title match ------------
 // Google News' <title> appends " - Publisher" (e.g. "Oil jumps on Houthi
 // attack - Reuters"); GDELT/Al Jazeera/OilPrice carry the bare headline for
@@ -256,6 +401,7 @@ export async function fetchSentinelNews({
   now = Date.now(),
   log = (m) => process.stderr.write(`[sentinel-news] ${m}\n`),
   gdeltThrottle = null,
+  newsApiAi = null, // resolveNewsApiAiConfig() verdict; null => free stack only (today's behavior)
 } = {}) {
   if (!query) throw new Error('fetchSentinelNews requires a query');
   const opts = { fetcher, timeoutMs, perSourceCap, hours };
@@ -266,16 +412,49 @@ export async function fetchSentinelNews({
     fetchSourceSafe('oilprice', () => fetchOilPrice(opts), log),
     yahooSymbol ? fetchSourceSafe('yahoo', () => fetchYahoo(yahooSymbol, opts), log) : Promise.resolve([]),
   ]);
+  const providersAttempted = ['google-news', 'gdelt', 'al-jazeera', 'oilprice', ...(yahooSymbol ? ['yahoo'] : [])];
+
+  // NewsAPI.ai (issue #104): failure-isolated like every other source. Fetched
+  // via the on-demand getArticles path; a failure yields [] + a log line and
+  // the free stack carries the tick. shadow mode records but never merges.
+  let newsApiItems = [];
+  let shadowItems = [];
+  if (newsApiAi?.enabled) {
+    if (newsApiAi.warn) log(newsApiAi.warn);
+    providersAttempted.unshift('newsapi-ai');
+    const fetched = await fetchSourceSafe('newsapi-ai', async () => {
+      const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
+      return r.items;
+    }, log);
+    if (newsApiAi.shadow) shadowItems = fetched; else newsApiItems = fetched;
+  } else if (newsApiAi?.warn) {
+    log(newsApiAi.warn);
+  }
 
   const cutoffMs = now - hours * 3600000;
-  const inWindow = results.flat().filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs);
+  // NewsAPI.ai items FIRST: dedupeItems keeps the first occurrence, so on a
+  // canonical (url/fuzzy-title) collision the richer NewsAPI.ai item wins and
+  // the free-source duplicate is dropped — "prefer richer NewsAPI.ai metadata".
+  const combined = [...newsApiItems, ...results.flat()];
+  const inWindow = combined.filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs);
   const deduped = dedupeItems(inWindow).sort((a, b) => (Date.parse(b.timeIso) || 0) - (Date.parse(a.timeIso) || 0));
   const items = deduped.slice(0, totalCap);
-  return {
+  const out = {
     items,
     escalation: items.some((it) => it.escalation),
     asOf: new Date(now).toISOString(),
   };
+  if (newsApiAi) {
+    out.newsApiAi = {
+      mode: newsApiAi.mode,
+      requestMade: newsApiAi.enabled === true,
+      shadow: newsApiAi.shadow === true,
+      itemsReturned: newsApiAi.shadow ? shadowItems.length : newsApiItems.length,
+    };
+    out.providersAttempted = providersAttempted;
+    if (newsApiAi.shadow) out.shadowItems = shadowItems;
+  }
+  return out;
 }
 
 // --- CLI ---------------------------------------------------------------
@@ -349,12 +528,15 @@ async function main() {
   const { query, yahooSymbol, instrument } = resolveQuery(args);
   // ponytail: hermetic escape hatch for the offline --json shape smoke check
   // (scripts/smoke-skills.mjs) — never set by real usage, no live sources hit.
+  const newsApiAi = resolveNewsApiAiConfig(process.env, { instrument });
   const result = process.env.SENTINEL_NEWS_OFFLINE === '1'
     ? { items: [], escalation: false, asOf: new Date().toISOString() }
-    : await fetchSentinelNews({ query, yahooSymbol, hours: args.hours, totalCap: args.maxItems });
+    : await fetchSentinelNews({ query, yahooSymbol, hours: args.hours, totalCap: args.maxItems, newsApiAi });
 
   if (args.json) {
-    process.stdout.write(JSON.stringify({ ...result, meta: { instrument, query, yahooSymbol, hours: args.hours } }, null, 2));
+    const meta = { instrument, query, yahooSymbol, hours: args.hours };
+    if (result.newsApiAi) { meta.primaryProvider = result.newsApiAi.requestMade ? 'newsapi-ai' : null; meta.newsApiAi = result.newsApiAi; meta.providersAttempted = result.providersAttempted; }
+    process.stdout.write(JSON.stringify({ ...result, meta }, null, 2));
     return;
   }
 
