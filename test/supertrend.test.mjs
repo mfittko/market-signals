@@ -847,3 +847,18 @@ test('reportUsage swallows a synchronous throw AND an async-callback rejection â
     process.off('unhandledRejection', onRej);
   }
 });
+
+
+test('openai malformed/empty-choices response throws a readable error, not a TypeError (#98)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const http = await import('node:http');
+  const srv = http.createServer((req, res) => { res.setHeader('content-type','application/json'); res.end(JSON.stringify({ choices: [] })); });
+  await new Promise((r) => srv.listen(0, r));
+  const port = srv.address().port;
+  try {
+    await assert.rejects(
+      llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: `http://127.0.0.1:${port}` }, 'sys', 'user', { timeoutMs: 10000 }),
+      /no choice\/message|malformed response/,
+    );
+  } finally { await new Promise((r) => srv.close(r)); }
+});

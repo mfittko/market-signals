@@ -371,13 +371,19 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     if (stream) {
       // see the anthropic branch's ponytail note above: same asymmetry, same reason.
-      return readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+      const streamed = await readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+      // a reasoning model can burn the whole (now floored) budget on reasoning and
+      // stream zero content — surface that instead of a silent empty reply
+      if (!streamed) throw new Error(`openai provider streamed no content (a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+      return streamed;
     }
     const data = await res.json();
     reportUsage(onUsage, { provider: 'openai', model, usage: data.usage ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null } : null });
-    const content = data.choices[0].message.content;
+    const choice = data.choices?.[0];
+    if (!choice?.message) throw new Error(`openai provider returned no choice/message (malformed response${data.error ? ': ' + JSON.stringify(data.error).slice(0, 100) : ''})`);
+    const content = choice.message.content;
     if (content == null || content === '') {
-      const finishReason = data.choices[0].finish_reason;
+      const finishReason = choice.finish_reason;
       throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
     }
     return content;
