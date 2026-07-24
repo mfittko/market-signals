@@ -439,6 +439,9 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
       continue;
     }
     const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    // a content array with no text blocks is still no answer — honor the same
+    // clear-diagnostic contract as the null-content paths, don't return ''
+    if (!text) throw new Error(`anthropic returned no text content (stop_reason=${data.stop_reason})`);
     if (onDelta) onDelta(text);
     reportUsage(onUsage, { provider: 'anthropic', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
     return text;
