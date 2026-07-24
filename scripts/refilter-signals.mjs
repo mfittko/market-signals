@@ -128,7 +128,7 @@ export async function runRefilter(dbPath, settings, {
       const history = signalOutcomes(dbPath, row.instrument, row.granularity).filter((s) => s.time !== row.time);
       const payload = await buildFilterPayload({
         dbPath, instrument: row.instrument, granularity: row.granularity,
-        sig, result, candles, history, gateSnapshot, notes,
+        sig, result, candles, history, gateSnapshot, notes, settings,
       });
       const verdict = await llmVerdict(settings, payload, filterSystem.system, null);
       const verdictLabel = verdict.alert === false ? 'suppress' : 'alert';
@@ -196,10 +196,18 @@ export function parseArgs(argv) {
     else if (key === 'since' && val) out.since = val;
     else if (key === 'instrument' && val) out.instrument = val;
     else if (key === 'granularity' && val) out.granularity = val;
-    else if (key === 'limit' && val) out.limit = Number(val);
+    else if (key === 'limit' && val) out.limit = val;
     else unknown.push(`--${key}`);
   }
   if (unknown.length) throw new Error(`unknown flag(s): ${unknown.join(', ')} (run --help)`);
+  // --limit must be a positive integer: NaN would skip the LIMIT clause (unbounded)
+  // and a negative/zero value means "no limit" in SQLite — fail loud for a
+  // maintenance backfill tool rather than silently run unbounded.
+  if (out.limit !== null) {
+    const n = Number(out.limit);
+    if (!Number.isInteger(n) || n <= 0) throw new Error(`--limit must be a positive integer (got '${out.limit}')`);
+    out.limit = n;
+  }
   return out;
 }
 

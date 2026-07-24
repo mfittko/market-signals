@@ -1,0 +1,80 @@
+{
+  "articles": {
+    "results": [
+      {
+        "uri": "9406202019",
+        "url": "https://www.fxstreet.com/news/thai-baht-oil-shock-and-dovish-bot-keep-thb-pressured-against-us-dollar-ocbc-202607241858",
+        "title": "Thai Baht: Oil shock and dovish BoT keep THB pressured against US Dollar - OCBC | FXStreet",
+        "body": "OCBC's Sim Moh Siong and Christopher Wong note that the Thai Baht (THB) is trading near its weakest level in more than a year against the US Dollar (USD), as volatile oil prices, a firmer USD and higher US yields weigh on the currency. They highlight the Bank of Thailand's (BoT) accommodative stance",
+        "dateTimePub": "2026-07-24T18:58:00Z",
+        "dateTime": "2026-07-24T18:59:56Z",
+        "source": {
+          "uri": "fxstreet.com",
+          "dataType": "news",
+          "title": "FXStreet"
+        },
+        "concepts": [
+          {
+            "uri": "http://en.wikipedia.org/wiki/Asteroid_family",
+            "type": "wiki",
+            "score": 5,
+            "label": {
+              "eng": "Asteroid family"
+            }
+          },
+          {
+            "uri": "http://en.wikipedia.org/wiki/Thai_baht",
+            "type": "wiki",
+            "score": 5,
+            "label": {
+              "eng": "Thai baht"
+            }
+          }
+        ],
+        "eventUri": null,
+        "sentiment": -0.05882352941176472,
+        "isDuplicate": false,
+        "lang": "eng"
+      },
+      {
+        "uri": "9406200313",
+        "url": "https://investinglive.com/commodities/crude-oil-futures-settled-at-89-31",
+        "title": "Crude oil futures settled at $89.31",
+        "body": "WTI crude oil futures settled at $89.31, down $2.88 (-3.12%) on the day after trading in a wide range between $87.68 and $92.83. Despite today's sharp decline, crude still finished the week up $7.51, or 9.17%, highlighting just how volatile trading has been.\n\nFrom a technical perspective, the daily ",
+        "dateTimePub": "2026-07-24T18:52:06Z",
+        "dateTime": "2026-07-24T18:57:32Z",
+        "source": {
+          "uri": "investinglive.com",
+          "dataType": "news",
+          "title": "News & Analysis for Stocks, Crypto & Forex | investingLive"
+        },
+        "concepts": [
+          {
+            "uri": "http://en.wikipedia.org/wiki/Futures_contract",
+            "type": "wiki",
+            "score": 5,
+            "label": {
+              "eng": "Futures contract"
+            }
+          },
+          {
+            "uri": "http://en.wikipedia.org/wiki/Volatility_(finance)",
+            "type": "wiki",
+            "score": 3,
+            "label": {
+              "eng": "Volatility (finance)"
+            }
+          }
+        ],
+        "eventUri": null,
+        "sentiment": -0.2627450980392156,
+        "isDuplicate": false,
+        "lang": "eng"
+      }
+    ],
+    "totalResults": 2,
+    "page": 1,
+    "count": 2,
+    "pages": 12068
+  }
+}

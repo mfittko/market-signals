@@ -639,11 +639,16 @@ export function applyProviderDefault(settings) {
 // assembly, never drifting apart. dbPath/instrument are only used for the
 // memories/sentinel lookups (lazy imports avoid the same static cycles the
 // inline call sites avoided).
-export async function buildFilterPayload({ dbPath, instrument, granularity, sig, result, candles, history, gateSnapshot, notes }) {
+export async function buildFilterPayload({ dbPath, instrument, granularity, sig, result, candles, history, gateSnapshot, notes, settings = {} }) {
   // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
   const { memoriesContext } = await import('./memories.mjs');
   // lazy import: avoids a static cycle (news.mjs imports withDb from here)
-  const { newsContextFor } = await import('./news.mjs');
+  const { sentinelDecisionContext } = await import('./news.mjs');
+  const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
+  // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
+  // fetched at the moment the flip is judged (fail-open, no-op without a key).
+  // Key comes from settings.json (env fallback) — the LaunchAgent never loads .env.
+  const sentinel = await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings), log: dbg });
   return {
     current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity },
     backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
@@ -658,7 +663,7 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
     axisGate: gateSnapshot?.axes ?? null,
     traderNotes: notes,
     traderMemories: memoriesContext(dbPath) || undefined,
-    sentinel: newsContextFor(dbPath, instrument) || undefined,
+    sentinel: sentinel || undefined,
   };
 }
 
@@ -716,7 +721,7 @@ export async function processSignal(opts, result, candles) {
     // zero-cost, zero-behavior-change no-op (no log line, no callback at all).
     const onUsage = process.env.MS_DEBUG_LLM ? (info) => dbg(llmUsageLine('filter', info)) : null;
     try {
-      const payload = await buildFilterPayload({ dbPath: opts.db, instrument: opts.instrument, granularity: opts.granularity, sig, result, candles, history, gateSnapshot, notes });
+      const payload = await buildFilterPayload({ dbPath: opts.db, instrument: opts.instrument, granularity: opts.granularity, sig, result, candles, history, gateSnapshot, notes, settings });
       verdict = await llmVerdict(settings, payload, filterSystem.system, onUsage);
       verdictSource = 'llm';
     } catch (err) {
@@ -1092,13 +1097,17 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 // sentinel are both advisory-only blocks, present only when their source has
 // something to say (memoriesContext/newsContextFor return null when empty).
 // Lazy imports avoid a static cycle (memories.mjs/news.mjs import withDb from here).
-export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate } = {}) {
+export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate, settings = {} } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
-  const { newsContextFor } = await import('./news.mjs');
+  const { sentinelDecisionContext } = await import('./news.mjs');
+  const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
-    sentinel: newsContextFor(dbPath, instrument) || undefined,
+    // On-demand NewsAPI.ai pull at the bot's decision point (issue #104); the
+    // throttle means the filter + bot judging the same flip share one pull.
+    // Key from settings.json (env fallback) — the LaunchAgent never loads .env.
+    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings) })) || undefined,
   };
 }
 
@@ -1158,7 +1167,7 @@ async function runOne(opts) {
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes }),
+          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, settings }),
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)
