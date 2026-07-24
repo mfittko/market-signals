@@ -11,7 +11,30 @@
 // already uses for bot.mjs/memories.mjs/signal-server.mjs to dodge cycles).
 import { withDb, trackedInstruments } from './supertrend.mjs';
 import { sentinelConfigForInstrument, loadInstrumentsConfig } from './lib/instruments.mjs';
-import { fetchSentinelNews, createGdeltThrottle } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+import {
+  fetchSentinelNews, createGdeltThrottle, resolveNewsApiAiConfig, normTitle,
+} from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+
+// NewsAPI.ai provider persistence (issue #104), kept separate from the canonical
+// `news` cache. news_provider_state holds the per-instrument request budget +
+// circuit-breaker. news_provider_observations is the append-only provenance log
+// the trial benchmark reads — one row per (instrument, provider, item),
+// first_seen_at preserved so "which provider saw it first" survives repeat polls.
+const PROVIDER_STATE_DDL = `CREATE TABLE IF NOT EXISTS news_provider_state (
+  provider TEXT NOT NULL, instrument TEXT NOT NULL,
+  last_attempt_at TEXT, last_success_at TEXT,
+  disabled_reason TEXT, disabled_until TEXT,
+  requests_used INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (provider, instrument)
+)`;
+const PROVIDER_OBS_DDL = `CREATE TABLE IF NOT EXISTS news_provider_observations (
+  instrument TEXT NOT NULL, provider TEXT NOT NULL, provider_item_id TEXT NOT NULL,
+  canonical_url TEXT, normalized_title TEXT, publisher TEXT, source_uri TEXT,
+  event_uri TEXT, published_at TEXT, first_seen_at TEXT NOT NULL,
+  is_duplicate INTEGER, sentiment REAL,
+  PRIMARY KEY (instrument, provider, provider_item_id)
+)`;
+export const NEWSAPI_AI_PROVIDER = 'newsapi-ai';
 
 // Keyed on (instrument, url), NOT url alone: two instruments can share a
 // sentinel query (e.g. WTI + Brent both query oil/OPEC/Hormuz, per
@@ -63,11 +86,82 @@ function newsDb(dbPath, fn) {
     // CREATE IF NOT EXISTS is cheap and must run on every fresh connection
     // (:memory:, a recreated file); only the migrate scan is cached away.
     db.exec(NEWS_DDL);
+    db.exec(PROVIDER_STATE_DDL);
+    db.exec(PROVIDER_OBS_DDL);
     if (!migrated.has(dbPath)) {
       migrateNewsUniqueKey(db);
       migrated.add(dbPath);
     }
     return fn(db);
+  });
+}
+
+// --- NewsAPI.ai request budget + circuit breaker (issue #104) ---------------
+// The trial budget is a single global cap across all instruments: sum
+// requests_used over every (provider, *) row and compare to the configured
+// NEWSAPI_AI_REQUEST_BUDGET. Persisted, so it survives process restarts.
+export function providerRequestsUsed(dbPath, provider = NEWSAPI_AI_PROVIDER) {
+  return newsDb(dbPath, (db) =>
+    db.prepare('SELECT COALESCE(SUM(requests_used),0) AS n FROM news_provider_state WHERE provider=?').get(provider).n);
+}
+
+// A persistent circuit is open when disabled_until is set and still in the
+// future (401/403). Returns the reason string while open, else null.
+export function providerCircuitOpen(dbPath, provider, instrument, now = Date.now()) {
+  return newsDb(dbPath, (db) => {
+    const row = db.prepare('SELECT disabled_reason, disabled_until FROM news_provider_state WHERE provider=? AND instrument=?').get(provider, instrument);
+    if (!row?.disabled_until) return null;
+    return Date.parse(row.disabled_until) > now ? (row.disabled_reason || 'circuit open') : null;
+  });
+}
+
+// Record one chargeable attempt + its outcome in a single transaction: bump
+// requests_used and last_attempt_at always; on success stamp last_success_at
+// and clear any circuit; on 401/403 open a persistent circuit; on 429/5xx/etc
+// leave the circuit closed (transient — retried next tick). `disabledForMs`
+// bounds the 401/403 circuit so a rotated key can recover without a restart.
+export function recordProviderCall(dbPath, provider, instrument, { ok, status, now = Date.now(), disabledForMs = 6 * 60 * 60 * 1000 } = {}) {
+  return newsDb(dbPath, (db) => {
+    const at = new Date(now).toISOString();
+    db.prepare(`INSERT INTO news_provider_state (provider, instrument, requests_used, last_attempt_at)
+      VALUES (?, ?, 1, ?)
+      ON CONFLICT(provider, instrument) DO UPDATE SET requests_used = requests_used + 1, last_attempt_at = excluded.last_attempt_at`)
+      .run(provider, instrument, at);
+    if (ok) {
+      db.prepare('UPDATE news_provider_state SET last_success_at=?, disabled_reason=NULL, disabled_until=NULL WHERE provider=? AND instrument=?')
+        .run(at, provider, instrument);
+    } else if (status === 401 || status === 403) {
+      db.prepare('UPDATE news_provider_state SET disabled_reason=?, disabled_until=? WHERE provider=? AND instrument=?')
+        .run(`auth/quota HTTP ${status}`, new Date(now + disabledForMs).toISOString(), provider, instrument);
+    }
+  });
+}
+
+// Append-only provenance: one row per (instrument, provider, item). first_seen_at
+// is preserved via DO NOTHING so a repeat poll never rewrites when THIS provider
+// first saw the article. Free-source items key on their url (no providerItemId);
+// items lacking any stable id are skipped. `provider` is the newsapi-ai tag or
+// the free source name (google-news/gdelt/...).
+export function recordProviderObservations(dbPath, instrument, items, now = Date.now()) {
+  return newsDb(dbPath, (db) => {
+    const at = new Date(now).toISOString();
+    const stmt = db.prepare(`INSERT INTO news_provider_observations
+      (instrument, provider, provider_item_id, canonical_url, normalized_title, publisher, source_uri, event_uri, published_at, first_seen_at, is_duplicate, sentiment)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(instrument, provider, provider_item_id) DO NOTHING`);
+    let recorded = 0;
+    for (const it of items) {
+      const provider = it.provider || it.source;
+      const itemId = it.providerItemId || it.url;
+      if (!provider || !itemId) continue;
+      recorded += stmt.run(
+        instrument, provider, itemId, it.url ?? null, normTitle(it.title), it.source ?? null,
+        it.sourceUri ?? null, it.eventUri ?? null, it.timeIso ?? null, at,
+        typeof it.isDuplicate === 'boolean' ? (it.isDuplicate ? 1 : 0) : null,
+        Number.isFinite(it.sentiment) ? it.sentiment : null,
+      ).changes;
+    }
+    return { recorded };
   });
 }
 
@@ -112,6 +206,10 @@ function recordPollMarker(dbPath, instrument, fetchedAt) {
 // Poll at most this often per instrument (locked design: "per-instrument poll
 // at most every ~5-10 min"); a per-tick watcher gate, not a scheduler.
 export const NEWS_POLL_INTERVAL_MS = 8 * 60 * 1000;
+// NewsAPI.ai-enabled instruments poll on a shorter interval — eligible on every
+// M5 watcher tick (issue #104), giving a ~5-min cadence vs the free stack's
+// ~8-min. 4 min so a 5-min tick is always due but a stray rapid re-tick isn't.
+export const NEWSAPI_AI_POLL_INTERVAL_MS = 4 * 60 * 1000;
 export const NEWS_FETCH_CAP = 4; // bound per-tick fan-out across tracked instruments
 export const NEWS_CONTEXT_WINDOW_HOURS = 24;
 export const NEWS_CONTEXT_TOP_N = 5;
@@ -123,6 +221,7 @@ export const NEWS_CONTEXT_TOP_N = 5;
 export async function refreshNewsCache(dbPath, combos, cfg, {
   fetcher = undefined, log = (m) => process.stderr.write(`[news] ${m}\n`), now = Date.now(), cap = NEWS_FETCH_CAP,
   sleep = undefined, // injectable so tests spanning multiple GDELT calls need not sleep for real
+  env = process.env, // injectable so tests can drive NEWSAPI_AI_* without touching the real env
 } = {}) {
   const instruments = trackedInstruments(combos, cfg);
   if (!instruments.length) return { refreshed: [], skipped: [] };
@@ -136,6 +235,25 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     .filter((x) => x.sentinel);
   if (!withConfig.length) return { refreshed: [], skipped: [] };
 
+  // A NewsAPI.ai request is charged this tick only when the provider is enabled,
+  // the persisted trial budget still has room, and no auth/quota circuit is open.
+  // Budget is a single global cap, so it's read once and decremented locally as
+  // instruments spend within the tick (re-read next tick from the DB).
+  let budgetUsed = providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER);
+  // The background poller is OPT-IN (NEWSAPI_AI_BACKGROUND). Off by default:
+  // NewsAPI.ai is pulled on-demand at decision points (fresh flip / bot
+  // deliberation) via refreshNewsForDecision, which scales token spend with
+  // decisions instead of clock ticks (issue #104). Flip this on later to run the
+  // continuous-sampling latency benchmark.
+  const backgroundOn = ['1', 'true', 'yes', 'on'].includes(String(env.NEWSAPI_AI_BACKGROUND || '').toLowerCase());
+  const naiFor = (instrument) => {
+    const c = resolveNewsApiAiConfig(env, { instrument });
+    if (!c.enabled || !backgroundOn) return { cfg: c, active: false };
+    if (budgetUsed >= c.requestBudget) return { cfg: c, active: false, budgetExhausted: true };
+    if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { cfg: c, active: false, circuitOpen: true };
+    return { cfg: c, active: true };
+  };
+
   const newest = newsDb(dbPath, (db) => {
     const stmt = db.prepare('SELECT MAX(fetched_at) AS t FROM news WHERE instrument=?');
     const out = {};
@@ -143,11 +261,12 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return out;
   });
 
-  const due = withConfig.filter(({ instrument }) => {
+  const due = withConfig.map((x) => ({ ...x, nai: naiFor(x.instrument) })).filter(({ instrument, nai }) => {
     const t = newest[instrument];
     const parsed = t ? Date.parse(t) : NaN;
     const ageMs = Number.isNaN(parsed) ? Infinity : now - parsed;
-    return ageMs > NEWS_POLL_INTERVAL_MS;
+    // Shorter interval when NewsAPI.ai will actually run this tick, else free cadence.
+    return ageMs > (nai.active ? NEWSAPI_AI_POLL_INTERVAL_MS : NEWS_POLL_INTERVAL_MS);
   });
 
   const toFetch = due.slice(0, cap);
@@ -159,20 +278,92 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
   // One throttle shared across this tick's GDELT calls (≥5s apart per IP).
   const gdeltThrottle = createGdeltThrottle(sleep ? { sleep, now: () => now } : {});
   const refreshed = [];
-  for (const { instrument, sentinel } of toFetch) {
+  for (const { instrument, sentinel, nai } of toFetch) {
+    // Re-check the budget against the LIVE budgetUsed right before the call, not
+    // the tick-start snapshot: when several instruments are eligible in one tick,
+    // an earlier one may have spent the last budgeted request, and the global cap
+    // must hold across all of them.
+    const naiActiveNow = nai.active && budgetUsed < nai.cfg.requestBudget;
     try {
       const result = await fetchSentinelNews({
         query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, gdeltThrottle,
+        newsApiAi: naiActiveNow ? nai.cfg : null,
       });
       const fetchedAt = new Date(now).toISOString();
       const { added } = upsertNews(dbPath, instrument, result.items, fetchedAt);
       recordPollMarker(dbPath, instrument, fetchedAt);
-      refreshed.push({ instrument, added, escalation: result.escalation });
+      // Charge the budget + drive the circuit breaker from the actual outcome.
+      if (result.newsApiAi?.requestMade) {
+        recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: result.newsApiAi.ok, status: result.newsApiAi.status, now });
+        budgetUsed += 1;
+      }
+      // Provenance for the trial benchmark: every provider's in-window sighting.
+      if (naiActiveNow && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+      refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null });
     } catch (err) {
       log(`refresh failed for ${instrument}: ${err.message}`);
     }
   }
   return { refreshed, skipped };
+}
+
+// On-demand NewsAPI.ai pull at a DECISION point (issue #104): a fresh flip being
+// filtered, or a bot deliberation. This is the primary NewsAPI.ai path — a token
+// is spent when a decision is actually weighed, not on every watcher tick.
+// Throttled so the filter and the bot judging the same flip share one pull; a
+// no-op (no network) when the key is absent / mode off / not allowlisted, or when
+// the budget is exhausted or the auth circuit is open — the decision then falls
+// back to whatever the cache already holds. Never throws into the decision path.
+export const DECISION_PULL_THROTTLE_MS = 5 * 60 * 1000;
+// This pull is awaited on the hot decision path (a fresh flip being judged), so a
+// slow news source must not delay alert delivery. Bound it tighter than the
+// default 15s per-source timeout — the decision falls back to the cache if a
+// source stalls, per the filter/bot fail-open contract.
+export const DECISION_FETCH_TIMEOUT_MS = 5000;
+export async function refreshNewsForDecision(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {} } = {}) {
+  const sentinel = sentinelConfigForInstrument(instrument);
+  if (!sentinel) return { pulled: false, reason: 'no-sentinel-config' };
+  const c = resolveNewsApiAiConfig(env, { instrument });
+  if (!c.enabled) return { pulled: false, reason: 'disabled' };
+  if (providerRequestsUsed(dbPath) >= c.requestBudget) return { pulled: false, reason: 'budget-exhausted' };
+  if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { pulled: false, reason: 'circuit-open' };
+  const lastAttempt = newsDb(dbPath, (db) =>
+    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(NEWSAPI_AI_PROVIDER, instrument)?.t ?? null);
+  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { pulled: false, reason: 'throttled' };
+  try {
+    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log, newsApiAi: c });
+    const fetchedAt = new Date(now).toISOString();
+    upsertNews(dbPath, instrument, result.items, fetchedAt);
+    recordPollMarker(dbPath, instrument, fetchedAt);
+    const nai = result.newsApiAi ?? null;
+    if (nai?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: nai.ok, status: nai.status, now });
+    if (Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+    // Accurate reason: distinguish a real spent request from a non-chargeable
+    // local skip (parse/keyword-limit) and from a network failure.
+    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed') : 'not-made';
+    return { pulled: nai?.requestMade === true, reason, newsApiAi: nai };
+  } catch (err) {
+    log(`decision news pull failed for ${instrument}: ${err.message}`);
+    return { pulled: false, reason: 'error' };
+  }
+}
+
+// The decision-path context: pull fresh NewsAPI.ai (on-demand, throttled) then
+// return the ranked advisory block. The filter/bot call this instead of the bare
+// cache read so the news is freshest at the exact moment a decision is made.
+export async function sentinelDecisionContext(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {}, windowHours, topN } = {}) {
+  // Fail-open: this runs on the hot alert-decision path, and news is advisory. Any
+  // failure here — including a SQLITE_BUSY from the pre-checks/cache reads under a
+  // concurrent writer — must degrade to "no news context", NEVER throw and abort
+  // the alert/bot decision. (The filter's own fail-open handler wraps llmVerdict,
+  // not this awaited call, so the guard belongs here.)
+  try {
+    await refreshNewsForDecision(dbPath, instrument, { env, fetcher, now, log });
+    return newsContextFor(dbPath, instrument, { now, windowHours, topN });
+  } catch (err) {
+    log(`sentinel decision context failed for ${instrument}: ${err.message}`);
+    return null;
+  }
 }
 
 // Advisory context block for the filter + bot prompts (mirrors

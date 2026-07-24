@@ -6,7 +6,32 @@ import { join } from 'node:path';
 import { withDb } from '../scripts/supertrend.mjs';
 import {
   refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
+  NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen,
+  recordProviderCall, recordProviderObservations,
+  refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS, DECISION_FETCH_TIMEOUT_MS,
 } from '../scripts/news.mjs';
+
+// getArticles JSON body for the WTI oil query — one article, newest-first.
+function naiJson(title = 'Iran strikes tanker near Hormuz', uri = 'nai-1', dateTimePub = '2026-07-23T09:45:00Z') {
+  return JSON.stringify({ articles: { results: [{
+    uri, url: `https://eventregistry.org/a/${uri}`, title, body: 'body text',
+    dateTimePub, source: { uri: 'reuters.com', title: 'Reuters' }, eventUri: 'evt-1', sentiment: -0.4, isDuplicate: false,
+  }] } });
+}
+// Fetcher that also answers the NewsAPI.ai getArticles endpoint. `naiStatus`
+// forces a non-200 (e.g. 401 for the circuit-breaker path).
+function naiFetcher({ googleXml = EMPTY_RSS, nai = naiJson(), naiStatus = 200 } = {}) {
+  return async (url) => {
+    if (url.includes('getArticles')) return { ok: naiStatus < 300, status: naiStatus, text: async () => (naiStatus < 300 ? nai : 'err') };
+    if (url.includes('news.google.com')) return { ok: true, status: 200, text: async () => googleXml };
+    if (url.includes('gdeltproject.org')) return { ok: true, status: 200, text: async () => EMPTY_GDELT };
+    return { ok: true, status: 200, text: async () => EMPTY_RSS };
+  };
+}
+// NEWSAPI_AI_BACKGROUND opts the poller in — it is OFF by default (the primary
+// path is the on-demand decision pull); these poller tests exercise the opt-in.
+const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800', NEWSAPI_AI_BACKGROUND: '1' };
+const WTI = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
 
 function dbPathIn(dir) {
   const p = join(dir, 'news-test.sqlite');
@@ -290,4 +315,182 @@ test('migrateNewsUniqueKey (review fix for #86): a forced mid-rebuild failure ro
     const after = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='news'").get();
     assert.ok(/UNIQUE\s*\(\s*instrument\s*,\s*url\s*\)/i.test(after.sql), 'a clean retry after rollback completes the migration');
   });
+});
+
+// --- NewsAPI.ai provider persistence (issue #104) --------------------------
+test('refreshNewsCache: no NEWSAPI_AI_KEY => byte-for-byte free behavior, no provider rows written', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: {} });
+  assert.equal(providerRequestsUsed(dbPath), 0, 'no chargeable requests without a key');
+  withDb(dbPath, (db) => {
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_state').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations').get().n, 0);
+  });
+});
+
+test('refreshNewsCache: with a key, charges the budget once per tick and records observations', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: NAI_ENV });
+  assert.equal(r.refreshed[0].newsApiAi.requestMade, true);
+  assert.equal(providerRequestsUsed(dbPath), 1, 'exactly one chargeable request this tick');
+  withDb(dbPath, (db) => {
+    const obs = db.prepare("SELECT provider, provider_item_id, event_uri, sentiment FROM news_provider_observations WHERE provider=?").all(NEWSAPI_AI_PROVIDER);
+    assert.equal(obs.length, 1, 'the newsapi-ai sighting is logged');
+    assert.equal(obs[0].event_uri, 'evt-1');
+    assert.equal(obs[0].sentiment, -0.4);
+  });
+});
+
+test('refreshNewsCache: budget survives restart and, once exhausted, falls back to free without an API call', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const env = { ...NAI_ENV, NEWSAPI_AI_REQUEST_BUDGET: '1' };
+  let calledGetArticles = 0;
+  const countingFetcher = (inner) => async (url, opts) => { if (url.includes('getArticles')) calledGetArticles++; return inner(url, opts); };
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  // Tick 1 spends the single budgeted request.
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now, log: () => {}, env });
+  assert.equal(calledGetArticles, 1);
+  assert.equal(providerRequestsUsed(dbPath), 1);
+  // Tick 2 (a fresh call = simulated restart, budget read from disk) must NOT hit the API.
+  const later = now + NEWS_POLL_INTERVAL_MS + 60000;
+  const r2 = await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now: later, log: () => {}, env });
+  assert.equal(calledGetArticles, 1, 'exhausted budget => no further API calls');
+  // Free stack still refreshed the instrument.
+  assert.ok(r2.refreshed.length === 1 && (r2.refreshed[0].newsApiAi === null || r2.refreshed[0].newsApiAi.requestMade === false));
+});
+
+test('refreshNewsCache: a 401 opens a persistent circuit; the next tick skips NewsAPI.ai (no repeated auth call)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = (naiStatus) => async (url, opts) => {
+    if (url.includes('getArticles')) { calls++; return { ok: false, status: naiStatus, text: async () => 'unauthorized' }; }
+    return naiFetcher()(url, opts);
+  };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f(401), now, log: () => {}, env: NAI_ENV });
+  assert.equal(calls, 1, 'first tick attempts and gets 401');
+  assert.ok(providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, 'WTICO/USD', now), 'circuit is open after 401');
+  const later = now + NEWS_POLL_INTERVAL_MS + 60000;
+  const r2 = await refreshNewsCache(dbPath, WTI, {}, { fetcher: f(401), now: later, log: () => {}, env: NAI_ENV });
+  assert.equal(calls, 1, 'circuit open => NewsAPI.ai not called again');
+  assert.ok(r2.refreshed.length === 1, 'free stack still carries the tick');
+});
+
+test('recordProviderObservations: first_seen_at is preserved across repeat polls (who-saw-it-first)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const item = { provider: 'newsapi-ai', providerItemId: 'x1', url: 'https://x/1', title: 'T', source: 'Reuters', sourceUri: 'reuters.com', timeIso: '2026-07-23T09:00:00Z', sentiment: -0.2 };
+  recordProviderObservations(dbPath, 'WTICO/USD', [item], Date.parse('2026-07-23T09:05:00Z'));
+  recordProviderObservations(dbPath, 'WTICO/USD', [item], Date.parse('2026-07-23T09:30:00Z'));
+  withDb(dbPath, (db) => {
+    const rows = db.prepare('SELECT first_seen_at FROM news_provider_observations WHERE provider_item_id=?').all('x1');
+    assert.equal(rows.length, 1, 'one row, not duplicated');
+    assert.equal(rows[0].first_seen_at, '2026-07-23T09:05:00.000Z', 'first sighting preserved, not overwritten');
+  });
+});
+
+test('refreshNewsCache: mode=off ignores a present key entirely', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env: { ...NAI_ENV, NEWSAPI_AI_MODE: 'off' } });
+  assert.equal(calls, 0, 'off => no NewsAPI.ai call even with a key');
+  assert.equal(providerRequestsUsed(dbPath), 0);
+});
+
+// --- on-demand decision-point pull (issue #104, primary path) --------------
+test('refreshNewsForDecision: no key => no network, no rows (byte-for-byte current behavior)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  let calls = 0;
+  const f = async (url, opts) => { calls++; return naiFetcher()(url, opts); };
+  const r = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env: {}, fetcher: f, now: Date.now() });
+  assert.equal(r.pulled, false);
+  assert.equal(r.reason, 'disabled');
+  assert.equal(calls, 0, 'no network without a key');
+});
+
+test('refreshNewsForDecision: with a key, pulls once, charges budget, records observations', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const r = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.equal(r.pulled, true);
+  assert.equal(providerRequestsUsed(dbPath), 1);
+  withDb(dbPath, (db) => {
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations WHERE provider=?').get(NEWSAPI_AI_PROVIDER).n, 1);
+  });
+});
+
+test('refreshNewsForDecision: a second call within the throttle window does not re-pull (filter+bot share one pull)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  const r2 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + 60000, log: () => {} });
+  assert.equal(r2.reason, 'throttled');
+  assert.equal(providerRequestsUsed(dbPath), 1, 'still just one chargeable request');
+  // Past the throttle window it pulls again.
+  const r3 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + DECISION_PULL_THROTTLE_MS + 60000, log: () => {} });
+  assert.equal(r3.pulled, true);
+  assert.equal(providerRequestsUsed(dbPath), 2);
+});
+
+test('sentinelDecisionContext: returns the fresh headline after the pull', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const ctx = await sentinelDecisionContext(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.ok(ctx && ctx.headlines.some((h) => /Hormuz/.test(h.title)), 'freshly-pulled headline is in the decision context');
+});
+
+test('refreshNewsCache: background poller is OFF by default (no NEWSAPI_AI_BACKGROUND) even with a key', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
+  // NAI_ENV-style but WITHOUT NEWSAPI_AI_BACKGROUND.
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env });
+  assert.equal(calls, 0, 'poller does not call NewsAPI.ai unless NEWSAPI_AI_BACKGROUND is set');
+  assert.equal(providerRequestsUsed(dbPath), 0);
+});
+
+// --- decision-pull reason accuracy + bounded timeout (Copilot round 4) ------
+test('refreshNewsForDecision: reason reflects the outcome (ok / request-failed / not-made)', async () => {
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  // ok: a real successful pull
+  let d = mkdtempSync(join(tmpdir(), 'news-')); let db = dbPathIn(d);
+  let r = await refreshNewsForDecision(db, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.equal(r.reason, 'ok'); assert.equal(r.pulled, true);
+  // request-failed: network 5xx (a chargeable attempt that failed)
+  d = mkdtempSync(join(tmpdir(), 'news-')); db = dbPathIn(d);
+  r = await refreshNewsForDecision(db, 'WTICO/USD', { env, fetcher: naiFetcher({ naiStatus: 503 }), now, log: () => {} });
+  assert.equal(r.reason, 'request-failed'); assert.equal(r.pulled, true);
+});
+
+test('DECISION_FETCH_TIMEOUT_MS is tighter than the default, so a slow source cannot stall alert delivery', () => {
+  assert.ok(DECISION_FETCH_TIMEOUT_MS <= 6000 && DECISION_FETCH_TIMEOUT_MS < 15000);
+});
+
+test('sentinelDecisionContext: fails open — a DB error degrades to null, never throws into the alert path', async () => {
+  // A bogus dbPath (a directory) makes the underlying withDb/reads throw; the
+  // decision context must swallow it and return null, not propagate (dropping an alert).
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD' };
+  const ctx = await sentinelDecisionContext(dir /* a directory, not a db file */, 'WTICO/USD', { env, fetcher: naiFetcher(), now: Date.now(), log: () => {} });
+  assert.equal(ctx, null, 'a DB failure degrades to no-context, not a throw');
 });

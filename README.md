@@ -202,6 +202,21 @@ market-analysis briefing input is deprecated (it dried out; `fxempire-analysis`
 still backs the live `fxempire_articles` chat tool and its own standalone
 report pipeline).
 
+**NewsAPI.ai preferred provider (issue #104):** add `NEWSAPI_AI_KEY` to
+`data/settings.json` (like the other API keys — the live watcher/bot read it from
+settings, with the process env as a fallback; `.env` is not loaded by the
+LaunchAgent) and it layers on as the preferred source — fresher, with publisher
+domain, `eventUri`, and sentiment — merged first so it wins the canonical dedup. It's pulled **on-demand
+at decision points** (a fresh flip being filtered, a bot deliberating), so a trial
+token is spent when a decision is weighed, not every tick; the persisted
+`NEWSAPI_AI_REQUEST_BUDGET` hard-caps spend and falls back to the free stack when
+exhausted. Modes: `auto`/`primary`/`shadow`/`off`. The every-tick background
+poller is opt-in (`NEWSAPI_AI_BACKGROUND=1`, for the latency benchmark only).
+`node scripts/news-provider-report.mjs --instrument WTICO/USD --since <date>`
+reports coverage, latency, and trading relevance from the provenance log. Without
+a key, behavior is byte-for-byte the free stack. See
+`skills/market-sentinel/SKILL.md`.
+
 ## Provider configuration — `data/settings.json`
 
 Edited from the settings modal, or by hand. Provider resolution is

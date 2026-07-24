@@ -7,7 +7,28 @@ import {
   ESCALATION_LEXICON, GDELT_TONE_ESCALATION_THRESHOLD, computeEscalation,
   parseFeedItems, normalizeRssItem, normalizeGdeltArticle, dedupeItems,
   fetchSentinelNews, createGdeltThrottle, resolveQuery, parseArgs,
+  parseSentinelQueryToKeywords, normalizeNewsApiAiArticle, fetchNewsApiAiArticles,
+  resolveNewsApiAiConfig, NEWSAPI_AI_MAX_KEYWORDS, resolveNewsApiAiSource,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+
+// A fetch double: returns `body` (object => JSON) with status 200, or a chosen
+// status. Records the requested url + parsed request body for assertions.
+function mockFetcher(responses) {
+  const calls = [];
+  const fetcher = async (url, opts) => {
+    calls.push({ url, body: opts?.body ? JSON.parse(opts.body) : null });
+    const r = responses.shift();
+    if (r instanceof Error) throw r;
+    const status = r?.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => (typeof r?.json === 'string' ? r.json : JSON.stringify(r?.json ?? {})),
+    };
+  };
+  return { fetcher, calls };
+}
+const jsonFixture = (name) => JSON.parse(fixture(name));
 
 const SCRIPT = fileURLToPath(new URL('../skills/market-sentinel/scripts/sentinel_news.mjs', import.meta.url));
 const fixture = (name) => readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), 'utf8');
@@ -228,4 +249,171 @@ test('sentinel_news --instrument with no committed config fails loud, no network
   const res = spawnSync('node', [SCRIPT, '--instrument', 'ZZZ/USD', '--json'], { encoding: 'utf8', timeout: 20000 });
   assert.notEqual(res.status, 0);
   assert.match(res.stderr, /no sentinel query configured/);
+});
+
+// --- NewsAPI.ai provider (issue #104) --------------------------------------
+test('parseSentinelQueryToKeywords: OR-splits, strips one paren pair + quotes, keeps phrases', () => {
+  const kws = parseSentinelQueryToKeywords('(oil OR crude OR OPEC OR "supply disruption")');
+  assert.deepEqual(kws, ['oil', 'crude', 'OPEC', 'supply disruption']);
+});
+test('parseSentinelQueryToKeywords: case-insensitive OR, unquoted multi-word phrase preserved', () => {
+  assert.deepEqual(parseSentinelQueryToKeywords('natural gas OR LNG or gas pipeline'), ['natural gas', 'LNG', 'gas pipeline']);
+});
+test('parseSentinelQueryToKeywords: empty query rejected, never silently empty', () => {
+  assert.throws(() => parseSentinelQueryToKeywords('   '), /empty sentinel query/);
+  assert.throws(() => parseSentinelQueryToKeywords('()'), /empty sentinel query/);
+});
+test('parseSentinelQueryToKeywords: over the 15-keyword trial limit throws (no silent truncation)', () => {
+  const many = Array.from({ length: NEWSAPI_AI_MAX_KEYWORDS + 1 }, (_, i) => `k${i}`).join(' OR ');
+  assert.throws(() => parseSentinelQueryToKeywords(many), /exceeds trial limit of 15/);
+});
+
+test('normalizeNewsApiAiArticle: maps a real fixture article, prefers dateTimePub, carries provider metadata', () => {
+  const article = jsonFixture('newsapi_ai_get_articles.json').articles.results[0];
+  const it = normalizeNewsApiAiArticle(article);
+  assert.equal(it.provider, 'newsapi-ai');
+  assert.equal(it.providerItemId, article.uri);
+  assert.equal(it.timeIso, new Date(article.dateTimePub).toISOString());
+  assert.equal(it.sourceUri, article.source.uri);
+  assert.notEqual(it.source, it.sourceUri, 'display title distinct from source domain/uri');
+  assert.ok(it.summary === null || it.summary.length <= 500);
+});
+test('normalizeNewsApiAiArticle: falls back to dateTime when dateTimePub is absent', () => {
+  const it = normalizeNewsApiAiArticle({ title: 't', dateTime: '2026-07-24T10:00:00Z', dateTimePub: null });
+  assert.equal(it.timeIso, '2026-07-24T10:00:00.000Z');
+});
+
+test('fetchNewsApiAiArticles: getArticles path parses results, sends the key only in the body', async () => {
+  const { fetcher, calls } = mockFetcher([{ json: jsonFixture('newsapi_ai_get_articles.json') }]);
+  const r = await fetchNewsApiAiArticles({ query: '(oil OR OPEC)', apiKey: 'SECRET', fetcher, hours: 24, now: Date.parse('2026-07-24T20:00:00Z') });
+  assert.equal(r.endpoint, 'getArticles');
+  assert.ok(r.items.length >= 1 && r.items.every((it) => it.provider === 'newsapi-ai'));
+  assert.match(calls[0].url, /getArticles$/);
+  assert.equal(calls[0].body.apiKey, 'SECRET');
+  assert.deepEqual(calls[0].body.keyword, ['oil', 'OPEC']);
+});
+test('fetchNewsApiAiArticles: requires an apiKey', async () => {
+  await assert.rejects(() => fetchNewsApiAiArticles({ query: '(oil)' }), /requires an apiKey/);
+});
+
+test('resolveNewsApiAiConfig: key absent => disabled regardless of mode', () => {
+  for (const mode of ['auto', 'primary', 'shadow']) {
+    const c = resolveNewsApiAiConfig({ NEWSAPI_AI_MODE: mode });
+    assert.equal(c.enabled, false, mode);
+  }
+  assert.match(resolveNewsApiAiConfig({ NEWSAPI_AI_MODE: 'primary' }).warn, /falling back to free/);
+});
+test('resolveNewsApiAiConfig: auto with a key enables it; off ignores the key', () => {
+  assert.equal(resolveNewsApiAiConfig({ NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto' }).enabled, true);
+  assert.equal(resolveNewsApiAiConfig({ NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'off' }).enabled, false);
+});
+test('resolveNewsApiAiConfig: shadow enables but flags shadow; unknown mode falls back to auto', () => {
+  assert.deepEqual(
+    (({ enabled, shadow }) => ({ enabled, shadow }))(resolveNewsApiAiConfig({ NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'shadow' })),
+    { enabled: true, shadow: true },
+  );
+  assert.equal(resolveNewsApiAiConfig({ NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'bogus' }).mode, 'auto');
+});
+test('resolveNewsApiAiConfig: instrument allowlist gates background instruments, passes on-demand (null)', () => {
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD' };
+  assert.equal(resolveNewsApiAiConfig(env, { instrument: 'WTICO/USD' }).enabled, true);
+  assert.equal(resolveNewsApiAiConfig(env, { instrument: 'XAU/USD' }).enabled, false);
+  assert.equal(resolveNewsApiAiConfig(env, { instrument: null }).enabled, true);
+});
+
+test('fetchSentinelNews: newsApiAi=null preserves free-only behavior (no newsApiAi diagnostics)', async () => {
+  const { fetcher } = mockFetcher([]); // will not be used by RSS sources? — force all free sources to fail
+  const failing = async () => { throw new Error('offline'); };
+  const res = await fetchSentinelNews({ query: '(oil)', fetcher: failing, now: Date.now() });
+  assert.equal(res.newsApiAi, undefined);
+  assert.equal(res.providersAttempted, undefined);
+  assert.deepEqual(res.items, []);
+});
+test('fetchSentinelNews: NewsAPI.ai wins the canonical merge over a free-source duplicate', async () => {
+  // Free stack: one Google-News style item; NewsAPI.ai: same story, richer.
+  const gnews = `<rss><channel><item><title>Oil jumps on Houthi tanker attack - Reuters</title>
+    <link>https://news.google.com/x</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>`;
+  const naiFx = { articles: { results: [{
+    uri: 'nai-1', url: 'https://eventregistry.org/a/1', title: 'Oil jumps on Houthi tanker attack',
+    dateTimePub: '2026-07-24T18:01:00Z', source: { uri: 'reuters.com', title: 'Reuters' }, eventUri: 'evt-9', sentiment: -0.3,
+  }] } };
+  const now = Date.parse('2026-07-24T19:00:00Z');
+  // google-news is the FIRST free fetch; others fail. newsapi-ai uses its own body call.
+  const routes = async (url) => {
+    if (/news\.google\.com/.test(url)) return { ok: true, status: 200, text: async () => gnews };
+    if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify(naiFx) };
+    throw new Error('source offline');
+  };
+  const res = await fetchSentinelNews({
+    query: '(oil OR tanker)', now, fetcher: routes,
+    newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K', shadow: false },
+  });
+  const merged = res.items.filter((it) => /Houthi tanker attack/.test(it.title));
+  assert.equal(merged.length, 1, 'duplicate collapsed to one canonical item');
+  assert.equal(merged[0].provider, 'newsapi-ai', 'richer NewsAPI.ai item kept');
+  assert.equal(merged[0].eventUri, 'evt-9');
+  assert.equal(res.newsApiAi.requestMade, true);
+  assert.equal(res.providersAttempted[0], 'newsapi-ai');
+});
+test('fetchSentinelNews: shadow mode records NewsAPI.ai but never merges into items/ordering', async () => {
+  const naiFx = { articles: { results: [{ uri: 's1', url: 'https://x/s1', title: 'Shadow only story', dateTimePub: '2026-07-24T18:30:00Z', source: { title: 'Src' } }] } };
+  const now = Date.parse('2026-07-24T19:00:00Z');
+  const routes = async (url) => {
+    if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify(naiFx) };
+    throw new Error('offline');
+  };
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, shadow: true, mode: 'shadow', apiKey: 'K' } });
+  assert.equal(res.items.length, 0, 'shadow item not merged');
+  assert.equal(res.shadowItems.length, 1, 'shadow item recorded separately');
+  assert.equal(res.newsApiAi.shadow, true);
+});
+test('fetchSentinelNews: a NewsAPI.ai failure never aborts the aggregate (free stack carries)', async () => {
+  const gnews = `<rss><channel><item><title>Oil steady</title><link>https://g/1</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>`;
+  const now = Date.parse('2026-07-24T19:00:00Z');
+  const routes = async (url) => {
+    if (/news\.google\.com/.test(url)) return { ok: true, status: 200, text: async () => gnews };
+    if (/getArticles/.test(url)) return { ok: false, status: 503, text: async () => 'boom' };
+    throw new Error('offline');
+  };
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K' } });
+  assert.ok(res.items.some((it) => it.title === 'Oil steady'), 'free-stack item survived NewsAPI.ai failure');
+  assert.equal(res.newsApiAi.itemsReturned, 0);
+});
+
+// --- Copilot review fixes (PR #105) ----------------------------------------
+test('fetchSentinelNews: an over-limit/unsupported query is a local parse error — non-chargeable (requestMade false), no network call', async () => {
+  const overLimit = `(${Array.from({ length: 20 }, (_, i) => `k${i}`).join(' OR ')})`;
+  let getArticlesCalls = 0;
+  const routes = async (url) => {
+    if (/getArticles/.test(url)) { getArticlesCalls++; return { ok: true, status: 200, text: async () => '{}' }; }
+    throw new Error('free offline');
+  };
+  const res = await fetchSentinelNews({
+    query: overLimit, now: Date.now(), fetcher: routes,
+    newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K', shadow: false },
+  });
+  assert.equal(getArticlesCalls, 0, 'no network call for a query that fails local parse');
+  assert.equal(res.newsApiAi.requestMade, false, 'a local parse failure is not chargeable');
+  assert.equal(res.newsApiAi.ok, false);
+});
+
+test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no-key output stays byte-for-byte free)', async () => {
+  const failing = async () => { throw new Error('offline'); };
+  // enabled:false is what resolveNewsApiAiConfig returns without a key (incl. primary-mode warn).
+  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'primary', warn: 'primary but no key' } });
+  assert.equal(res.newsApiAi, undefined, 'no diagnostics when the provider did not run');
+  assert.equal(res.providersAttempted, undefined);
+  assert.equal(res.observed, undefined);
+});
+
+test('resolveNewsApiAiSource: settings.json wins over env; env is the fallback (LaunchAgent never loads .env)', () => {
+  // settings present -> used; env ignored for that key
+  const s = resolveNewsApiAiSource({ NEWSAPI_AI_KEY: 'from-settings', NEWSAPI_AI_MODE: 'primary' }, { NEWSAPI_AI_KEY: 'from-env', NEWSAPI_AI_REQUEST_BUDGET: '900' });
+  assert.equal(s.NEWSAPI_AI_KEY, 'from-settings');
+  assert.equal(s.NEWSAPI_AI_MODE, 'primary');
+  assert.equal(s.NEWSAPI_AI_REQUEST_BUDGET, '900', 'env fills keys settings omits');
+  // it feeds resolveNewsApiAiConfig directly
+  assert.equal(resolveNewsApiAiConfig(s).enabled, true);
+  // empty settings + empty env -> nothing
+  assert.deepEqual(resolveNewsApiAiSource({}, {}), {});
 });
