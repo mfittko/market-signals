@@ -155,7 +155,7 @@ test('processSignal suppresses when the filter says no (fake pi), no notificatio
   assert.equal(row.notified, 0);
 });
 
-test('buildFilterPayload (#102): assembles the exact key shape llmVerdict receives — pinned so processSignal and refilter-signals.mjs never drift', async () => {
+test('buildFilterPayload (#102): pins the payload object shape + key insertion order (NB: llmVerdict JSON.stringifies it, dropping undefined-valued keys) so processSignal and refilter-signals.mjs never drift', async () => {
   const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'st-'));
   const dbPath = join(dir, 'db.sqlite');
@@ -894,4 +894,18 @@ test('buildFilterPayload volumeContext: zero/missing volume yields avg20:null + 
   const payload = await buildFilterPayload({ dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result, candles: zeroVol, history: [], gateSnapshot: null, notes: '' });
   assert.equal(payload.volumeContext.avg20, null, 'zero avg volume -> null, not 0');
   assert.equal(payload.volumeContext.ratio, null, 'no meaningful ratio without avg volume');
+});
+
+test('buildFilterPayload volumeContext: a real 0-volume flip against a nonzero avg is ratio:0 (a meaningful signal), not null (Copilot #103)', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  // 20 candles with volume 100 (nonzero avg), then a flip candle with volume 0.
+  const cs = Array.from({ length: 21 }, (_, i) => ({ time: `2026-07-23T${String(i).padStart(2, '0')}:00:00.000Z`, open: 70, high: 71, low: 69, close: 70, volume: i === 20 ? 0 : 100 }));
+  storeCandles(dbPath, 'WTICO/USD', 'M5', cs);
+  const sig = { time: cs[20].time, signal: 'buy', price: 70, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: 70, trend: 'up', supertrend: 69, backtest: { winRatePct: 50, totalReturnPct: 0, trades: 0 } };
+  const payload = await buildFilterPayload({ dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result, candles: cs, history: [], gateSnapshot: null, notes: '' });
+  assert.ok(payload.volumeContext.avg20 > 0, 'nonzero average volume');
+  assert.equal(payload.volumeContext.ratio, 0, '0-volume flip against a nonzero avg is 0×, not null');
 });
