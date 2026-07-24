@@ -682,9 +682,11 @@ export async function processSignal(opts, result, candles) {
     const { memoriesContext } = await import('./memories.mjs');
     // lazy import: avoids a static cycle (news.mjs imports withDb from here)
     const { sentinelDecisionContext } = await import('./news.mjs');
+    const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
     // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
     // fetched at the moment the flip is judged. No-op (cache only) without a key.
-    const sentinelCtx = await sentinelDecisionContext(opts.db, opts.instrument, { env: process.env, log: dbg });
+    // Key comes from settings.json (env fallback) — the LaunchAgent never loads .env.
+    const sentinelCtx = await sentinelDecisionContext(opts.db, opts.instrument, { env: resolveNewsApiAiSource(settings), log: dbg });
     // Resolved once, before the network/pi call, so promptVersion lands in
     // provenance ('builtin' or the active override's version) whether or not
     // the filter call itself succeeds.
@@ -1085,15 +1087,17 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 // sentinel are both advisory-only blocks, present only when their source has
 // something to say (memoriesContext/newsContextFor return null when empty).
 // Lazy imports avoid a static cycle (memories.mjs/news.mjs import withDb from here).
-export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate } = {}) {
+export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate, settings = {} } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
   const { sentinelDecisionContext } = await import('./news.mjs');
+  const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
     // On-demand NewsAPI.ai pull at the bot's decision point (issue #104); the
     // throttle means the filter + bot judging the same flip share one pull.
-    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: process.env })) || undefined,
+    // Key from settings.json (env fallback) — the LaunchAgent never loads .env.
+    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings) })) || undefined,
   };
 }
 
@@ -1153,7 +1157,7 @@ async function runOne(opts) {
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes }),
+          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, settings }),
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)

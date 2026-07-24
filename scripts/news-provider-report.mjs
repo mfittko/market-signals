@@ -28,11 +28,12 @@ export function loadObservations(db, instrument, sinceIso) {
 }
 
 // Coverage: totals, unique canonical articles, unique events, duplicate ratio,
-// articles unique to NewsAPI.ai vs the free stack (matched on normalized title),
-// and distinct publisher domains (NewsAPI.ai carries a real publisher domain).
-export function coverage(obs) {
-  const nai = obs.filter((o) => o.provider === NAI);
-  const free = obs.filter((o) => o.provider !== NAI);
+// articles unique to the target provider vs the rest (matched on normalized
+// title), and distinct publisher domains. `provider` is the reported provider
+// (default newsapi-ai); "free"/rest is every other provider in the log.
+export function coverage(obs, provider = NAI) {
+  const nai = obs.filter((o) => o.provider === provider);
+  const free = obs.filter((o) => o.provider !== provider);
   const titleSet = (rows) => new Set(rows.map((o) => o.normalized_title).filter(Boolean));
   const naiTitles = titleSet(nai);
   const freeTitles = titleSet(free);
@@ -54,10 +55,10 @@ export function coverage(obs) {
 
 // Latency: for stories BOTH stacks saw (matched on normalized title), compare
 // first_seen_at. Positive lead(min) = NewsAPI.ai saw it earlier.
-export function latency(obs) {
+export function latency(obs, provider = NAI) {
   const firstSeen = (rows) => { const m = new Map(); for (const o of rows) { const t = Date.parse(o.first_seen_at); if (!o.normalized_title || !Number.isFinite(t)) continue; if (!m.has(o.normalized_title) || t < m.get(o.normalized_title)) m.set(o.normalized_title, t); } return m; };
-  const naiSeen = firstSeen(obs.filter((o) => o.provider === NAI));
-  const freeSeen = firstSeen(obs.filter((o) => o.provider !== NAI));
+  const naiSeen = firstSeen(obs.filter((o) => o.provider === provider));
+  const freeSeen = firstSeen(obs.filter((o) => o.provider !== provider));
   const leads = []; let naiWins = 0; let freeWins = 0;
   for (const [title, naiT] of naiSeen) {
     if (!freeSeen.has(title)) continue;
@@ -81,8 +82,8 @@ export function latency(obs) {
 
 // Trading relevance: for each fresh flip (signals) and bot event (bot_journal),
 // was a plausibly-relevant NewsAPI.ai headline first-seen within N minutes.
-export function tradingRelevance(db, instrument, obs, sinceIso) {
-  const naiSeen = obs.filter((o) => o.provider === NAI).map((o) => Date.parse(o.first_seen_at)).filter(Number.isFinite);
+export function tradingRelevance(db, instrument, obs, sinceIso, provider = NAI) {
+  const naiSeen = obs.filter((o) => o.provider === provider).map((o) => Date.parse(o.first_seen_at)).filter(Number.isFinite);
   const tableExists = (name) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
   const flips = tableExists('signals')
     ? db.prepare('SELECT time FROM signals WHERE instrument=? AND time>=?').all(instrument, sinceIso).map((r) => Date.parse(r.time)).filter(Number.isFinite) : [];
@@ -101,10 +102,11 @@ export function tradingRelevance(db, instrument, obs, sinceIso) {
   return { freshFlips: flips.length, flipsCovered: cover(flips), botEvents: events.length, botEventsCovered: cover(events) };
 }
 
-export function buildReport(db, { instrument, sinceIso }) {
+export function buildReport(db, { instrument, sinceIso, provider = NAI }) {
   const obs = loadObservations(db, instrument, sinceIso);
-  const state = db.prepare('SELECT requests_used, last_success_at, last_attempt_at, disabled_reason, disabled_until FROM news_provider_state WHERE provider=? AND instrument=?').get(NAI, instrument) || {};
+  const state = db.prepare('SELECT requests_used, last_success_at, last_attempt_at, disabled_reason, disabled_until FROM news_provider_state WHERE provider=? AND instrument=?').get(provider, instrument) || {};
   return {
+    provider,
     instrument,
     since: sinceIso,
     apiOperation: {
@@ -113,9 +115,9 @@ export function buildReport(db, { instrument, sinceIso }) {
       lastAttemptAt: state.last_attempt_at ?? null,
       circuit: state.disabled_reason ? { reason: state.disabled_reason, until: state.disabled_until } : null,
     },
-    coverage: coverage(obs),
-    latency: latency(obs),
-    tradingRelevance: tradingRelevance(db, instrument, obs, sinceIso),
+    coverage: coverage(obs, provider),
+    latency: latency(obs, provider),
+    tradingRelevance: tradingRelevance(db, instrument, obs, sinceIso, provider),
   };
 }
 
@@ -148,7 +150,7 @@ export function parseArgs(argv) {
 
 function render(r) {
   const L = [];
-  L.push(`# NewsAPI.ai trial report — ${r.instrument} (since ${r.since})`);
+  L.push(`# Provider report: ${r.provider} — ${r.instrument} (since ${r.since})`);
   const a = r.apiOperation;
   L.push(`\n## API operation`);
   L.push(`- requests used: ${a.requestsUsed}`);
@@ -176,7 +178,7 @@ async function main() {
   if (args.help) { process.stdout.write(USAGE); return; }
   if (!args.instrument) { process.stderr.write('news-provider-report: --instrument is required\n' + USAGE); process.exitCode = 1; return; }
   const sinceIso = args.since ? new Date(`${args.since}T00:00:00Z`).toISOString() : new Date(Date.now() - 7 * 86400000).toISOString();
-  const report = withDb(args.db, (db) => buildReport(db, { instrument: args.instrument, sinceIso }));
+  const report = withDb(args.db, (db) => buildReport(db, { instrument: args.instrument, sinceIso, provider: args.provider }));
   process.stdout.write((args.json ? JSON.stringify(report, null, 2) : render(report)) + '\n');
 }
 

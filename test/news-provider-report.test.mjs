@@ -63,3 +63,13 @@ test('news-provider-report: parseArgs requires nothing crazy, defaults provider 
   assert.equal(a.provider, 'newsapi-ai');
   assert.equal(a.json, true);
 });
+
+test('news-provider-report: --provider threads through (report a free provider vs the rest)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'rep-'));
+  const dbPath = join(dir, 'c.db'); rmSync(dbPath, { force: true });
+  seed(dbPath);
+  const report = withDb(dbPath, (db) => buildReport(db, { instrument: 'WTICO/USD', sinceIso: '2026-07-23T00:00:00.000Z', provider: 'google-news' }));
+  assert.equal(report.provider, 'google-news');
+  assert.equal(report.coverage.newsApiAi, 1, 'the target provider (google-news) has 1 observation');
+  assert.equal(report.coverage.free, 2, 'the rest (2 newsapi-ai obs) are "the rest"');
+});

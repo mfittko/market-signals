@@ -178,6 +178,7 @@ export function parseSentinelQueryToKeywords(query) {
 export function normalizeNewsApiAiArticle(article) {
   const title = article?.title || '';
   const body = article?.body || '';
+  const summary = body ? body.slice(0, 500) : null;
   return {
     provider: 'newsapi-ai',
     providerItemId: article?.uri || null,
@@ -185,7 +186,7 @@ export function normalizeNewsApiAiArticle(article) {
     sourceUri: article?.source?.uri || null,
     title,
     timeIso: parseFeedDate(article?.dateTimePub || article?.dateTime),
-    summary: body ? body.slice(0, 500) : null,
+    summary,
     url: article?.url || null,
     eventUri: article?.eventUri || null,
     sentiment: Number.isFinite(article?.sentiment) ? article.sentiment : null,
@@ -193,7 +194,9 @@ export function normalizeNewsApiAiArticle(article) {
     isDuplicate: typeof article?.isDuplicate === 'boolean' ? article.isDuplicate : null,
     tone: null,
     themes: null,
-    escalation: computeEscalation({ title, summary: body }),
+    // Escalation on the SAME truncated summary the other providers use (not the
+    // full raw body) — consistent behavior, no over-trigger on long bodies.
+    escalation: computeEscalation({ title, summary }),
   };
 }
 
@@ -255,6 +258,20 @@ export async function fetchNewsApiAiArticles({
   const items = arr.map(normalizeNewsApiAiArticle)
     .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs); // locally enforce --hours
   return { items, cursor: null, endpoint: 'getArticles' };
+}
+
+// The NEWSAPI_AI_* config keys, read from settings.json first then the process
+// env. This app keeps API keys in data/settings.json (like OPENAI_API_KEY /
+// ANTHROPIC_API_KEY), and the LaunchAgent process never loads .env — so the live
+// watcher/bot must resolve the key from settings, with env as a dev/CLI fallback.
+export const NEWSAPI_AI_SETTING_KEYS = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
+export function resolveNewsApiAiSource(settings = {}, env = process.env) {
+  const out = {};
+  for (const k of NEWSAPI_AI_SETTING_KEYS) {
+    const v = settings?.[k] ?? env?.[k];
+    if (v !== undefined && v !== null && v !== '') out[k] = String(v);
+  }
+  return out;
 }
 
 // Resolve provider config from env (mode/key/budget/instrument allowlist) into a

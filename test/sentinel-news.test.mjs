@@ -8,7 +8,7 @@ import {
   parseFeedItems, normalizeRssItem, normalizeGdeltArticle, dedupeItems,
   fetchSentinelNews, createGdeltThrottle, resolveQuery, parseArgs,
   parseSentinelQueryToKeywords, normalizeNewsApiAiArticle, fetchNewsApiAiArticles,
-  resolveNewsApiAiConfig, NEWSAPI_AI_MAX_KEYWORDS,
+  resolveNewsApiAiConfig, NEWSAPI_AI_MAX_KEYWORDS, resolveNewsApiAiSource,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 // A fetch double: returns `body` (object => JSON) with status 200, or a chosen
@@ -419,4 +419,16 @@ test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no
   assert.equal(res.newsApiAi, undefined, 'no diagnostics when the provider did not run');
   assert.equal(res.providersAttempted, undefined);
   assert.equal(res.observed, undefined);
+});
+
+test('resolveNewsApiAiSource: settings.json wins over env; env is the fallback (LaunchAgent never loads .env)', () => {
+  // settings present -> used; env ignored for that key
+  const s = resolveNewsApiAiSource({ NEWSAPI_AI_KEY: 'from-settings', NEWSAPI_AI_MODE: 'primary' }, { NEWSAPI_AI_KEY: 'from-env', NEWSAPI_AI_REQUEST_BUDGET: '900' });
+  assert.equal(s.NEWSAPI_AI_KEY, 'from-settings');
+  assert.equal(s.NEWSAPI_AI_MODE, 'primary');
+  assert.equal(s.NEWSAPI_AI_REQUEST_BUDGET, '900', 'env fills keys settings omits');
+  // it feeds resolveNewsApiAiConfig directly
+  assert.equal(resolveNewsApiAiConfig(s).enabled, true);
+  // empty settings + empty env -> nothing
+  assert.deepEqual(resolveNewsApiAiSource({}, {}), {});
 });

@@ -76,13 +76,20 @@ trial token is spent when a decision is actually weighed, not on every tick. The
 flip share one pull (a ~5-min throttle). The persisted budget hard-caps spend and, once exhausted, silently
 falls back to the free stack.
 
-```text
-NEWSAPI_AI_KEY=<trial key>          # enables NewsAPI.ai
-NEWSAPI_AI_MODE=auto                # auto | primary | shadow | off
-NEWSAPI_AI_INSTRUMENTS=WTICO/USD    # allowlist; empty ⇒ all sentinel instruments
-NEWSAPI_AI_REQUEST_BUDGET=1800      # persisted global chargeable-request cap
-NEWSAPI_AI_BACKGROUND=1             # OPT-IN: also poll every tick (off by default; for the latency benchmark)
+Config lives in **`data/settings.json`** (like `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`) — the running watcher/bot resolve it from settings first, then the process env as a fallback (the LaunchAgent never loads `.env`). Set it in the settings modal or by hand; in `auto` mode adding the key is the only opt-in needed:
+
+```jsonc
+// data/settings.json
+{
+  "NEWSAPI_AI_KEY": "<trial key>",       // enables NewsAPI.ai
+  "NEWSAPI_AI_MODE": "auto",             // auto | primary | shadow | off
+  "NEWSAPI_AI_INSTRUMENTS": "WTICO/USD", // allowlist; empty ⇒ all sentinel instruments
+  "NEWSAPI_AI_REQUEST_BUDGET": "1800",   // persisted global chargeable-request cap
+  "NEWSAPI_AI_BACKGROUND": "1"           // OPT-IN: also poll every tick (off by default; latency benchmark)
+}
 ```
+
+(The same names also work as process env vars for the CLI / local dev.)
 
 The background poller (`refreshNewsCache`) is **off by default** — set `NEWSAPI_AI_BACKGROUND=1` only to run
 continuous sampling for the latency benchmark. Provenance is logged to `news_provider_observations`; the trial
