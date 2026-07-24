@@ -62,6 +62,36 @@ and bot deliberation contexts (`scripts/supertrend.mjs`) read a compact `sentine
 asOf}` block from that cache, only when it has recent rows for the instrument — advisory context, never a
 reason to bypass the stop/risk clamps.
 
+## NewsAPI.ai preferred provider (issue #104)
+
+When `NEWSAPI_AI_KEY` is set, NewsAPI.ai (Event Registry) layers onto the free stack as the **preferred**
+provider — richer, fresher metadata (publisher domain, `eventUri`, sentiment), merged first so it wins the
+canonical dedup. Without a key, behavior is byte-for-byte the free stack. It is never a single point of
+failure: any error/timeout/quota falls back to the free sources, and news stays advisory — it never bypasses
+the deterministic risk clamps or opens a trade.
+
+**Primary path is on-demand at decision points.** A fresh flip being filtered, or a bot deliberation, triggers
+a live NewsAPI.ai pull (`getArticles`, query-filtered) at that moment via `sentinelDecisionContext` — so a
+trial token is spent when a decision is actually weighed, not on every tick. The filter + bot judging the same
+flip share one pull (a ~5-min throttle). The persisted budget hard-caps spend and, once exhausted, silently
+falls back to the free stack.
+
+```text
+NEWSAPI_AI_KEY=<trial key>          # enables NewsAPI.ai
+NEWSAPI_AI_MODE=auto                # auto | primary | shadow | off
+NEWSAPI_AI_INSTRUMENTS=WTICO/USD    # allowlist; empty ⇒ all sentinel instruments
+NEWSAPI_AI_REQUEST_BUDGET=1800      # persisted global chargeable-request cap
+NEWSAPI_AI_BACKGROUND=1             # OPT-IN: also poll every tick (off by default; for the latency benchmark)
+```
+
+The background poller (`refreshNewsCache`) is **off by default** — set `NEWSAPI_AI_BACKGROUND=1` only to run
+continuous sampling for the latency benchmark. Provenance is logged to `news_provider_observations`; the trial
+report reads it (read-only, spends no tokens):
+
+```bash
+node scripts/news-provider-report.mjs --instrument WTICO/USD --since 2026-07-24 [--json]
+```
+
 ## Options
 
 - `--instrument <sym>` candle symbol (e.g. `WTICO/USD`)

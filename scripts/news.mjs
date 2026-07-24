@@ -242,9 +242,15 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
   // Budget is a single global cap, so it's read once and decremented locally as
   // instruments spend within the tick (re-read next tick from the DB).
   let budgetUsed = providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER);
+  // The background poller is OPT-IN (NEWSAPI_AI_BACKGROUND). Off by default:
+  // NewsAPI.ai is pulled on-demand at decision points (fresh flip / bot
+  // deliberation) via refreshNewsForDecision, which scales token spend with
+  // decisions instead of clock ticks (issue #104). Flip this on later to run the
+  // continuous-sampling latency benchmark.
+  const backgroundOn = ['1', 'true', 'yes', 'on'].includes(String(env.NEWSAPI_AI_BACKGROUND || '').toLowerCase());
   const naiFor = (instrument) => {
     const c = resolveNewsApiAiConfig(env, { instrument });
-    if (!c.enabled) return { cfg: c, active: false };
+    if (!c.enabled || !backgroundOn) return { cfg: c, active: false };
     if (budgetUsed >= c.requestBudget) return { cfg: c, active: false, budgetExhausted: true };
     if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { cfg: c, active: false, circuitOpen: true };
     return { cfg: c, active: true };
@@ -296,6 +302,46 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     }
   }
   return { refreshed, skipped };
+}
+
+// On-demand NewsAPI.ai pull at a DECISION point (issue #104): a fresh flip being
+// filtered, or a bot deliberation. This is the primary NewsAPI.ai path — a token
+// is spent when a decision is actually weighed, not on every watcher tick.
+// Throttled so the filter and the bot judging the same flip share one pull; a
+// no-op (no network) when the key is absent / mode off / not allowlisted, or when
+// the budget is exhausted or the auth circuit is open — the decision then falls
+// back to whatever the cache already holds. Never throws into the decision path.
+export const DECISION_PULL_THROTTLE_MS = 5 * 60 * 1000;
+export async function refreshNewsForDecision(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {} } = {}) {
+  const sentinel = sentinelConfigForInstrument(instrument);
+  if (!sentinel) return { pulled: false, reason: 'no-sentinel-config' };
+  const c = resolveNewsApiAiConfig(env, { instrument });
+  if (!c.enabled) return { pulled: false, reason: 'disabled' };
+  if (providerRequestsUsed(dbPath) >= c.requestBudget) return { pulled: false, reason: 'budget-exhausted' };
+  if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { pulled: false, reason: 'circuit-open' };
+  const lastAttempt = newsDb(dbPath, (db) =>
+    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(NEWSAPI_AI_PROVIDER, instrument)?.t ?? null);
+  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { pulled: false, reason: 'throttled' };
+  try {
+    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, newsApiAi: c });
+    const fetchedAt = new Date(now).toISOString();
+    upsertNews(dbPath, instrument, result.items, fetchedAt);
+    recordPollMarker(dbPath, instrument, fetchedAt);
+    if (result.newsApiAi?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: result.newsApiAi.ok, status: result.newsApiAi.status, now });
+    if (Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+    return { pulled: result.newsApiAi?.requestMade === true, reason: 'ok', newsApiAi: result.newsApiAi ?? null };
+  } catch (err) {
+    log(`decision news pull failed for ${instrument}: ${err.message}`);
+    return { pulled: false, reason: 'error' };
+  }
+}
+
+// The decision-path context: pull fresh NewsAPI.ai (on-demand, throttled) then
+// return the ranked advisory block. The filter/bot call this instead of the bare
+// cache read so the news is freshest at the exact moment a decision is made.
+export async function sentinelDecisionContext(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {}, windowHours, topN } = {}) {
+  await refreshNewsForDecision(dbPath, instrument, { env, fetcher, now, log });
+  return newsContextFor(dbPath, instrument, { now, windowHours, topN });
 }
 
 // Advisory context block for the filter + bot prompts (mirrors

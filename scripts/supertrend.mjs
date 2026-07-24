@@ -681,7 +681,10 @@ export async function processSignal(opts, result, candles) {
     // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
     const { memoriesContext } = await import('./memories.mjs');
     // lazy import: avoids a static cycle (news.mjs imports withDb from here)
-    const { newsContextFor } = await import('./news.mjs');
+    const { sentinelDecisionContext } = await import('./news.mjs');
+    // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
+    // fetched at the moment the flip is judged. No-op (cache only) without a key.
+    const sentinelCtx = await sentinelDecisionContext(opts.db, opts.instrument, { env: process.env, log: dbg });
     // Resolved once, before the network/pi call, so promptVersion lands in
     // provenance ('builtin' or the active override's version) whether or not
     // the filter call itself succeeds.
@@ -706,7 +709,7 @@ export async function processSignal(opts, result, candles) {
         axisGate: gateSnapshot?.axes ?? null,
         traderNotes: notes,
         traderMemories: memoriesContext(opts.db) || undefined,
-        sentinel: newsContextFor(opts.db, opts.instrument) || undefined,
+        sentinel: sentinelCtx || undefined,
       }, filterSystem.system, onUsage);
       verdictSource = 'llm';
     } catch (err) {
@@ -1084,11 +1087,13 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 // Lazy imports avoid a static cycle (memories.mjs/news.mjs import withDb from here).
 export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
-  const { newsContextFor } = await import('./news.mjs');
+  const { sentinelDecisionContext } = await import('./news.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
-    sentinel: newsContextFor(dbPath, instrument) || undefined,
+    // On-demand NewsAPI.ai pull at the bot's decision point (issue #104); the
+    // throttle means the filter + bot judging the same flip share one pull.
+    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: process.env })) || undefined,
   };
 }
 

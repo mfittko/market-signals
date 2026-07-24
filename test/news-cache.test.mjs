@@ -8,6 +8,7 @@ import {
   refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
   NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen,
   recordProviderCall, recordProviderObservations,
+  refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS,
 } from '../scripts/news.mjs';
 
 // getArticles JSON body for the WTI oil query — one article, newest-first.
@@ -27,7 +28,9 @@ function naiFetcher({ googleXml = EMPTY_RSS, nai = naiJson(), naiStatus = 200 } 
     return { ok: true, status: 200, text: async () => EMPTY_RSS };
   };
 }
-const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+// NEWSAPI_AI_BACKGROUND opts the poller in — it is OFF by default (the primary
+// path is the on-demand decision pull); these poller tests exercise the opt-in.
+const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800', NEWSAPI_AI_BACKGROUND: '1' };
 const WTI = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
 
 function dbPathIn(dir) {
@@ -400,5 +403,67 @@ test('refreshNewsCache: mode=off ignores a present key entirely', async () => {
   const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env: { ...NAI_ENV, NEWSAPI_AI_MODE: 'off' } });
   assert.equal(calls, 0, 'off => no NewsAPI.ai call even with a key');
+  assert.equal(providerRequestsUsed(dbPath), 0);
+});
+
+// --- on-demand decision-point pull (issue #104, primary path) --------------
+test('refreshNewsForDecision: no key => no network, no rows (byte-for-byte current behavior)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  let calls = 0;
+  const f = async (url, opts) => { calls++; return naiFetcher()(url, opts); };
+  const r = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env: {}, fetcher: f, now: Date.now() });
+  assert.equal(r.pulled, false);
+  assert.equal(r.reason, 'disabled');
+  assert.equal(calls, 0, 'no network without a key');
+});
+
+test('refreshNewsForDecision: with a key, pulls once, charges budget, records observations', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const r = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.equal(r.pulled, true);
+  assert.equal(providerRequestsUsed(dbPath), 1);
+  withDb(dbPath, (db) => {
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations WHERE provider=?').get(NEWSAPI_AI_PROVIDER).n, 1);
+  });
+});
+
+test('refreshNewsForDecision: a second call within the throttle window does not re-pull (filter+bot share one pull)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  const r2 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + 60000, log: () => {} });
+  assert.equal(r2.reason, 'throttled');
+  assert.equal(providerRequestsUsed(dbPath), 1, 'still just one chargeable request');
+  // Past the throttle window it pulls again.
+  const r3 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + DECISION_PULL_THROTTLE_MS + 60000, log: () => {} });
+  assert.equal(r3.pulled, true);
+  assert.equal(providerRequestsUsed(dbPath), 2);
+});
+
+test('sentinelDecisionContext: returns the fresh headline after the pull', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const ctx = await sentinelDecisionContext(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.ok(ctx && ctx.headlines.some((h) => /Hormuz/.test(h.title)), 'freshly-pulled headline is in the decision context');
+});
+
+test('refreshNewsCache: background poller is OFF by default (no NEWSAPI_AI_BACKGROUND) even with a key', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
+  // NAI_ENV-style but WITHOUT NEWSAPI_AI_BACKGROUND.
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env });
+  assert.equal(calls, 0, 'poller does not call NewsAPI.ai unless NEWSAPI_AI_BACKGROUND is set');
   assert.equal(providerRequestsUsed(dbPath), 0);
 });

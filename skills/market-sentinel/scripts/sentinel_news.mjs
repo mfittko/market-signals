@@ -425,11 +425,12 @@ export async function fetchSentinelNews({
   if (newsApiAi?.enabled) {
     if (newsApiAi.warn) log(newsApiAi.warn);
     providersAttempted.unshift('newsapi-ai');
+    const startedAt = performance.now();
     try {
       const r = await fetchNewsApiAiArticles({ query, hours, maxItems: perSourceCap, apiKey: newsApiAi.apiKey, fetcher, timeoutMs, now });
-      newsApiOutcome = { ok: true, status: 200, items: r.items };
+      newsApiOutcome = { ok: true, status: 200, items: r.items, durationMs: Math.round(performance.now() - startedAt) };
     } catch (err) {
-      newsApiOutcome = { ok: false, status: err?.status ?? null, error: err?.message || String(err) };
+      newsApiOutcome = { ok: false, status: err?.status ?? null, error: err?.message || String(err), durationMs: Math.round(performance.now() - startedAt) };
       log(`newsapi-ai failed: ${newsApiOutcome.error}`);
     }
     const fetched = newsApiOutcome.items || [];
