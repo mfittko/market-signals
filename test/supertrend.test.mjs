@@ -155,6 +155,26 @@ test('processSignal suppresses when the filter says no (fake pi), no notificatio
   assert.equal(row.notified, 0);
 });
 
+test('buildFilterPayload (#102): assembles the exact key shape llmVerdict receives — pinned so processSignal and refilter-signals.mjs never drift', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = { time: candles[20].time, signal: 'sell', price: candles[20].close, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: candles[20].close, trend: 'down', supertrend: 88.8, backtest: { winRatePct: 50, totalReturnPct: 1, trades: 4 } };
+  const payload = await buildFilterPayload({
+    dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result,
+    candles: candles.slice(0, 21), history: [], gateSnapshot: null, notes: 'note text',
+  });
+  assert.deepEqual(Object.keys(payload), [
+    'current', 'backtestWindow', 'recentCandles', 'volumeContext',
+    'pastSignals30mOutcomes', 'axisGate', 'traderNotes', 'traderMemories', 'sentinel',
+  ]);
+  assert.equal(payload.current.signal, 'sell');
+  assert.equal(payload.traderNotes, 'note text');
+  assert.equal(payload.axisGate, null, 'no gateSnapshot: axisGate is null');
+});
+
 test('processSignal filter payload (#86): a sentinel block is injected only when the news cache has recent rows for the instrument, framed as advisory', async () => {
   const { upsertNews } = await import('../scripts/news.mjs');
   const { FILTER_RULES } = await import('../scripts/supertrend.mjs');

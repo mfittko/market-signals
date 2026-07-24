@@ -536,7 +536,7 @@ export function llmUsageLine(tag, info) {
   return `[llm] ${tag} ${provider} ${model ?? 'default'} in=${usage ? tok(usage.inputTokens) : 'n/a'} out=${usage ? tok(usage.outputTokens) : 'n/a'}`;
 }
 
-async function llmVerdict(settings, payload, system, onUsage) {
+export async function llmVerdict(settings, payload, system, onUsage) {
   const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000, onUsage });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
@@ -634,6 +634,34 @@ export function applyProviderDefault(settings) {
   return settings;
 }
 
+// Assembles the exact payload shape fed to llmVerdict — extracted (issue #102)
+// so processSignal AND the refilter-signals.mjs maintenance script share ONE
+// assembly, never drifting apart. dbPath/instrument are only used for the
+// memories/sentinel lookups (lazy imports avoid the same static cycles the
+// inline call sites avoided).
+export async function buildFilterPayload({ dbPath, instrument, granularity, sig, result, candles, history, gateSnapshot, notes }) {
+  // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
+  const { memoriesContext } = await import('./memories.mjs');
+  // lazy import: avoids a static cycle (news.mjs imports withDb from here)
+  const { newsContextFor } = await import('./news.mjs');
+  return {
+    current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity },
+    backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
+    recentCandles: candles.slice(-12).map((c) => ({ t: localHm(c.time), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
+    volumeContext: (() => {
+      const flip = candles[sig.index] ?? candles[candles.length - 1];
+      const win = candles.slice(-21, -1).map((c) => c.volume || 0);
+      const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
+      return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
+    })(),
+    pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
+    axisGate: gateSnapshot?.axes ?? null,
+    traderNotes: notes,
+    traderMemories: memoriesContext(dbPath) || undefined,
+    sentinel: newsContextFor(dbPath, instrument) || undefined,
+  };
+}
+
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
@@ -678,10 +706,6 @@ export async function processSignal(opts, result, candles) {
     try { notes = readFileSync(settings.notesFile || 'data/notes.md', 'utf8').slice(-1500); } catch { /* optional */ }
     const history = signalOutcomes(opts.db, opts.instrument, opts.granularity).filter((s) => s.time !== sig.time);
     dbg(`filter context: ${history.length} past signals, ${notes.length} chars of notes`);
-    // lazy import: avoids a static cycle (memories.mjs imports withDb from here)
-    const { memoriesContext } = await import('./memories.mjs');
-    // lazy import: avoids a static cycle (news.mjs imports withDb from here)
-    const { newsContextFor } = await import('./news.mjs');
     // Resolved once, before the network/pi call, so promptVersion lands in
     // provenance ('builtin' or the active override's version) whether or not
     // the filter call itself succeeds.
@@ -692,22 +716,8 @@ export async function processSignal(opts, result, candles) {
     // zero-cost, zero-behavior-change no-op (no log line, no callback at all).
     const onUsage = process.env.MS_DEBUG_LLM ? (info) => dbg(llmUsageLine('filter', info)) : null;
     try {
-      verdict = await llmVerdict(settings, {
-        current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity: opts.granularity },
-        backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
-        recentCandles: candles.slice(-12).map((c) => ({ t: localHm(c.time), o: c.open, h: c.high, l: c.low, c: c.close, v: c.volume ?? null })),
-        volumeContext: (() => {
-          const flip = candles[sig.index] ?? candles[candles.length - 1];
-          const win = candles.slice(-21, -1).map((c) => c.volume || 0);
-          const avg20 = win.length ? win.reduce((a, b) => a + b, 0) / win.length : null;
-          return { flipVolume: flip?.volume ?? null, avg20: avg20 && Number(avg20.toFixed(1)), ratio: avg20 && flip?.volume ? Number((flip.volume / avg20).toFixed(2)) : null };
-        })(),
-        pastSignals30mOutcomes: history.map((s) => ({ time: localFull(s.time), signal: s.signal, price: s.price, verdict: s.verdict, outcomePct: s.outcomePct })),
-        axisGate: gateSnapshot?.axes ?? null,
-        traderNotes: notes,
-        traderMemories: memoriesContext(opts.db) || undefined,
-        sentinel: newsContextFor(opts.db, opts.instrument) || undefined,
-      }, filterSystem.system, onUsage);
+      const payload = await buildFilterPayload({ dbPath: opts.db, instrument: opts.instrument, granularity: opts.granularity, sig, result, candles, history, gateSnapshot, notes });
+      verdict = await llmVerdict(settings, payload, filterSystem.system, onUsage);
       verdictSource = 'llm';
     } catch (err) {
       // ponytail: fail open — a missed alert costs more than a noisy one
