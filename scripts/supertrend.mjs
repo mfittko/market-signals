@@ -265,6 +265,24 @@ async function readSse(res, extract, onDelta) {
   return full;
 }
 
+// #98: OpenAI-compatible reasoning models (e.g. GLM) spend max_completion_tokens
+// on internal reasoning before emitting content — on large filter/bot prompts a
+// small call-site budget (e.g. 1024) is exhausted by reasoning alone, returning
+// finish_reason:'length' with content:null. This floor is generous enough for
+// reasoning overhead on top of a small JSON reply; operators can raise it
+// further via settings.maxCompletionTokens for heavier-reasoning models.
+export const OPENAI_REASONING_FLOOR = 8192;
+
+// The openai-compatible path's completion budget: call-site maxTokens is a
+// per-request minimum, but reasoning models need real headroom beyond that —
+// never below the (settings-configurable) reasoning floor. Anthropic/pi keep
+// their own call-site maxTokens unchanged; reasoning-budget exhaustion is an
+// openai-compatible-model concern only.
+function openaiCompletionBudget(settings, maxTokens) {
+  const floor = settings.maxCompletionTokens > 0 ? settings.maxCompletionTokens : OPENAI_REASONING_FLOOR;
+  return Math.max(maxTokens, floor);
+}
+
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
 // Always tool-less: the chat's tool surface lives in the dedicated tool loops.
@@ -325,14 +343,17 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     const data = await res.json();
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
     reportUsage(onUsage, { provider: 'anthropic', model, usage: data.usage ? { inputTokens: data.usage.input_tokens ?? null, outputTokens: data.usage.output_tokens ?? null } : null });
-    return data.content.find((b) => b.type === 'text').text;
+    const textBlock = Array.isArray(data.content) ? data.content.find((b) => b.type === 'text') : null;
+    if (!textBlock) throw new Error(`anthropic returned no text block (stop_reason=${data.stop_reason})`);
+    return textBlock.text;
   }
   {
     const stream = Boolean(onDelta) && !schema;
     const model = effectiveModel(settings, 'openai');
+    const budget = openaiCompletionBudget(settings, maxTokens);
     const body = {
       model,
-      max_completion_tokens: maxTokens,
+      max_completion_tokens: budget,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
@@ -350,11 +371,22 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
     if (stream) {
       // see the anthropic branch's ponytail note above: same asymmetry, same reason.
-      return readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+      const streamed = await readSse(res, (j) => j.choices?.[0]?.delta?.content ?? null, onDelta);
+      // a reasoning model can burn the whole (now floored) budget on reasoning and
+      // stream zero content — surface that instead of a silent empty reply
+      if (!streamed) throw new Error(`openai provider streamed no content (a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+      return streamed;
     }
     const data = await res.json();
     reportUsage(onUsage, { provider: 'openai', model, usage: data.usage ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null } : null });
-    return data.choices[0].message.content;
+    const choice = data.choices?.[0];
+    if (!choice?.message) throw new Error(`openai provider returned no choice/message (malformed response${data.error ? ': ' + JSON.stringify(data.error).slice(0, 100) : ''})`);
+    const content = choice.message.content;
+    if (content == null || content === '') {
+      const finishReason = choice.finish_reason;
+      throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+    }
+    return content;
   }
 }
 
@@ -392,6 +424,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
       messages.push({ role: 'assistant', content: data.content });
       continue;
     }
+    if (!Array.isArray(data.content)) throw new Error(`anthropic returned no content array (stop_reason=${data.stop_reason})`);
     if (data.stop_reason === 'tool_use') {
       messages.push({ role: 'assistant', content: data.content });
       const results = [];
@@ -406,6 +439,9 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
       continue;
     }
     const text = data.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    // a content array with no text blocks is still no answer — honor the same
+    // clear-diagnostic contract as the null-content paths, don't return ''
+    if (!text) throw new Error(`anthropic returned no text content (stop_reason=${data.stop_reason})`);
     if (onDelta) onDelta(text);
     reportUsage(onUsage, { provider: 'anthropic', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
     return text;
@@ -421,11 +457,12 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   let inputTokens = 0;
   let outputTokens = 0;
   let sawUsage = false;
+  const budget = openaiCompletionBudget(settings, maxTokens);
   for (let round = 0; round < 8; round++) {
     const res = await fetch(openaiEndpoint(settings), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
-      body: JSON.stringify({ model, max_completion_tokens: maxTokens, tools, messages }),
+      body: JSON.stringify({ model, max_completion_tokens: budget, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`openai HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
@@ -435,7 +472,9 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       inputTokens += data.usage.prompt_tokens ?? 0;
       outputTokens += data.usage.completion_tokens ?? 0;
     }
-    const msg = data.choices[0].message;
+    const choice = data.choices?.[0];
+    if (!choice?.message) throw new Error(`openai provider returned no choice/message (malformed response${data.error ? ': ' + JSON.stringify(data.error).slice(0, 100) : ''})`);
+    const msg = choice.message;
     if (msg.tool_calls?.length) {
       messages.push(msg);
       for (const call of msg.tool_calls) {
@@ -446,9 +485,13 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       }
       continue;
     }
-    if (onDelta) onDelta(msg.content ?? '');
+    if (msg.content == null || msg.content === '') {
+      const finishReason = choice.finish_reason;
+      throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+    }
+    if (onDelta) onDelta(msg.content);
     reportUsage(onUsage, { provider: 'openai', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
-    return msg.content ?? '';
+    return msg.content;
   }
   throw new Error('tool loop exceeded 8 rounds');
 }
@@ -501,7 +544,7 @@ async function llmVerdict(settings, payload, system, onUsage) {
     const whole = JSON.parse(out);
     if (typeof whole.alert === 'boolean') return whole;
   } catch { /* fall through */ }
-  const m = out.match(/\{[^{}]*"alert"[^{}]*\}/);
+  const m = String(out).match(/\{[^{}]*"alert"[^{}]*\}/);
   if (!m) throw new Error('no verdict JSON in provider output');
   return JSON.parse(m[0]);
 }
@@ -524,7 +567,7 @@ async function llmRecheckVerdict(settings, payload, system, onUsage) {
     const norm = normalizeRecheckVerdict(whole);
     if (norm) return norm;
   } catch { /* fall through to the pi regex fallback */ }
-  const m = out.match(/\{[^{}]*"verdict"[^{}]*\}/);
+  const m = String(out).match(/\{[^{}]*"verdict"[^{}]*\}/);
   if (!m) throw new Error('no recheck verdict JSON in provider output');
   const parsed = JSON.parse(m[0]);
   const norm = normalizeRecheckVerdict(parsed);

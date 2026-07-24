@@ -658,6 +658,127 @@ test('llmRequest onUsage: a throwing callback never breaks the request (missing/
   } finally { globalThis.fetch = realFetch; }
 });
 
+// --- #98: reasoning-model null-content guard + reasoning-friendly budget ---
+
+test('llmRequest (openai): default max_completion_tokens floors at OPENAI_REASONING_FLOOR (8192), honors settings.maxCompletionTokens', async () => {
+  const { llmRequest, OPENAI_REASONING_FLOOR } = await import('../scripts/supertrend.mjs');
+  const { createServer } = await import('node:http');
+  assert.equal(OPENAI_REASONING_FLOOR, 8192);
+  const bodies = [];
+  const srv = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      bodies.push(JSON.parse(body));
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    // small call-site maxTokens (1024, the filter's actual budget): floors at 8192.
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
+    assert.equal(bodies[0].max_completion_tokens, 8192, 'floors up to the reasoning default, not the small call-site budget');
+
+    // operator-configured maxCompletionTokens overrides the floor.
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, maxCompletionTokens: 16000 }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
+    assert.equal(bodies[1].max_completion_tokens, 16000, 'settings.maxCompletionTokens overrides the built-in floor');
+
+    // a call site asking for MORE than the floor is never clamped down.
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base }, 'sys', 'user', { maxTokens: 20000, timeoutMs: 5000 });
+    assert.equal(bodies[2].max_completion_tokens, 20000, 'a larger call-site budget always wins over the floor');
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
+test('llmRequest (openai): null content at finish_reason=length throws a descriptive error, never a TypeError (#98)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ finish_reason: 'length', message: { content: null } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(
+      () => llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k' }, 'sys', 'user', { maxTokens: 1024 }),
+      (err) => {
+        assert.match(err.message, /no content/);
+        assert.match(err.message, /finish_reason=length/);
+        assert.match(err.message, /max_completion_tokens=8192/);
+        assert.match(err.message, /maxCompletionTokens/);
+        return true;
+      },
+    );
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmRequest (openai): empty-string content is treated the same as null', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ finish_reason: 'length', message: { content: '' } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(() => llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k' }, 'sys', 'user', {}), /no content/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmRequest (anthropic): no text block throws a clear message, not a TypeError', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    stop_reason: 'max_tokens', content: [{ type: 'tool_use', id: 't1', name: 'x', input: {} }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(
+      () => llmRequest({ provider: 'anthropic', ANTHROPIC_API_KEY: 'k' }, 'sys', 'user', {}),
+      /anthropic returned no text block \(stop_reason=max_tokens\)/,
+    );
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmChat tool-loop (openai): null content at finish_reason=length throws the same descriptive error (#98)', async () => {
+  const { llmChat } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ finish_reason: 'length', message: { content: null } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    await assert.rejects(
+      () => llmChat({ provider: 'openai', OPENAI_API_KEY: 'k' }, 'sys', 'user', {
+        toolDefs: [{ name: 't', description: 'd', input_schema: { type: 'object' } }],
+        execTool: async () => 'out',
+      }),
+      (err) => {
+        assert.match(err.message, /no content/);
+        assert.match(err.message, /finish_reason=length/);
+        return true;
+      },
+    );
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('processSignal (#98): a reasoning-model null-content openai filter fails OPEN with a readable reason, not "reading \'match\'"', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: null } }] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base } });
+    const res = await processSignal(opts, result, c);
+    assert.equal(res.sent, true, 'fails open: the alert is still recorded');
+    assert.equal(res.verdictSource, 'error');
+    const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
+    assert.equal(row.verdict, 'alert');
+    assert.match(row.reason, /filter error/);
+    assert.match(row.reason, /no content/, 'the readable llmRequest message, not a generic crash');
+    assert.doesNotMatch(row.reason, /reading 'match'/, 'never the cryptic null.match TypeError text');
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
 test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rounds, reported once', async () => {
   const { llmChat } = await import('../scripts/supertrend.mjs');
   const realFetch = globalThis.fetch;
@@ -725,4 +846,19 @@ test('reportUsage swallows a synchronous throw AND an async-callback rejection â
   } finally {
     process.off('unhandledRejection', onRej);
   }
+});
+
+
+test('openai malformed/empty-choices response throws a readable error, not a TypeError (#98)', async () => {
+  const { llmRequest } = await import('../scripts/supertrend.mjs');
+  const http = await import('node:http');
+  const srv = http.createServer((req, res) => { res.setHeader('content-type','application/json'); res.end(JSON.stringify({ choices: [] })); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    await assert.rejects(
+      llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: `http://127.0.0.1:${port}` }, 'sys', 'user', { timeoutMs: 10000 }),
+      /no choice\/message|malformed response/,
+    );
+  } finally { await new Promise((r) => srv.close(r)); }
 });
