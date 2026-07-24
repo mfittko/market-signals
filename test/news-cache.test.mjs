@@ -8,7 +8,7 @@ import {
   refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
   NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen,
   recordProviderCall, recordProviderObservations,
-  refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS,
+  refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS, DECISION_FETCH_TIMEOUT_MS,
 } from '../scripts/news.mjs';
 
 // getArticles JSON body for the WTI oil query — one article, newest-first.
@@ -466,4 +466,22 @@ test('refreshNewsCache: background poller is OFF by default (no NEWSAPI_AI_BACKG
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env });
   assert.equal(calls, 0, 'poller does not call NewsAPI.ai unless NEWSAPI_AI_BACKGROUND is set');
   assert.equal(providerRequestsUsed(dbPath), 0);
+});
+
+// --- decision-pull reason accuracy + bounded timeout (Copilot round 4) ------
+test('refreshNewsForDecision: reason reflects the outcome (ok / request-failed / not-made)', async () => {
+  const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  // ok: a real successful pull
+  let d = mkdtempSync(join(tmpdir(), 'news-')); let db = dbPathIn(d);
+  let r = await refreshNewsForDecision(db, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
+  assert.equal(r.reason, 'ok'); assert.equal(r.pulled, true);
+  // request-failed: network 5xx (a chargeable attempt that failed)
+  d = mkdtempSync(join(tmpdir(), 'news-')); db = dbPathIn(d);
+  r = await refreshNewsForDecision(db, 'WTICO/USD', { env, fetcher: naiFetcher({ naiStatus: 503 }), now, log: () => {} });
+  assert.equal(r.reason, 'request-failed'); assert.equal(r.pulled, true);
+});
+
+test('DECISION_FETCH_TIMEOUT_MS is tighter than the default, so a slow source cannot stall alert delivery', () => {
+  assert.ok(DECISION_FETCH_TIMEOUT_MS <= 6000 && DECISION_FETCH_TIMEOUT_MS < 15000);
 });

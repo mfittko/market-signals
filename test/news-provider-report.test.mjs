@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withDb } from '../scripts/supertrend.mjs';
 import { recordProviderObservations } from '../scripts/news.mjs';
-import { buildReport, coverage, latency, parseArgs } from '../scripts/news-provider-report.mjs';
+import { buildReport, coverage, latency, parseArgs, pct } from '../scripts/news-provider-report.mjs';
 
 function seed(dbPath) {
   // NewsAPI.ai saw the tanker story at 09:41; the free stack (google-news) saw
@@ -72,4 +72,14 @@ test('news-provider-report: --provider threads through (report a free provider v
   assert.equal(report.provider, 'google-news');
   assert.equal(report.coverage.newsApiAi, 1, 'the target provider (google-news) has 1 observation');
   assert.equal(report.coverage.free, 2, 'the rest (2 newsapi-ai obs) are "the rest"');
+});
+
+test('pct: nearest-rank on n-1 base — p90 of 10 items is the 9th value, not the max', () => {
+  const xs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  assert.equal(pct(xs, 90), 9, 'p90 -> index round(0.9*9)=8 -> 9, not 10');
+  assert.equal(pct(xs, 50), 6, 'p50 -> index round(0.5*9)=5 -> 6');
+  assert.equal(pct(xs, 100), 10);
+  assert.equal(pct(xs, 0), 1);
+  assert.equal(pct([], 90), null);
+  assert.equal(pct([42], 90), 42, 'single sample');
 });

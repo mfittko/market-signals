@@ -317,6 +317,11 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
 // the budget is exhausted or the auth circuit is open — the decision then falls
 // back to whatever the cache already holds. Never throws into the decision path.
 export const DECISION_PULL_THROTTLE_MS = 5 * 60 * 1000;
+// This pull is awaited on the hot decision path (a fresh flip being judged), so a
+// slow news source must not delay alert delivery. Bound it tighter than the
+// default 15s per-source timeout — the decision falls back to the cache if a
+// source stalls, per the filter/bot fail-open contract.
+export const DECISION_FETCH_TIMEOUT_MS = 5000;
 export async function refreshNewsForDecision(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {} } = {}) {
   const sentinel = sentinelConfigForInstrument(instrument);
   if (!sentinel) return { pulled: false, reason: 'no-sentinel-config' };
@@ -328,13 +333,17 @@ export async function refreshNewsForDecision(dbPath, instrument, { env = process
     db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(NEWSAPI_AI_PROVIDER, instrument)?.t ?? null);
   if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { pulled: false, reason: 'throttled' };
   try {
-    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, newsApiAi: c });
+    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log, newsApiAi: c });
     const fetchedAt = new Date(now).toISOString();
     upsertNews(dbPath, instrument, result.items, fetchedAt);
     recordPollMarker(dbPath, instrument, fetchedAt);
-    if (result.newsApiAi?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: result.newsApiAi.ok, status: result.newsApiAi.status, now });
+    const nai = result.newsApiAi ?? null;
+    if (nai?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: nai.ok, status: nai.status, now });
     if (Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
-    return { pulled: result.newsApiAi?.requestMade === true, reason: 'ok', newsApiAi: result.newsApiAi ?? null };
+    // Accurate reason: distinguish a real spent request from a non-chargeable
+    // local skip (parse/keyword-limit) and from a network failure.
+    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed') : 'not-made';
+    return { pulled: nai?.requestMade === true, reason, newsApiAi: nai };
   } catch (err) {
     log(`decision news pull failed for ${instrument}: ${err.message}`);
     return { pulled: false, reason: 'error' };

@@ -18,7 +18,9 @@ import { withDb } from './supertrend.mjs';
 const NAI = 'newsapi-ai';
 
 function median(xs) { const a = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : null; }
-function pct(xs, p) { const a = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); return a.length ? a[Math.min(a.length - 1, Math.floor(p / 100 * a.length))] : null; }
+// Nearest-rank on the [0, n-1] index base (not n), so p90 of 10 items is the 9th
+// value, not the max. Index clamped to a valid range.
+export function pct(xs, p) { const a = xs.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); if (!a.length) return null; const i = Math.round((p / 100) * (a.length - 1)); return a[Math.min(a.length - 1, Math.max(0, i))]; }
 function domain(uri) { return String(uri || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase() || null; }
 
 // Load observations for an instrument since a cutoff ISO date.
