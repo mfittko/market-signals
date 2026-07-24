@@ -469,7 +469,9 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       inputTokens += data.usage.prompt_tokens ?? 0;
       outputTokens += data.usage.completion_tokens ?? 0;
     }
-    const msg = data.choices[0].message;
+    const choice = data.choices?.[0];
+    if (!choice?.message) throw new Error(`openai provider returned no choice/message (malformed response${data.error ? ': ' + JSON.stringify(data.error).slice(0, 100) : ''})`);
+    const msg = choice.message;
     if (msg.tool_calls?.length) {
       messages.push(msg);
       for (const call of msg.tool_calls) {
@@ -481,7 +483,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       continue;
     }
     if (msg.content == null || msg.content === '') {
-      const finishReason = data.choices[0].finish_reason;
+      const finishReason = choice.finish_reason;
       throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
     }
     if (onDelta) onDelta(msg.content);
