@@ -343,7 +343,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     const data = await res.json();
     if (data.stop_reason === 'refusal') throw new Error('anthropic refusal');
     reportUsage(onUsage, { provider: 'anthropic', model, usage: data.usage ? { inputTokens: data.usage.input_tokens ?? null, outputTokens: data.usage.output_tokens ?? null } : null });
-    const textBlock = data.content.find((b) => b.type === 'text');
+    const textBlock = Array.isArray(data.content) ? data.content.find((b) => b.type === 'text') : null;
     if (!textBlock) throw new Error(`anthropic returned no text block (stop_reason=${data.stop_reason})`);
     return textBlock.text;
   }
@@ -424,6 +424,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
       messages.push({ role: 'assistant', content: data.content });
       continue;
     }
+    if (!Array.isArray(data.content)) throw new Error(`anthropic returned no content array (stop_reason=${data.stop_reason})`);
     if (data.stop_reason === 'tool_use') {
       messages.push({ role: 'assistant', content: data.content });
       const results = [];
