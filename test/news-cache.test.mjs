@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withDb } from '../scripts/supertrend.mjs';
 import {
-  refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey,
+  refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey, migrateNewsProviderColumn,
   NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen,
   recordProviderCall, recordProviderObservations,
   refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS, DECISION_FETCH_TIMEOUT_MS,
@@ -521,4 +521,37 @@ test('newsContextFor: a headline with an empty/absent url omits the key (built o
   });
   const h = newsContextFor(dbPath, 'WTICO/USD', { now }).headlines.find((x) => x.title === 'No-link story');
   assert.ok(h && !('url' in h), 'empty url omitted, not carried as an empty string');
+});
+
+// --- provider footnotes: opt-in per-headline fetch source (#116) --------------
+test('newsContextFor: provider surfaced only when sourceFootnotes on; upsertNews persists it (#116)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  upsertNews(dbPath, 'WTICO/USD', [
+    { source: 'Reuters', provider: 'newsapi-ai', title: 'Paid item', timeIso: '2026-07-23T09:50:00Z', url: 'https://eventregistry.org/a/1', escalation: 0 },
+    { source: 'google-news', title: 'Free item', timeIso: '2026-07-23T09:40:00Z', url: 'https://news.google.com/x', escalation: 0 },
+  ], new Date(now).toISOString());
+
+  const off = newsContextFor(dbPath, 'WTICO/USD', { now });
+  assert.ok(off.headlines.every((h) => !('provider' in h)), 'default (off): no provider key on any headline');
+
+  const on = newsContextFor(dbPath, 'WTICO/USD', { now, sourceFootnotes: true });
+  const paid = on.headlines.find((h) => h.title === 'Paid item');
+  const free = on.headlines.find((h) => h.title === 'Free item');
+  assert.equal(paid.provider, 'newsapi-ai', 'nai item keeps its fetch provider (not the Reuters publisher)');
+  assert.equal(free.provider, 'google-news', 'free item falls back to source as the provider');
+});
+
+test('migrateNewsProviderColumn: adds provider to a pre-#116 table, idempotent (#116)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  withDb(dbPath, (db) => {
+    // pre-#116 shape: no provider column
+    db.exec("CREATE TABLE news (instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT, summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT, escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL, UNIQUE(instrument, url))");
+    assert.ok(!db.prepare('PRAGMA table_info(news)').all().some((c) => c.name === 'provider'), 'starts without provider');
+    migrateNewsProviderColumn(db);
+    migrateNewsProviderColumn(db); // idempotent second run must not throw
+    assert.ok(db.prepare('PRAGMA table_info(news)').all().some((c) => c.name === 'provider'), 'provider added');
+  });
 });

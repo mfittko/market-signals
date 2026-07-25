@@ -46,8 +46,21 @@ const NEWS_DDL = `CREATE TABLE IF NOT EXISTS news (
   instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT,
   summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT,
   escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL,
+  provider TEXT,
   UNIQUE(instrument, url)
 )`;
+
+// Additive column (#116): the fetch provider (e.g. 'newsapi-ai') so the source
+// footnote can name where a headline came from — `source` alone can't, since for
+// NewsAPI.ai items it holds the publisher (Reuters), not the aggregator. Fresh
+// tables get it from NEWS_DDL; pre-#116 tables get a nullable ALTER (cheap, no
+// rebuild). Idempotent: skip if the column already exists.
+export function migrateNewsProviderColumn(db) {
+  const cols = db.prepare("PRAGMA table_info(news)").all();
+  if (!cols.some((c) => c.name === 'provider')) {
+    db.exec('ALTER TABLE news ADD COLUMN provider TEXT');
+  }
+}
 
 // Guarded rebuild (review fix for issue #86): an existing news table from
 // before this change has a single-column UNIQUE(url) — re-key it to
@@ -90,6 +103,7 @@ function newsDb(dbPath, fn) {
     db.exec(PROVIDER_OBS_DDL);
     if (!migrated.has(dbPath)) {
       migrateNewsUniqueKey(db);
+      migrateNewsProviderColumn(db);
       migrated.add(dbPath);
     }
     return fn(db);
@@ -171,15 +185,15 @@ export function recordProviderObservations(dbPath, instrument, items, now = Date
 // same query still gets its own row for the same headline (see NEWS_DDL).
 export function upsertNews(dbPath, instrument, items, fetchedAt) {
   return newsDb(dbPath, (db) => {
-    const stmt = db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(instrument, url) DO NOTHING`);
+    const stmt = db.prepare(`INSERT INTO news (instrument, source, title, time, summary, url, tone, themes, escalation, fetched_at, provider)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(instrument, url) DO NOTHING`);
     let added = 0;
     for (const it of items) {
       if (!it.url || !it.title) continue;
       added += stmt.run(
         instrument, it.source, it.title, it.timeIso ?? null, it.summary ?? null, it.url,
         Number.isFinite(it.tone) ? it.tone : null, it.themes ? JSON.stringify(it.themes) : null,
-        it.escalation ? 1 : 0, fetchedAt,
+        it.escalation ? 1 : 0, fetchedAt, it.provider ?? it.source ?? null,
       ).changes;
     }
     return { added };
@@ -351,7 +365,7 @@ export async function refreshNewsForDecision(dbPath, instrument, { env = process
 // The decision-path context: pull fresh NewsAPI.ai (on-demand, throttled) then
 // return the ranked advisory block. The filter/bot call this instead of the bare
 // cache read so the news is freshest at the exact moment a decision is made.
-export async function sentinelDecisionContext(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {}, windowHours, topN } = {}) {
+export async function sentinelDecisionContext(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {}, windowHours, topN, sourceFootnotes = false } = {}) {
   // Fail-open: this runs on the hot alert-decision path, and news is advisory. Any
   // failure here — including a SQLITE_BUSY from the pre-checks/cache reads under a
   // concurrent writer — must degrade to "no news context", NEVER throw and abort
@@ -359,7 +373,7 @@ export async function sentinelDecisionContext(dbPath, instrument, { env = proces
   // not this awaited call, so the guard belongs here.)
   try {
     await refreshNewsForDecision(dbPath, instrument, { env, fetcher, now, log });
-    return newsContextFor(dbPath, instrument, { now, windowHours, topN });
+    return newsContextFor(dbPath, instrument, { now, windowHours, topN, sourceFootnotes });
   } catch (err) {
     log(`sentinel decision context failed for ${instrument}: ${err.message}`);
     return null;
@@ -370,11 +384,11 @@ export async function sentinelDecisionContext(dbPath, instrument, { env = proces
 // memoriesContext's "empty ⇒ null" convention): the caller omits the whole
 // `sentinel` block from the payload when this returns null, per the locked
 // design ("empty/no-news ⇒ block omitted").
-export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHours = NEWS_CONTEXT_WINDOW_HOURS, topN = NEWS_CONTEXT_TOP_N } = {}) {
+export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHours = NEWS_CONTEXT_WINDOW_HOURS, topN = NEWS_CONTEXT_TOP_N, sourceFootnotes = false } = {}) {
   return newsDb(dbPath, (db) => {
     const cutoff = new Date(now - windowHours * 3600000).toISOString();
     const rows = db.prepare(
-      'SELECT title, source, time, url, escalation FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
+      'SELECT title, source, time, url, escalation, provider FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
     ).all(instrument, cutoff, topN);
     if (!rows.length) return null;
     return {
@@ -388,6 +402,9 @@ export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHou
         // providers and get rendered as markdown links downstream).
         const u = (r.url || '').trim();
         if (/^https?:\/\/\S+$/i.test(u)) h.url = u;
+        // provider footnote is opt-in (#116): only attach the fetch provider
+        // when the caller asked for it, so the default block shape is unchanged.
+        if (sourceFootnotes && r.provider) h.provider = String(r.provider);
         return h;
       }),
       asOf: rows[0].time,
