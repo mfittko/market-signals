@@ -2298,7 +2298,7 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
     const STEP = e.shiftKey ? 64 : 16;
     if (e.key === 'ArrowLeft') apply(curW + STEP);
     else if (e.key === 'ArrowRight') apply(curW - STEP);
-    else if (e.key === 'Home') { app.style.removeProperty('--aside-w'); localStorage.removeItem('asideW'); curW = DEFAULT; return; }
+    else if (e.key === 'Home') { apply(DEFAULT); localStorage.removeItem('asideW'); return; }
     else return;
     e.preventDefault(); localStorage.setItem('asideW', String(curW));
   });
@@ -2321,7 +2321,7 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
   // Re-clamp on viewport resize so a previously-wide sidebar can't push the main
   // column below its minimum when the window narrows (apply() re-runs the clamp).
   window.addEventListener('resize', () => { if (app.style.getPropertyValue('--aside-w')) apply(curW); });
-  handle.addEventListener('dblclick', () => { app.style.removeProperty('--aside-w'); localStorage.removeItem('asideW'); curW = DEFAULT; });
+  handle.addEventListener('dblclick', () => { apply(DEFAULT); localStorage.removeItem('asideW'); });
 })();
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
