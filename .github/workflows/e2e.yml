@@ -1,0 +1,48 @@
+name: E2E (UI walkthrough)
+
+# Opt-in, path-gated: only runs when the served page or the e2e harness changes,
+# so the fast unit lane (ci.yml) is never blocked on WebKit. One matrix cell per
+# viewport/orientation, so a failure pinpoints the breaking breakpoint.
+on:
+  push:
+    paths: &ui_paths
+      - 'scripts/signal-server.mjs'
+      - 'vendor/app.html'
+      - 'test/e2e/**'
+      - 'package.json'
+      - '.github/workflows/e2e.yml'
+  pull_request:
+    paths: *ui_paths
+
+jobs:
+  walkthrough:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        viewport:
+          - desktop-landscape
+          - desktop-portrait
+          - phone-portrait
+          - phone-landscape
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install Playwright (dev-only)
+        run: npm install --no-audit --no-fund
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache WebKit browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install WebKit
+        run: npx playwright install --with-deps webkit
+      - name: Walkthrough (${{ matrix.viewport }})
+        env:
+          E2E_VIEWPORT: ${{ matrix.viewport }}
+        run: npm run test:e2e

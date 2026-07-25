@@ -266,8 +266,11 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 4. Optional: keep trading notes in `data/notes.md`, arm a bot for a watched
    combo in the 🤖 bot modal, and add standing rules in the 🧠 memories modal.
 
-`npm test` runs the full suite (fixture db, fake provider binaries, served-page
-syntax guard — no live network).
+`npm test` runs the full unit suite (fixture db, fake provider binaries,
+served-page assertions — no live network, zero deps). `npm run test:e2e` runs the
+Playwright/WebKit feature walkthrough (dashboard + all five modals across four
+viewport/orientations) — dev-only (`npm i && npx playwright install webkit`), and
+in CI it's an opt-in matrix job that only fires when the served page changes.
 
 ## Agent skills
 

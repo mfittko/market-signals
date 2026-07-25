@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agent skills for market analysis and market-moving signal watching.",
+  "description": "Local, self-hosted trading-signals dashboard + LLM copilot: supertrend flip alerts filtered by an LLM gate, paper-trading bots, and agent skills. Plain Node, zero runtime deps.",
   "scripts": {
     "verify": "node scripts/verify-packaging.mjs",
-    "test": "MS_NO_NOTIFY=1 node --test test/*.test.mjs"
+    "test": "MS_NO_NOTIFY=1 node --test test/*.test.mjs",
+    "test:e2e": "MS_NO_NOTIFY=1 node --test test/e2e/*.e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }
