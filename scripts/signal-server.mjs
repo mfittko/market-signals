@@ -2290,13 +2290,16 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
   const saved = parseInt(localStorage.getItem('asideW'), 10);
   if (Number.isFinite(saved)) apply(saved);
   let dragging = false;
-  handle.addEventListener('mousedown', (e) => { e.preventDefault(); dragging = true; handle.classList.add('dragging'); document.body.classList.add('resizing'); });
+  handle.addEventListener('mousedown', (e) => { if (e.button !== 0) return; e.preventDefault(); dragging = true; handle.classList.add('dragging'); document.body.classList.add('resizing'); });
   window.addEventListener('mousemove', (e) => { if (dragging) apply(app.getBoundingClientRect().right - e.clientX); });
   window.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false; handle.classList.remove('dragging'); document.body.classList.remove('resizing');
     localStorage.setItem('asideW', String(curW));
   });
+  // Re-clamp on viewport resize so a previously-wide sidebar can't push the main
+  // column below its minimum when the window narrows (apply() re-runs the clamp).
+  window.addEventListener('resize', () => { if (app.style.getPropertyValue('--aside-w')) apply(curW); });
   handle.addEventListener('dblclick', () => { app.style.removeProperty('--aside-w'); localStorage.removeItem('asideW'); curW = DEFAULT; });
 })();
 setInterval(load, 60000);
