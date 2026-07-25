@@ -38,12 +38,12 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
   const server = buildServer({ dbPath, settingsPath, fetcher: null });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  // seed a filter draft so the gates modal has drafts content
-  const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
-  assert.equal(seed.status, 200, 'gate-draft seed request succeeded');
-  const browser = await webkit.launch({ headless: true });
-
+  let browser;
   try {
+    // seed a filter draft so the gates modal has drafts content
+    const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
+    assert.equal(seed.status, 200, 'gate-draft seed request succeeded');
+    browser = await webkit.launch({ headless: true });
     for (const vname of selected) {
       await t.test(vname, async () => {
         const [width, height] = VIEWPORTS[vname]; // validated up front
@@ -106,8 +106,8 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
       });
     }
   } finally {
-    await browser.close();
-    await new Promise((r) => server.close(r)); // await close so the runner exits cleanly on CI
+    if (browser) await browser.close(); // may be unset if launch/seed threw
+    await new Promise((r) => server.close(r)); // always close the server; await so the runner exits cleanly on CI
     rmSync(dir, { recursive: true, force: true });
   }
 });
