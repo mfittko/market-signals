@@ -79,8 +79,10 @@ export function computeStudy(candles, T, { postMin = 15, horizons = DEFAULT_HORI
   if (post.length < 2) return { status: 'closed/no-data', mode, n: series.length };
 
   const pct = (price) => ((price - pre.close) / pre.close) * 100;
-  // signed close-move at each horizon: the last candle within H minutes of the
-  // anchor. null when the window doesn't reach that horizon (market closed etc.).
+  // signed close-move at horizon H: the close of the last candle within H minutes
+  // of the anchor. If the window ends before H (short/closed session) this
+  // degrades to the last available close — the same rule next-open uses, never a
+  // fabricated extrapolation. null only when fewer than 2 candles fall in range.
   const moveAt = (h) => {
     const win = post.filter((c) => c.ms <= anchor.ms + h * 60 * 1000);
     return win.length >= 2 ? pct(win[win.length - 1].close) : null;

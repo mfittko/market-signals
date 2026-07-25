@@ -53,7 +53,8 @@ function markdown(meta, rows, aggs) {
   L.push('');
   L.push(`Window: ${meta.since} .. ${meta.until}`);
   L.push(`Posts in window: ${meta.total} | high-signal: ${meta.high} | studies run: ${rows.length} | measured: ${rows.filter((r) => r.status === 'ok').length}`);
-  L.push(`Method: single-feed (fxempire), pre ${meta.preMin}m -> post ${meta.postMin}m, split at first candle >= T (F2). Per-instrument routing (F1).`);
+  const widest = Math.max(meta.postMin, ...(meta.horizons || [meta.postMin]));
+  L.push(`Method: single-feed (fxempire), pre ${meta.preMin}m -> horizons ${(meta.horizons || [meta.postMin]).join('/')}m (window spans ${widest}m; excursion measured over it), split at first candle >= T (F2). Per-instrument routing (F1).`);
   L.push('');
   const horizons = meta.horizons || [1, 5, 15, 60];
   const hCols = horizons.map((h) => `+${h}m`);
@@ -91,7 +92,7 @@ function csv(rows, horizons = [1, 5, 15, 60]) {
 async function main(argv) {
   const args = parseArgs(argv);
   if (args.has('help')) {
-    process.stdout.write('backtest — 2-week Truth Social -> market impact report (LIVE).\n  --since <ISO> --until <ISO>\n  --posts <file>   use a pre-fetched ingestion JSON (skip archive fetch)\n  --pre <min> --post <min>   study windows (default 5/15)\n  --cap <n>        max high-signal posts to study (live budget, default 40)\n  --format markdown|csv   (default markdown)\n');
+    process.stdout.write('backtest — 2-week Truth Social -> market impact report (LIVE).\n  --since <ISO> --until <ISO>\n  --posts <file>   use a pre-fetched ingestion JSON (skip archive fetch)\n  --pre <min>      pre window (default 5)\n  --post <min>     primary signed-move horizon (default 15)\n  --horizons <csv> signed-move horizons in minutes (default 1,5,15,60); the fetch\n                   spans the widest, and excursion is measured over it\n  --cap <n>        max high-signal posts to study (live budget, default 40)\n  --format markdown|csv   (default markdown)\n');
     return;
   }
   const now = Date.now();

@@ -27,13 +27,19 @@ test('aggregate (#10): excursion is the primary read and the sort key; signed mo
   assert.equal(bco.down, 1);
 });
 
-test('aggregate: skips non-ok rows and tolerates missing excursion', () => {
+test('aggregate: skips non-ok rows and tolerates an ok row missing excursion', () => {
   const rows = [
     row('BCO/USD', { move: 0.5, maxUp: 0.6, maxDn: -0.1, maxExcursion: 0.6 }),
+    row('BCO/USD', { move: 0.2, maxUp: 0.3, maxDn: -0.05 }), // ok but maxExcursion absent
     { status: 'closed/no-data', symbol: 'BCO/USD', label: 'BCO/USD' },
     { status: 'err:x', symbol: 'XAU/USD', label: 'XAU/USD' },
   ];
   const aggs = aggregate(rows);
-  assert.equal(aggs.length, 1, 'only the ok row aggregates');
-  assert.equal(aggs[0].n, 1);
+  assert.equal(aggs.length, 1, 'only ok rows aggregate; err/closed skipped');
+  const a = aggs[0];
+  assert.equal(a.n, 2, 'both ok rows counted');
+  // the excursion-less row is simply omitted from the excursion stats, not NaN
+  assert.ok(Math.abs(a.meanExcursion - 0.6) < 1e-9, 'mean excursion from the row that has it');
+  assert.ok(Math.abs(a.maxExcursion - 0.6) < 1e-9, 'max excursion finite');
+  assert.ok(Number.isFinite(a.meanMove), 'signed-move stats stay finite');
 });
