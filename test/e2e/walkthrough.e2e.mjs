@@ -99,6 +99,18 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
           await p.waitForTimeout(150);
           assert.equal(await p.evaluate(() => [...document.querySelectorAll('#gatesList .gatepanel')].filter((x) => !x.hidden).map((x) => x.dataset.panel)[0]), 'bot', 'gate tab switch shows the bot panel');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+          // signal history "load 10 more": clicking must actually run (regression
+          // for a call site that dropped the view arg → a TypeError on click).
+          const moreShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });
+          if (moreShown) {
+            const rows0 = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length);
+            await p.evaluate(() => document.getElementById('histMore').click());
+            await p.waitForTimeout(500);
+            const rows1 = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length);
+            const stillShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });
+            assert.ok(rows1 >= rows0, 'load-more never drops rows');
+            assert.ok(rows1 > rows0 || !stillShown, 'load-more either appended older rows or hid itself (reached the start)');
+          }
         }
 
         assert.deepEqual(errs, [], `no console/page errors on ${vname}`);
