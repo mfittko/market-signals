@@ -18,7 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
-import { resolveNewsApiAiSource } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+import { resolveNewsApiAiSource } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -428,7 +428,7 @@ export const CHAT_TOOLS = [
   },
   {
     name: 'sentinel_news',
-    description: 'Fetch breaking geopolitical/macro news for an instrument from free, query-driven sources (Google News, GDELT, Al Jazeera, OilPrice.com, a per-instrument Yahoo Finance feed) with an escalation flag (keyword hit or negative GDELT tone). Defaults to the currently viewed instrument. Only instruments with a committed sentinel query in config/instruments.yaml resolve.',
+    description: 'Fetch breaking geopolitical/macro news for an instrument. When NEWSAPI_AI_KEY is configured it queries NewsAPI.ai (preferred, richer/fresher) merged with the free query-driven sources (Google News, GDELT, Al Jazeera, OilPrice.com, a per-instrument Yahoo Finance feed); without a key it uses the free sources only. Carries an escalation flag (keyword hit or negative GDELT tone). Defaults to the currently viewed instrument. Only instruments with a committed sentinel query in config/instruments.yaml resolve.',
     input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, hours: { type: 'integer', description: 'lookback hours (1-72, default 12)' }, maxItems: { type: 'integer', description: 'max headlines after dedup (1-30, default 15)' } }, additionalProperties: false },
     run: (a, ctx) => {
       // Validate BOTH the explicit arg and the view fallback with the same

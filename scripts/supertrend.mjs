@@ -644,7 +644,7 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
   const { memoriesContext } = await import('./memories.mjs');
   // lazy import: avoids a static cycle (news.mjs imports withDb from here)
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
+  const { resolveNewsApiAiSource } = await import('./lib/newsapi-ai-source.mjs');
   // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
   // fetched at the moment the flip is judged (fail-open, no-op without a key).
   // Key comes from settings.json (env fallback) — the LaunchAgent never loads .env.
@@ -1103,7 +1103,7 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate, settings = {} } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource } = await import('../skills/market-sentinel/scripts/sentinel_news.mjs');
+  const { resolveNewsApiAiSource } = await import('./lib/newsapi-ai-source.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
