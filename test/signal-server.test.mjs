@@ -85,7 +85,7 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
     assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="botBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
     const auto = /margin-left:\s*auto/;
-    assert.ok(!auto.test(page.match(/#cfgbtn \{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
+    assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
     assert.match(page.match(/#indbar \{[^}]*\}/)[0], auto);
   });
@@ -537,6 +537,31 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('openai (official)') && html.includes('openai-compatible (base URL)'), 'provider select is explicit (#99 split)');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
+  });
+});
+
+test('a11y + collapsible chat sidebar (#126)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    // icon-only header buttons carry an accessible name (aria-label), not just title
+    for (const [id, label] of [['cfgbtn', 'settings'], ['memBtn', 'trader memories'], ['gateBtn', 'gates and prompts'], ['botBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
+      assert.ok(new RegExp('id="' + id + '"[^>]*aria-label="' + label).test(html), id + ' has an aria-label');
+    // canvas charts expose a text alternative
+    assert.ok(/id="chart"[^>]*role="img"[^>]*aria-label=/.test(html), 'price chart canvas has role=img + aria-label');
+    assert.ok(/id="osc"[^>]*role="img"/.test(html), 'oscillator canvas has role=img');
+    // placeholder-only inputs now have an accessible name
+    assert.ok(/id="chatMsg"[^>]*aria-label=/.test(html), 'chat input has an aria-label');
+    assert.ok(/id="memNewContent"[^>]*aria-label=/.test(html), 'memory input has an aria-label');
+    // reduced-motion honored + a consistent focus-visible ring
+    assert.ok(html.includes('prefers-reduced-motion: reduce'), 'reduced-motion guard present');
+    assert.ok(html.includes(':focus-visible'), 'focus-visible ring defined');
+    // collapsible chat: toggle present, collapsed by default (localStorage opt-in)
+    assert.ok(/id="chatToggle"[^>]*aria-expanded/.test(html), 'chat toggle present with aria-expanded');
+    assert.ok(html.includes('chat-collapsed'), 'collapse class wired');
+    assert.ok(/<div id="app" class="chat-collapsed"/.test(html), 'app ships collapsed in markup (no first-paint flash of the empty column)');
+    assert.ok(html.includes("localStorage.getItem('chatOpen') === '1'"), 'chat collapsed by default (open is opt-in)');
+    // staleness humanized past ~90 min
+    assert.ok(html.includes("'h ago'") && html.includes("'d ago'"), 'staleness humanized to hours/days');
   });
 });
 

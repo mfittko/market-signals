@@ -1161,6 +1161,11 @@ const PAGE = /* html */ `<!doctype html>
   #chatForm input { flex: 1; }
   #chatForm button { background: #2b7a45; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
   #chatForm button:hover { background: #33914f; } #chatForm button:active { background: #235f37; }
+  /* #126: collapsible chat sidebar. Collapsed by default so the chart claims the
+     full width — no dead column when the copilot is idle. Toggle in the header. */
+  #app.chat-collapsed { grid-template-columns: 1fr; }
+  #app.chat-collapsed > aside, #app.chat-collapsed > #asideResize { display: none; }
+  #chatToggle.on { background: #1f6feb33; border-color: #1f6feb; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #asideResize { display: none; }
@@ -1185,6 +1190,15 @@ const PAGE = /* html */ `<!doctype html>
   #pfTabs, #bmTabs, #cfgTabs, #gatesTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
   #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
   #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on, #gatesTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  /* a11y (#126): a consistent high-contrast keyboard focus ring on every
+     interactive control (native rings still apply; this makes it uniform). */
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid #58a6ff; outline-offset: 2px; }
+  /* a11y (#126): keep the smaller chip/row buttons at/above the 24px min target.
+     Topbar + dialog controls are already 30px (see #topbar rule below). */
+  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
+  /* a11y (#126): honor reduced-motion — drop the hover/state transitions. */
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
   /* #108: panels use display:contents so their label/input pairs join the form's
      label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
@@ -1272,13 +1286,13 @@ const PAGE = /* html */ `<!doctype html>
   :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
   /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
-  #cfgbtn:hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   /* destructive: red text, no fill on every state */
   #bmRemove { float: right; color: #f85149; background: none; border: 0; }
   #bmRemove:hover, #bmRemove:active { background: none; color: #ff7b72; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
-  #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  #cfgbtn, #chatToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   /* #57: info overlay — CSS-only tooltip, no JS positioning; [data-info] gets a
      positioning context whether the toggle is on or off (no reflow on toggle). */
@@ -1316,15 +1330,15 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><div id="app"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button> <button id="memBtn" type="button" title="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts">📜</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
-<div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
-<div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
+</style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
+<header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="memBtn" type="button" title="trader memories" aria-label="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts" aria-label="gates and prompts">📜</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<div id="wrap" style="height:460px"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
+<div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
 <details id="pf" hidden>
   <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
-  <canvas id="pfSpark" width="560" height="46"></canvas>
+  <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Portfolio equity sparkline"></canvas>
 </details>
 <dialog id="pfdlg">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
@@ -1361,7 +1375,7 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="memdlg">
 <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
 <h2>🧠 trader memories</h2>
-<div id="memAddRow"><input type="text" id="memNewContent" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5"><button type="button" id="memAddBtn">add</button></div>
+<div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div>
 <div id="memList"></div>
 <details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
 </dialog>
@@ -1377,7 +1391,7 @@ const PAGE = /* html */ `<!doctype html>
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
   <div id="msgs"></div>
-  <form id="chatForm"><input id="chatMsg" placeholder="quick check about the current view…" autocomplete="off"><button>Ask</button></form>
+  <form id="chatForm"><input id="chatMsg" aria-label="ask about the current view" placeholder="quick check about the current view…" autocomplete="off"><button>Ask</button></form>
 </aside>
 </div>
 <script>
@@ -1617,7 +1631,11 @@ function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
   };
   document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
-  document.getElementById('bmRemove').onclick = async () => { await save(null); document.getElementById('botdlg').close(); };
+  // #126: confirm before removing — it sits next to the primary action
+  document.getElementById('bmRemove').onclick = async () => {
+    if (!confirm('Remove this bot from the view? Its configuration will be cleared.')) return;
+    await save(null); document.getElementById('botdlg').close();
+  };
 }
 // #75 strategy tab: assign by name (scope-filtered, "show all" escape),
 // per-version activate, inline prompt/spec edit → new INACTIVE version.
@@ -1745,7 +1763,7 @@ async function renderOverviewBots() {
     (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won\u2019t trade</span>') + '</span>' +
     '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '\u00d7' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
     (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
-    '<button class="jump" data-combo="' + esc(b.combo) + '">\u2192</button></div>';
+    '<button class="jump" data-combo="' + esc(b.combo) + '" aria-label="open this bot\u2019s view (' + esc(b.combo) + ')" title="open this bot\u2019s view">\u2192</button></div>';
   list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click \ud83e\udd16 in the header to configure a bot for that view.</div>') +
     (off.length ? '<details><summary><small>configured (off): ' + off.length + '</small></summary>' + off.map(row).join('') + '</details>' : '');
   list.onclick = (e) => {
@@ -1980,6 +1998,8 @@ function quoteStrip(q) {
   const pc = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v + '%';
   const cls = (v) => v == null || v >= 0 ? 'buy' : 'sell';
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(q.time)) / 60000));
+  // #126: humanize staleness past ~90 min (raw minutes get hard to read)
+  const humanAge = (m) => m < 90 ? m + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago';
   const st = q.supertrend;
   const box = (label, html, key) => '<div' + (key ? ' data-info="' + esc(INFO[key]) + '"' : '') + '><small>' + label + '</small><b>' + html + '</b></div>';
   el.innerHTML =
@@ -1988,7 +2008,7 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>', 'change24h') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh), 'dayRange') +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>', 'supertrend') : '') +
-    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + ageMin + 'm ago)', q.partial ? 'forming' : null);
+    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
 
 // #70: a re-check verdict picks buy/sell-style coloring for valid/invalidated
@@ -2014,7 +2034,7 @@ function verdict(s, botDecision, recheck, view) {
   // on a deep-linked historical view, or a click would re-check a different
   // signal than the one displayed. A past re-check line (if any) still shows
   // for a historical signal — read-only, no new-recheck affordance.
-  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
+  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
   el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
@@ -2276,9 +2296,9 @@ async function loadThreads() {
   const opt = (t) => '<option value="' + t.id + '"' + (t.id === chat.threadId ? ' selected' : '') + '>' +
     esc((t.created_at || '').slice(5, 16).replace('T', ' ')) + ' · ' + esc(t.title.slice(0, 34)) + '</option>';
   bar.innerHTML = '<button id="newThread">+ new</button>' +
-    '<select id="threadSel"><option value=""' + (chat.threadId == null ? ' selected' : '') + '>— new thread —</option>' +
+    '<select id="threadSel" aria-label="select conversation thread"><option value=""' + (chat.threadId == null ? ' selected' : '') + '>— new thread —</option>' +
     threads.map(opt).join('') + '</select>' +
-    '<button id="delThread" title="delete selected thread"' + (chat.threadId == null ? ' disabled' : '') + '>🗑</button>';
+    '<button id="delThread" title="delete selected thread" aria-label="delete selected thread"' + (chat.threadId == null ? ' disabled' : '') + '>🗑</button>';
   bar.querySelector('#newThread').onclick = () => { chat.threadId = null; renderMsgs([]); loadThreads(); };
   bar.querySelector('#threadSel').onchange = (e) => {
     if (e.target.value === '') { chat.threadId = null; renderMsgs([]); loadThreads(); }
@@ -2463,6 +2483,27 @@ document.getElementById('cfgbtn').addEventListener('click', async () => {
 // header buttons OR the 'manage ...' links inside settings.
 document.getElementById('memBtn').addEventListener('click', () => { document.getElementById('memdlg').showModal(); renderMemories(); });
 document.getElementById('gateBtn').addEventListener('click', () => { document.getElementById('gatedlg').showModal(); renderGates(); });
+// #126: chat sidebar is collapsible, collapsed by default (no dead column when
+// idle). State persists; the chart redraws to fill the reclaimed width.
+(function initChatToggle() {
+  const app = document.getElementById('app');
+  const btn = document.getElementById('chatToggle');
+  const open = localStorage.getItem('chatOpen') === '1'; // default collapsed
+  const apply = (isOpen) => {
+    app.classList.toggle('chat-collapsed', !isOpen);
+    btn.classList.toggle('on', isOpen);
+    btn.setAttribute('aria-expanded', String(isOpen));
+    btn.title = isOpen ? 'hide chat copilot' : 'show chat copilot';
+    // let the chart pick up its new width
+    window.dispatchEvent(new Event('resize'));
+  };
+  apply(open);
+  btn.addEventListener('click', () => {
+    const next = app.classList.contains('chat-collapsed');
+    localStorage.setItem('chatOpen', next ? '1' : '0');
+    apply(next);
+  });
+})();
 document.getElementById('cfgToMem').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('memdlg').showModal(); renderMemories(); });
 document.getElementById('cfgToGates').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('gatedlg').showModal(); renderGates(); });
 document.getElementById('memAddBtn').addEventListener('click', async () => {
