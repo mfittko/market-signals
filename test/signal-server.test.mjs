@@ -85,7 +85,7 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
     assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="botBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
     const auto = /margin-left:\s*auto/;
-    assert.ok(!auto.test(page.match(/#cfgbtn \{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
+    assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
     assert.match(page.match(/#indbar \{[^}]*\}/)[0], auto);
   });
