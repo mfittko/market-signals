@@ -482,6 +482,13 @@ test('effectiveModel: per-provider binding, active-only flat fallback, no cross-
   assert.equal(effectiveModel(migrated, 'openai-compatible'), 'zai-org/GLM-5', 'migrated config resolves its flat model under openai-compatible');
 });
 
+test('requireModel: fails fast for a no-default provider with no model, else returns it (#99 review)', async () => {
+  const { requireModel } = await import('../scripts/supertrend.mjs');
+  assert.throws(() => requireModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x' }, 'openai-compatible'), /no model configured/, 'openai-compatible with no model → clear config error (not a null model in the request body)');
+  assert.equal(requireModel({ provider: 'openai' }, 'openai'), 'gpt-5.4-mini', 'official openai always has a default');
+  assert.equal(requireModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x', models: { 'openai-compatible': 'GLM' } }, 'openai-compatible'), 'GLM');
+});
+
 test('explicit anthropic provider without ANTHROPIC_API_KEY fails fast (no x-api-key: undefined) (#42)', async () => {
   const { llmRequest } = await import('../scripts/supertrend.mjs');
   await assert.rejects(
@@ -727,15 +734,15 @@ test('llmRequest (openai): default max_completion_tokens floors at OPENAI_REASON
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
     // small call-site maxTokens (1024, the filter's actual budget): floors at 8192.
-    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
     assert.equal(bodies[0].max_completion_tokens, 8192, 'floors up to the reasoning default, not the small call-site budget');
 
     // operator-configured maxCompletionTokens overrides the floor.
-    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, maxCompletionTokens: 16000 }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm', maxCompletionTokens: 16000 }, 'sys', 'user', { maxTokens: 1024, timeoutMs: 5000 });
     assert.equal(bodies[1].max_completion_tokens, 16000, 'settings.maxCompletionTokens overrides the built-in floor');
 
     // a call site asking for MORE than the floor is never clamped down.
-    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base }, 'sys', 'user', { maxTokens: 20000, timeoutMs: 5000 });
+    await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' }, 'sys', 'user', { maxTokens: 20000, timeoutMs: 5000 });
     assert.equal(bodies[2].max_completion_tokens, 20000, 'a larger call-site budget always wins over the floor');
   } finally { await new Promise((r) => srv.close(r)); }
 });
@@ -816,7 +823,7 @@ test('processSignal (#98): a reasoning-model null-content openai filter fails OP
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
     const dir = mkdtempSync(join(tmpdir(), 'st-'));
-    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base } });
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
     const res = await processSignal(opts, result, c);
     assert.equal(res.sent, true, 'fails open: the alert is still recorded');
     assert.equal(res.verdictSource, 'error');
@@ -906,7 +913,7 @@ test('openai malformed/empty-choices response throws a readable error, not a Typ
   const port = srv.address().port;
   try {
     await assert.rejects(
-      llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: `http://127.0.0.1:${port}` }, 'sys', 'user', { timeoutMs: 10000 }),
+      llmRequest({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: `http://127.0.0.1:${port}`, model: 'm' }, 'sys', 'user', { timeoutMs: 10000 }),
       /no choice\/message|malformed response/,
     );
   } finally { await new Promise((r) => srv.close(r)); }

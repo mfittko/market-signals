@@ -223,6 +223,15 @@ export function effectiveModel(settings, provider) {
   return PROVIDER_DEFAULT_MODEL[provider] ?? null;
 }
 
+// Fail fast at request time when a provider with no default (openai-compatible)
+// has no model configured (#99 review): sending "model": null just earns a
+// generic upstream 400 — a clear config error is far more actionable.
+export function requireModel(settings, provider) {
+  const model = effectiveModel(settings, provider);
+  if (!model) throw new Error(`${provider} has no model configured — set the model in settings (this provider has no default)`);
+  return model;
+}
+
 // #93: usage capture is purely additive debug telemetry — a bad onUsage
 // callback (or a provider omitting usage) must never break the actual
 // request/response path.
@@ -371,7 +380,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
   }
   {
     const stream = Boolean(onDelta) && !schema;
-    const model = effectiveModel(settings, provider);
+    const model = requireModel(settings, provider);
     const budget = openaiCompletionBudget(settings, maxTokens);
     const body = {
       model,
@@ -473,7 +482,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
 
 async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool, onUsage, provider = resolveProvider(settings) }) {
   const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
-  const model = effectiveModel(settings, provider);
+  const model = requireModel(settings, provider);
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
   // #93: same round-aggregation as anthropicToolLoop above.
   let inputTokens = 0;

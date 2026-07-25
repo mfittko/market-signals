@@ -266,7 +266,7 @@ test('deliberate (#98): an openai reasoning-model null-content decision still fa
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
     const db = fresh();
-    const settings = { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, bot: { enabled: true, riskPct: 100 } };
+    const settings = { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm', bot: { enabled: true, riskPct: 100 } };
     const r = await deliberate(db, settings, {
       instrument: WTI, granularity: 'M5', event: 'flip', ctx: { close: 87 },
       toolDefs: [{ name: 't', description: 'd', input_schema: { type: 'object' } }],

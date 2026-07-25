@@ -1493,6 +1493,19 @@ test('maskedSettings seeds models[activeProvider] from flat model + migrates ope
   assert.equal(m.models['openai-compatible'], 'zai-org/GLM-5', 'flat model seeded under the resolved active provider');
 });
 
+test('models merge carries only allow-listed provider keys — junk/proto keys dropped (#99 review)', async () => {
+  const { writeSettings, maskedSettings } = await import('../scripts/signal-server.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 'settings.json');
+  // pre-seed stored settings with a junk key alongside a real one
+  writeFileSync(p, JSON.stringify({ models: { openai: 'old', bogusProvider: 'x' } }));
+  writeSettings(p, { models: { anthropic: 'claude-x' } });
+  const s = maskedSettings(p);
+  assert.equal(s.models.anthropic, 'claude-x', 'valid new binding stored');
+  assert.equal(s.models.openai, 'old', 'existing allow-listed binding preserved');
+  assert.ok(!('bogusProvider' in s.models), 'non-provider junk key dropped by the merge');
+});
+
 test('info overlays (#57/#67): one explanation map covers the axis keys, toggle lives in the settings dialog', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();

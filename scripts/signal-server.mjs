@@ -183,9 +183,14 @@ export function writeSettings(settingsPath, patch) {
       next.bot = merged;
     } else if (k === 'models') {
       // per-provider merge (#99): a partial patch (the panel saves one provider
-      // at a time) must not drop other providers' bound models; ''/null deletes one.
-      const merged = { ...(typeof current.models === 'object' && current.models ? current.models : {}) };
+      // at a time) must not drop other providers' bound models; ''/null deletes
+      // one. Carry only allow-listed provider keys so junk / __proto__-style keys
+      // already in settings.json can never propagate (same guard as bot.leverage).
+      const merged = {};
+      const prev = typeof current.models === 'object' && current.models ? current.models : {};
+      for (const mp of MODEL_PROVIDER_KEYS) if (prev[mp] != null) merged[mp] = prev[mp];
       for (const [mp, mv] of Object.entries(v)) {
+        if (!MODEL_PROVIDER_KEYS.includes(mp)) continue;
         if (mv === '' || mv === null) delete merged[mp];
         else merged[mp] = mv;
       }
@@ -2121,8 +2126,10 @@ async function cfg() {
     // LLM: provider + its contextual fields; the model binds to models[provider]
     const p = f.querySelector('#f-provider').value;
     patch.provider = p;
+    // only bind a model for providers that expose the field (pi shows piBin, not
+    // a model input) — otherwise an empty models[p] would silently clear a binding
     const modelEl = f.querySelector('#f-__model');
-    if (p !== 'none') patch.models = { [p]: modelEl ? modelEl.value : '' };
+    if (modelEl) patch.models = { [p]: modelEl.value };
     for (const [id, kind] of llmFieldsFor(p)) {
       if (id === '__model') continue;
       const el = f.querySelector('#f-' + id); if (!el) continue;
