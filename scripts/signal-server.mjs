@@ -1108,16 +1108,18 @@ const PAGE = /* html */ `<!doctype html>
   #pfTabs button, #bmTabs button, #cfgTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
   #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   /* #108: panels use display:contents so their label/input pairs join the form's
-     140px/1fr grid; the [hidden] override (higher specificity) still hides a tab. */
+     label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
   .cfgpanel[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
-  /* #108: wider default so long NEWSAPI_AI_* labels fit one line; the max-width:900px
-     query below still collapses the form to single-column at 92vw on small screens. */
+  /* #108/#110: wider default + a 220px label column so long NEWSAPI_AI_* labels fit
+     one line. The #cfg id selector outweighs the generic dialog-form collapse in the
+     max-width:900px query, so an explicit #cfg override there restores single-column. */
   #cfgdlg { width: min(680px, 92vw); }
   #cfg { grid-template-columns: 220px 1fr; max-width: none; }
+  @media (max-width: 900px) { #cfg { grid-template-columns: 1fr; } }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
-  /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the 140px label column instead of clipping */
+  /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
   #botBtn { position: relative; }
   #botBtn.nobot { opacity: 0.45; }
