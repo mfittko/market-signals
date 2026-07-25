@@ -1132,8 +1132,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
   });
 }
 
-// Single self-contained page: canvas candle chart + supertrend + signal marker,
-// verdict panel, signal history, and the settings form. No external assets.
+// The dashboard page (canvas chart + supertrend/marker, verdict panel, signal
+// history, settings/modals, chat) lives in vendor/app.html and is served by
+// servePage() above. It loads only same-origin vendored assets (Chart.js under
+// /vendor/), no CDN. (#128: moved out of an inline template literal here.)
 
 function parseArgs(argv) {
   const out = { port: null, db: 'data/candles.db', settings: 'data/settings.json' };
