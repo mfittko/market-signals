@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { ingest, ARCHIVE_URL } from './fetch-trump-posts.mjs';
 import { classify } from './classify-post.mjs';
 import { runStudy } from './event-study.mjs';
+import { parseArgs, isMain } from './lib/cli.mjs';
 
 const fmtPct = (v) => (v == null ? '   -   ' : `${v >= 0 ? '+' : ''}${v.toFixed(3)}%`);
 
@@ -76,10 +77,7 @@ function csv(rows) {
 }
 
 async function main(argv) {
-  const args = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) args.set(argv[i].slice(2), argv[i + 1]?.startsWith('--') ? true : argv[++i]);
-  }
+  const args = parseArgs(argv);
   if (args.has('help')) {
     process.stdout.write('backtest — 2-week Truth Social -> market impact report (LIVE).\n  --since <ISO> --until <ISO>\n  --posts <file>   use a pre-fetched ingestion JSON (skip archive fetch)\n  --pre <min> --post <min>   study windows (default 5/15)\n  --cap <n>        max high-signal posts to study (live budget, default 40)\n  --format markdown|csv   (default markdown)\n');
     return;
@@ -120,7 +118,7 @@ async function main(argv) {
   process.stdout.write(`${format === 'csv' ? csv(rows) : markdown(meta, rows, aggregate(rows))}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main(process.argv.slice(2)).catch((e) => {
     process.stderr.write(`backtest error: ${e.message}\n`);
     process.exit(1);
