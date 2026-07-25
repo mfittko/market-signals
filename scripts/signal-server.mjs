@@ -1071,7 +1071,12 @@ const PAGE = /* html */ `<!doctype html>
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #0d1117; color: #e6edf3; font: 14px/1.5 -apple-system, sans-serif; }
-  #app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 0; min-height: 100vh; }
+  #app { display: grid; grid-template-columns: minmax(0, 1fr) var(--aside-w, 380px); gap: 0; min-height: 100vh; position: relative; }
+  /* #112: draggable divider on the main<->chat border; double-click resets. */
+  #asideResize { position: absolute; top: 0; bottom: 0; right: var(--aside-w, 380px); width: 9px; transform: translateX(4px); cursor: col-resize; z-index: 5; }
+  #asideResize::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .12s ease; }
+  #asideResize:hover::before, #asideResize.dragging::before { background: #1f6feb; }
+  body.resizing { cursor: col-resize; user-select: none; }
   main { padding: 16px; min-width: 0; }
   aside { border-left: 1px solid #30363d; display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
   #threadBar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid #21262d; flex-wrap: wrap; }
@@ -1092,6 +1097,7 @@ const PAGE = /* html */ `<!doctype html>
   #chatForm button:hover { background: #33914f; } #chatForm button:active { background: #235f37; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
+    #asideResize { display: none; }
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
     #msgs { max-height: 45vh; min-height: 120px; }
     #wrap { height: 320px !important; }
@@ -1244,7 +1250,7 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><div id="app"><main>
+</style></head><body><div id="app"><div id="asideResize" title="drag to resize · double-click to reset"></div><main>
 <header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button> <button id="memBtn" type="button" title="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts">📜</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
@@ -2268,6 +2274,31 @@ document.getElementById('chatForm').onsubmit = async (e) => {
 };
 loadThreads();
 load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
+
+// Resizable chat sidebar (#112): drag the main<->chat border, double-click resets.
+// Width persists in localStorage; clamped so neither pane collapses; the chart
+// (responsive) reflows automatically. Disabled at <=900px (single-column layout).
+(function () {
+  const app = document.getElementById('app');
+  const handle = document.getElementById('asideResize');
+  if (!app || !handle) return;
+  const DEFAULT = 380, MIN = 280;
+  const maxW = () => Math.max(MIN, Math.min(window.innerWidth * 0.6, window.innerWidth - 360));
+  const clamp = (w) => Math.max(MIN, Math.min(w, maxW()));
+  let curW = DEFAULT;
+  const apply = (w) => { curW = clamp(w); app.style.setProperty('--aside-w', curW + 'px'); };
+  const saved = parseInt(localStorage.getItem('asideW'), 10);
+  if (Number.isFinite(saved)) apply(saved);
+  let dragging = false;
+  handle.addEventListener('mousedown', (e) => { e.preventDefault(); dragging = true; handle.classList.add('dragging'); document.body.classList.add('resizing'); });
+  window.addEventListener('mousemove', (e) => { if (dragging) apply(app.getBoundingClientRect().right - e.clientX); });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; handle.classList.remove('dragging'); document.body.classList.remove('resizing');
+    localStorage.setItem('asideW', String(curW));
+  });
+  handle.addEventListener('dblclick', () => { app.style.removeProperty('--aside-w'); localStorage.removeItem('asideW'); curW = DEFAULT; });
+})();
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 document.getElementById('cfgbtn').addEventListener('click', async () => {
