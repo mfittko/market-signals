@@ -13,9 +13,12 @@
 
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs';
+import { dirname, resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { transcribe } from './stt.mjs';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
@@ -47,13 +50,13 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
-const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY'];
+const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'sttOpenaiKey'];
 const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
@@ -725,6 +728,38 @@ async function readBody(req, res) {
   return raw + dec.decode();
 }
 
+// Stream a (binary) request body to a temp file with its own cap — the 64KB
+// readBody cap is far too small for audio (#137). Returns the temp path, or null
+// after sending a 413. Caller must unlink the file when done.
+async function readBodyToFile(req, res, maxBytes) {
+  // randomUUID suffix so two uploads in the same ms can't collide on the path
+  const path = join(tmpdir(), `ms-stt-${process.pid}-${randomUUID()}`);
+  const ws = createWriteStream(path);
+  // a stream 'error' (disk full, bad fd) rejects the write/drain/end awaits
+  // instead of crashing the process or hanging forever on 'drain'
+  let streamErr = null;
+  const errored = new Promise((resolve) => ws.once('error', (e) => { streamErr = e; resolve(); }));
+  const raceErr = (p) => Promise.race([p, errored.then(() => { throw streamErr; })]);
+  let bytes = 0;
+  try {
+    for await (const chunk of req) {
+      if (streamErr) throw streamErr;
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        ws.destroy(); try { unlinkSync(path); } catch { /* best-effort */ }
+        json(res, 413, { ok: false, error: 'audio too large' });
+        return null;
+      }
+      if (!ws.write(chunk)) await raceErr(new Promise((r) => ws.once('drain', r)));
+    }
+    await raceErr(new Promise((r, j) => ws.end((e) => (e ? j(e) : r()))));
+    return path;
+  } catch (e) {
+    ws.destroy(); try { unlinkSync(path); } catch { /* best-effort */ }
+    throw e;
+  }
+}
+
 // extraHeaders (#93): additive — every existing caller omits it and gets the
 // exact same two headers as before (byte-identical when MS_DEBUG_LLM is off).
 function json(res, status, body, extraHeaders = {}) {
@@ -860,6 +895,21 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           return json(res, 200, { ok: true, settings: settingsOut });
         }
         catch (err) { return json(res, 400, { ok: false, error: err.message }); }
+      }
+      if (url.pathname === '/api/transcribe' && req.method === 'POST') {
+        const cfg = readSettings(settingsPath);
+        const ct = req.headers['content-type'] || 'audio/webm';
+        let tmp;
+        try {
+          tmp = await readBodyToFile(req, res, 25 * 1024 * 1024);
+          if (tmp === null) return; // 413 already sent
+          const text = await transcribe(tmp, { settings: cfg, contentType: ct });
+          return json(res, 200, { ok: true, text });
+        } catch (err) {
+          return json(res, err.code === 'no-backend' ? 400 : 500, { ok: false, error: err.message });
+        } finally {
+          if (tmp) { try { unlinkSync(tmp); } catch { /* best-effort */ } }
+        }
       }
       if (url.pathname === '/api/bots' && req.method === 'GET') {
         // read-only activated-bots list for the portfolio overview (#49 design)
