@@ -31,7 +31,7 @@ test('default: a key present routes to OpenAI (gpt-4o-mini-transcribe) even with
   let url, opts;
   const fetcher = async (u, o) => { url = u; opts = o; return { ok: true, json: async () => ({ text: '  transcribed  ' }) }; };
   const text = await transcribe(audio, {
-    settings: { OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: 'https://api.openai.com/v1/' },
+    settings: { sttOpenaiKey: 'sk-test', sttOpenaiBaseUrl: 'https://api.openai.com/v1/' },
     contentType: 'audio/webm', fetcher,
   });
   assert.equal(url, 'https://api.openai.com/v1/audio/transcriptions'); // trailing slash trimmed
@@ -45,7 +45,7 @@ test('explicit sttModel overrides the default', async () => {
   const fetcher = async () => ({ ok: true, json: async () => ({ text: 'x' }) });
   let model;
   await transcribe(audio, {
-    settings: { OPENAI_API_KEY: 'k', sttModel: 'whisper-1' },
+    settings: { sttOpenaiKey: 'k', sttModel: 'whisper-1' },
     fetcher: async (u, o) => { model = o.body.get('model'); return fetcher(); },
   });
   assert.equal(model, 'whisper-1');
@@ -54,7 +54,7 @@ test('explicit sttModel overrides the default', async () => {
 test('openai: a non-ok response surfaces the status (not a no-backend)', async () => {
   const fetcher = async () => ({ ok: false, status: 401, text: async () => 'bad key' });
   await assert.rejects(
-    () => transcribe(audio, { settings: { sttMode: 'openai', OPENAI_API_KEY: 'x' }, fetcher }),
+    () => transcribe(audio, { settings: { sttMode: 'openai', sttOpenaiKey: 'sk-valid' }, fetcher }),
     (e) => e.code !== 'no-backend' && /401/.test(e.message),
   );
 });
