@@ -711,6 +711,17 @@ function json(res, status, body, extraHeaders = {}) {
   res.end(JSON.stringify(body));
 }
 
+// #128: shared POST-body read+parse (was copy-pasted across 7 handlers). Returns
+// the parsed JSON, or `undefined` AFTER already sending the response — a 413 from
+// readBody's size cap, or a 400 on invalid JSON. Callers do
+// `if (body === undefined) return;`. A literal JSON `null` body still round-trips;
+// only `undefined` signals "already handled".
+async function readJson(req, res) {
+  const raw = await readBody(req, res);
+  if (raw === null) return undefined; // readBody already sent 413
+  try { return JSON.parse(raw); } catch { json(res, 400, { ok: false, error: 'invalid JSON' }); return undefined; }
+}
+
 export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -769,10 +780,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       // like every other non-GET route. Never touches the signals/
       // signal_snapshots rows it reads — persists a NEW signal_rechecks row.
       if (url.pathname === '/api/recheck' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         const cfg = readSettings(settingsPath);
         const instrument = body?.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
         const granularity = body?.granularity || cfg.granularity || 'M5';
@@ -802,10 +811,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, maskedSettings(settingsPath));
       }
       if (url.pathname === '/api/settings' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let patch;
-        try { patch = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const patch = await readJson(req, res);
+        if (patch === undefined) return;
         try {
           // resetHalt is EPHEMERAL and runs ONLY after the rest of the patch
           // validated+persisted — an invalid patch must never half-apply a
@@ -905,10 +912,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       // #75: manual draft save (bot-modal inline edit) — new INACTIVE version,
       // same append-only rule as the chat tool; activation stays a separate act.
       if (url.pathname === '/api/strategies' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         try {
           const saved = saveStrategy(dbPath, {
             name: body.name, prompt: body.prompt, spec: body.spec ?? null, instruments: body.instruments ?? null,
@@ -919,10 +924,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/strategies/activate' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         const id = Number(body.id);
         if (!Number.isInteger(id) || id < 1) return json(res, 400, { ok: false, error: 'id required' });
         try { activateStrategy(dbPath, id); } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
@@ -933,10 +936,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, { ok: true, memories: all.filter((m) => !m.archived), archivedCount: all.filter((m) => m.archived).length });
       }
       if (url.pathname === '/api/memories' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         const id = Number(body.id);
         try {
           if (body.action === 'save') return json(res, 200, { ok: true, memory: saveMemory(dbPath, { content: body.content, weight: body.weight === undefined || body.weight === null ? undefined : Number(body.weight), source: 'manual' }) });
@@ -951,10 +952,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, { ok: true, gates: await gatesInfo(dbPath) });
       }
       if (url.pathname === '/api/gate-prompts' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         try {
           // #90: inline drafting from the dedicated gates modal — same writer
           // (saveGatePrompt) as the chat tool, same gate-enum validation
@@ -1017,10 +1016,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, { ok: true, messages: listMessages(dbPath, id) });
       }
       if (url.pathname === '/api/chat' && req.method === 'POST') {
-        const raw = await readBody(req, res);
-        if (raw === null) return;
-        let body;
-        try { body = JSON.parse(raw); } catch { return json(res, 400, { ok: false, error: 'invalid JSON' }); }
+        const body = await readJson(req, res);
+        if (body === undefined) return;
         const message = typeof body.message === 'string' ? body.message.trim() : '';
         if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
         const cfg = readSettings(settingsPath);
