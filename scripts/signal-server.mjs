@@ -1182,9 +1182,9 @@ const PAGE = /* html */ `<!doctype html>
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs, #bmTabs, #cfgTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
-  #pfTabs button, #bmTabs button, #cfgTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, #bmTabs, #cfgTabs, #gatesTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on, #gatesTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   /* #108: panels use display:contents so their label/input pairs join the form's
      label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
@@ -1368,6 +1368,7 @@ const PAGE = /* html */ `<!doctype html>
 <dialog id="gatedlg">
 <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
 <h2 data-info="Per-gate transparency: effective system prompt and declared toolset for the filter, recheck, bot, and chat gates (#58). Filter and recheck accept drafted overrides, activated here — a human act, never automatic.">gates &amp; prompts</h2>
+<div id="gatesTabs"></div>
 <div id="gatesList"></div>
 </dialog>
 <h2>Signal history (30-min outcomes)</h2>
@@ -2192,13 +2193,30 @@ async function renderGates() {
     '<textarea class="gateEditPrompt" rows="6" placeholder="new ' + esc(gate) + ' system prompt…"></textarea>' +
     '<p><button type="button" class="gateSaveDraft">save as draft</button></p>' +
     '<div class="gateEditErr botwarn"></div></details></div>';
-  list.innerHTML =
-    overridableRow('filter', g.filter) +
-    overridableRow('recheck', g.recheck) +
-    '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
-    (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') +
-    '<p><button type="button" id="gateToBot">' + (g.bot.strategyName ? 'view strategy in bot modal →' : 'assign a strategy in the bot modal →') + '</button></p></div>' +
-    '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>';
+  // #117: one tab per gate — each gate's prompt/toolset/drafts render one at a
+  // time instead of a long stacked list. Behavior is unchanged; only the layout
+  // is tabbed (mirrors the settings modal's tab pattern, last tab remembered).
+  const panels = {
+    filter: overridableRow('filter', g.filter),
+    recheck: overridableRow('recheck', g.recheck),
+    bot: '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
+      (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') +
+      '<p><button type="button" id="gateToBot">' + (g.bot.strategyName ? 'view strategy in bot modal →' : 'assign a strategy in the bot modal →') + '</button></p></div>',
+    chat: '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>',
+  };
+  const GATE_ORDER = ['filter', 'recheck', 'bot', 'chat'];
+  const storedTab = localStorage.getItem('gatesTab');
+  const activeTab = GATE_ORDER.includes(storedTab) ? storedTab : 'filter';
+  document.getElementById('gatesTabs').innerHTML = GATE_ORDER.map((name) =>
+    '<button type="button" data-tab="' + name + '"' + (name === activeTab ? ' class="on"' : '') + '>' + esc(name) + '</button>').join('');
+  list.innerHTML = GATE_ORDER.map((name) =>
+    '<div class="gatepanel" data-panel="' + name + '"' + (name === activeTab ? '' : ' hidden') + '>' + panels[name] + '</div>').join('');
+  document.getElementById('gatesTabs').onclick = (e) => {
+    const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
+    localStorage.setItem('gatesTab', tab);
+    for (const b of document.querySelectorAll('#gatesTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+    for (const p of list.querySelectorAll('.gatepanel')) p.hidden = p.dataset.panel !== tab;
+  };
   list.querySelectorAll('.gatedraft').forEach((row) => {
     const id = Number(row.dataset.id);
     const act = row.querySelector('.gateactivate');
