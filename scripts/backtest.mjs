@@ -68,12 +68,13 @@ function markdown(meta, rows, aggs) {
   L.push('');
   L.push(`## Per-post events`);
   L.push('');
-  L.push(`| time (UTC) | instrument | mode | maxUp | maxDn | ${hCols.join(' | ')} | reasons | text |`);
-  L.push(`| --- | --- | --- | --- | --- | ${horizons.map(() => '---').join(' | ')} | --- | --- |`);
+  // primary signed move (--post) always shown, even when postMin ∉ horizons
+  L.push(`| time (UTC) | instrument | mode | maxUp | maxDn | move (${meta.postMin}m) | ${hCols.join(' | ')} | reasons | text |`);
+  L.push(`| --- | --- | --- | --- | --- | --- | ${horizons.map(() => '---').join(' | ')} | --- | --- |`);
   for (const r of rows) {
     const cells = r.status === 'ok'
-      ? [r.mode, fmtPct(r.maxUp), fmtPct(r.maxDn), ...horizons.map((h) => fmtPct(r.moves?.[`${h}m`]))]
-      : [r.status, '-', '-', ...horizons.map(() => '-')];
+      ? [r.mode, fmtPct(r.maxUp), fmtPct(r.maxDn), fmtPct(r.move), ...horizons.map((h) => fmtPct(r.moves?.[`${h}m`]))]
+      : [r.status, '-', '-', '-', ...horizons.map(() => '-')];
     L.push(`| ${r.at.slice(0, 16)} | ${r.label} (${r.symbol}) | ${cells.join(' | ')} | ${r.reasons} | ${r.text.slice(0, 60).replace(/\|/g, '/')} |`);
   }
   return L.join('\n');
@@ -101,9 +102,10 @@ async function main(argv) {
   const preMin = Number(args.get('pre') ?? 5);
   const postMin = Number(args.get('post') ?? 15);
   const cap = Number(args.get('cap') ?? 40);
-  const horizons = args.has('horizons')
+  const horizonsRaw = args.has('horizons')
     ? String(args.get('horizons')).split(',').map((x) => Number(x.trim())).filter((n) => Number.isFinite(n) && n > 0)
-    : [1, 5, 15, 60];
+    : [];
+  const horizons = horizonsRaw.length ? horizonsRaw : [1, 5, 15, 60]; // empty/garbage → defaults
 
   let posts;
   if (args.has('posts')) {
