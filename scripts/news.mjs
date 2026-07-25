@@ -374,12 +374,22 @@ export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHou
   return newsDb(dbPath, (db) => {
     const cutoff = new Date(now - windowHours * 3600000).toISOString();
     const rows = db.prepare(
-      'SELECT title, source, time, escalation FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
+      'SELECT title, source, time, url, escalation FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
     ).all(instrument, cutoff, topN);
     if (!rows.length) return null;
     return {
       escalation: rows.some((r) => r.escalation === 1),
-      headlines: rows.map((r) => ({ title: r.title, source: r.source, time: r.time })),
+      // url is optional (#113): present ⇒ downstream can render [title](url) markdown
+      // source links; omitted (not empty) when absent so the shape stays
+      // backward-compatible. Built once, url added only for a real value.
+      headlines: rows.map((r) => {
+        const h = { title: r.title, source: r.source, time: r.time };
+        // Only surface a well-formed http(s) url (these come from external
+        // providers and get rendered as markdown links downstream).
+        const u = (r.url || '').trim();
+        if (/^https?:\/\/\S+$/i.test(u)) h.url = u;
+        return h;
+      }),
       asOf: rows[0].time,
     };
   });

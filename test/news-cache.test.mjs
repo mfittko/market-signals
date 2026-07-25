@@ -494,3 +494,31 @@ test('sentinelDecisionContext: fails open — a DB error degrades to null, never
   const ctx = await sentinelDecisionContext(dir /* a directory, not a db file */, 'WTICO/USD', { env, fetcher: naiFetcher(), now: Date.now(), log: () => {} });
   assert.equal(ctx, null, 'a DB failure degrades to no-context, not a throw');
 });
+
+test('newsContextFor: headlines carry the article url for downstream markdown links (#113)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const at = new Date(now).toISOString();
+  upsertNews(dbPath, 'WTICO/USD', [
+    { source: 'newsapi-ai', title: 'Linked story', timeIso: '2026-07-23T09:50:00Z', url: 'https://e/1', escalation: false },
+  ], at);
+  const linked = newsContextFor(dbPath, 'WTICO/USD', { now }).headlines.find((h) => h.title === 'Linked story');
+  for (const k of ['title', 'source', 'time']) assert.ok(k in linked, `legacy field ${k} preserved`);
+  assert.equal(linked.url, 'https://e/1', 'url surfaced for markdown links');
+});
+
+test('newsContextFor: a headline with an empty/absent url omits the key (built once, no empty url) (#113)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  // Insert directly with an empty-string url (upsertNews requires a non-empty url);
+  // the object builder must then omit `url`, not carry an empty one.
+  withDb(dbPath, (db) => {
+    db.exec("CREATE TABLE IF NOT EXISTS news (instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT, summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT, escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL, UNIQUE(instrument, url))");
+    db.prepare('INSERT INTO news (instrument, source, title, time, url, escalation, fetched_at) VALUES (?,?,?,?,?,?,?)')
+      .run('WTICO/USD', 'gdelt', 'No-link story', '2026-07-23T09:40:00Z', '', 0, new Date(now).toISOString());
+  });
+  const h = newsContextFor(dbPath, 'WTICO/USD', { now }).headlines.find((x) => x.title === 'No-link story');
+  assert.ok(h && !('url' in h), 'empty url omitted, not carried as an empty string');
+});
