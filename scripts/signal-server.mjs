@@ -1075,7 +1075,8 @@ const PAGE = /* html */ `<!doctype html>
   /* #112: draggable divider on the main<->chat border; double-click resets. */
   #asideResize { position: absolute; top: 0; bottom: 0; right: var(--aside-w, 380px); width: 9px; transform: translateX(4px); cursor: col-resize; z-index: 5; }
   #asideResize::before { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .12s ease; }
-  #asideResize:hover::before, #asideResize.dragging::before { background: #1f6feb; }
+  #asideResize:hover::before, #asideResize.dragging::before, #asideResize:focus-visible::before { background: #1f6feb; }
+  #asideResize:focus { outline: none; }
   body.resizing { cursor: col-resize; user-select: none; }
   main { padding: 16px; min-width: 0; }
   aside { border-left: 1px solid #30363d; display: flex; flex-direction: column; height: 100vh; position: sticky; top: 0; }
@@ -1250,7 +1251,7 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><div id="app"><div id="asideResize" title="drag to resize · double-click to reset"></div><main>
+</style></head><body><div id="app"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
 <header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings">⚙</button> <button id="memBtn" type="button" title="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts">📜</button><span id="hdr2"><select id="instSel"></select> <select id="granSel"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart"></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc"></canvas></div>
@@ -2286,9 +2287,21 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
   const maxW = () => Math.max(MIN, Math.min(window.innerWidth * 0.6, window.innerWidth - 360));
   const clamp = (w) => Math.max(MIN, Math.min(w, maxW()));
   let curW = DEFAULT;
-  const apply = (w) => { curW = clamp(w); app.style.setProperty('--aside-w', curW + 'px'); };
+  const apply = (w) => {
+    curW = clamp(w); app.style.setProperty('--aside-w', curW + 'px');
+    handle.setAttribute('aria-valuemin', String(MIN)); handle.setAttribute('aria-valuemax', String(Math.round(maxW()))); handle.setAttribute('aria-valuenow', String(Math.round(curW)));
+  };
   const saved = parseInt(localStorage.getItem('asideW'), 10);
-  if (Number.isFinite(saved)) apply(saved);
+  apply(Number.isFinite(saved) ? saved : DEFAULT);
+  // Keyboard a11y: arrows move the divider (Left widens the sidebar), Home resets.
+  handle.addEventListener('keydown', (e) => {
+    const STEP = e.shiftKey ? 64 : 16;
+    if (e.key === 'ArrowLeft') apply(curW + STEP);
+    else if (e.key === 'ArrowRight') apply(curW - STEP);
+    else if (e.key === 'Home') { app.style.removeProperty('--aside-w'); localStorage.removeItem('asideW'); curW = DEFAULT; return; }
+    else return;
+    e.preventDefault(); localStorage.setItem('asideW', String(curW));
+  });
   let dragging = false, rectRight = 0;
   // Shared stop: also fires on window blur so a mouseup OUTSIDE the window can't
   // leave the drag (and the col-resize cursor / user-select:none) stuck on.
