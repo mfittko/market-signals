@@ -177,3 +177,36 @@ test('parseArgs: a known value-flag with no value fails loud (not "unknown flag"
   assert.throws(() => parseArgs(['--limit', '--json']), /--limit requires a value/);
   assert.throws(() => parseArgs(['--instrument']), /--instrument requires a value/);
 });
+
+// Match-guard safety (fan-out review #103): reconstructSignal must SKIP (never
+// overwrite) a stored row whose reconstructed tail flip differs in direction or
+// price — the guard that stops a backfill from clobbering a good verdict.
+test('runRefilter: a row whose DIRECTION no longer matches the reconstructed flip is skipped, never overwritten', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
+  const dbPath = join(dir, 'db.sqlite');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const flipTime = candles[15].time; // reconstructs a 'sell' flip here
+  withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run('WTICO/USD', 'M5', flipTime, 'buy', candles[15].close, 50, 'alert', 'filter error: boom', 1)); // stored as 'buy' -> mismatch
+  const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "must not run"}'`);
+  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  assert.equal(summary.updated.length, 0, 'direction mismatch -> not updated');
+  assert.equal(summary.skipped.length, 1);
+  const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
+  assert.match(row.reason, /filter error/, 'direction-mismatch row left exactly as-is');
+});
+
+test('runRefilter: a row whose PRICE no longer matches the reconstructed flip is skipped, never overwritten', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
+  const dbPath = join(dir, 'db.sqlite');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const flipTime = candles[15].time;
+  withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run('WTICO/USD', 'M5', flipTime, 'sell', candles[15].close + 5, 50, 'alert', 'filter error: boom', 1)); // right dir, wrong price
+  const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "must not run"}'`);
+  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  assert.equal(summary.updated.length, 0, 'price mismatch -> not updated');
+  assert.equal(summary.skipped.length, 1);
+  const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
+  assert.match(row.reason, /filter error/, 'price-mismatch row left exactly as-is');
+});
