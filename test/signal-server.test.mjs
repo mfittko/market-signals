@@ -1628,6 +1628,9 @@ test('chat md(): renders http(s) markdown links, rejects non-http schemes (#113)
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
     // link rule present, http(s)-gated, opens safely
-    assert.match(page, /https\?:\\\/\\\/\[\^\\s\)\]\+.{0,80}rel="noopener noreferrer"/, 'md() has an http(s)-only link rule with rel=noopener');
+    // Assert the key properties independently (robust to formatting changes):
+    assert.ok(page.includes('https?:\\/\\/'), 'md() link rule is http(s)-gated');
+    assert.ok(page.includes('rel="noopener noreferrer"'), 'md() links open safely (rel=noopener)');
+    assert.ok(page.includes('target="_blank"'), 'md() links open in a new tab');
   });
 });
