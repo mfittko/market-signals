@@ -1500,6 +1500,23 @@ test('maskedSettings seeds models[activeProvider] from flat model + migrates ope
   assert.equal(m.models['openai-compatible'], 'zai-org/GLM-5', 'flat model seeded under the resolved active provider');
 });
 
+test('legacy flat model is retired on first models write, so clearing a binding sticks (#99 r4)', async () => {
+  const { writeSettings, maskedSettings, readSettings } = await import('../scripts/signal-server.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 'settings.json');
+  // legacy config: anthropic active with a flat model, no models map
+  writeFileSync(p, JSON.stringify({ provider: 'anthropic', model: 'claude-legacy' }));
+  assert.equal(maskedSettings(p).models.anthropic, 'claude-legacy', 'seeded for display while pristine');
+  // first save persists the models map (migrating the flat model) and retires flat `model`
+  writeSettings(p, { provider: 'anthropic', models: { anthropic: 'claude-legacy' } });
+  const raw = readSettings ? readSettings(p) : JSON.parse(readFileSync(p, 'utf8'));
+  assert.equal(raw.model, undefined, 'flat model retired after first models write');
+  // now clearing the binding actually sticks — no re-seed on read
+  writeSettings(p, { provider: 'anthropic', models: { anthropic: '' } });
+  const m = maskedSettings(p);
+  assert.equal(m.models.anthropic, undefined, 'cleared binding stays cleared (not repopulated from a legacy flat model)');
+});
+
 test('models merge carries only allow-listed provider keys — junk/proto keys dropped (#99 review)', async () => {
   const { writeSettings, maskedSettings } = await import('../scripts/signal-server.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));

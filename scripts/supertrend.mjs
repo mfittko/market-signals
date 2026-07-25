@@ -256,7 +256,7 @@ function requireAnthropicKey(settings) {
 }
 
 function requireOpenAiKey(settings) {
-  if (!settings.OPENAI_API_KEY) throw new Error('provider "openai" selected but OPENAI_API_KEY is not set');
+  if (!settings.OPENAI_API_KEY) throw new Error(`provider "${resolveProvider(settings)}" selected but OPENAI_API_KEY is not set`);
   return settings.OPENAI_API_KEY;
 }
 

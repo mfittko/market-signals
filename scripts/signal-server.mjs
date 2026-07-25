@@ -66,9 +66,11 @@ export function maskedSettings(settingsPath) {
   }
   // #99 read-time seed: expose a models map so the contextual provider panel can
   // show each provider's bound model. Seed the active provider's slot from the
-  // flat `model` when unset, so a pre-#99 config's model surfaces under it.
+  // flat `model` ONLY for a pristine legacy config (no models map yet) — once a
+  // models map exists (first save persists it + retires the flat key, see
+  // writeSettings), respect it verbatim so clearing a binding actually sticks.
   const models = { ...(typeof out.models === 'object' && out.models ? out.models : {}) };
-  if (activeProvider !== 'none' && models[activeProvider] === undefined && s.model) models[activeProvider] = s.model;
+  if (s.models === undefined && activeProvider !== 'none' && s.model) models[activeProvider] = s.model;
   out.models = models;
   return out;
 }
@@ -189,12 +191,22 @@ export function writeSettings(settingsPath, patch) {
       const merged = {};
       const prev = typeof current.models === 'object' && current.models ? current.models : {};
       for (const mp of MODEL_PROVIDER_KEYS) if (prev[mp] != null) merged[mp] = prev[mp];
+      // one-time migration: fold a legacy flat `model` into the (pre-patch) active
+      // provider's slot so it's preserved, then retire the flat key below. Without
+      // this, the flat model would keep shadowing a cleared per-provider binding.
+      if (current.models === undefined) {
+        const legacyActive = resolveProvider(current);
+        if (current.model && legacyActive !== 'none' && merged[legacyActive] === undefined) merged[legacyActive] = current.model;
+      }
       for (const [mp, mv] of Object.entries(v)) {
         if (!MODEL_PROVIDER_KEYS.includes(mp)) continue;
         if (mv === '' || mv === null) delete merged[mp];
         else merged[mp] = mv;
       }
       next.models = merged;
+      // retire the legacy flat model: per-provider bindings supersede it, and
+      // leaving it would re-shadow a cleared binding via effectiveModel's fallback.
+      delete next.model;
     } else next[k] = v;
   }
   // #99: reject a state that would always fail at request time — an explicit
