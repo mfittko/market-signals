@@ -68,9 +68,10 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   (`/?instrument=…&granularity=…&t=<flip-time>`) render the signal context
   through to the present.
 - **Header**: a two-row consolidated header — a global row (💼 portfolio, ⚙
-  settings, 🧠 memories, 📜 gates & prompts) and a per-instrument row (
-  instrument/granularity selects, 🔔/🔕 watch toggle, 🤖 bot for this view,
-  indicator toggles).
+  settings, 🧠 memories, 📜 gates & prompts, 💬 chat toggle) and a per-instrument
+  row (instrument/granularity selects, 🔔/🔕 watch toggle, 🤖 bot for this view,
+  indicator toggles). Icon buttons carry `aria-label`s; the canvases expose
+  `role="img"` text alternatives.
 - **Quote strip**: last price, 1h/24h change, day range, supertrend distance,
   `live · candle forming` freshness.
 - **Signals**: verdict panel with an inline 🔁 operator re-check (asks the
@@ -98,9 +99,11 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   atomic writes), the resolved active provider, and the info-overlays toggle;
   links out to the memories and gates modals (memories/gates management lives
   in their own modals, not this one).
-- **Chat sidebar**: a trading copilot on the configured provider with
-  persistent threads (`chat_threads`/`chat_messages` in the same db), SSE
-  streaming, markdown rendering, and per-message context (current view, quote,
+- **Chat sidebar** (💬, collapsible — collapsed by default so the chart claims
+  the full width; the toggle reveals it and remembers your choice): a trading
+  copilot on the configured provider with persistent threads
+  (`chat_threads`/`chat_messages` in the same db), SSE streaming, markdown
+  rendering, and per-message context (current view, quote,
   candles, signal history, notes, trader memory, gate prompts, bot
   performance). The copilot can expand its context via tools: FXEmpire news
   articles, sentinel breaking news, Trump Truth Social posts, live rates, and
@@ -221,10 +224,16 @@ a key, behavior is byte-for-byte the free stack. See
 
 Edited from the settings modal, or by hand. Provider resolution is
 **explicit-first** (`resolveProvider`): `"provider": "pi"` forces the pi
-coding agent CLI, `"anthropic"`/`"openai"` force that API, `"none"` disables
-LLM features; empty/absent falls back to key-derived auto (`ANTHROPIC_API_KEY`
-wins over `OPENAI_API_KEY`). `OPENAI_BASE_URL` points the openai provider at
-any OpenAI-compatible endpoint. Optional keys: `model`, `notesFile`, `piBin`,
+coding agent CLI, `"anthropic"` forces the Anthropic API, `"openai"` forces the
+official OpenAI API, `"openai-compatible"` forces any OpenAI-compatible endpoint
+(`OPENAI_BASE_URL` required), `"none"` disables LLM features; empty/absent falls
+back to key-derived auto (`ANTHROPIC_API_KEY` wins over `OPENAI_API_KEY`; an
+`OPENAI_BASE_URL` present resolves to `openai-compatible`). The model **binds
+per provider** via a `models` map (`models[provider]`) so switching providers
+never sends one provider's model slug to another; the flat `model` is the active
+provider's fallback. The settings modal renders a **contextual provider panel**
+— pick a provider and only its relevant fields (model, base URL, key,
+`maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`,
 `notifierBin`, `port`, `instrument`, `instruments` (dropdown CSV),
 `granularity`, `freshBars`, `watchers`, `bot` (per-combo bot config), `info`
 (overlays toggle).
