@@ -13,7 +13,10 @@ import { parseArgs, isMain } from './lib/cli.mjs';
 
 const fmtPct = (v) => (v == null ? '   -   ' : `${v >= 0 ? '+' : ''}${v.toFixed(3)}%`);
 
-function aggregate(rows) {
+const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+const nums = (a) => a.filter((v) => v != null && Number.isFinite(v));
+
+export function aggregate(rows) {
   const bySymbol = new Map();
   for (const r of rows) {
     if (r.status !== 'ok') continue;
@@ -22,21 +25,26 @@ function aggregate(rows) {
   }
   const out = [];
   for (const [symbol, list] of bySymbol) {
-    const moves = list.map((r) => r.move);
-    const abs = moves.map(Math.abs);
-    const up = moves.filter((m) => m > 0).length;
+    // #10: excursion (magnitude) is the primary, stable reactivity read; the
+    // signed close-move is retained but secondary (its sign is noisy run-to-run).
+    const exc = nums(list.map((r) => r.maxExcursion));
+    const ups = nums(list.map((r) => r.maxUp));
+    const dns = nums(list.map((r) => r.maxDn));
+    const moves = nums(list.map((r) => r.move));
     out.push({
       symbol,
       label: list[0].label,
       n: list.length,
-      up,
-      down: list.length - up,
-      meanMove: moves.reduce((a, b) => a + b, 0) / list.length,
-      meanAbsMove: abs.reduce((a, b) => a + b, 0) / list.length,
-      maxAbsMove: Math.max(...abs),
+      up: moves.filter((m) => m > 0).length,
+      down: moves.filter((m) => m < 0).length,
+      meanExcursion: mean(exc),
+      maxExcursion: exc.length ? Math.max(...exc) : null,
+      meanMaxUp: mean(ups),
+      meanMaxDn: mean(dns),
+      meanMove: mean(moves),
     });
   }
-  return out.sort((a, b) => b.meanAbsMove - a.meanAbsMove);
+  return out.sort((a, b) => (b.meanExcursion ?? -1) - (a.meanExcursion ?? -1));
 }
 
 function markdown(meta, rows, aggs) {
@@ -47,32 +55,36 @@ function markdown(meta, rows, aggs) {
   L.push(`Posts in window: ${meta.total} | high-signal: ${meta.high} | studies run: ${rows.length} | measured: ${rows.filter((r) => r.status === 'ok').length}`);
   L.push(`Method: single-feed (fxempire), pre ${meta.preMin}m -> post ${meta.postMin}m, split at first candle >= T (F2). Per-instrument routing (F1).`);
   L.push('');
-  L.push(`## Per-instrument aggregate`);
+  const horizons = meta.horizons || [1, 5, 15, 60];
+  const hCols = horizons.map((h) => `+${h}m`);
+  L.push(`## Per-instrument aggregate <small>(excursion = primary reactivity; signed move is secondary/noisy)</small>`);
   L.push('');
-  L.push(`| instrument | n | up | down | mean move | mean |move| | max |move| |`);
-  L.push(`| --- | --- | --- | --- | --- | --- | --- |`);
+  L.push(`| instrument | n | up | down | mean excursion | max excursion | mean maxUp | mean maxDn | mean move |`);
+  L.push(`| --- | --- | --- | --- | --- | --- | --- | --- | --- |`);
   for (const a of aggs) {
-    L.push(`| ${a.label} (${a.symbol}) | ${a.n} | ${a.up} | ${a.down} | ${fmtPct(a.meanMove)} | ${fmtPct(a.meanAbsMove)} | ${fmtPct(a.maxAbsMove)} |`);
+    L.push(`| ${a.label} (${a.symbol}) | ${a.n} | ${a.up} | ${a.down} | ${fmtPct(a.meanExcursion)} | ${fmtPct(a.maxExcursion)} | ${fmtPct(a.meanMaxUp)} | ${fmtPct(a.meanMaxDn)} | ${fmtPct(a.meanMove)} |`);
   }
   L.push('');
   L.push(`## Per-post events`);
   L.push('');
-  L.push(`| time (UTC) | instrument | mode | move | maxUp | maxDn | reasons | text |`);
-  L.push(`| --- | --- | --- | --- | --- | --- | --- | --- |`);
+  L.push(`| time (UTC) | instrument | mode | maxUp | maxDn | ${hCols.join(' | ')} | reasons | text |`);
+  L.push(`| --- | --- | --- | --- | --- | ${horizons.map(() => '---').join(' | ')} | --- | --- |`);
   for (const r of rows) {
     const cells = r.status === 'ok'
-      ? [r.mode, fmtPct(r.move), fmtPct(r.maxUp), fmtPct(r.maxDn)]
-      : [r.status, '-', '-', '-'];
+      ? [r.mode, fmtPct(r.maxUp), fmtPct(r.maxDn), ...horizons.map((h) => fmtPct(r.moves?.[`${h}m`]))]
+      : [r.status, '-', '-', ...horizons.map(() => '-')];
     L.push(`| ${r.at.slice(0, 16)} | ${r.label} (${r.symbol}) | ${cells.join(' | ')} | ${r.reasons} | ${r.text.slice(0, 60).replace(/\|/g, '/')} |`);
   }
   return L.join('\n');
 }
 
-function csv(rows) {
-  const head = 'time,symbol,label,mode,status,move,maxUp,maxDn,reasons,text';
+function csv(rows, horizons = [1, 5, 15, 60]) {
+  const hCols = horizons.map((h) => `move_${h}m`);
+  const head = ['time', 'symbol', 'label', 'mode', 'status', 'maxExcursion', 'maxUp', 'maxDn', 'move', ...hCols, 'reasons', 'text'].join(',');
   const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
   const lines = rows.map((r) => [r.at, r.symbol, r.label, r.mode || '', r.status,
-    r.move ?? '', r.maxUp ?? '', r.maxDn ?? '', r.reasons, r.text.slice(0, 120)].map(esc).join(','));
+    r.maxExcursion ?? '', r.maxUp ?? '', r.maxDn ?? '', r.move ?? '',
+    ...horizons.map((h) => r.moves?.[`${h}m`] ?? ''), r.reasons, r.text.slice(0, 120)].map(esc).join(','));
   return [head, ...lines].join('\n');
 }
 
@@ -88,6 +100,9 @@ async function main(argv) {
   const preMin = Number(args.get('pre') ?? 5);
   const postMin = Number(args.get('post') ?? 15);
   const cap = Number(args.get('cap') ?? 40);
+  const horizons = args.has('horizons')
+    ? String(args.get('horizons')).split(',').map((x) => Number(x.trim())).filter((n) => Number.isFinite(n) && n > 0)
+    : [1, 5, 15, 60];
 
   let posts;
   if (args.has('posts')) {
@@ -105,7 +120,7 @@ async function main(argv) {
     for (const inst of p.instruments) {
       const reasons = p.reasons.map((r) => r.tag).join(';');
       try {
-        const s = await runStudy({ at: p.createdAtISO, market: inst.market, symbol: inst.symbol, preMin, postMin });
+        const s = await runStudy({ at: p.createdAtISO, market: inst.market, symbol: inst.symbol, preMin, postMin, horizons });
         rows.push({ ...s, label: inst.label, reasons, text: p.text });
       } catch (e) {
         rows.push({ at: p.createdAtISO, symbol: inst.symbol, label: inst.label, status: `err:${e.message.slice(0, 30)}`, reasons, text: p.text });
@@ -113,9 +128,9 @@ async function main(argv) {
     }
   }
 
-  const meta = { since: new Date(sinceMs).toISOString().slice(0, 10), until: new Date(untilMs).toISOString().slice(0, 10), total: posts.length, high: high.length, preMin, postMin };
+  const meta = { since: new Date(sinceMs).toISOString().slice(0, 10), until: new Date(untilMs).toISOString().slice(0, 10), total: posts.length, high: high.length, preMin, postMin, horizons };
   const format = String(args.get('format') || 'markdown');
-  process.stdout.write(`${format === 'csv' ? csv(rows) : markdown(meta, rows, aggregate(rows))}\n`);
+  process.stdout.write(`${format === 'csv' ? csv(rows, horizons) : markdown(meta, rows, aggregate(rows))}\n`);
 }
 
 if (isMain(import.meta.url)) {
