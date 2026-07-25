@@ -380,8 +380,13 @@ export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHou
     return {
       escalation: rows.some((r) => r.escalation === 1),
       // url is optional (#113): present ⇒ downstream can render [title](url) markdown
-      // source links; omitted when null so the shape stays backward-compatible.
-      headlines: rows.map((r) => (r.url ? { title: r.title, source: r.source, time: r.time, url: r.url } : { title: r.title, source: r.source, time: r.time })),
+      // source links; omitted (not empty) when absent so the shape stays
+      // backward-compatible. Built once, url added only for a real value.
+      headlines: rows.map((r) => {
+        const h = { title: r.title, source: r.source, time: r.time };
+        if (r.url != null && r.url !== '') h.url = r.url;
+        return h;
+      }),
       asOf: rows[0].time,
     };
   });
