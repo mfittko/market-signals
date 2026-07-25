@@ -1286,13 +1286,13 @@ const PAGE = /* html */ `<!doctype html>
   :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
   /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
-  #cfgbtn:hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   /* destructive: red text, no fill on every state */
   #bmRemove { float: right; color: #f85149; background: none; border: 0; }
   #bmRemove:hover, #bmRemove:active { background: none; color: #ff7b72; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
-  #cfgbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+  #cfgbtn, #chatToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
             border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   /* #57: info overlay — CSS-only tooltip, no JS positioning; [data-info] gets a
      positioning context whether the toggle is on or off (no reflow on toggle). */
