@@ -1290,6 +1290,19 @@ test('gate prompts (#58): chat context carries the effective per-gate prompt for
   });
 });
 
+test('gates modal is tabbed, one tab per gate (#117)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    // a dedicated gates tab bar exists and shares the modal tab-bar styling
+    assert.ok(page.includes('id="gatesTabs"'), 'gates tab bar element present');
+    assert.ok(page.includes('#pfTabs, #bmTabs, #cfgTabs, #gatesTabs'), 'gates tabs reuse the shared tab styling');
+    // one tab per gate, last tab remembered, rendered as .gatepanel tab panels
+    assert.match(page, /GATE_ORDER = \['filter', 'recheck', 'bot', 'chat'\]/, 'one tab per gate in fixed order');
+    assert.ok(page.includes("localStorage.getItem('gatesTab')") && page.includes("localStorage.setItem('gatesTab'"), 'last gates tab remembered');
+    assert.ok(page.includes('class="gatepanel"'), 'each gate renders in its own tab panel');
+  });
+});
+
 test('evaluation endpoint (#26): read-only, serves scoreboard+baselines+audit; page ships the tabs', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const r = await (await fetch(base + '/api/evaluation')).json();
