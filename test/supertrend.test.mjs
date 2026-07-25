@@ -58,6 +58,30 @@ test('signal memory: dedup by flip time, 30-min outcome computed from stored can
   rmSync(dbPath, { force: true });
 });
 
+test('signalOutcomes: adverse outcome held to the next opposite signal, open flag, before-pagination', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-adverse-test.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const buy = { time: candles[10].time, signal: 'buy', price: candles[10].close };
+  const sell = { time: candles[20].time, signal: 'sell', price: candles[20].close };
+  recordSignal(dbPath, 'WTICO/USD', 'M5', buy, 50);
+  recordSignal(dbPath, 'WTICO/USD', 'M5', sell, 50);
+  const rows = signalOutcomes(dbPath, 'WTICO/USD', 'M5');
+  const buyRow = rows.find((r) => r.time === buy.time);
+  const sellRow = rows.find((r) => r.time === sell.time);
+  // buy held until the next opposite (the sell) — return measured to the sell's price
+  const expectedAdv = (candles[20].close - candles[10].close) / candles[10].close * 100;
+  assert.ok(Math.abs(buyRow.adverseOutcomePct - expectedAdv) < 1e-3, `buy adverse to next sell, got ${buyRow.adverseOutcomePct}`);
+  assert.equal(buyRow.adverseOpen, false, 'buy has a following opposite signal — not open');
+  // the sell is the latest — no opposite after it — so it is still open (to last close)
+  assert.equal(sellRow.adverseOpen, true, 'latest signal is still open');
+  assert.notEqual(sellRow.adverseOutcomePct, null, 'open outcome measured to the last close');
+  // before-pagination: before the sell returns only the older buy
+  const older = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { before: sell.time, limit: 10 });
+  assert.deepEqual(older.map((r) => r.time), [buy.time], 'before=<sell> pages in the older buy only');
+  rmSync(dbPath, { force: true });
+});
+
 test('storeCandles upserts idempotently', () => {
   const dbPath = fileURLToPath(new URL('./tmp-candles-test.db', import.meta.url));
   rmSync(dbPath, { force: true });

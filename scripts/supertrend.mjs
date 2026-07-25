@@ -84,17 +84,40 @@ function updateSignal(dbPath, instrument, granularity, time, verdict, reason, no
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
 // joined from the accumulated candles table — the filter's track record.
-export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null } = {}) {
+// Two outcomes per signal:
+//  - outcomePct: directional return `horizonBars` (default 6 = 30 min on M5) later
+//    — the fixed-window read.
+//  - adverseOutcomePct: directional return held until the next ADVERSE (opposite-
+//    direction) signal fires — i.e. the whole trade if you followed the flip until
+//    it reversed. If none has fired yet the trade is still open: measured to the
+//    latest close with adverseOpen=true.
+// `from`/`to` (inclusive ISO bounds) scope the set to the viewed chart window;
+// otherwise the latest `limit` signals are returned. `time` fetches one signal.
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null, from = null, to = null, before = null } = {}) {
   return withDb(dbPath, (db) => {
     const sigs = time
       ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?').all(instrument, granularity, time)
-      : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
+      : before != null
+        ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time < ? ORDER BY time DESC LIMIT ?').all(instrument, granularity, before, limit)
+        : (from != null && to != null)
+          ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time >= ? AND time <= ? ORDER BY time DESC').all(instrument, granularity, from, to)
+          : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
+    const nextAdverse = db.prepare('SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? ORDER BY time LIMIT 1');
+    const lastClose = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity)?.close ?? null;
     return sigs.map((s) => {
-      const c = after.get(instrument, granularity, s.time, horizonBars - 1);
       const dir = s.signal === 'buy' ? 1 : -1;
-      const outcomePct = c && s.price ? Number((dir * (c.close - s.price) / s.price * 100).toFixed(3)) : null;
-      return { ...s, outcomePct };
+      const ret = (price) => Number((dir * (price - s.price) / s.price * 100).toFixed(3));
+      const c = after.get(instrument, granularity, s.time, horizonBars - 1);
+      const outcomePct = c && s.price ? ret(c.close) : null;
+      const adv = nextAdverse.get(instrument, granularity, s.time, s.signal);
+      let adverseOutcomePct = null;
+      let adverseOpen = false;
+      if (s.price != null) {
+        if (adv) adverseOutcomePct = ret(adv.price);
+        else if (lastClose != null) { adverseOutcomePct = ret(lastClose); adverseOpen = true; }
+      }
+      return { ...s, outcomePct, adverseOutcomePct, adverseOpen };
     });
   });
 }

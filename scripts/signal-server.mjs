@@ -299,7 +299,17 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
         .run('backfill', instrument, granularity, f.time));
     }
   }
-  const signals = signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
+  // The history table is scoped to the visible chart window: only signals whose
+  // time falls within the shown candles (falls back to the latest 50 when there
+  // are no candles yet). The current/deep-linked signal is resolved separately.
+  const windowFrom = candles.length ? candles[0].time : null;
+  const windowTo = candles.length ? candles[candles.length - 1].time : null;
+  const signals = windowFrom != null
+    ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo })
+    : signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
+  // the absolute latest signal — for the shown signal (non-deep-link) and for the
+  // isLatestSignal gate, independent of the window-scoped table above.
+  const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null;
   // Deep-linked signals older than the history window are looked up directly.
   let signal = null;
   if (t) {
@@ -309,7 +319,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
       if (signal) break;
     }
   } else {
-    signal = signals[0] ?? null;
+    signal = latest;
   }
   const quote = buildQuote(recent);
   if (quote && liveTail) quote.partial = true;
@@ -318,7 +328,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // (see /api/recheck), so the client must only render it when the shown
   // signal IS that latest one — never on a deep-linked historical view (?t=),
   // where a click would silently re-check a different signal than displayed.
-  out.isLatestSignal = signal ? signals[0]?.time === signal.time : true;
+  out.isLatestSignal = signal ? latest?.time === signal.time : true;
   // #70: the last re-check for the shown signal rides with the chart so a
   // reload shows it without a POST — the verdict/history rows it read stay untouched.
   if (signal) {
@@ -786,6 +796,18 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
       }
+      // Signal-history pagination: the table defaults to the visible chart
+      // window; "load 10 more" pages in older signals via ?before=<iso>&limit=N.
+      if (url.pathname === '/api/signals') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
+        const before = url.searchParams.get('before');
+        const n = Number(url.searchParams.get('limit'));
+        const limit = Number.isInteger(n) && n > 0 && n <= 100 ? n : 10;
+        const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit } : { limit });
+        return json(res, 200, { ok: true, signals });
+      }
       // #70: operator-initiated re-check of the LATEST signal of the current
       // view (never a deep-linked/historical one). Same-origin guarded above
       // like every other non-GET route. Never touches the signals/
@@ -1049,7 +1071,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           quote: view.quote,
           viewCandles: view.candles.map((k) => ({ t: localHm(k.time), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume ?? null, partial: k.partial || undefined })),
           signal: view.signal ? { ...view.signal, time: localFull(view.signal.time) } : view.signal,
-          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct })),
+          // scoped to the viewed chart window (chartData windows data.signals);
+          // carries both the 30-min read and the held-to-reversal outcome
+          signalHistory: view.signals.slice(0, 10).map((x) => ({ time: localFull(x.time), signal: x.signal, verdict: x.verdict, outcomePct: x.outcomePct, adverseOutcomePct: x.adverseOutcomePct, adverseOpen: x.adverseOpen || undefined })),
           traderNotes: notes,
           botPerformance: botPerformanceSummary(dbPath, botConfig(cfg).startingBalance),
           axisGate: axisSnapshot(view.candles, { instrument, granularity })?.axes ?? null,

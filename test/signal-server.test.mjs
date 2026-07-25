@@ -114,7 +114,29 @@ test('GET /api/chart returns candles, supertrend, and the deep-linked signal', a
     assert.equal(d.signal.time, sigTime);
     assert.equal(d.signal.signal, 'sell');
     assert.ok(d.signals.length >= 1, 'history included');
+    // history rows carry both outcomes (30-min + held-to-reversal)
+    assert.ok('adverseOutcomePct' in d.signals[0], 'signals carry the to-reversal outcome');
+    // history is scoped to the visible candle window
+    const from = Date.parse(d.candles[0].time);
+    const to = Date.parse(d.candles[d.candles.length - 1].time);
+    assert.ok(d.signals.every((s) => Date.parse(s.time) >= from && Date.parse(s.time) <= to), 'history scoped to the chart window');
     assert.ok(Array.isArray(d.instruments) && d.instruments.includes(INSTRUMENT), 'instrument list served for the selector');
+  });
+});
+
+test('signal history: /api/signals paginates older signals; page ships the load-more button + to-reversal column', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, sigTime }) => {
+    // /api/signals returns outcome-annotated signals; before=<sigTime> pages older
+    const all = await (await fetch(`${base}/api/signals?instrument=${encodeURIComponent(INSTRUMENT)}&granularity=M5&limit=50`)).json();
+    assert.ok(all.ok && Array.isArray(all.signals), 'signals endpoint returns a list');
+    if (all.signals.length) assert.ok('adverseOutcomePct' in all.signals[0], 'paginated rows carry the to-reversal outcome');
+    const older = await (await fetch(`${base}/api/signals?instrument=${encodeURIComponent(INSTRUMENT)}&granularity=M5&before=${encodeURIComponent(sigTime)}&limit=10`)).json();
+    assert.ok(older.ok && older.signals.every((s) => Date.parse(s.time) < Date.parse(sigTime)), 'before=<t> returns only older signals');
+    // served page wiring
+    const page = await (await fetch(base + '/')).text();
+    assert.ok(page.includes('id="histMore"'), 'load-more button ships');
+    assert.ok(page.includes('to reversal') && page.includes('function fmtOutcome('), 'to-reversal column + outcome formatter present');
+    assert.ok(page.includes('#chatForm { display: flex') && /#chatForm \{[^}]*max-width: none/.test(page), 'chat form is not capped by the settings-form max-width (right-align fix)');
   });
 });
 

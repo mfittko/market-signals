@@ -28,7 +28,7 @@
   .msg code { background: #010409; border: 1px solid #21262d; border-radius: 3px; padding: 0 4px; font-size: 12px; }
   .msg pre { background: #010409; border: 1px solid #21262d; border-radius: 5px; padding: 8px; overflow-x: auto; margin: 6px 0; }
   .msg table { margin: 6px 0; font-size: 12px; } .msg td { padding: 2px 8px; border-bottom: 1px solid #21262d; }
-  #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; }
+  #chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #21262d; max-width: none; }
   #chatForm input { flex: 1; }
   #chatForm button { background: #2b7a45; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
   #chatForm button:hover { background: #33914f; } #chatForm button:active { background: #235f37; }
@@ -256,8 +256,9 @@
 <div id="gatesTabs"></div>
 <div id="gatesList"></div>
 </dialog>
-<h2>Signal history (30-min outcomes)</h2>
-<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th>outcome</th></tr></thead><tbody></tbody></table>
+<h2>Signal history <small>· current chart window</small></h2>
+<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
+<button type="button" id="histMore" hidden>load 10 more</button>
 </main>
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
@@ -897,7 +898,8 @@ function renderRecheckLine(r) {
 function verdict(s, botDecision, recheck, view) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
-  const out = s.outcomePct == null ? 'pending' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
+  const out = fmtOutcome(s.outcomePct);
+  const adv = fmtOutcome(s.adverseOutcomePct, s.adverseOpen);
   const botNote = botDecision ? '<div class="botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning) + '</div>' : '';
   const overruled = botDecision && botDecision.action === 'hold';
   // #70 follow-up: /api/recheck always re-checks the LATEST signal — the
@@ -908,7 +910,7 @@ function verdict(s, botDecision, recheck, view) {
   const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
   el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
     ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
-    (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min outcome: <b>' + esc(out) + '</b>' +
+    (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min: <b>' + out + '</b> · to reversal: <b>' + adv + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' +
     recheckBtn +
     botNote + '<div id="recheckLine">' + renderRecheckLine(recheck) + '</div>';
@@ -928,20 +930,45 @@ function verdict(s, botDecision, recheck, view) {
     }
   };
 }
-function history(list, botDecisions) {
+// signed, sign-coloured outcome %, with a muted × when the trade is still open
+// (no opposite signal has fired yet). null → em dash.
+function fmtOutcome(v, open) {
+  if (v == null) return '<span style="color:#8b949e">—</span>';
+  return '<span class="' + (v >= 0 ? 'buy' : 'sell') + '">' + (v >= 0 ? '+' : '') + v + '%</span>' +
+    (open ? ' <span style="color:#8b949e" title="still open — no opposite signal yet">×</span>' : '');
+}
+function histRow(s, botDecisions) {
+  const tr = document.createElement('tr');
+  tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
+  const out = fmtOutcome(s.outcomePct);
+  const adv = fmtOutcome(s.adverseOutcomePct, s.adverseOpen);
+  const bd = botDecisions && botDecisions[s.time];
+  const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
+  const overruled = bd && bd.action === 'hold';
+  tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + out + '</td><td>' + adv + '</td>';
+  return tr;
+}
+function history(list, botDecisions, view) {
   const tb = document.querySelector('#hist tbody');
   tb.innerHTML = '';
-  for (const s of list) {
-    const tr = document.createElement('tr');
-    tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
-    const out = s.outcomePct == null ? '—' : (s.outcomePct >= 0 ? '+' : '') + s.outcomePct + '%';
-    const bd = botDecisions && botDecisions[s.time];
-    const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
-    const overruled = bd && bd.action === 'hold';
-    tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
-      '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + esc(out) + '</td>';
-    tb.appendChild(tr);
-  }
+  for (const s of list) tb.appendChild(histRow(s, botDecisions));
+  // "load 10 more" pages in older signals beyond the current chart window
+  const more = document.getElementById('histMore');
+  let oldest = list.length ? list[list.length - 1].time : null;
+  more.hidden = !oldest;
+  more.onclick = async () => {
+    more.disabled = true;
+    try {
+      const q = new URLSearchParams({ instrument: view.instrument, granularity: view.granularity, limit: '10' });
+      if (oldest) q.set('before', oldest);
+      const r = await (await fetch('/api/signals?' + q)).json();
+      const older = (r && r.signals) || [];
+      for (const s of older) tb.appendChild(histRow(s, botDecisions));
+      if (older.length) oldest = older[older.length - 1].time;
+      if (older.length < 10) more.hidden = true; // reached the start of history
+    } finally { more.disabled = false; }
+  };
 }
 // Settings modal tabs (#108 phase 1): one dialog, one global Save, fields grouped
 // per section. LLM provider / News provider / Advanced (launch-config plumbing).
