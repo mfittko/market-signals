@@ -1761,10 +1761,10 @@ test('NewsAPI.ai modes: dropped primary; client uses NEWSAPI_AI_MODE_VALUES, not
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
     // the client mode list is a client-side const (browser can't import the server one)
-    assert.ok(page.includes("const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off']"), 'client-side modes const present');
-    // the client code must NOT *use* the server-only NEWSAPI_AI_MODES (a property
-    // access would ReferenceError in the browser); a mention in a comment is fine
-    assert.ok(!/NEWSAPI_AI_MODES\.\w/.test(page), 'no server-only NEWSAPI_AI_MODES.<call> leaked into the page');
+    assert.ok(/const\s+NEWSAPI_AI_MODE_VALUES\s*=\s*\[\s*'auto'\s*,\s*'shadow'\s*,\s*'off'\s*\]/.test(page), 'client-side modes const present');
+    // the client code must NOT *use* the server-only NEWSAPI_AI_MODES (dot OR
+    // bracket access would ReferenceError in the browser); a mention in a comment is fine
+    assert.ok(!/NEWSAPI_AI_MODES\s*[.[]/.test(page), 'no server-only NEWSAPI_AI_MODES.<...> / [<...>] leaked into the page');
     // primary is gone from the mode UI
     assert.ok(!/NEWSAPI_AI_MODE'.*primary/.test(page), 'primary mode dropped from the select');
   });

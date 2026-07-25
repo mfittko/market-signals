@@ -400,7 +400,7 @@ test('fetchSentinelNews: an over-limit/unsupported query is a local parse error 
 test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no-key output stays byte-for-byte free)', async () => {
   const failing = async () => { throw new Error('offline'); };
   // enabled:false is what resolveNewsApiAiConfig returns without a key.
-  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'auto', warn: 'no key' } });
+  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'auto', warn: null } });
   assert.equal(res.newsApiAi, undefined, 'no diagnostics when the provider did not run');
   assert.equal(res.providersAttempted, undefined);
   assert.equal(res.observed, undefined);
