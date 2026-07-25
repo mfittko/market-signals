@@ -4,16 +4,25 @@
 //      whisper.cpp (plus any ffmpeg conversion) in that script, so the server
 //      stays backend-agnostic — same pattern as piBin/notifierBin. No data leaves
 //      the box and there's no API cost.
-//  - openai: POST the recorded audio to the OpenAI transcription API (Whisper),
-//      used only when sttMode==='openai' AND an OPENAI_API_KEY is configured.
+//  - openai (default): POST the recorded audio to the OpenAI transcription API,
+//      used when a dedicated `sttOpenaiKey` is configured (kept separate from the
+//      LLM `OPENAI_API_KEY`, which may point at a chat-only proxy). Model defaults
+//      to gpt-4o-mini-transcribe.
 // No usable backend ⇒ throws an Error with code 'no-backend' so the route can
 // reply 400 and the UI can show a "configure STT" hint.
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+//
+// Both backends are async and non-blocking (async execFile / fs.readFile) so a
+// long transcription never stalls the single-threaded server event loop.
+import { execFile as execFileCb } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 
 const noBackend = (msg) => Object.assign(new Error(msg), { code: 'no-backend' });
+// default local runner: async execFile, returning stdout as a string (the same
+// shape the injected test stub returns, so callers just `await execFile(...)`).
+const defaultExecFile = async (bin, args, opts) => (await promisify(execFileCb)(bin, args, opts)).stdout;
 
-export async function transcribe(audioPath, { settings = {}, contentType = 'audio/webm', execFile = execFileSync, fetcher = fetch } = {}) {
+export async function transcribe(audioPath, { settings = {}, contentType = 'audio/webm', execFile = defaultExecFile, fetcher = fetch } = {}) {
   // Default to OpenAI (the box has no local STT model — pi's telegram voice
   // handler uses the OpenAI API too); only auto-route local when a sttBin is set
   // and no STT key is present. An explicit sttMode always wins. STT uses its OWN
@@ -26,7 +35,7 @@ export async function transcribe(audioPath, { settings = {}, contentType = 'audi
   }
   if (!settings.sttBin) throw noBackend('no STT backend configured — set sttBin (local) or add an sttOpenaiKey');
   // sttBin owns any format conversion; we just hand it the temp file path.
-  const out = execFile(settings.sttBin, [audioPath], { encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
+  const out = await execFile(settings.sttBin, [audioPath], { encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
   return String(out).trim();
 }
 
@@ -37,7 +46,7 @@ async function transcribeOpenAI(audioPath, contentType, settings, fetcher) {
   const base = String(settings.sttOpenaiBaseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '');
   const model = settings.sttModel || 'gpt-4o-mini-transcribe'; // matches pi's telegram STT
   const fd = new FormData();
-  fd.append('file', new Blob([readFileSync(audioPath)], { type: contentType }), `audio.${EXT(contentType)}`);
+  fd.append('file', new Blob([await readFile(audioPath)], { type: contentType }), `audio.${EXT(contentType)}`);
   fd.append('model', model);
   const r = await fetcher(`${base}/audio/transcriptions`, {
     method: 'POST', headers: { authorization: `Bearer ${settings.sttOpenaiKey}` }, body: fd,

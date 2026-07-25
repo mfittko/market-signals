@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { transcribe } from '../scripts/stt.mjs';
 
 // Hermetic: execFile and fetcher are injected — no real binary, no network.
-const audio = join(tmpdir(), 'stt-test-fixture.webm');
+const audio = join(tmpdir(), `stt-test-fixture-${process.pid}.webm`); // unique per process — no cross-run interference
 writeFileSync(audio, Buffer.from('fake-audio'));
 process.on('exit', () => { try { unlinkSync(audio); } catch { /* best-effort */ } });
 

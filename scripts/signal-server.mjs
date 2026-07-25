@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, renameSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
@@ -731,20 +732,27 @@ async function readBody(req, res) {
 // readBody cap is far too small for audio (#137). Returns the temp path, or null
 // after sending a 413. Caller must unlink the file when done.
 async function readBodyToFile(req, res, maxBytes) {
-  const path = join(tmpdir(), `ms-stt-${process.pid}-${req.socket?.remotePort || 0}-${Date.now()}`);
+  // randomUUID suffix so two uploads in the same ms can't collide on the path
+  const path = join(tmpdir(), `ms-stt-${process.pid}-${randomUUID()}`);
   const ws = createWriteStream(path);
+  // a stream 'error' (disk full, bad fd) rejects the write/drain/end awaits
+  // instead of crashing the process or hanging forever on 'drain'
+  let streamErr = null;
+  const errored = new Promise((resolve) => ws.once('error', (e) => { streamErr = e; resolve(); }));
+  const raceErr = (p) => Promise.race([p, errored.then(() => { throw streamErr; })]);
   let bytes = 0;
   try {
     for await (const chunk of req) {
+      if (streamErr) throw streamErr;
       bytes += chunk.length;
       if (bytes > maxBytes) {
         ws.destroy(); try { unlinkSync(path); } catch { /* best-effort */ }
         json(res, 413, { ok: false, error: 'audio too large' });
         return null;
       }
-      if (!ws.write(chunk)) await new Promise((r) => ws.once('drain', r));
+      if (!ws.write(chunk)) await raceErr(new Promise((r) => ws.once('drain', r)));
     }
-    await new Promise((r, j) => ws.end((e) => (e ? j(e) : r())));
+    await raceErr(new Promise((r, j) => ws.end((e) => (e ? j(e) : r()))));
     return path;
   } catch (e) {
     ws.destroy(); try { unlinkSync(path); } catch { /* best-effort */ }
