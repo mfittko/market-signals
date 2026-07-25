@@ -494,3 +494,18 @@ test('sentinelDecisionContext: fails open — a DB error degrades to null, never
   const ctx = await sentinelDecisionContext(dir /* a directory, not a db file */, 'WTICO/USD', { env, fetcher: naiFetcher(), now: Date.now(), log: () => {} });
   assert.equal(ctx, null, 'a DB failure degrades to no-context, not a throw');
 });
+
+test('newsContextFor: headlines carry the article url when present, omit it when null (#113)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const at = new Date(now).toISOString();
+  upsertNews(dbPath, 'WTICO/USD', [
+    { source: 'newsapi-ai', title: 'Linked story', timeIso: '2026-07-23T09:50:00Z', url: 'https://e/1', escalation: false },
+    { source: 'gdelt', title: 'Unlinked story', timeIso: '2026-07-23T09:40:00Z', url: 'https://g/2', escalation: false },
+  ], at);
+  const ctx = newsContextFor(dbPath, 'WTICO/USD', { now });
+  const linked = ctx.headlines.find((h) => h.title === 'Linked story');
+  assert.equal(linked.url, 'https://e/1', 'url surfaced for downstream markdown links');
+  assert.ok('source' in linked && 'time' in linked, 'existing fields preserved (backward-compatible)');
+});
