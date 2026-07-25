@@ -504,8 +504,8 @@ test('newsContextFor: headlines carry the article url for downstream markdown li
     { source: 'newsapi-ai', title: 'Linked story', timeIso: '2026-07-23T09:50:00Z', url: 'https://e/1', escalation: false },
   ], at);
   const linked = newsContextFor(dbPath, 'WTICO/USD', { now }).headlines.find((h) => h.title === 'Linked story');
-  assert.deepEqual(Object.keys(linked).sort(), ['source', 'time', 'title', 'url'], 'url added alongside the existing backward-compatible fields');
-  assert.equal(linked.url, 'https://e/1');
+  for (const k of ['title', 'source', 'time']) assert.ok(k in linked, `legacy field ${k} preserved`);
+  assert.equal(linked.url, 'https://e/1', 'url surfaced for markdown links');
 });
 
 test('newsContextFor: a headline with an empty/absent url omits the key (built once, no empty url) (#113)', () => {

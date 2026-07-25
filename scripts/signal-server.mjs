@@ -2171,6 +2171,9 @@ function md(t) {
   h = h.replace(/\\x60([^\\x60\\n]+)\\x60/g, '<code>$1</code>');
   h = h.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<b>$1</b>');
   h = h.replace(/(^|\\s)\\*([^*\\n]+)\\*(?=\\s|$|[.,:;!?])/gm, '$1<i>$2</i>');
+  // [text](http(s)://url) -> link (#113). esc() already ran, and only http(s) is
+  // matched, so no quote-breakout / javascript: URLs — safe to emit an <a>.
+  h = h.replace(/\\[([^\\]\\n]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
   h = h.replace(/^#{1,4} (.*)$/gm, '<b>$1</b>');
   h = h.replace(/^[-*] /gm, '\u2022 ');
   const lines = h.split('\\n');

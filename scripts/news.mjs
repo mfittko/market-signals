@@ -384,7 +384,10 @@ export function newsContextFor(dbPath, instrument, { now = Date.now(), windowHou
       // backward-compatible. Built once, url added only for a real value.
       headlines: rows.map((r) => {
         const h = { title: r.title, source: r.source, time: r.time };
-        if (r.url != null && r.url !== '') h.url = r.url;
+        // Only surface a well-formed http(s) url (these come from external
+        // providers and get rendered as markdown links downstream).
+        const u = (r.url || '').trim();
+        if (/^https?:\/\/\S+$/i.test(u)) h.url = u;
         return h;
       }),
       asOf: rows[0].time,

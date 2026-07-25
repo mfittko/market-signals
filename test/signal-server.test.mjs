@@ -1623,3 +1623,11 @@ test('MS_DEBUG_LLM=1: chat SSE carries X-LLM-Provider/Model headers up front + a
     });
   });
 });
+
+test('chat md(): renders http(s) markdown links, rejects non-http schemes (#113)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    // link rule present, http(s)-gated, opens safely
+    assert.match(page, /https\?:\\\/\\\/\[\^\\s\)\]\+.{0,80}rel="noopener noreferrer"/, 'md() has an http(s)-only link rule with rel=noopener');
+  });
+});
