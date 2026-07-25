@@ -104,8 +104,8 @@
   /* #90: memories/gates get their own wide modals (#87 width system) — room
      to read/edit long text, same 92vw single-column mobile cap as #botdlg. */
   #memdlg, #gatedlg { width: min(720px, 92vw); max-height: 85vh; overflow-y: auto; }
-  #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
-  #memAddRow input[type=text] { flex: 1; }
+  #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; }
+  #memAddRow input[type=text] { flex: 1 1 160px; min-width: 0; }
   .memrow { border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
   .memrow .memcontent { width: 100%; min-height: 40px; box-sizing: border-box; }
   .memrow .memmeta { display: flex; gap: 10px; align-items: center; margin-top: 6px; font-size: 12px; color: #8b949e; }

@@ -34,7 +34,9 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Resolve Playwright version
         id: pw
-        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+        run: |
+          PW=$(node -p "require('playwright/package.json').version")
+          echo "version=$PW" >> "$GITHUB_OUTPUT"
       - name: Cache WebKit browser
         uses: actions/cache@v4
         with:

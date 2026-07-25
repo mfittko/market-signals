@@ -26,6 +26,10 @@ const VIEWPORTS = {
 };
 const MODALS = [['settings', 'cfgbtn'], ['memories', 'memBtn'], ['gates', 'gateBtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
+// fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
+for (const v of selected) {
+  if (!VIEWPORTS[v]) throw new Error(`unknown E2E_VIEWPORT "${v}" — expected one of: ${Object.keys(VIEWPORTS).join(', ')}`);
+}
 
 test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ? false : 'Playwright not installed (dev/e2e only)' }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'e2e-'));
@@ -35,15 +39,15 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   // seed a filter draft so the gates modal has drafts content
-  await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
+  const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
+  assert.equal(seed.status, 200, 'gate-draft seed request succeeded');
   const browser = await webkit.launch({ headless: true });
 
   try {
     for (const vname of selected) {
       await t.test(vname, async () => {
-        const [w, h] = VIEWPORTS[vname];
-        assert.ok(w, `unknown viewport ${vname}`);
-        const p = await browser.newPage({ viewport: { width: w, height: h } });
+        const [width, height] = VIEWPORTS[vname]; // validated up front
+        const p = await browser.newPage({ viewport: { width, height } });
         const errs = [];
         p.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
         p.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
@@ -103,7 +107,7 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
     }
   } finally {
     await browser.close();
-    server.close();
+    await new Promise((r) => server.close(r)); // await close so the runner exits cleanly on CI
     rmSync(dir, { recursive: true, force: true });
   }
 });
