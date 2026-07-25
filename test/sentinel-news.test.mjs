@@ -297,11 +297,11 @@ test('fetchNewsApiAiArticles: requires an apiKey', async () => {
 });
 
 test('resolveNewsApiAiConfig: key absent => disabled regardless of mode', () => {
-  for (const mode of ['auto', 'primary', 'shadow']) {
+  for (const mode of ['auto', 'shadow']) {
     const c = resolveNewsApiAiConfig({ NEWSAPI_AI_MODE: mode });
     assert.equal(c.enabled, false, mode);
+    assert.equal(c.warn, null, mode + ' sets no warn (primary mode removed, #128)');
   }
-  assert.match(resolveNewsApiAiConfig({ NEWSAPI_AI_MODE: 'primary' }).warn, /falling back to free/);
 });
 test('resolveNewsApiAiConfig: auto with a key enables it; off ignores the key', () => {
   assert.equal(resolveNewsApiAiConfig({ NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto' }).enabled, true);
@@ -346,7 +346,7 @@ test('fetchSentinelNews: NewsAPI.ai wins the canonical merge over a free-source 
   };
   const res = await fetchSentinelNews({
     query: '(oil OR tanker)', now, fetcher: routes,
-    newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K', shadow: false },
+    newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K', shadow: false },
   });
   const merged = res.items.filter((it) => /Houthi tanker attack/.test(it.title));
   assert.equal(merged.length, 1, 'duplicate collapsed to one canonical item');
@@ -390,7 +390,7 @@ test('fetchSentinelNews: an over-limit/unsupported query is a local parse error 
   };
   const res = await fetchSentinelNews({
     query: overLimit, now: Date.now(), fetcher: routes,
-    newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K', shadow: false },
+    newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K', shadow: false },
   });
   assert.equal(getArticlesCalls, 0, 'no network call for a query that fails local parse');
   assert.equal(res.newsApiAi.requestMade, false, 'a local parse failure is not chargeable');
@@ -399,8 +399,8 @@ test('fetchSentinelNews: an over-limit/unsupported query is a local parse error 
 
 test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no-key output stays byte-for-byte free)', async () => {
   const failing = async () => { throw new Error('offline'); };
-  // enabled:false is what resolveNewsApiAiConfig returns without a key (incl. primary-mode warn).
-  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'primary', warn: 'primary but no key' } });
+  // enabled:false is what resolveNewsApiAiConfig returns without a key.
+  const res = await fetchSentinelNews({ query: '(oil)', now: Date.now(), fetcher: failing, newsApiAi: { enabled: false, mode: 'auto', warn: null } });
   assert.equal(res.newsApiAi, undefined, 'no diagnostics when the provider did not run');
   assert.equal(res.providersAttempted, undefined);
   assert.equal(res.observed, undefined);
@@ -408,9 +408,9 @@ test('fetchSentinelNews: a disabled newsApiAi config attaches NO diagnostics (no
 
 test('resolveNewsApiAiSource: settings.json wins over env; env is the fallback (LaunchAgent never loads .env)', () => {
   // settings present -> used; env ignored for that key
-  const s = resolveNewsApiAiSource({ NEWSAPI_AI_KEY: 'from-settings', NEWSAPI_AI_MODE: 'primary' }, { NEWSAPI_AI_KEY: 'from-env', NEWSAPI_AI_REQUEST_BUDGET: '900' });
+  const s = resolveNewsApiAiSource({ NEWSAPI_AI_KEY: 'from-settings', NEWSAPI_AI_MODE: 'shadow' }, { NEWSAPI_AI_KEY: 'from-env', NEWSAPI_AI_REQUEST_BUDGET: '900' });
   assert.equal(s.NEWSAPI_AI_KEY, 'from-settings');
-  assert.equal(s.NEWSAPI_AI_MODE, 'primary');
+  assert.equal(s.NEWSAPI_AI_MODE, 'shadow');
   assert.equal(s.NEWSAPI_AI_REQUEST_BUDGET, '900', 'env fills keys settings omits');
   // it feeds resolveNewsApiAiConfig directly
   assert.equal(resolveNewsApiAiConfig(s).enabled, true);
@@ -450,7 +450,7 @@ test('fetchSentinelNews: NewsAPI.ai-first — when it returns items, the free st
     if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify(naiFx) };
     throw new Error('offline');
   };
-  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K' } });
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K' } });
   assert.equal(res.newsApiAi.authoritative, true, 'NewsAPI.ai returned items => authoritative');
   assert.ok(res.items.length > 0 && res.items.every((it) => it.provider === 'newsapi-ai'), 'result is NewsAPI.ai-only');
   assert.ok(!res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story suppressed from the result');
@@ -465,7 +465,7 @@ test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative 
     if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify({ articles: { results: [] } }) };
     throw new Error('offline');
   };
-  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K' } });
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K' } });
   assert.equal(res.newsApiAi.authoritative, false, 'NewsAPI.ai empty => not authoritative');
   assert.ok(res.items.some((it) => it.title === 'Free fallback story'), 'free stack used as fallback when NewsAPI.ai is empty');
 });

@@ -144,7 +144,6 @@ export function normalizeGdeltArticle(article) {
 export const NEWSAPI_AI_HOST = 'https://eventregistry.org';
 export const NEWSAPI_AI_GET_ARTICLES_URL = `${NEWSAPI_AI_HOST}/api/v1/article/getArticles`;
 export const NEWSAPI_AI_MAX_KEYWORDS = 15;         // trial limit
-export const NEWSAPI_AI_MODES = ['auto', 'primary', 'shadow', 'off'];
 export const DEFAULT_NEWSAPI_AI_BUDGET = 1800;
 // Initial API filters — named so they can be tuned from trial evidence.
 export const NEWSAPI_AI_FILTERS = {
@@ -241,7 +240,8 @@ export async function fetchNewsApiAiArticles({
 // The settings-first NEWSAPI_AI_* resolver lives in a tiny standalone lib so
 // consumers (signal-server) don't take a hard startup dependency on this skill
 // module (issue #114 review); re-exported here for existing importers.
-export { NEWSAPI_AI_SETTING_KEYS, resolveNewsApiAiSource } from '../../../scripts/lib/newsapi-ai-source.mjs';
+export { NEWSAPI_AI_SETTING_KEYS, resolveNewsApiAiSource, NEWSAPI_AI_MODES } from '../../../scripts/lib/newsapi-ai-source.mjs';
+import { NEWSAPI_AI_MODES } from '../../../scripts/lib/newsapi-ai-source.mjs';
 
 // Resolve provider config from env (mode/key/budget/instrument allowlist) into a
 // single `enabled/shadow` verdict. `off` and a missing key both disable it;
@@ -256,12 +256,11 @@ export function resolveNewsApiAiConfig(env = process.env, { instrument = null } 
   const allow = String(env.NEWSAPI_AI_INSTRUMENTS || '').split(',').map((s) => s.trim()).filter(Boolean);
   const instrumentAllowed = !allow.length || !instrument || allow.includes(instrument);
 
-  let enabled = false;
-  let warn = null;
-  if (mode === 'off') enabled = false;
-  else if (!apiKey) { if (mode === 'primary') warn = 'NEWSAPI_AI_MODE=primary but NEWSAPI_AI_KEY missing — falling back to free stack'; }
-  else if (!instrumentAllowed) enabled = false;
-  else enabled = true;
+  // enabled only when on, keyed, and instrument-allowed. (`warn` stays in the
+  // shape — fetchSentinelNews still logs a caller-supplied warn — but no mode
+  // sets it anymore since `primary` was dropped.)
+  const enabled = mode !== 'off' && !!apiKey && instrumentAllowed;
+  const warn = null;
 
   return { apiKey, mode, enabled, shadow: enabled && mode === 'shadow', requestBudget, allow, instrumentAllowed, warn };
 }
