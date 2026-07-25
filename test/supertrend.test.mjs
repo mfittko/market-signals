@@ -155,6 +155,26 @@ test('processSignal suppresses when the filter says no (fake pi), no notificatio
   assert.equal(row.notified, 0);
 });
 
+test('buildFilterPayload (#102): pins the payload object shape + key insertion order (NB: llmVerdict JSON.stringifies it, dropping undefined-valued keys) so processSignal and refilter-signals.mjs never drift', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const sig = { time: candles[20].time, signal: 'sell', price: candles[20].close, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: candles[20].close, trend: 'down', supertrend: 88.8, backtest: { winRatePct: 50, totalReturnPct: 1, trades: 4 } };
+  const payload = await buildFilterPayload({
+    dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result,
+    candles: candles.slice(0, 21), history: [], gateSnapshot: null, notes: 'note text',
+  });
+  assert.deepEqual(Object.keys(payload), [
+    'current', 'backtestWindow', 'recentCandles', 'volumeContext',
+    'pastSignals30mOutcomes', 'axisGate', 'traderNotes', 'traderMemories', 'sentinel',
+  ]);
+  assert.equal(payload.current.signal, 'sell');
+  assert.equal(payload.traderNotes, 'note text');
+  assert.equal(payload.axisGate, null, 'no gateSnapshot: axisGate is null');
+});
+
 test('processSignal filter payload (#86): a sentinel block is injected only when the news cache has recent rows for the instrument, framed as advisory', async () => {
   const { upsertNews } = await import('../scripts/news.mjs');
   const { FILTER_RULES } = await import('../scripts/supertrend.mjs');
@@ -861,4 +881,31 @@ test('openai malformed/empty-choices response throws a readable error, not a Typ
       /no choice\/message|malformed response/,
     );
   } finally { await new Promise((r) => srv.close(r)); }
+});
+
+test('buildFilterPayload volumeContext: zero/missing volume yields avg20:null + ratio:null, not a misleading 0 (Copilot #103)', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const zeroVol = Array.from({ length: 21 }, (_, i) => ({ time: `2026-07-23T${String(i).padStart(2, '0')}:00:00.000Z`, open: 70, high: 71, low: 69, close: 70, volume: 0 }));
+  storeCandles(dbPath, 'WTICO/USD', 'M5', zeroVol);
+  const sig = { time: zeroVol[20].time, signal: 'buy', price: 70, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: 70, trend: 'up', supertrend: 69, backtest: { winRatePct: 50, totalReturnPct: 0, trades: 0 } };
+  const payload = await buildFilterPayload({ dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result, candles: zeroVol, history: [], gateSnapshot: null, notes: '' });
+  assert.equal(payload.volumeContext.avg20, null, 'zero avg volume -> null, not 0');
+  assert.equal(payload.volumeContext.ratio, null, 'no meaningful ratio without avg volume');
+});
+
+test('buildFilterPayload volumeContext: a real 0-volume flip against a nonzero avg is ratio:0 (a meaningful signal), not null (Copilot #103)', async () => {
+  const { buildFilterPayload } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const dbPath = join(dir, 'db.sqlite');
+  // 20 candles with volume 100 (nonzero avg), then a flip candle with volume 0.
+  const cs = Array.from({ length: 21 }, (_, i) => ({ time: `2026-07-23T${String(i).padStart(2, '0')}:00:00.000Z`, open: 70, high: 71, low: 69, close: 70, volume: i === 20 ? 0 : 100 }));
+  storeCandles(dbPath, 'WTICO/USD', 'M5', cs);
+  const sig = { time: cs[20].time, signal: 'buy', price: 70, index: 20, barsAgo: 0, fresh: true };
+  const result = { close: 70, trend: 'up', supertrend: 69, backtest: { winRatePct: 50, totalReturnPct: 0, trades: 0 } };
+  const payload = await buildFilterPayload({ dbPath, instrument: 'WTICO/USD', granularity: 'M5', sig, result, candles: cs, history: [], gateSnapshot: null, notes: '' });
+  assert.ok(payload.volumeContext.avg20 > 0, 'nonzero average volume');
+  assert.equal(payload.volumeContext.ratio, 0, '0-volume flip against a nonzero avg is 0×, not null');
 });
