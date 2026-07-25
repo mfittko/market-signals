@@ -18,6 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
+import { resolveNewsApiAiSource } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -438,7 +439,12 @@ export const CHAT_TOOLS = [
       const instrument = validInstrument(a?.instrument) ? a.instrument
         : validInstrument(ctx?.view?.instrument) ? ctx.view.instrument
         : DEFAULT_INSTRUMENT;
-      return execFileSync(process.execPath, ['skills/market-sentinel/scripts/sentinel_news.mjs', '--instrument', instrument, '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 30, 15)), '--json'], { encoding: 'utf8', timeout: 45000 });
+      // Inject the NewsAPI.ai config from settings.json into the subprocess env
+      // (issue #114): the CLI resolves the provider from process.env, but the key
+      // lives in settings (the LaunchAgent never loads .env), so without this the
+      // chat/bot sentinel tool silently falls back to the free stack only.
+      const env = { ...process.env, ...resolveNewsApiAiSource(ctx?.settings || {}) };
+      return execFileSync(process.execPath, ['skills/market-sentinel/scripts/sentinel_news.mjs', '--instrument', instrument, '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 30, 15)), '--json'], { encoding: 'utf8', timeout: 45000, env });
     },
   },
   {
@@ -1023,7 +1029,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const reply = await llmChat(cfg, CHAT_SYSTEM, user, {
             onDelta: (text) => send({ type: 'delta', text }),
             toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-            execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity } }),
+            execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }),
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
           });
           const { text: cleanReply, title } = extractThreadTitle(reply);

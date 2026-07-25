@@ -560,6 +560,11 @@ async function main() {
 
   if (args.json) {
     const meta = { instrument, query, yahooSymbol, hours: args.hours };
+    // Always surface the RESOLVED provider config (from process.env) so callers
+    // can confirm the key/mode reached the CLI — e.g. the server injects it from
+    // settings.json into the spawn env (issue #114); observable even offline.
+    meta.newsApiAiMode = newsApiAi.mode;
+    meta.newsApiAiEnabled = newsApiAi.enabled;
     if (result.newsApiAi) { meta.primaryProvider = result.newsApiAi.requestMade ? 'newsapi-ai' : null; meta.newsApiAi = result.newsApiAi; meta.providersAttempted = result.providersAttempted; }
     process.stdout.write(JSON.stringify({ ...result, meta }, null, 2));
     return;

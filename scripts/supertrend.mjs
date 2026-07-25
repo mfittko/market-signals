@@ -1175,7 +1175,7 @@ async function runOne(opts) {
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)
           toolDefs: botToolDefs().map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-          execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db }),
+          execTool: (n, i) => execChatTool(n, i, { dbPath: opts.db, settings }),
         });
       }
     } catch (err) {
