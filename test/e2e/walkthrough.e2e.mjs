@@ -66,6 +66,12 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
         await p.waitForTimeout(150);
         assert.ok(await p.evaluate(() => !document.getElementById('app').classList.contains('chat-collapsed')), 'chat toggle expands the sidebar');
         assert.equal(await p.evaluate(() => document.getElementById('chatToggle').getAttribute('aria-expanded')), 'true', 'aria-expanded flips');
+        // STT mic button (#137): present with a11y wiring. It reveals itself only
+        // where MediaRecorder+getUserMedia exist (a secure context) — headless
+        // WebKit lacks them, so we assert the element + labels, not visibility.
+        assert.ok(await p.evaluate(() => !!document.getElementById('micBtn')), 'mic button present in chat form');
+        assert.equal(await p.evaluate(() => document.getElementById('micBtn').getAttribute('aria-pressed')), 'false', 'mic starts un-pressed');
+        assert.ok(await p.evaluate(() => !!document.getElementById('micBtn').getAttribute('aria-label')), 'mic button is labelled');
         await p.evaluate(() => document.getElementById('chatToggle').click());
 
         // every modal opens with no internal horizontal overflow

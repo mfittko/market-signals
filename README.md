@@ -236,7 +236,11 @@ provider's fallback. The settings modal renders a **contextual provider panel**
 `maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`,
 `notifierBin`, `port`, `instrument`, `instruments` (dropdown CSV),
 `granularity`, `freshBars`, `watchers`, `bot` (per-combo bot config), `info`
-(overlays toggle).
+(overlays toggle). Speech-to-text (chat mic button, #137): `sttMode`
+(`openai`|`local`, default OpenAI when a key is set), `sttModel` (default
+`gpt-4o-mini-transcribe`), `sttBin` (a local command invoked as `sttBin
+<audiofile>` printing the transcript to stdout — wrap whisper.cpp here for a
+fully-offline backend).
 
 Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 

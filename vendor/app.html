@@ -32,6 +32,9 @@
   #chatForm input { flex: 1; }
   #chatForm button { background: #2b7a45; color: #fff; border: 0; border-radius: 5px; padding: 6px 14px; cursor: pointer; font-weight: 500; transition: background .12s ease; }
   #chatForm button:hover { background: #33914f; } #chatForm button:active { background: #235f37; }
+  #micBtn { flex: 0 0 auto; background: #21262d; padding: 6px 10px; }
+  #micBtn:hover { background: #2c333d; }
+  #micBtn[aria-pressed="true"] { background: #b13a3a; } #micBtn[aria-pressed="true"]:hover { background: #c44646; }
   /* #126: collapsible chat sidebar. Collapsed by default so the chart claims the
      full width — no dead column when the copilot is idle. Toggle in the header. */
   #app.chat-collapsed { grid-template-columns: 1fr; }
@@ -263,7 +266,7 @@
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
   <div id="msgs"></div>
-  <form id="chatForm"><input id="chatMsg" aria-label="ask about the current view" placeholder="quick check about the current view…" autocomplete="off"><button>Ask</button></form>
+  <form id="chatForm"><input id="chatMsg" aria-label="ask about the current view" placeholder="quick check about the current view…" autocomplete="off"><button type="button" id="micBtn" hidden aria-label="dictate a question" aria-pressed="false" title="dictate (speech-to-text)">🎙️</button><button>Ask</button></form>
 </aside>
 </div>
 <script>
@@ -1327,6 +1330,49 @@ document.getElementById('chatForm').onsubmit = async (e) => {
 };
 loadThreads();
 load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
+
+// Speech-to-text (#137): MediaRecorder captures mic audio, POSTed to
+// /api/transcribe which routes to the local sttBin or OpenAI Whisper per
+// settings. Transcript lands (editable) in the chat input. No MediaRecorder /
+// getUserMedia (older/insecure context) => button stays hidden.
+(() => {
+  const mic = document.getElementById('micBtn');
+  if (!mic || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return;
+  mic.hidden = false;
+  let rec = null, chunks = [], stream = null;
+  const setState = (on) => { mic.setAttribute('aria-pressed', String(on)); mic.textContent = on ? '⏺️' : '🎙️'; };
+  const stopStream = () => { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } };
+  const hint = (msg) => appendMsg('assistant', msg).classList.add('error');
+  async function start() {
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { hint('Mic permission denied — can\'t transcribe.'); return; }
+    chunks = [];
+    rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    rec.onstop = send;
+    rec.start();
+    setState(true);
+  }
+  async function send() {
+    setState(false);
+    stopStream();
+    const blob = new Blob(chunks, { type: rec?.mimeType || 'audio/webm' });
+    if (!blob.size) return;
+    mic.disabled = true;
+    const input = document.getElementById('chatMsg');
+    const prev = input.placeholder; input.placeholder = 'transcribing…';
+    try {
+      const res = await fetch('/api/transcribe', { method: 'POST', headers: { 'content-type': blob.type }, body: blob });
+      const j = await res.json();
+      if (!res.ok) { hint(j.error || 'transcription failed'); return; }
+      const text = (j.text || '').trim();
+      if (text) { input.value = input.value ? `${input.value} ${text}` : text; input.focus(); }
+      else hint('No speech detected.');
+    } catch (e) { hint(String(e)); }
+    finally { mic.disabled = false; input.placeholder = prev; }
+  }
+  mic.onclick = () => { (rec && rec.state === 'recording') ? rec.stop() : start(); };
+})();
 
 // Resizable chat sidebar (#112): drag the main<->chat border, double-click resets.
 // Width persists in localStorage; clamped so neither pane collapses; the chart
