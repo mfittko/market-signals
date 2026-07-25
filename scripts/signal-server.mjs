@@ -197,6 +197,12 @@ export function writeSettings(settingsPath, patch) {
       next.models = merged;
     } else next[k] = v;
   }
+  // #99: reject a state that would always fail at request time — an explicit
+  // openai-compatible provider with no base URL (openaiEndpoint requires one).
+  // Validated on the MERGED result so a partial patch can't sneak into it.
+  if (next.provider === 'openai-compatible' && !(next.OPENAI_BASE_URL || '').trim()) {
+    throw new Error('openai-compatible provider requires OPENAI_BASE_URL');
+  }
   mkdirSync(dirname(settingsPath), { recursive: true });
   const tmp = `${settingsPath}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);

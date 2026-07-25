@@ -458,6 +458,12 @@ test('openaiEndpoint + explicit provider resolution (#42/#99 split)', async () =
   assert.equal(resolveProvider({ provider: 'openai', ANTHROPIC_API_KEY: 'x' }), 'openai', 'explicit choice beats key-derived resolution');
   assert.equal(resolveProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(resolveProvider({ ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'y' }), 'anthropic', 'legacy empty provider keeps key-derived behavior');
+  // #99: a legacy config (NO explicit provider) with a base URL is a pre-#42
+  // OpenAI-compatible setup — must resolve to openai-compatible so its base URL is
+  // honored, not routed to api.openai.com.
+  assert.equal(resolveProvider({ OPENAI_API_KEY: 'y', OPENAI_BASE_URL: 'http://makora/' }), 'openai-compatible', 'legacy base-url config → openai-compatible');
+  assert.equal(resolveProvider({ OPENAI_API_KEY: 'y' }), 'openai', 'legacy key-only config → official openai');
+  assert.equal(openaiEndpoint({ OPENAI_API_KEY: 'y', OPENAI_BASE_URL: 'http://makora/' }), 'http://makora/v1/chat/completions', 'legacy compatible config still hits its base URL');
   assert.equal(resolveProvider({}), 'none');
 });
 

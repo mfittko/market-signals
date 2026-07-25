@@ -194,7 +194,10 @@ export function resolveProvider(settings) {
     return settings.provider;
   }
   if (settings.ANTHROPIC_API_KEY) return 'anthropic';
-  if (settings.OPENAI_API_KEY) return 'openai';
+  // key-derived legacy fallback: a base URL (no explicit provider) is a pre-#42
+  // OpenAI-compatible setup — resolve it as openai-compatible so its base URL is
+  // honored, not ignored by the official-openai path.
+  if (settings.OPENAI_API_KEY) return (settings.OPENAI_BASE_URL || '').trim() ? 'openai-compatible' : 'openai';
   return 'none';
 }
 

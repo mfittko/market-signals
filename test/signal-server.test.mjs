@@ -1479,6 +1479,13 @@ test('per-provider models map: round-trip, per-provider merge, validation, seed 
     s = await get();
     assert.equal(s.models.anthropic, undefined, 'anthropic binding deleted');
     assert.equal(s.models['openai-compatible'], 'GLM-5', 'other binding intact');
+
+    // #99: openai-compatible with no base URL is rejected at write (would always
+    // fail at request time). Validated on the merged state.
+    assert.equal((await post({ provider: 'openai-compatible', OPENAI_BASE_URL: '' })).status, 400, 'compatible + blank base URL rejected');
+    assert.equal((await post({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://makora' })).status, 200, 'compatible + base URL accepted');
+    // a later partial patch clearing the base URL while compatible is active is also rejected
+    assert.equal((await post({ OPENAI_BASE_URL: '' })).status, 400, 'clearing base URL under an active compatible provider rejected');
   });
 });
 
