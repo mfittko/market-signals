@@ -24,3 +24,11 @@ export function resolveNewsApiAiSource(settings = {}, env = process.env) {
 export function isSettingOn(v) {
   return v === '1' || v === true || v === 1;
 }
+
+// The NewsAPI.ai provider modes (#128). Lives in this leaf lib so both the
+// market-sentinel skill and the signal-server can import one list without the
+// server hard-depending on the skill (the #114 boundary). `auto` = use it when a
+// key is present; `shadow` = fetch + record but don't merge into the prompt;
+// `off` = disabled. (The former `primary` mode was byte-identical to `auto` and
+// was removed.)
+export const NEWSAPI_AI_MODES = ['auto', 'shadow', 'off'];

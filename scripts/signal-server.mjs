@@ -2080,7 +2080,12 @@ function history(list, botDecisions) {
 // stay flat field lists. Provider-specific keys (model, base URL, keys,
 // maxCompletionTokens, piBin) are owned by the LLM panel and NOT listed here, so
 // they never render twice or collide in the global Save.
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', [['auto', 'auto'], ['primary', 'primary'], ['shadow', 'shadow'], ['off', 'off']]], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
+// Client-side copy of the NewsAPI.ai modes (#128): this is browser code, so it
+// can't import the server NEWSAPI_AI_MODES from lib/newsapi-ai-source.mjs — keep
+// the two client uses (the select + the validation below) in sync via this one
+// const. The old primary mode was dropped (byte-identical to auto).
+const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
@@ -2088,7 +2093,7 @@ const CFG_TAB_IDS = ['llm', 'news', 'adv'];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
-  if (!['auto', 'primary', 'shadow', 'off'].includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
+  if (!NEWSAPI_AI_MODE_VALUES.includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
   const f = document.getElementById('cfg');
   // #99 provider config: the select + the per-provider field set. activeProvider
   // is the resolved value (a pre-#99 openai+base-URL config resolves to

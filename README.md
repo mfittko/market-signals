@@ -213,7 +213,7 @@ domain, `eventUri`, and sentiment — merged first so it wins the canonical dedu
 at decision points** (a fresh flip being filtered, a bot deliberating), so a trial
 token is spent when a decision is weighed, not every tick; the persisted
 `NEWSAPI_AI_REQUEST_BUDGET` hard-caps spend and falls back to the free stack when
-exhausted. Modes: `auto`/`primary`/`shadow`/`off`. The every-tick background
+exhausted. Modes: `auto`/`shadow`/`off`. The every-tick background
 poller is opt-in (`NEWSAPI_AI_BACKGROUND=1`, for the latency benchmark only).
 `node scripts/news-provider-report.mjs --instrument WTICO/USD --since <date>`
 reports coverage, latency, and trading relevance from the provenance log. Without

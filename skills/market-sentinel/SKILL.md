@@ -84,7 +84,7 @@ Config lives in **`data/settings.json`** (like `OPENAI_API_KEY`/`ANTHROPIC_API_K
 // data/settings.json
 {
   "NEWSAPI_AI_KEY": "<trial key>",       // enables NewsAPI.ai
-  "NEWSAPI_AI_MODE": "auto",             // auto | primary | shadow | off
+  "NEWSAPI_AI_MODE": "auto",             // auto | shadow | off
   "NEWSAPI_AI_INSTRUMENTS": "WTICO/USD", // allowlist; empty ⇒ all sentinel instruments
   "NEWSAPI_AI_REQUEST_BUDGET": "1800",   // persisted global chargeable-request cap
   "NEWSAPI_AI_BACKGROUND": "1"           // OPT-IN: also poll every tick (off by default; latency benchmark)

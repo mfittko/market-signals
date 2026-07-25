@@ -1757,6 +1757,21 @@ test('chat md(): renders http(s) markdown links, rejects non-http schemes (#113)
   });
 });
 
+test('NewsAPI.ai modes: dropped primary; client uses NEWSAPI_AI_MODE_VALUES, not a server import (#128)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    // the client mode list is a client-side const (browser can't import the server one)
+    assert.ok(page.includes("const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off']"), 'client-side modes const present');
+    // the client code must NOT *use* the server-only NEWSAPI_AI_MODES (a property
+    // access would ReferenceError in the browser); a mention in a comment is fine
+    assert.ok(!/NEWSAPI_AI_MODES\.\w/.test(page), 'no server-only NEWSAPI_AI_MODES.<call> leaked into the page');
+    // primary is gone from the mode UI
+    assert.ok(!/NEWSAPI_AI_MODE'.*primary/.test(page), 'primary mode dropped from the select');
+  });
+  const { NEWSAPI_AI_MODES } = await import('../scripts/lib/newsapi-ai-source.mjs');
+  assert.deepEqual(NEWSAPI_AI_MODES, ['auto', 'shadow', 'off'], 'server/skill modes list has no primary');
+});
+
 test('provider footnotes (#116): opt-in toggle round-trips, appends chat rule only when on, ships in News tab', async () => {
   // chatSystemFor: default off ⇒ base prompt unchanged; on ⇒ footnote instruction appended
   const base = chatSystemFor({});
