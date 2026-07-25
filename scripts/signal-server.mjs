@@ -1113,6 +1113,8 @@ const PAGE = /* html */ `<!doctype html>
   .cfgpanel[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 12px; }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
+  /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the 140px label column instead of clipping */
+  #cfg label { overflow-wrap: anywhere; align-self: center; }
   #botBtn { position: relative; }
   #botBtn.nobot { opacity: 0.45; }
   #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
