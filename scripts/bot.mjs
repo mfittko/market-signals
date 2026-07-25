@@ -315,7 +315,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
 // fired this run. Returns a summary for logs/tests.
-export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, toolDefs = null, execTool = null }) {
+export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
   const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
   if (!botFor.enabled) return { skipped: 'disabled' };
   const loop = botLoopConfig(settings);
@@ -377,6 +377,12 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
     const combos = strategyRow.instruments.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x !== '|' && x);
     if (!combos.includes(`${instrument}|${granularity}`)) return { fills, halted: false, deliberated: false, skipped: 'combo not in active strategy scope' };
   }
+
+  // Build the decision context ONLY now, past EVERY early-return gate (quiet tick,
+  // no strategy, out-of-scope combo). buildCtx may fetch news (NewsAPI.ai
+  // on-demand); building it any earlier spent a request on ticks that then bailed.
+  // An explicitly-provided ctx (tests) is honored — buildCtx runs only when ctx is empty.
+  if (buildCtx && (!ctx || Object.keys(ctx).length === 0)) ctx = await buildCtx();
 
   const result = await deliberate(dbPath, settings, {
     instrument, granularity, event,

@@ -1214,7 +1214,9 @@ async function runOne(opts) {
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
           candle: last, quote: { last: last.close }, freshFlip,
-          ctx: await buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, settings }),
+          // lazy: only pulls decision-point news when runBot actually deliberates
+          // (a fresh flip or an adverse move) — not on every quiet tick.
+          buildCtx: () => buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, settings }),
           // read-only tools for the trading loop: the bot must never write
           // strategy drafts, memories, or anything else as a side effect of
           // deciding — memory saves are trader-initiated, chat-only (#44)
