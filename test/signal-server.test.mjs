@@ -1640,7 +1640,7 @@ test('MS_DEBUG_LLM=1: /api/recheck (fake openai-compatible provider) carries the
         writeFileSync(settingsPath, JSON.stringify({ provider: 'openai', OPENAI_API_KEY: secretKey, OPENAI_BASE_URL: base2, model: 'gpt-recheck-test' }));
         const res = await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) });
         assert.equal(res.status, 200);
-        assert.equal(res.headers.get('x-llm-provider'), 'openai');
+        assert.equal(res.headers.get('x-llm-provider'), 'openai-compatible', '#99: openai+base-url resolves to openai-compatible in the debug header');
         assert.equal(res.headers.get('x-llm-model'), 'gpt-recheck-test');
         assert.equal(res.headers.get('x-llm-usage-input'), '210');
         assert.equal(res.headers.get('x-llm-usage-output'), '18');

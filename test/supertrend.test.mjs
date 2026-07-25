@@ -685,7 +685,9 @@ test('llmRequest onUsage: fake openai-compatible body reports provider/model/tok
     let captured = null;
     const out = await llmRequest({ provider: 'openai', OPENAI_API_KEY: 'sk-secret-testkey', OPENAI_BASE_URL: base, model: 'gpt-test' }, 'sys', 'user', { onUsage: (info) => { captured = info; } });
     assert.equal(out, 'ok-openai');
-    assert.deepEqual(captured, { provider: 'openai', model: 'gpt-test', usage: { inputTokens: 55, outputTokens: 12 } });
+    // #99: this config (openai + base URL) resolves to openai-compatible, and the
+    // telemetry must report the RESOLVED provider, not a hardcoded 'openai'.
+    assert.deepEqual(captured, { provider: 'openai-compatible', model: 'gpt-test', usage: { inputTokens: 55, outputTokens: 12 } });
   } finally { await new Promise((r) => srv.close(r)); }
 });
 

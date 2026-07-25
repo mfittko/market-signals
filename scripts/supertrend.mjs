@@ -409,7 +409,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
       return streamed;
     }
     const data = await res.json();
-    reportUsage(onUsage, { provider: 'openai', model, usage: data.usage ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null } : null });
+    reportUsage(onUsage, { provider, model, usage: data.usage ? { inputTokens: data.usage.prompt_tokens ?? null, outputTokens: data.usage.completion_tokens ?? null } : null });
     const choice = data.choices?.[0];
     if (!choice?.message) throw new Error(`openai provider returned no choice/message (malformed response${data.error ? ': ' + JSON.stringify(data.error).slice(0, 100) : ''})`);
     const content = choice.message.content;
@@ -521,7 +521,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
       throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
     }
     if (onDelta) onDelta(msg.content);
-    reportUsage(onUsage, { provider: 'openai', model, usage: sawUsage ? { inputTokens, outputTokens } : null });
+    reportUsage(onUsage, { provider, model, usage: sawUsage ? { inputTokens, outputTokens } : null });
     return msg.content;
   }
   throw new Error('tool loop exceeded 8 rounds');
@@ -784,7 +784,7 @@ export async function processSignal(opts, result, candles) {
       }
       recordSnapshot(opts.db, gateSnapshot, {
         filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
-        filterModel: hasFilter ? (effectiveModel(settings, resolveProvider(settings)) || resolveProvider(settings)) : null,
+        filterModel: hasFilter ? (effectiveModel(settings, resolveProvider(settings)) || (resolveProvider(settings) === 'pi' ? 'pi' : null)) : null,
         filterPromptHash: hasFilter ? promptHash(promptSystemText) : null,
         filterPromptVersion: promptVersion,
         context,
