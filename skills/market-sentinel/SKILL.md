@@ -91,6 +91,15 @@ Config lives in **`data/settings.json`** (like `OPENAI_API_KEY`/`ANTHROPIC_API_K
 }
 ```
 
+**Source footnotes (issue #116).** Off by default. **Settings-only** (unlike the
+`NEWSAPI_AI_*` keys above, this toggle is not read from the process env). Set
+`sentinelSourceFootnotes: "1"` in `data/settings.json` (or the News tab in the
+settings modal) and the copilot will add a footnote to each headline naming the
+feed it was fetched from — `newsapi-ai` vs `google-news`/`gdelt` — separately from
+the publisher's markdown link. The fetch provider is persisted on the `news` cache
+(nullable `provider` column) so filter/bot decision blocks can surface it too;
+`newsContextFor(..., { sourceFootnotes: true })` opts a caller in.
+
 (The same names also work as process env vars for the CLI / local dev.)
 
 The background poller (`refreshNewsCache`) is **off by default** — set `NEWSAPI_AI_BACKGROUND=1` only to run

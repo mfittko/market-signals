@@ -18,7 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
-import { resolveNewsApiAiSource } from './lib/newsapi-ai-source.mjs';
+import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -47,7 +47,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
+const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes'];
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY'];
@@ -539,6 +539,15 @@ export function extractThreadTitle(reply) {
 
 const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; a gatePrompts block carries the alert filter's current effective rules text (its note explains the bot/chat prompts) — use it if the trader wants to discuss or draft a revision (save_gate_prompt saves a draft; activation is a human act in settings); prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, sentinel_news for breaking geopolitical/macro news with an escalation flag, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
+// Opt-in provider footnotes (#116): when the trader enables the toggle, tell the
+// copilot to name which feed (e.g. newsapi-ai vs google-news) each headline came
+// from — the sentinel_news tool output already carries a per-item `provider`.
+// Off by default ⇒ base CHAT_SYSTEM unchanged.
+const CHAT_SOURCE_FOOTNOTE_RULE = ` When you cite headlines from sentinel_news, add a brief footnote naming each item's fetch source (its \`provider\` field, e.g. newsapi-ai or google-news) — this is separate from the publisher's own link.`;
+export function chatSystemFor(cfg) {
+  return isSettingOn(cfg?.sentinelSourceFootnotes) ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
+}
+
 // Gate transparency (#58): server-built (no secrets) so the settings gates
 // section and the chat context both read the SAME effective prompt/toolset
 // per gate — one source of truth, never re-derived client-side.
@@ -1026,7 +1035,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
         if (createdThread) send({ type: 'thread', ...createdThread });
         try {
-          const reply = await llmChat(cfg, CHAT_SYSTEM, user, {
+          const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
             toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
             execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }),
@@ -1990,7 +1999,7 @@ function history(list, botDecisions) {
 // per section. LLM provider / News provider / Advanced (launch-config plumbing).
 // Gates/Memories/Bot stay their own modals in this phase (see #108).
 const LLM_FIELDS = [['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password'], ['maxCompletionTokens', 'number']];
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', [['auto', 'auto'], ['primary', 'primary'], ['shadow', 'shadow'], ['off', 'off']]], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]]];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', [['auto', 'auto'], ['primary', 'primary'], ['shadow', 'shadow'], ['off', 'off']]], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 const CFG_TABS = [['llm', 'LLM provider', LLM_FIELDS], ['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
 const CFG_ALL_FIELDS = CFG_TABS.flatMap(([, , fields]) => fields);
