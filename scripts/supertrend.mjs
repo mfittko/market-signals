@@ -172,34 +172,55 @@ const RECHECK_VERDICTS = ['valid', 'played-out', 'invalidated'];
 // The one allow-list: resolution here and the settings write-validation in
 // signal-server.mjs both consume this (drift between them would let a stored
 // provider bypass explicit resolution).
-export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai'];
+// #99: OpenAI split into `openai` (official api.openai.com, no base URL) and
+// `openai-compatible` (base URL required, e.g. GLM via Makora). Both use the same
+// openai request/tool-loop code path.
+export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai', 'openai-compatible'];
+
+// Per-provider default model (#93/#99). `openai-compatible` has NO default — the
+// operator sets the model id explicitly (arbitrary self-hosted models).
+export const PROVIDER_DEFAULT_MODEL = { anthropic: 'claude-opus-4-8', openai: 'gpt-5.4-mini' };
 
 export function resolveProvider(settings) {
   // explicit-first (#42): the provider is a deliberate choice; the key-derived
   // fallback exists only for legacy settings written before providers were
   // explicit (the UI pre-selects the resolved value and persists it on save)
-  if (PROVIDERS.includes(settings.provider)) return settings.provider;
+  if (PROVIDERS.includes(settings.provider)) {
+    // Backward-compat migration (#99): a stored `openai` WITH a base URL is the
+    // pre-split GLM-via-Makora config — resolve it as `openai-compatible` so live
+    // routing is preserved without rewriting settings.json. Official `openai`
+    // never carries a base URL (the UI hides the field for it).
+    if (settings.provider === 'openai' && (settings.OPENAI_BASE_URL || '').trim()) return 'openai-compatible';
+    return settings.provider;
+  }
   if (settings.ANTHROPIC_API_KEY) return 'anthropic';
   if (settings.OPENAI_API_KEY) return 'openai';
   return 'none';
 }
 
-// The ONE OpenAI-compatible endpoint resolution (#42): a configured base URL
-// points every OpenAI-path request (chat, filter, bot, judge, tool loop) at an
-// API-compatible server; the model id passes through unchanged.
-export function openaiEndpoint(settings) {
+// The ONE OpenAI endpoint resolution (#42/#99). Official `openai` always hits
+// api.openai.com and IGNORES any base URL; `openai-compatible` REQUIRES a base
+// URL and points every OpenAI-path request there. The model id passes through
+// unchanged either way.
+export function openaiEndpoint(settings, provider = resolveProvider(settings)) {
+  if (provider === 'openai') return 'https://api.openai.com/v1/chat/completions';
+  // openai-compatible: base URL is required (blank ⇒ misconfiguration).
+  const raw = (settings.OPENAI_BASE_URL || '').trim();
+  if (!raw) throw new Error('openai-compatible provider requires OPENAI_BASE_URL');
   // tolerate the common SDK convention of a base URL already ending in /v1
-  const base = (settings.OPENAI_BASE_URL || 'https://api.openai.com').replace(/\/+$/, '').replace(/\/v1$/, '');
+  const base = raw.replace(/\/+$/, '').replace(/\/v1$/, '');
   return `${base}/v1/chat/completions`;
 }
 
-// The one "effective model id" resolution (#93): mirrors the per-provider
-// defaults baked into the request bodies below, so the MS_DEBUG_LLM
-// header/log surface can never drift from what was actually sent.
+// The one "effective model id" resolution (#93/#99). Per-provider binding:
+// models[provider] → the flat `model` (ONLY as the ACTIVE provider's fallback, so
+// a stale slug never bleeds into another provider — the #99 footgun) → the
+// provider default. `openai-compatible` has no default ⇒ null when unset.
 export function effectiveModel(settings, provider) {
-  if (provider === 'anthropic') return settings.model || 'claude-opus-4-8';
-  if (provider === 'openai') return settings.model || 'gpt-5.4-mini';
-  return settings.model || null;
+  const bound = settings.models?.[provider];
+  if (bound) return bound;
+  if (provider === resolveProvider(settings) && settings.model) return settings.model;
+  return PROVIDER_DEFAULT_MODEL[provider] ?? null;
 }
 
 // #93: usage capture is purely additive debug telemetry — a bad onUsage
@@ -291,8 +312,9 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
   if (provider === 'none') throw new Error('no provider configured');
   if (provider === 'pi') {
     // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
+    const piModel = effectiveModel(settings, 'pi');
     const args = ['-p', '--no-session', '--no-tools', '--system-prompt', system];
-    if (settings.model) args.push('--model', settings.model);
+    if (piModel) args.push('--model', piModel);
     args.push(user);
     let out;
     try {
@@ -310,7 +332,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (onDelta) onDelta(out); // pi cannot stream: one whole delta
     // pi has no structured usage to report — provider/model still surfaced,
     // usage is always null here, never faked (#93).
-    reportUsage(onUsage, { provider: 'pi', model: settings.model || null, usage: null });
+    reportUsage(onUsage, { provider: 'pi', model: piModel, usage: null });
     return out;
   }
   if (provider === 'anthropic') {
@@ -349,7 +371,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
   }
   {
     const stream = Boolean(onDelta) && !schema;
-    const model = effectiveModel(settings, 'openai');
+    const model = effectiveModel(settings, provider);
     const budget = openaiCompletionBudget(settings, maxTokens);
     const body = {
       model,
@@ -362,7 +384,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (temperature != null) body.temperature = temperature;
     if (schema) body.response_format = { type: 'json_object' };
     if (stream) body.stream = true;
-    const res = await fetch(openaiEndpoint(settings), {
+    const res = await fetch(openaiEndpoint(settings, provider), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify(body),
@@ -449,9 +471,9 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
   throw new Error('tool loop exceeded 8 rounds');
 }
 
-async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool, onUsage }) {
+async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, onDelta, toolDefs, execTool, onUsage, provider = resolveProvider(settings) }) {
   const tools = toolDefs.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } }));
-  const model = effectiveModel(settings, 'openai');
+  const model = effectiveModel(settings, provider);
   const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
   // #93: same round-aggregation as anthropicToolLoop above.
   let inputTokens = 0;
@@ -459,7 +481,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   let sawUsage = false;
   const budget = openaiCompletionBudget(settings, maxTokens);
   for (let round = 0; round < 8; round++) {
-    const res = await fetch(openaiEndpoint(settings), {
+    const res = await fetch(openaiEndpoint(settings, provider), {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
       body: JSON.stringify({ model, max_completion_tokens: budget, tools, messages }),
@@ -499,9 +521,9 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
 // Free-form ask against the configured provider (used by the chat sidebar).
 export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null, onUsage = null } = {}) {
   const provider = resolveProvider(settings);
-  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool, onUsage };
+  const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool, onUsage, provider };
   if (toolDefs && execTool && provider === 'anthropic') return anthropicToolLoop(settings, system, user, opts);
-  if (toolDefs && execTool && provider === 'openai') return openaiToolLoop(settings, system, user, opts);
+  if (toolDefs && execTool && (provider === 'openai' || provider === 'openai-compatible')) return openaiToolLoop(settings, system, user, opts);
   // pi (and tool-less fallbacks): context only — the sole tool surface is the
   // clamped skill registry via the API providers' native tool-calling.
   return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, onUsage });
@@ -691,7 +713,7 @@ export async function processSignal(opts, result, candles) {
 
   const settings = applyProviderDefault(readSettings(opts.settings));
   const hasFilter = resolveProvider(settings) !== 'none';
-  dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.ANTHROPIC_API_KEY ? 'anthropic' : 'openai') : 'off'}`);
+  dbg(`fresh ${sig.signal} flip at ${sig.time} (barsAgo ${sig.barsAgo}); filter=${hasFilter ? resolveProvider(settings) : 'off'}`);
 
   // Axis-grouped gate snapshot (#32): computed once per fresh signal, fed to
   // the filter, and recorded for backtesting; lazy import avoids a load cycle.
@@ -753,7 +775,7 @@ export async function processSignal(opts, result, candles) {
       }
       recordSnapshot(opts.db, gateSnapshot, {
         filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
-        filterModel: hasFilter ? (settings.provider === 'pi' ? 'pi' : settings.model || (settings.ANTHROPIC_API_KEY ? 'anthropic-default' : 'openai-default')) : null,
+        filterModel: hasFilter ? (effectiveModel(settings, resolveProvider(settings)) || resolveProvider(settings)) : null,
         filterPromptHash: hasFilter ? promptHash(promptSystemText) : null,
         filterPromptVersion: promptVersion,
         context,

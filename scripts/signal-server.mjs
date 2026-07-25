@@ -47,7 +47,10 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes'];
+// #99: per-provider model binding lives in the `models` map, keyed by provider
+// (never 'none'). The flat `model` stays as the active provider's fallback.
+const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY'];
@@ -55,11 +58,18 @@ const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
-  const out = { activeProvider: resolveProvider(s) };
+  const activeProvider = resolveProvider(s); // migrates pre-#99 openai+base-url ⇒ openai-compatible
+  const out = { activeProvider };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
   }
+  // #99 read-time seed: expose a models map so the contextual provider panel can
+  // show each provider's bound model. Seed the active provider's slot from the
+  // flat `model` when unset, so a pre-#99 config's model surfaces under it.
+  const models = { ...(typeof out.models === 'object' && out.models ? out.models : {}) };
+  if (activeProvider !== 'none' && models[activeProvider] === undefined && s.model) models[activeProvider] = s.model;
+  out.models = models;
   return out;
 }
 
@@ -118,7 +128,14 @@ export function writeSettings(settingsPath, patch) {
     throw new Error('info must be a boolean');
   }
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
-    throw new Error('provider must be one of pi, anthropic, openai, none');
+    throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
+  }
+  if (patch.models !== undefined && patch.models !== '' && patch.models !== null) {
+    if (typeof patch.models !== 'object' || Array.isArray(patch.models)) throw new Error('models must be an object keyed by provider');
+    for (const [mp, mv] of Object.entries(patch.models)) {
+      if (!MODEL_PROVIDER_KEYS.includes(mp)) throw new Error(`models key '${mp}' must be a provider (${MODEL_PROVIDER_KEYS.join(', ')})`);
+      if (mv !== null && typeof mv !== 'string') throw new Error(`models['${mp}'] must be a model-id string or null`);
+    }
   }
   if (patch.OPENAI_BASE_URL !== undefined && patch.OPENAI_BASE_URL !== '' && patch.OPENAI_BASE_URL !== null) {
     let u;
@@ -164,6 +181,15 @@ export function writeSettings(settingsPath, patch) {
         } else merged[bk] = bv;
       }
       next.bot = merged;
+    } else if (k === 'models') {
+      // per-provider merge (#99): a partial patch (the panel saves one provider
+      // at a time) must not drop other providers' bound models; ''/null deletes one.
+      const merged = { ...(typeof current.models === 'object' && current.models ? current.models : {}) };
+      for (const [mp, mv] of Object.entries(v)) {
+        if (mv === '' || mv === null) delete merged[mp];
+        else merged[mp] = mv;
+      }
+      next.models = merged;
     } else next[k] = v;
   }
   mkdirSync(dirname(settingsPath), { recursive: true });
@@ -1998,21 +2024,41 @@ function history(list, botDecisions) {
 // Settings modal tabs (#108 phase 1): one dialog, one global Save, fields grouped
 // per section. LLM provider / News provider / Advanced (launch-config plumbing).
 // Gates/Memories/Bot stay their own modals in this phase (see #108).
-const LLM_FIELDS = [['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password'], ['maxCompletionTokens', 'number']];
+// #99: the LLM tab is a contextual provider panel — a provider select plus ONLY
+// the fields that provider uses (rendered client-side in cfg()). News/Advanced
+// stay flat field lists. Provider-specific keys (model, base URL, keys,
+// maxCompletionTokens, piBin) are owned by the LLM panel and NOT listed here, so
+// they never render twice or collide in the global Save.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', [['auto', 'auto'], ['primary', 'primary'], ['shadow', 'shadow'], ['off', 'off']]], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
-const CFG_TABS = [['llm', 'LLM provider', LLM_FIELDS], ['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-const CFG_ALL_FIELDS = CFG_TABS.flatMap(([, , fields]) => fields);
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
+// tabs whose fields are flat (LLM is rendered contextually, handled separately)
+const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
+const CFG_TAB_IDS = ['llm', 'news', 'adv'];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
-  // legacy empty provider pre-resolves to the active one (#42); saving persists it
-  if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider;
-  // unset/invalid NewsAPI.ai mode shows its effective default (auto), same pattern
+  // unset/invalid NewsAPI.ai mode shows its effective default (auto)
   if (!['auto', 'primary', 'shadow', 'off'].includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
   const f = document.getElementById('cfg');
-  // select options compared as strings — /api/settings can return a value as-stored
-  // (number/bool, e.g. NEWSAPI_AI_BACKGROUND), which strict === would miss, wrongly
-  // adding a fallback option / selecting the wrong one.
+  // #99 provider config: the select + the per-provider field set. activeProvider
+  // is the resolved value (a pre-#99 openai+base-URL config resolves to
+  // openai-compatible), so the select shows what actually runs.
+  const PROVIDER_OPTS = [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (official)'], ['openai-compatible', 'openai-compatible (base URL)'], ['none', 'disabled']];
+  const MODEL_PLACEHOLDER = { anthropic: 'claude-opus-4-8 (default)', openai: 'gpt-5.4-mini (default)', 'openai-compatible': 'e.g. zai-org/GLM-5.2-FP8' };
+  // contextual field spec per provider: [inputId, kind, label, storedValue]. The
+  // synthetic __model id binds to models[provider]; real keys map straight through.
+  const llmFieldsFor = (p) => {
+    const model = ['__model', 'text', 'model', (s.models && s.models[p]) || ''];
+    if (p === 'pi') return [['piBin', 'text', 'piBin', s.piBin || '']];
+    if (p === 'anthropic') return [model, ['ANTHROPIC_API_KEY', 'password', 'ANTHROPIC_API_KEY', s.ANTHROPIC_API_KEY || '']];
+    if (p === 'openai') return [model, ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
+    if (p === 'openai-compatible') return [model, ['OPENAI_BASE_URL', 'text', 'OPENAI_BASE_URL', s.OPENAI_BASE_URL || ''], ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
+    return []; // none
+  };
+  const inputRow = (id, kind, label, val, ph) =>
+    '<label for="f-' + id + '">' + esc(label) + '</label><input id="f-' + id + '" name="' + id + '" type="' + kind + '" value="' + esc(val) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + '>';
+  const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
+    inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
+  // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts]) => {
     const cur = s[k] ?? '';
     if (kind === 'select') {
@@ -2021,49 +2067,70 @@ async function cfg() {
       return '<label for="f-' + k + '">' + k + '</label><select id="f-' + k + '" name="' + k + '">' +
         list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
     }
-    return '<label for="f-' + k + '">' + k + '</label><input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(cur) + '">';
+    return inputRow(k, kind, k, cur, '');
   };
   const stored = localStorage.getItem('cfgTab');
-  const active = CFG_TABS.some(([id]) => id === stored) ? stored : 'llm';
-  document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
+  const active = CFG_TAB_IDS.includes(stored) ? stored : 'llm';
+  const curProvider = s.activeProvider || 'none';
+  document.getElementById('cfgTabs').innerHTML = [['llm', 'LLM provider'], ...CFG_FLAT_TABS].map(([id, label]) =>
     '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) + '<span class="dirty" hidden> •</span></button>').join('');
-  f.innerHTML = CFG_TABS.map(([id, label, fields]) =>
-    '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' +
-      // the resolved active LLM provider belongs to the LLM tab, not every tab
-      (id === 'llm' ? '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' : '') +
-      fields.map(field).join('') +
-      (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
-    '</div>').join('') +
+  const providerSelect = '<label for="f-provider">provider</label><select id="f-provider" name="provider">' +
+    PROVIDER_OPTS.map(([v, lab]) => '<option value="' + esc(v) + '"' + (v === curProvider ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
+  f.innerHTML =
+    '<div class="cfgpanel" data-panel="llm"' + (active === 'llm' ? '' : ' hidden') + '>' +
+      providerSelect + '<div id="llmDyn" style="display:contents">' + renderLlmDyn(curProvider) + '</div>' +
+    '</div>' +
+    CFG_FLAT_TABS.map(([id, label, fields]) =>
+      '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' +
+        fields.map(field).join('') +
+        (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
+      '</div>').join('') +
     '<div class="cfgfoot"><button>Save</button><span id="saved"></span></div>';
+  // swap the LLM panel's fields when the provider changes (client-side, from s)
+  f.querySelector('#f-provider').onchange = (e) => {
+    f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
+  };
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
     for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
     for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
   };
-  // dirty dot on the owning tab whenever a saved field in it changes (cleared on
-  // save re-render). onchange too so selects mark reliably; the info-overlay toggle
-  // is excluded — it persists immediately via its own POST, not the form Save.
+  // dirty dot on the owning tab whenever a saved field changes (cleared on save
+  // re-render). The info-overlay toggle is excluded — it persists via its own POST.
   f.oninput = f.onchange = (e) => {
     if (e.target.id === 'f-infoToggle') return;
     const panel = e.target.closest('.cfgpanel'); if (!panel) return;
     const dot = document.querySelector('#cfgTabs button[data-tab="' + panel.dataset.panel + '"] .dirty');
     if (dot) dot.hidden = false;
   };
-  // the overlay toggle applies + persists immediately, independent of Save
   document.getElementById('f-infoToggle').onchange = async (e) => {
     applyInfo(e.target.checked);
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: e.target.checked || null }) });
   };
-  // one global Save persists every tab's fields in a single POST
+  // one global Save persists every tab in a single POST
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
-    for (const [k, kind] of CFG_ALL_FIELDS) {
+    // News + Advanced: flat fields
+    for (const [k, kind] of [...NEWS_FIELDS, ...ADV_FIELDS]) {
       const el = f.elements[k]; if (!el) continue;
       const v = el.value;
       patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
     }
+    // LLM: provider + its contextual fields; the model binds to models[provider]
+    const p = f.querySelector('#f-provider').value;
+    patch.provider = p;
+    const modelEl = f.querySelector('#f-__model');
+    if (p !== 'none') patch.models = { [p]: modelEl ? modelEl.value : '' };
+    for (const [id, kind] of llmFieldsFor(p)) {
+      if (id === '__model') continue;
+      const el = f.querySelector('#f-' + id); if (!el) continue;
+      patch[id] = kind === 'number' && el.value !== '' ? Number(el.value) : el.value;
+    }
+    // official openai must not carry a base URL (a stored one would resolve back
+    // to openai-compatible) — clear it explicitly when switching to official.
+    if (p === 'openai') patch.OPENAI_BASE_URL = '';
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify(patch) })).json();
     if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;

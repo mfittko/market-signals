@@ -441,16 +441,45 @@ test('parseWatchers: CSV combos with default granularity, falls back to single',
   assert.deepEqual(parseWatchers({}, { instrument: 'WTICO/USD', granularity: 'M5' }), [{ instrument: 'WTICO/USD', granularity: 'M5' }]);
 });
 
-test('openaiEndpoint + explicit provider resolution (#42)', async () => {
+test('openaiEndpoint + explicit provider resolution (#42/#99 split)', async () => {
   const { openaiEndpoint, resolveProvider } = await import('../scripts/supertrend.mjs');
-  assert.equal(openaiEndpoint({}), 'https://api.openai.com/v1/chat/completions', 'default unchanged when unset');
-  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/' }), 'http://localhost:8080/v1/chat/completions', 'trailing slash normalized');
-  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1' }), 'http://localhost:8080/v1/chat/completions', 'base URLs already ending in /v1 do not double the segment');
-  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1/' }), 'http://localhost:8080/v1/chat/completions');
+  // official openai ALWAYS hits api.openai.com and IGNORES any base URL (#99)
+  assert.equal(openaiEndpoint({}, 'openai'), 'https://api.openai.com/v1/chat/completions', 'official openai → api.openai.com');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://ignored/' }, 'openai'), 'https://api.openai.com/v1/chat/completions', 'official ignores a stored base URL');
+  // openai-compatible REQUIRES a base URL and points there (normalization preserved)
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/' }, 'openai-compatible'), 'http://localhost:8080/v1/chat/completions', 'trailing slash normalized');
+  assert.equal(openaiEndpoint({ OPENAI_BASE_URL: 'http://localhost:8080/v1' }, 'openai-compatible'), 'http://localhost:8080/v1/chat/completions', 'base URLs already ending in /v1 do not double the segment');
+  assert.throws(() => openaiEndpoint({}, 'openai-compatible'), /requires OPENAI_BASE_URL/, 'compatible with no base URL → clear error');
+  // #99 backward-compat migration: a stored openai WITH a base URL is the pre-split
+  // GLM-via-Makora config → resolves as openai-compatible so live routing survives.
+  assert.equal(resolveProvider({ provider: 'openai', OPENAI_BASE_URL: 'http://makora/' }), 'openai-compatible', 'openai+base-url migrates to compatible');
+  assert.equal(resolveProvider({ provider: 'openai' }), 'openai', 'official openai (no base url) stays openai');
+  assert.equal(openaiEndpoint({ provider: 'openai', OPENAI_BASE_URL: 'http://makora/' }), 'http://makora/v1/chat/completions', 'migrated config still points at its base URL (default provider arg resolves)');
   assert.equal(resolveProvider({ provider: 'openai', ANTHROPIC_API_KEY: 'x' }), 'openai', 'explicit choice beats key-derived resolution');
   assert.equal(resolveProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(resolveProvider({ ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'y' }), 'anthropic', 'legacy empty provider keeps key-derived behavior');
   assert.equal(resolveProvider({}), 'none');
+});
+
+test('effectiveModel: per-provider binding, active-only flat fallback, no cross-provider bleed (#99)', async () => {
+  const { effectiveModel } = await import('../scripts/supertrend.mjs');
+  // bound model wins
+  assert.equal(effectiveModel({ provider: 'anthropic', models: { anthropic: 'claude-x' } }, 'anthropic'), 'claude-x');
+  // provider default when nothing bound and no flat model
+  assert.equal(effectiveModel({ provider: 'anthropic' }, 'anthropic'), 'claude-opus-4-8');
+  assert.equal(effectiveModel({ provider: 'openai' }, 'openai'), 'gpt-5.4-mini');
+  // openai-compatible has NO default → null when unset
+  assert.equal(effectiveModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x' }, 'openai-compatible'), null);
+  assert.equal(effectiveModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x', models: { 'openai-compatible': 'GLM-5' } }, 'openai-compatible'), 'GLM-5');
+  // flat model is ONLY the ACTIVE provider's fallback — the #99 footgun: a GLM slug
+  // left in flat `model` while active provider is anthropic must NOT reach anthropic.
+  const stale = { provider: 'anthropic', model: 'zai-org/GLM-5' };
+  assert.equal(effectiveModel(stale, 'anthropic'), 'zai-org/GLM-5', 'active provider still honors flat model');
+  assert.equal(effectiveModel(stale, 'openai'), 'gpt-5.4-mini', 'non-active provider ignores the stale flat model (gets its default)');
+  // migrated openai+base-url: active provider is openai-compatible, so flat model
+  // is its fallback (live GLM-via-Makora config keeps working with no models map).
+  const migrated = { provider: 'openai', OPENAI_BASE_URL: 'http://makora', model: 'zai-org/GLM-5' };
+  assert.equal(effectiveModel(migrated, 'openai-compatible'), 'zai-org/GLM-5', 'migrated config resolves its flat model under openai-compatible');
 });
 
 test('explicit anthropic provider without ANTHROPIC_API_KEY fails fast (no x-api-key: undefined) (#42)', async () => {

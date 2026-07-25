@@ -63,12 +63,15 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
       assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
-    assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
+    assert.match(page, /const CFG_FLAT_TABS = /, 'settings render as tabbed sections (#108)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
     assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
     assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
     assert.ok(page.includes("['NEWSAPI_AI_KEY', 'password']"), 'NewsAPI.ai key is a masked field in the News tab');
-    for (const k of ['watchers', 'provider', 'model']) assert.ok(page.includes("['" + k + "'"), k + ' stays a settings field');
+    assert.ok(page.includes("['watchers'"), 'watchers stays a settings field');
+    // #99: provider/model live in the contextual LLM panel now, not flat fields
+    assert.ok(page.includes('id="f-provider"') || page.includes('f-provider'), 'provider select rendered in the LLM panel');
+    assert.ok(page.includes('llmFieldsFor') && page.includes('__model'), 'model binds per-provider in the contextual panel');
   });
 });
 
@@ -531,7 +534,7 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('id="threadBar"') && html.includes('id="chatForm"'), 'thread bar + input');
     assert.ok(html.includes('threadSel') && html.includes('delThread'), 'timestamped thread select + delete-after-selection');
     assert.ok(html.includes('function md('), 'markdown renderer for assistant messages');
-    assert.ok(html.includes('openai (compatible via base URL)'), 'provider select is explicit (pi/anthropic/openai/none)');
+    assert.ok(html.includes('openai (official)') && html.includes('openai-compatible (base URL)'), 'provider select is explicit (#99 split)');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
   });
@@ -1448,8 +1451,46 @@ test('settings: OPENAI_BASE_URL whitelisted + URL-validated; provider select is 
     assert.equal(got.OPENAI_BASE_URL, 'http://localhost:9999', 'stored unmasked (not a secret)');
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('auto (use API keys)'), 'auto option gone — providers are explicit');
-    assert.ok(html.includes('openai (compatible via base URL)'), 'openai option present');
+    // #99: OpenAI split into official + compatible options in the contextual panel
+    assert.ok(html.includes('openai (official)'), 'official openai option present');
+    assert.ok(html.includes('openai-compatible (base URL)'), 'openai-compatible option present');
   });
+});
+
+test('per-provider models map: round-trip, per-provider merge, validation, seed + migration (#99)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const post = (body) => fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify(body) });
+    const get = async () => (await (await fetch(base + '/api/settings')).json());
+
+    // validation: non-object, unknown provider key, non-string value → 400
+    assert.equal((await post({ models: [1, 2] })).status, 400, 'array rejected');
+    assert.equal((await post({ models: { bogus: 'x' } })).status, 400, 'unknown provider key rejected');
+    assert.equal((await post({ models: { openai: 5 } })).status, 400, 'non-string model rejected');
+
+    // bind two providers across two saves — per-provider merge keeps both
+    assert.equal((await post({ provider: 'anthropic', models: { anthropic: 'claude-x' } })).status, 200);
+    assert.equal((await post({ models: { 'openai-compatible': 'GLM-5' } })).status, 200);
+    let s = await get();
+    assert.equal(s.models.anthropic, 'claude-x', 'first binding survived the second save');
+    assert.equal(s.models['openai-compatible'], 'GLM-5', 'second provider bound too');
+
+    // empty string deletes one provider's binding, leaves the other
+    assert.equal((await post({ models: { anthropic: '' } })).status, 200);
+    s = await get();
+    assert.equal(s.models.anthropic, undefined, 'anthropic binding deleted');
+    assert.equal(s.models['openai-compatible'], 'GLM-5', 'other binding intact');
+  });
+});
+
+test('maskedSettings seeds models[activeProvider] from flat model + migrates openai+base-url (#99)', async () => {
+  const { maskedSettings } = await import('../scripts/signal-server.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 'settings.json');
+  // pre-#99 live config: provider openai + a Makora base URL + flat GLM model, no models map
+  writeFileSync(p, JSON.stringify({ provider: 'openai', OPENAI_BASE_URL: 'http://makora', model: 'zai-org/GLM-5' }));
+  const m = maskedSettings(p);
+  assert.equal(m.activeProvider, 'openai-compatible', 'openai+base-url migrates to openai-compatible on read');
+  assert.equal(m.models['openai-compatible'], 'zai-org/GLM-5', 'flat model seeded under the resolved active provider');
 });
 
 test('info overlays (#57/#67): one explanation map covers the axis keys, toggle lives in the settings dialog', async () => {
