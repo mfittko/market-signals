@@ -260,6 +260,13 @@ function requireOpenAiKey(settings) {
   return settings.OPENAI_API_KEY;
 }
 
+// #128: shared request scaffolding — the header objects and the reasoning-model
+// no-content diagnostic were byte-identical across the request path and both tool
+// loops. (The request BODIES still differ per path, so those aren't merged.)
+const anthropicHeaders = (settings) => ({ 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' });
+const openaiHeaders = (settings) => ({ 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` });
+const openaiNoContentError = (finishReason, budget) => new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+
 // Streaming SSE reader shared by both API providers: calls extract(json) per
 // `data:` event, invokes onDelta with each text piece, returns the full text.
 async function readSse(res, extract, onDelta) {
@@ -361,7 +368,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' },
+      headers: anthropicHeaders(settings),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -398,7 +405,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (stream) body.stream = true;
     const res = await fetch(openaiEndpoint(settings, provider), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
+      headers: openaiHeaders(settings),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -418,7 +425,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     const content = choice.message.content;
     if (content == null || content === '') {
       const finishReason = choice.finish_reason;
-      throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+      throw openaiNoContentError(finishReason, budget);
     }
     return content;
   }
@@ -442,7 +449,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
   for (let round = 0; round < 8; round++) {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' },
+      headers: anthropicHeaders(settings),
       body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -495,7 +502,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   for (let round = 0; round < 8; round++) {
     const res = await fetch(openaiEndpoint(settings, provider), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` },
+      headers: openaiHeaders(settings),
       body: JSON.stringify({ model, max_completion_tokens: budget, tools, messages }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -521,7 +528,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
     }
     if (msg.content == null || msg.content === '') {
       const finishReason = choice.finish_reason;
-      throw new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+      throw openaiNoContentError(finishReason, budget);
     }
     if (onDelta) onDelta(msg.content);
     reportUsage(onUsage, { provider, model, usage: sawUsage ? { inputTokens, outputTokens } : null });
