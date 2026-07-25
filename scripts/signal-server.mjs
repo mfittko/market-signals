@@ -1111,7 +1111,11 @@ const PAGE = /* html */ `<!doctype html>
      140px/1fr grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
   .cfgpanel[hidden] { display: none; }
-  .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+  /* #108: wider default so long NEWSAPI_AI_* labels fit one line; the max-width:900px
+     query below still collapses the form to single-column at 92vw on small screens. */
+  #cfgdlg { width: min(680px, 92vw); }
+  #cfg { grid-template-columns: 220px 1fr; max-width: none; }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
   /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the 140px label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
@@ -2000,10 +2004,13 @@ async function cfg() {
   document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
     '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) + '<span class="dirty" hidden> •</span></button>').join('');
   f.innerHTML = CFG_TABS.map(([id, label, fields]) =>
-    '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' + fields.map(field).join('') +
+    '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' +
+      // the resolved active LLM provider belongs to the LLM tab, not every tab
+      (id === 'llm' ? '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' : '') +
+      fields.map(field).join('') +
       (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
     '</div>').join('') +
-    '<div class="cfgfoot"><span>active: <b id="activeProv">' + esc(s.activeProvider || 'none') + '</b></span> <button>Save</button><span id="saved"></span></div>';
+    '<div class="cfgfoot"><button>Save</button><span id="saved"></span></div>';
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
