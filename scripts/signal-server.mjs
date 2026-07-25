@@ -18,7 +18,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
-import { resolveNewsApiAiSource } from './lib/newsapi-ai-source.mjs';
+import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -545,7 +545,7 @@ const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals 
 // Off by default ⇒ base CHAT_SYSTEM unchanged.
 const CHAT_SOURCE_FOOTNOTE_RULE = ` When you cite headlines from sentinel_news, add a brief footnote naming each item's fetch source (its \`provider\` field, e.g. newsapi-ai or google-news) — this is separate from the publisher's own link.`;
 export function chatSystemFor(cfg) {
-  return cfg?.sentinelSourceFootnotes ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
+  return isSettingOn(cfg?.sentinelSourceFootnotes) ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
 }
 
 // Gate transparency (#58): server-built (no secrets) so the settings gates

@@ -1639,6 +1639,7 @@ test('provider footnotes (#116): opt-in toggle round-trips, appends chat rule on
   // chatSystemFor: default off ⇒ base prompt unchanged; on ⇒ footnote instruction appended
   const base = chatSystemFor({});
   assert.equal(chatSystemFor({ sentinelSourceFootnotes: '' }), base, 'empty/off ⇒ unchanged');
+  assert.equal(chatSystemFor({ sentinelSourceFootnotes: '0' }), base, '"0" ⇒ off, not any-non-empty-string (Copilot #116 r1)');
   const on = chatSystemFor({ sentinelSourceFootnotes: '1' });
   assert.ok(on.length > base.length && /provider/i.test(on.slice(base.length)), 'on ⇒ provider footnote rule appended');
 

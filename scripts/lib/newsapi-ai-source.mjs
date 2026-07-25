@@ -16,3 +16,11 @@ export function resolveNewsApiAiSource(settings = {}, env = process.env) {
   }
   return out;
 }
+
+// The settings modal writes ''/‘1’ for its off/on toggles, but a manual edit
+// could leave any string — so an on-check must match the intended values, not
+// "any non-empty string" (which would treat "0" as on). Accepts the modal's '1'
+// plus a real boolean/number for programmatic callers.
+export function isSettingOn(v) {
+  return v === '1' || v === true || v === 1;
+}
