@@ -1193,7 +1193,7 @@ const PAGE = /* html */ `<!doctype html>
   /* a11y (#126): a consistent high-contrast keyboard focus ring on every
      interactive control (native rings still apply; this makes it uniform). */
   a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
-    outline: 2px solid #58a6ff; outline-offset: 2px; border-radius: 4px; }
+    outline: 2px solid #58a6ff; outline-offset: 2px; }
   /* a11y (#126): keep the smaller chip/row buttons at/above the 24px min target.
      Topbar + dialog controls are already 30px (see #topbar rule below). */
   #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
@@ -1330,7 +1330,7 @@ const PAGE = /* html */ `<!doctype html>
   #tip { position: absolute; display: none; background: #161b22; border: 1px solid #30363d;
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
-</style></head><body><div id="app"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
+</style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
 <header id="topbar"><h1>market-signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="memBtn" type="button" title="trader memories" aria-label="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts" aria-label="gates and prompts">📜</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
@@ -1999,7 +1999,7 @@ function quoteStrip(q) {
   const cls = (v) => v == null || v >= 0 ? 'buy' : 'sell';
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(q.time)) / 60000));
   // #126: humanize staleness past ~90 min (raw minutes get hard to read)
-  const humanAge = (m) => m < 90 ? m + 'm ago' : m < 1440 ? Math.round(m / 60) + 'h ago' : Math.round(m / 1440) + 'd ago';
+  const humanAge = (m) => m < 90 ? m + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago';
   const st = q.supertrend;
   const box = (label, html, key) => '<div' + (key ? ' data-info="' + esc(INFO[key]) + '"' : '') + '><small>' + label + '</small><b>' + html + '</b></div>';
   el.innerHTML =

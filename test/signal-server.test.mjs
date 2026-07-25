@@ -558,6 +558,7 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
     // collapsible chat: toggle present, collapsed by default (localStorage opt-in)
     assert.ok(/id="chatToggle"[^>]*aria-expanded/.test(html), 'chat toggle present with aria-expanded');
     assert.ok(html.includes('chat-collapsed'), 'collapse class wired');
+    assert.ok(/<div id="app" class="chat-collapsed"/.test(html), 'app ships collapsed in markup (no first-paint flash of the empty column)');
     assert.ok(html.includes("localStorage.getItem('chatOpen') === '1'"), 'chat collapsed by default (open is opt-in)');
     // staleness humanized past ~90 min
     assert.ok(html.includes("'h ago'") && html.includes("'d ago'"), 'staleness humanized to hours/days');
