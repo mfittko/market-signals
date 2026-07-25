@@ -69,7 +69,11 @@ export function maskedSettings(settingsPath) {
   // flat `model` ONLY for a pristine legacy config (no models map yet) — once a
   // models map exists (first save persists it + retires the flat key, see
   // writeSettings), respect it verbatim so clearing a binding actually sticks.
-  const models = { ...(typeof out.models === 'object' && out.models ? out.models : {}) };
+  // allow-listed provider keys only (ignore array/junk/__proto__ shapes), same
+  // guard as writeSettings — never leak unexpected settings.json keys to the UI.
+  const models = {};
+  const stored = out.models && typeof out.models === 'object' && !Array.isArray(out.models) ? out.models : {};
+  for (const mp of MODEL_PROVIDER_KEYS) if (stored[mp] != null) models[mp] = stored[mp];
   if (s.models === undefined && activeProvider !== 'none' && s.model) models[activeProvider] = s.model;
   out.models = models;
   return out;
@@ -200,8 +204,11 @@ export function writeSettings(settingsPath, patch) {
       }
       for (const [mp, mv] of Object.entries(v)) {
         if (!MODEL_PROVIDER_KEYS.includes(mp)) continue;
-        if (mv === '' || mv === null) delete merged[mp];
-        else merged[mp] = mv;
+        // trim: a whitespace-only model id is a clear, not a (broken) configured
+        // value that would fool requireModel while the upstream rejects it.
+        const trimmed = mv === null ? '' : String(mv).trim();
+        if (trimmed === '') delete merged[mp];
+        else merged[mp] = trimmed;
       }
       next.models = merged;
       // retire the legacy flat model: per-provider bindings supersede it, and

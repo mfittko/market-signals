@@ -785,9 +785,12 @@ export async function processSignal(opts, result, candles) {
           context = { headlines: (parsed.articles || []).slice(0, 3).map((a) => a.title), capturedAt: sig.time };
         } catch { /* context capture is best-effort */ }
       }
+      const snapProvider = resolveProvider(settings);
       recordSnapshot(opts.db, gateSnapshot, {
         filterVerdict: verdict ? (verdict.alert === false ? 'suppress' : 'alert') : 'unfiltered',
-        filterModel: hasFilter ? (effectiveModel(settings, resolveProvider(settings)) || (resolveProvider(settings) === 'pi' ? 'pi' : null)) : null,
+        // record the model id actually used; never the provider id (pi has no model
+        // id, so it's labeled 'pi' rather than left null)
+        filterModel: hasFilter ? (effectiveModel(settings, snapProvider) || (snapProvider === 'pi' ? 'pi' : null)) : null,
         filterPromptHash: hasFilter ? promptHash(promptSystemText) : null,
         filterPromptVersion: promptVersion,
         context,

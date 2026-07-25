@@ -1474,6 +1474,12 @@ test('per-provider models map: round-trip, per-provider merge, validation, seed 
     assert.equal(s.models.anthropic, 'claude-x', 'first binding survived the second save');
     assert.equal(s.models['openai-compatible'], 'GLM-5', 'second provider bound too');
 
+    // a whitespace-only model id is a clear, not a broken configured value
+    assert.equal((await post({ models: { anthropic: '   ' } })).status, 200);
+    assert.equal((await get()).models.anthropic, undefined, 'whitespace-only model treated as a clear');
+    // model ids are trimmed on store
+    assert.equal((await post({ models: { anthropic: '  claude-y  ' } })).status, 200);
+    assert.equal((await get()).models.anthropic, 'claude-y', 'model id trimmed on store');
     // empty string deletes one provider's binding, leaves the other
     assert.equal((await post({ models: { anthropic: '' } })).status, 200);
     s = await get();
