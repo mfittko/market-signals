@@ -210,3 +210,21 @@ test('runRefilter: a row whose PRICE no longer matches the reconstructed flip is
   const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
   assert.match(row.reason, /filter error/, 'price-mismatch row left exactly as-is');
 });
+
+// Race-safety (Copilot #103 round 5): the predicate-scoped UPDATE must not clobber
+// a row fixed concurrently between the SELECT and the UPDATE. The fake provider —
+// invoked DURING llmVerdict, i.e. exactly in that window — plays the concurrent fixer.
+test('runRefilter: a row fixed concurrently (between select and update) is skipped, not overwritten', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
+  const { dbPath, flipTime } = seedErroredSignal(dir);
+  const fixer = join(dir, 'fixer.mjs');
+  writeFileSync(fixer, "import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[2]); db.prepare(\"UPDATE signals SET verdict='alert', reason='recheck: real signal' WHERE time=?\").run(process.argv[3]); db.close();\n");
+  // pi bin: first run the concurrent fixer (clears 'filter error' from reason), then emit a verdict.
+  const piBin = fakeBin(dir, 'pi', `node '${fixer}' '${dbPath}' '${flipTime}'\necho '{"alert": false, "reason": "backfill would-be verdict"}'`);
+  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  assert.equal(summary.updated.length, 0, 'concurrently-fixed row not overwritten');
+  assert.equal(summary.skipped.length, 1);
+  assert.match(summary.skipped[0].reason, /concurrently/);
+  const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
+  assert.match(row.reason, /recheck: real signal/, 'the concurrent fix survives; the backfill did not clobber it');
+});

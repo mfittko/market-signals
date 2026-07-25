@@ -133,8 +133,18 @@ export async function runRefilter(dbPath, settings, {
       const verdict = await llmVerdict(settings, payload, filterSystem.system, null);
       const verdictLabel = verdict.alert === false ? 'suppress' : 'alert';
       if (!dryRun) {
-        withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=? WHERE instrument=? AND granularity=? AND time=?')
-          .run(verdictLabel, verdict.reason ?? null, row.instrument, row.granularity, row.time));
+        // Race-safe: scope the UPDATE with the same predicate so a row fixed
+        // concurrently (watcher / manual recheck) between the SELECT and here is
+        // NOT overwritten — the WHERE evaluates the CURRENT reason (pre-SET). A
+        // 0-row update means it was already fixed: skip, never clobber the newer
+        // verdict. (`where` is a fixed internal constant, not user input.)
+        const changes = withDb(dbPath, (db) => db.prepare(`UPDATE signals SET verdict=?, reason=? WHERE instrument=? AND granularity=? AND time=? AND (${where})`)
+          .run(verdictLabel, verdict.reason ?? null, row.instrument, row.granularity, row.time).changes);
+        if (changes === 0) {
+          skipped.push({ instrument: row.instrument, granularity: row.granularity, time: row.time, reason: 'no longer matches predicate (fixed concurrently)' });
+          log(`skip ${row.instrument} ${row.granularity} ${row.time}: fixed concurrently between select and update, left unchanged`);
+          continue;
+        }
       }
       updated.push({ instrument: row.instrument, granularity: row.granularity, time: row.time, from: { verdict: row.verdict, reason: row.reason }, to: { verdict: verdictLabel, reason: verdict.reason ?? null } });
       log(`${dryRun ? '[dry-run] would update' : 'updated'} ${row.instrument} ${row.granularity} ${row.time}: ${row.verdict}/${row.reason} -> ${verdictLabel}/${verdict.reason}`);
