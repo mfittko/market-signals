@@ -1104,9 +1104,17 @@ const PAGE = /* html */ `<!doctype html>
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs, #bmTabs { display: flex; gap: 6px; margin: 10px 0; }
-  #pfTabs button, #bmTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on, #bmTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, #bmTabs, #cfgTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #pfTabs button, #bmTabs button, #cfgTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  /* #108: panels use display:contents so their label/input pairs join the form's
+     140px/1fr grid; the [hidden] override (higher specificity) still hides a tab. */
+  .cfgpanel { display: contents; }
+  .cfgpanel[hidden] { display: none; }
+  .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  #cfgTabs .dirty { color: #d29922; font-weight: bold; }
+  /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the 140px label column instead of clipping */
+  #cfg label { overflow-wrap: anywhere; align-self: center; }
   #botBtn { position: relative; }
   #botBtn.nobot { opacity: 0.45; }
   #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
@@ -1261,7 +1269,8 @@ const PAGE = /* html */ `<!doctype html>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
 <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-<h2>Watcher &amp; filter settings</h2>
+<h2>Settings</h2>
+<div id="cfgTabs" class="cfgtabs"></div>
 <form id="cfg"></form>
 <p><button type="button" id="cfgToMem">manage memories →</button> <button type="button" id="cfgToGates">manage gates →</button></p>
 </dialog>
@@ -1958,33 +1967,70 @@ function history(list, botDecisions) {
     tb.appendChild(tr);
   }
 }
-// operator-relevant fields up front; launch-config plumbing collapses behind "advanced" (#56)
-const FIELDS = [['watchers', 'text'], ['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password']];
-const ADV_FIELDS = [['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['maxCompletionTokens', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
+// Settings modal tabs (#108 phase 1): one dialog, one global Save, fields grouped
+// per section. LLM provider / News provider / Advanced (launch-config plumbing).
+// Gates/Memories/Bot stay their own modals in this phase (see #108).
+const LLM_FIELDS = [['provider', 'select', [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (compatible via base URL)'], ['none', 'disabled']]], ['model', 'text'], ['OPENAI_API_KEY', 'password'], ['OPENAI_BASE_URL', 'text'], ['ANTHROPIC_API_KEY', 'password'], ['maxCompletionTokens', 'number']];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', [['auto', 'auto'], ['primary', 'primary'], ['shadow', 'shadow'], ['off', 'off']]], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]]];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['piBin', 'text'], ['notifierBin', 'text'], ['port', 'number']];
+const CFG_TABS = [['llm', 'LLM provider', LLM_FIELDS], ['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
+const CFG_ALL_FIELDS = CFG_TABS.flatMap(([, , fields]) => fields);
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // legacy empty provider pre-resolves to the active one (#42); saving persists it
-  if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider; // legacy empty OR invalid pre-resolves; saving persists a valid choice
+  if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider;
+  // unset/invalid NewsAPI.ai mode shows its effective default (auto), same pattern
+  if (!['auto', 'primary', 'shadow', 'off'].includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
   const f = document.getElementById('cfg');
-  const s2Info = !!s.info;
-  const field = ([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
-    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
-    : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">');
-  f.innerHTML = '<label>active</label><b id="activeProv">' + esc(s.activeProvider || 'none') + '</b>' +
-    '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s2Info ? ' checked' : '') + '>' +
-    FIELDS.map(field).join('') +
-    '<details id="cfgAdv"><summary>advanced</summary><div class="advgrid">' + ADV_FIELDS.map(field).join('') + '</div></details>' +
-    '<button>Save</button><span id="saved"></span>';
+  // select options compared as strings — /api/settings can return a value as-stored
+  // (number/bool, e.g. NEWSAPI_AI_BACKGROUND), which strict === would miss, wrongly
+  // adding a fallback option / selecting the wrong one.
+  const field = ([k, kind, opts]) => {
+    const cur = s[k] ?? '';
+    if (kind === 'select') {
+      const curS = String(cur);
+      const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];
+      return '<label for="f-' + k + '">' + k + '</label><select id="f-' + k + '" name="' + k + '">' +
+        list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
+    }
+    return '<label for="f-' + k + '">' + k + '</label><input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(cur) + '">';
+  };
+  const stored = localStorage.getItem('cfgTab');
+  const active = CFG_TABS.some(([id]) => id === stored) ? stored : 'llm';
+  document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
+    '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) + '<span class="dirty" hidden> •</span></button>').join('');
+  f.innerHTML = CFG_TABS.map(([id, label, fields]) =>
+    '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' + fields.map(field).join('') +
+      (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
+    '</div>').join('') +
+    '<div class="cfgfoot"><span>active: <b id="activeProv">' + esc(s.activeProvider || 'none') + '</b></span> <button>Save</button><span id="saved"></span></div>';
+  document.getElementById('cfgTabs').onclick = (e) => {
+    const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
+    localStorage.setItem('cfgTab', tab);
+    for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+    for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
+  };
+  // dirty dot on the owning tab whenever a saved field in it changes (cleared on
+  // save re-render). onchange too so selects mark reliably; the info-overlay toggle
+  // is excluded — it persists immediately via its own POST, not the form Save.
+  f.oninput = f.onchange = (e) => {
+    if (e.target.id === 'f-infoToggle') return;
+    const panel = e.target.closest('.cfgpanel'); if (!panel) return;
+    const dot = document.querySelector('#cfgTabs button[data-tab="' + panel.dataset.panel + '"] .dirty');
+    if (dot) dot.hidden = false;
+  };
   // the overlay toggle applies + persists immediately, independent of Save
   document.getElementById('f-infoToggle').onchange = async (e) => {
     applyInfo(e.target.checked);
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: e.target.checked || null }) });
   };
+  // one global Save persists every tab's fields in a single POST
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
-    for (const [k, kind] of [...FIELDS, ...ADV_FIELDS]) {
-      const v = f.elements[k].value;
+    for (const [k, kind] of CFG_ALL_FIELDS) {
+      const el = f.elements[k]; if (!el) continue;
+      const v = el.value;
       patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
     }
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify(patch) })).json();

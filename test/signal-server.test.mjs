@@ -50,7 +50,7 @@ function seedDecision(dbPath, { instrument = INSTRUMENT, granularity = 'M5', at,
   });
 }
 
-test('modal chrome (#56): every dialog closes via a top-right X; settings plumbing collapses behind advanced', async () => {
+test('modal chrome (#56): every dialog closes via a top-right X; settings render as tabs with plumbing in the Advanced tab (#108)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
     for (const id of ['pfdlg', 'botdlg', 'cfgdlg', 'memdlg', 'gatedlg']) {
@@ -63,8 +63,12 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings plumbi
       assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
-    assert.match(page, /const ADV_FIELDS = \[\['instrument'/, 'plumbing fields render behind the advanced disclosure');
-    for (const k of ['watchers', 'provider', 'model']) assert.ok(page.includes("['" + k + "'"), k + ' stays a primary field');
+    assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
+    assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
+    assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
+    assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
+    assert.ok(page.includes("['NEWSAPI_AI_KEY', 'password']"), 'NewsAPI.ai key is a masked field in the News tab');
+    for (const k of ['watchers', 'provider', 'model']) assert.ok(page.includes("['" + k + "'"), k + ' stays a settings field');
   });
 });
 
