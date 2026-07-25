@@ -439,3 +439,33 @@ test('sentinel_news CLI: no key in env => provider disabled (free stack only)', 
   assert.equal(res.status, 0, res.stderr);
   assert.equal(JSON.parse(res.stdout).meta.newsApiAiEnabled, false);
 });
+
+// --- NewsAPI.ai-first (issue #115): free stack only when NewsAPI.ai is empty ---
+test('fetchSentinelNews: NewsAPI.ai-first — when it returns items, the free stack is suppressed from the result but kept in observed', async () => {
+  const gnews = '<rss><channel><item><title>Free-only oil story</title><link>https://g/free1</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>';
+  const naiFx = { articles: { results: [{ uri: 'n1', url: 'https://e/n1', title: 'NewsAPI oil story', dateTimePub: '2026-07-24T18:30:00Z', source: { title: 'Reuters', uri: 'reuters.com' } }] } };
+  const now = Date.parse('2026-07-24T19:00:00Z');
+  const routes = async (url) => {
+    if (/news\.google\.com/.test(url)) return { ok: true, status: 200, text: async () => gnews };
+    if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify(naiFx) };
+    throw new Error('offline');
+  };
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K' } });
+  assert.equal(res.newsApiAi.authoritative, true, 'NewsAPI.ai returned items => authoritative');
+  assert.ok(res.items.length > 0 && res.items.every((it) => it.provider === 'newsapi-ai'), 'result is NewsAPI.ai-only');
+  assert.ok(!res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story suppressed from the result');
+  assert.ok(res.observed.some((it) => it.title === 'Free-only oil story'), 'free story still recorded in observed (benchmark intact)');
+});
+
+test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative false)', async () => {
+  const gnews = '<rss><channel><item><title>Free fallback story</title><link>https://g/f1</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>';
+  const now = Date.parse('2026-07-24T19:00:00Z');
+  const routes = async (url) => {
+    if (/news\.google\.com/.test(url)) return { ok: true, status: 200, text: async () => gnews };
+    if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify({ articles: { results: [] } }) };
+    throw new Error('offline');
+  };
+  const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'primary', apiKey: 'K' } });
+  assert.equal(res.newsApiAi.authoritative, false, 'NewsAPI.ai empty => not authoritative');
+  assert.ok(res.items.some((it) => it.title === 'Free fallback story'), 'free stack used as fallback when NewsAPI.ai is empty');
+});

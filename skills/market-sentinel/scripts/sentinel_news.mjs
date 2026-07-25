@@ -439,12 +439,18 @@ export async function fetchSentinelNews({
   }
 
   const cutoffMs = now - hours * 3600000;
-  // NewsAPI.ai items FIRST: dedupeItems keeps the first occurrence, so on a
-  // canonical (url/fuzzy-title) collision the richer NewsAPI.ai item wins and
-  // the free-source duplicate is dropped — "prefer richer NewsAPI.ai metadata".
-  const combined = [...newsApiItems, ...results.flat()];
-  const inWindow = combined.filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs);
-  const deduped = dedupeItems(inWindow).sort((a, b) => (Date.parse(b.timeIso) || 0) - (Date.parse(a.timeIso) || 0));
+  const inWin = (it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs;
+  const naiInWindow = newsApiItems.filter(inWin);
+  const freeInWindow = results.flat().filter(inWin);
+  // NewsAPI.ai-first (#115): when the preferred provider returned in-window
+  // results, present THOSE ONLY — the free stack is a fallback, used only when
+  // NewsAPI.ai is empty / disabled / errored / over-budget / unsupported query.
+  // Free items are still fetched and kept in `observed` for the trial benchmark;
+  // they're just not merged into the result. NewsAPI.ai FIRST either way, so on a
+  // canonical (url/fuzzy-title) collision the richer NewsAPI.ai item wins the dedup.
+  const naiAuthoritative = newsApiAi?.enabled === true && newsApiAi.shadow !== true && naiInWindow.length > 0;
+  const merged = naiAuthoritative ? naiInWindow : [...naiInWindow, ...freeInWindow];
+  const deduped = dedupeItems(merged).sort((a, b) => (Date.parse(b.timeIso) || 0) - (Date.parse(a.timeIso) || 0));
   const items = deduped.slice(0, totalCap);
   const out = {
     items,
@@ -462,6 +468,8 @@ export async function fetchSentinelNews({
       status: newsApiOutcome ? newsApiOutcome.status : null,
       shadow: newsApiAi.shadow === true,
       itemsReturned: newsApiAi.shadow ? shadowItems.length : newsApiItems.length,
+      // true => the result is NewsAPI.ai-only (free suppressed); false => free fallback merged.
+      authoritative: naiAuthoritative,
     };
     out.providersAttempted = providersAttempted;
     // Pre-dedup, in-window, provider-tagged items for provenance recording:
