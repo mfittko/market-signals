@@ -1979,10 +1979,22 @@ async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // legacy empty provider pre-resolves to the active one (#42); saving persists it
   if (!['pi', 'anthropic', 'openai', 'none'].includes(s.provider)) s.provider = s.activeProvider;
+  // unset/invalid NewsAPI.ai mode shows its effective default (auto), same pattern
+  if (!['auto', 'primary', 'shadow', 'off'].includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
   const f = document.getElementById('cfg');
-  const field = ([k, kind, opts]) => '<label for="f-' + k + '">' + k + '</label>' + (kind === 'select'
-    ? '<select id="f-' + k + '" name="' + k + '">' + (opts.some(([v]) => v === (s[k] ?? '')) ? opts : [...opts, [s[k], s[k]]]).map(([v, lab]) => '<option value="' + esc(v) + '"' + ((s[k] ?? '') === v ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>'
-    : '<input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(s[k] ?? '') + '">');
+  // select options compared as strings — /api/settings can return a value as-stored
+  // (number/bool, e.g. NEWSAPI_AI_BACKGROUND), which strict === would miss, wrongly
+  // adding a fallback option / selecting the wrong one.
+  const field = ([k, kind, opts]) => {
+    const cur = s[k] ?? '';
+    if (kind === 'select') {
+      const curS = String(cur);
+      const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];
+      return '<label for="f-' + k + '">' + k + '</label><select id="f-' + k + '" name="' + k + '">' +
+        list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
+    }
+    return '<label for="f-' + k + '">' + k + '</label><input id="f-' + k + '" name="' + k + '" type="' + kind + '" value="' + esc(cur) + '">';
+  };
   const stored = localStorage.getItem('cfgTab');
   const active = CFG_TABS.some(([id]) => id === stored) ? stored : 'llm';
   document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
@@ -1998,8 +2010,11 @@ async function cfg() {
     for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
     for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
   };
-  // dirty dot on the owning tab whenever a field in it changes (cleared on save re-render)
-  f.oninput = (e) => {
+  // dirty dot on the owning tab whenever a saved field in it changes (cleared on
+  // save re-render). onchange too so selects mark reliably; the info-overlay toggle
+  // is excluded — it persists immediately via its own POST, not the form Save.
+  f.oninput = f.onchange = (e) => {
+    if (e.target.id === 'f-infoToggle') return;
     const panel = e.target.closest('.cfgpanel'); if (!panel) return;
     const dot = document.querySelector('#cfgTabs button[data-tab="' + panel.dataset.panel + '"] .dirty');
     if (dot) dot.hidden = false;
