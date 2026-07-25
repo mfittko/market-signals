@@ -8,6 +8,7 @@
 // map targets validated candle symbols (F3) and aggregates are per-instrument.
 import { readFileSync } from 'node:fs';
 import { symbolIndex } from './lib/catalog.mjs';
+import { parseArgs, isMain } from './lib/cli.mjs';
 
 // market-group -> [ [fxempireMarket, candleSymbol, label], ... ]
 const GROUPS = {
@@ -88,10 +89,7 @@ export function classify(text, { threshold = 1, index = symbolIndex() } = {}) {
 }
 
 function main(argv) {
-  const args = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) args.set(argv[i].slice(2), argv[i + 1]?.startsWith('--') ? true : argv[++i]);
-  }
+  const args = parseArgs(argv);
   if (args.has('help')) {
     process.stdout.write('classify-post — route a Truth Social post to instruments.\n  --text "..."   classify one post\n  --threshold N  min keyword hits for high-signal (default 1)\n  (no --text: reads JSONL {text} on stdin, emits JSONL)\n');
     return;
@@ -110,7 +108,7 @@ function main(argv) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   try {
     main(process.argv.slice(2));
   } catch (e) {

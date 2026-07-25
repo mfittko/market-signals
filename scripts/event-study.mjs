@@ -13,6 +13,7 @@
 // instrument (oil, equities, metals), and the gap detection is per-series.
 import { fileURLToPath } from 'node:url';
 import { symbolIndex } from './lib/catalog.mjs';
+import { parseArgs, isMain } from './lib/cli.mjs';
 
 const LIVE_DATA = fileURLToPath(new URL('../skills/fxempire-live-data/scripts/fxempire_live_data.mjs', import.meta.url));
 
@@ -104,10 +105,7 @@ export async function runStudy({ at, market, symbol, preMin = 5, postMin = 15 })
 }
 
 async function main(argv) {
-  const args = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) args.set(argv[i].slice(2), argv[i + 1]?.startsWith('--') ? true : argv[++i]);
-  }
+  const args = parseArgs(argv);
   if (args.has('help') || !args.has('at') || !args.has('instrument')) {
     process.stdout.write('event-study — single-feed (F2) market impact of an event.\n  --at <ISO>          event timestamp (required)\n  --instrument <SYM>  candle symbol, e.g. BCO/USD (required)\n  --market <m>        indices|commodities (default: from catalog)\n  --pre <min>         pre window (default 5)\n  --post <min>        post window (default 15)\n');
     return;
@@ -124,7 +122,7 @@ async function main(argv) {
   process.stdout.write(`${JSON.stringify(res, null, 2)}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main(process.argv.slice(2)).catch((e) => {
     process.stderr.write(`event-study error: ${e.message}\n`);
     process.exit(1);
