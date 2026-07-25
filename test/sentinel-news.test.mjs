@@ -431,7 +431,7 @@ test('sentinel_news CLI reads NEWSAPI_AI_* from its process env — the server i
   assert.equal(out.meta.newsApiAiEnabled, true, 'a key + non-off mode enables the provider');
 });
 
-test('sentinel_news CLI: no key in env => provider disabled (byte-for-byte free stack)', () => {
+test('sentinel_news CLI: no key in env => provider disabled (free stack only)', () => {
   const res = spawnSync('node', [SCRIPT, '--instrument', 'WTICO/USD', '--json'], {
     encoding: 'utf8', timeout: 20000,
     env: { ...process.env, SENTINEL_NEWS_OFFLINE: '1', NEWSAPI_AI_KEY: '', NEWSAPI_AI_MODE: '' },
