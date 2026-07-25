@@ -238,19 +238,10 @@ export async function fetchNewsApiAiArticles({
   return { items, endpoint: 'getArticles' };
 }
 
-// The NEWSAPI_AI_* config keys, read from settings.json first then the process
-// env. This app keeps API keys in data/settings.json (like OPENAI_API_KEY /
-// ANTHROPIC_API_KEY), and the LaunchAgent process never loads .env — so the live
-// watcher/bot must resolve the key from settings, with env as a dev/CLI fallback.
-export const NEWSAPI_AI_SETTING_KEYS = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
-export function resolveNewsApiAiSource(settings = {}, env = process.env) {
-  const out = {};
-  for (const k of NEWSAPI_AI_SETTING_KEYS) {
-    const v = settings?.[k] ?? env?.[k];
-    if (v !== undefined && v !== null && v !== '') out[k] = String(v);
-  }
-  return out;
-}
+// The settings-first NEWSAPI_AI_* resolver lives in a tiny standalone lib so
+// consumers (signal-server) don't take a hard startup dependency on this skill
+// module (issue #114 review); re-exported here for existing importers.
+export { NEWSAPI_AI_SETTING_KEYS, resolveNewsApiAiSource } from '../../../scripts/lib/newsapi-ai-source.mjs';
 
 // Resolve provider config from env (mode/key/budget/instrument allowlist) into a
 // single `enabled/shadow` verdict. `off` and a missing key both disable it;
@@ -560,6 +551,11 @@ async function main() {
 
   if (args.json) {
     const meta = { instrument, query, yahooSymbol, hours: args.hours };
+    // Always surface the RESOLVED provider config (from process.env) so callers
+    // can confirm the key/mode reached the CLI — e.g. the server injects it from
+    // settings.json into the spawn env (issue #114); observable even offline.
+    meta.newsApiAiMode = newsApiAi.mode;
+    meta.newsApiAiEnabled = newsApiAi.enabled;
     if (result.newsApiAi) { meta.primaryProvider = result.newsApiAi.requestMade ? 'newsapi-ai' : null; meta.newsApiAi = result.newsApiAi; meta.providersAttempted = result.providersAttempted; }
     process.stdout.write(JSON.stringify({ ...result, meta }, null, 2));
     return;

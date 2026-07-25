@@ -417,3 +417,25 @@ test('resolveNewsApiAiSource: settings.json wins over env; env is the fallback (
   // empty settings + empty env -> nothing
   assert.deepEqual(resolveNewsApiAiSource({}, {}), {});
 });
+
+test('sentinel_news CLI reads NEWSAPI_AI_* from its process env — the server injects these from settings.json into the spawn (#114)', () => {
+  // offline: no network; we only assert the CLI resolved the provider config from
+  // the env the server would inject (resolveNewsApiAiSource(settings) -> spawn env).
+  const res = spawnSync('node', [SCRIPT, '--instrument', 'WTICO/USD', '--json'], {
+    encoding: 'utf8', timeout: 20000,
+    env: { ...process.env, SENTINEL_NEWS_OFFLINE: '1', NEWSAPI_AI_KEY: 'injected-from-settings', NEWSAPI_AI_MODE: 'shadow' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.meta.newsApiAiMode, 'shadow', 'CLI honored the injected NEWSAPI_AI_MODE from env');
+  assert.equal(out.meta.newsApiAiEnabled, true, 'a key + non-off mode enables the provider');
+});
+
+test('sentinel_news CLI: no key in env => provider disabled (free stack only)', () => {
+  const res = spawnSync('node', [SCRIPT, '--instrument', 'WTICO/USD', '--json'], {
+    encoding: 'utf8', timeout: 20000,
+    env: { ...process.env, SENTINEL_NEWS_OFFLINE: '1', NEWSAPI_AI_KEY: '', NEWSAPI_AI_MODE: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).meta.newsApiAiEnabled, false);
+});

@@ -588,15 +588,29 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
   // network call, so this exercises real arg/view-default wiring, not a live fetch.
   const prevOffline = process.env.SENTINEL_NEWS_OFFLINE;
   process.env.SENTINEL_NEWS_OFFLINE = '1';
+  // Clear any ambient NEWSAPI_AI_* so the injection assertions below are
+  // deterministic (the tool spawns with {...process.env, ...settings}); restored below.
+  const naiKeys = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
+  const prevNai = Object.fromEntries(naiKeys.map((k) => [k, process.env[k]]));
+  for (const k of naiKeys) delete process.env[k];
   try {
     const out = JSON.parse(execChatTool('sentinel_news', {}, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
     assert.equal(out.meta.instrument, 'XAU/USD', 'defaults to the current view instrument when none is given');
 
     const explicit = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
     assert.equal(explicit.meta.instrument, 'WTICO/USD', 'an explicit instrument arg wins over the view default');
+
+    // #114: the tool injects settings-derived NEWSAPI_AI_* into the subprocess env,
+    // so the spawned CLI resolves the provider from settings (not the bare env).
+    const withKey = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: { NEWSAPI_AI_KEY: 'from-settings', NEWSAPI_AI_MODE: 'shadow' } }));
+    assert.equal(withKey.meta.newsApiAiMode, 'shadow', 'settings NEWSAPI_AI_MODE reaches the spawned tool');
+    assert.equal(withKey.meta.newsApiAiEnabled, true, 'a settings key enables the provider in the spawned tool');
+    const noKey = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
+    assert.equal(noKey.meta.newsApiAiEnabled, false, 'no settings key => provider disabled in the spawned tool');
   } finally {
     if (prevOffline === undefined) delete process.env.SENTINEL_NEWS_OFFLINE;
     else process.env.SENTINEL_NEWS_OFFLINE = prevOffline;
+    for (const [k, v] of Object.entries(prevNai)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
 
   assert.throws(
