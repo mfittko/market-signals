@@ -315,7 +315,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
 // fired this run. Returns a summary for logs/tests.
-export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, toolDefs = null, execTool = null }) {
+export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
   const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
   if (!botFor.enabled) return { skipped: 'disabled' };
   const loop = botLoopConfig(settings);
@@ -363,6 +363,12 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   });
   const event = freshFlip ? 'flip' : adverse ? 'review' : null;
   if (!event) return { fills, halted: false, deliberated: false };
+
+  // Build the decision context ONLY now that we know the bot will deliberate.
+  // buildCtx may fetch news (NewsAPI.ai on-demand at decision points); building it
+  // eagerly on every quiet tick spent a request per bot per tick — e.g. all
+  // weekend with no fresh flips. (Direct ctx is still honored for tests.)
+  if (buildCtx) ctx = await buildCtx();
 
   // Active strategy scoping: an instruments CSV on the active strategy limits
   // deliberation to those combos (deterministic fills always run).

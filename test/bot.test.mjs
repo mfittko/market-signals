@@ -98,6 +98,23 @@ test('no LLM call without an event; flip and adverse review both trigger exactly
   void calls; void spyTools;
 });
 
+test('runBot: buildCtx (news/decision context) is only built when it deliberates — not on quiet ticks', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-'));
+  const db = join(dir, 'bot.sqlite');
+  const settings = fakeProvider(dir, '{"action":"hold","reasoning":"idle"}');
+  await withActiveSeed(db);
+  let builds = 0;
+  const buildCtx = () => { builds += 1; return { close: 87 }; };
+  // idle candle, no flip, no open position ⇒ no event ⇒ buildCtx must NOT run
+  // (this is the NewsAPI.ai weekend-leak guard: a pull per quiet tick per bot).
+  const r1 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, buildCtx });
+  assert.equal(r1.deliberated, false, 'idle: no deliberation');
+  assert.equal(builds, 0, 'buildCtx NOT invoked on a quiet tick — no news pull');
+  // a fresh flip ⇒ event ⇒ buildCtx runs exactly once
+  await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy', time: 'x' }, buildCtx });
+  assert.equal(builds, 1, 'buildCtx invoked exactly once when it deliberates');
+});
+
 test('decisions execute: open then close via fake provider; journal carries version+trace+snapshot', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');
