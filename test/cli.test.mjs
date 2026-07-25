@@ -19,6 +19,13 @@ test('parseArgs: --flag immediately followed by another --flag is boolean, not t
   assert.equal(a.get('out'), 'x.json');
 });
 
+test('parseArgs: a trailing --flag (end of argv) is boolean true, not undefined (Copilot #128)', () => {
+  const a = parseArgs(['--out', 'x.json', '--json']);
+  assert.equal(a.get('json'), true, 'trailing flag → true');
+  assert.equal(a.get('out'), 'x.json');
+  assert.equal(parseArgs(['--verbose']).get('verbose'), true, 'sole trailing flag → true');
+});
+
 test('parseArgs: empty argv → empty map', () => {
   assert.equal(parseArgs([]).size, 0);
 });
