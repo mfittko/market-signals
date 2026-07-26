@@ -45,6 +45,17 @@ test('acquireWindow: warm DB uses a small TAIL fetch and merges the new bar', as
   rmSync(dbPath, { force: true });
 });
 
+test('acquireWindow: an unsorted (newest-first) tail still takes the tail path, no spurious backfill', async () => {
+  const dbPath = tmp('unsorted'); rmSync(dbPath, { force: true });
+  storeCandles(dbPath, 'BCO/USD', 'M1', [bar(0), bar(1), bar(2), bar(3), bar(4)]);
+  // fetcher returns the tail NEWEST-first — the gap check must use the min time, not [0]
+  const fetcher = async () => [bar(6, { complete: false }), bar(5), bar(4), bar(3)];
+  const r = await acquireWindow({ instrument: 'BCO/USD', granularity: 'M1', count: 5, db: dbPath }, { fetcher });
+  assert.equal(r.mode, 'tail', 'min-time gap check keeps the tail path despite newest-first ordering');
+  assert.equal(r.candles[r.candles.length - 1].time, bar(5).time, 'new bar merged, window still sorted ascending');
+  rmSync(dbPath, { force: true });
+});
+
 test('acquireWindow: a gap the tail cannot bridge forces a full backfill', async () => {
   const dbPath = tmp('gap'); rmSync(dbPath, { force: true });
   storeCandles(dbPath, 'BCO/USD', 'M1', [bar(0), bar(1), bar(2), bar(3), bar(4)]); // newest stored = bar 4

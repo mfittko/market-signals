@@ -980,7 +980,8 @@ export async function acquireWindow(opts, { fetcher = fetchCandles } = {}) {
   const forming = tail.find((c) => !c.complete) ?? null;
   const stepMs = granularityMs(granularity);
   const newestStored = Date.parse(stored[stored.length - 1].time);
-  const oldestTail = tailComplete.length ? Date.parse(tailComplete[0].time) : null;
+  // don't assume the fetched tail is sorted — take the actual min time
+  const oldestTail = tailComplete.length ? Math.min(...tailComplete.map((c) => Date.parse(c.time))) : null;
   // a gap the tail can't bridge (missed bars during downtime) → full reconcile
   if (oldestTail != null && oldestTail - newestStored > stepMs * 1.5) return full('backfill');
 
