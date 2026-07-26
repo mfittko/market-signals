@@ -77,11 +77,16 @@
      label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
   .cfgpanel[hidden] { display: none; }
+  /* #108: management tabs (gates/memories/bot) are embedded panels that keep
+     their own single-column layout instead of flowing into the label/input grid */
+  .cfgpanel.mgmt { display: block; grid-column: 1 / -1; }
+  .cfgpanel.mgmt[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+  .cfgfoot[hidden] { display: none; } /* author display:flex would otherwise defeat [hidden] */
   /* #108/#110: wider default + a 220px label column so long NEWSAPI_AI_* labels fit
      one line. The #cfg id selector outweighs the generic dialog-form collapse in the
      max-width:900px query, so an explicit #cfg override there restores single-column. */
-  #cfgdlg { width: min(680px, 92vw); }
+  #cfgdlg { width: min(760px, 92vw); max-height: 85vh; overflow-y: auto; }
   #cfg { grid-template-columns: 220px 1fr; max-width: none; }
   @media (max-width: 900px) { #cfg { grid-template-columns: 1fr; } }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
@@ -98,15 +103,14 @@
   /* #87: wide enough that the strategy tab's prompt/spec textareas breathe on
      desktop; the max-width:900px query still caps dialogs at 92vw (box-sizing:
      border-box) so 390px stays single-column with no overflow. */
+  /* per-combo bot config is instrument-specific — its own per-view modal (#108
+     keeps it out of the global settings modal). */
   #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(720px, 92vw); }
   #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
   #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
   #botdlg #bmEditPrompt { min-height: 200px; } #botdlg #bmEditSpec { min-height: 66px; }
   .botwarn { color: #d29922; font-size: 12px; }
   #bmVersions { max-height: 160px; overflow-y: auto; }
-  /* #90: memories/gates get their own wide modals (#87 width system) — room
-     to read/edit long text, same 92vw single-column mobile cap as #botdlg. */
-  #memdlg, #gatedlg { width: min(720px, 92vw); max-height: 85vh; overflow-y: auto; }
   #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; }
   #memAddRow input[type=text] { flex: 1 1 160px; min-width: 0; }
   .memrow { border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
@@ -244,20 +248,6 @@
 <h2>Settings</h2>
 <div id="cfgTabs" class="cfgtabs"></div>
 <form id="cfg"></form>
-<p><button type="button" id="cfgToMem">manage memories →</button> <button type="button" id="cfgToGates">manage gates →</button></p>
-</dialog>
-<dialog id="memdlg">
-<form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-<h2>🧠 trader memories</h2>
-<div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div>
-<div id="memList"></div>
-<details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>
-</dialog>
-<dialog id="gatedlg">
-<form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-<h2 data-info="Per-gate transparency: effective system prompt and declared toolset for the filter, recheck, bot, and chat gates (#58). Filter and recheck accept drafted overrides, activated here — a human act, never automatic.">gates &amp; prompts</h2>
-<div id="gatesTabs"></div>
-<div id="gatesList"></div>
 </dialog>
 <h2>Signal history <small>· current chart window</small></h2>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
@@ -990,7 +980,14 @@ const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-const CFG_TAB_IDS = ['llm', 'news', 'adv'];
+// #108: one modal for GLOBAL config — five tabs. LLM/News/Advanced use the
+// batched Save (dirty dots); Gates/Memories are embedded management panels that
+// auto-save each edit. Per-combo bot config is instrument-specific, so it stays
+// in its own per-view modal (🤖), NOT a global settings tab.
+const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['gates', 'Gates'], ['mem', 'Memories'], ['adv', 'Advanced']];
+const CFG_TAB_IDS = CFG_TABS.map(([id]) => id);
+const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // batched-Save tabs; mgmt tabs excluded
+const CFG_MGMT_TABS = ['gates', 'mem'];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
@@ -1029,32 +1026,47 @@ async function cfg() {
   const stored = localStorage.getItem('cfgTab');
   const active = CFG_TAB_IDS.includes(stored) ? stored : 'llm';
   const curProvider = s.activeProvider || 'none';
-  document.getElementById('cfgTabs').innerHTML = [['llm', 'LLM provider'], ...CFG_FLAT_TABS].map(([id, label]) =>
-    '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) + '<span class="dirty" hidden> •</span></button>').join('');
+  document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
+    '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) +
+      (CFG_DIRTY_TABS.includes(id) ? '<span class="dirty" hidden> •</span>' : '') + '</button>').join('');
   const providerSelect = '<label for="f-provider">provider</label><select id="f-provider" name="provider">' +
     PROVIDER_OPTS.map(([v, lab]) => '<option value="' + esc(v) + '"' + (v === curProvider ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
+  // flat field panel (news/adv); adv also carries the info-overlays toggle
+  const flatPanel = (id, fields) =>
+    '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' +
+      fields.map(field).join('') +
+      (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
+    '</div>';
+  // management panel (gates/mem/bot): full-width, single-column, auto-saving
+  const mgmtPanel = (id, inner) =>
+    '<div class="cfgpanel mgmt" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' + inner + '</div>';
+  const memAddRow = '<div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div>';
   f.innerHTML =
     '<div class="cfgpanel" data-panel="llm"' + (active === 'llm' ? '' : ' hidden') + '>' +
       providerSelect + '<div id="llmDyn" style="display:contents">' + renderLlmDyn(curProvider) + '</div>' +
     '</div>' +
-    CFG_FLAT_TABS.map(([id, label, fields]) =>
-      '<div class="cfgpanel" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' +
-        fields.map(field).join('') +
-        (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
-      '</div>').join('') +
-    '<div class="cfgfoot"><button>Save</button><span id="saved"></span></div>';
+    flatPanel('news', NEWS_FIELDS) +
+    mgmtPanel('gates', '<div id="gatesTabs"></div><div id="gatesList"></div>') +
+    mgmtPanel('mem', memAddRow + '<div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>') +
+    flatPanel('adv', ADV_FIELDS) +
+    '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
   // swap the LLM panel's fields when the provider changes (client-side, from s)
   f.querySelector('#f-provider').onchange = (e) => {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
   };
+  const foot = f.querySelector('.cfgfoot');
+  // lazily populate whichever management tab is shown (each auto-saves internally)
+  const renderMgmt = (tab) => { if (tab === 'gates') renderGates(); else if (tab === 'mem') renderMemories(); };
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
     for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
     for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
+    foot.hidden = !CFG_DIRTY_TABS.includes(tab); // Save applies only to field tabs
+    if (CFG_MGMT_TABS.includes(tab)) renderMgmt(tab);
   };
   // dirty dot on the owning tab whenever a saved field changes (cleared on save
-  // re-render). The info-overlay toggle is excluded — it persists via its own POST.
+  // re-render). Excluded: the info-overlay toggle (own POST) and mgmt tabs (no dot).
   f.oninput = f.onchange = (e) => {
     if (e.target.id === 'f-infoToggle') return;
     const panel = e.target.closest('.cfgpanel'); if (!panel) return;
@@ -1065,6 +1077,7 @@ async function cfg() {
     applyInfo(e.target.checked);
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: e.target.checked || null }) });
   };
+  if (CFG_MGMT_TABS.includes(active)) renderMgmt(active); // populate an on-open mgmt tab
   // one global Save persists every tab in a single POST
   f.onsubmit = async (e) => {
     e.preventDefault();
@@ -1161,7 +1174,7 @@ async function renderGates() {
     };
   });
   const toBot = document.getElementById('gateToBot');
-  if (toBot) toBot.onclick = () => { document.getElementById('gatedlg').close(); openBotModal(); };
+  if (toBot) toBot.onclick = () => { document.getElementById('cfgdlg').close(); openBotModal(); };
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();
@@ -1191,6 +1204,16 @@ async function renderMemories() {
   const wrap = document.getElementById('memArchivedWrap');
   wrap.hidden = !r.archivedCount;
   document.getElementById('memArchivedCount').textContent = r.archivedCount + ' archived';
+  // add-memory button lives in the embedded panel — wire it here (idempotent)
+  const addBtn = document.getElementById('memAddBtn');
+  if (addBtn) addBtn.onclick = async () => {
+    const content = document.getElementById('memNewContent').value.trim();
+    if (!content) return;
+    const weightRaw = document.getElementById('memNewWeight').value;
+    const weight = weightRaw === '' ? undefined : Number(weightRaw); // blank → saveMemory default (3)
+    const r2 = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content, weight }) })).json();
+    if (r2.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
+  };
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
@@ -1423,15 +1446,17 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
 })();
 setInterval(load, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-document.getElementById('cfgbtn').addEventListener('click', async () => {
+// #108: one tabbed settings modal. openCfg(tab) opens it on a given tab; cfg()
+// renders + lazily populates whichever management tab is active.
+async function openCfg(tab) {
+  if (tab) localStorage.setItem('cfgTab', tab);
   await cfg();
   document.getElementById('cfgdlg').showModal();
-});
-// #90: memories and gates got their own dedicated modals (out of the crowded
-// settings dialog) — same open pattern as portfolio/bot, reached from the
-// header buttons OR the 'manage ...' links inside settings.
-document.getElementById('memBtn').addEventListener('click', () => { document.getElementById('memdlg').showModal(); renderMemories(); });
-document.getElementById('gateBtn').addEventListener('click', () => { document.getElementById('gatedlg').showModal(); renderGates(); });
+}
+document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
+// header icons deep-link into the consolidated modal's Memories/Gates tabs
+document.getElementById('memBtn').addEventListener('click', () => openCfg('mem'));
+document.getElementById('gateBtn').addEventListener('click', () => openCfg('gates'));
 // #126: chat sidebar is collapsible, collapsed by default (no dead column when
 // idle). State persists; the chart redraws to fill the reclaimed width.
 (function initChatToggle() {
@@ -1453,14 +1478,4 @@ document.getElementById('gateBtn').addEventListener('click', () => { document.ge
     apply(next);
   });
 })();
-document.getElementById('cfgToMem').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('memdlg').showModal(); renderMemories(); });
-document.getElementById('cfgToGates').addEventListener('click', () => { document.getElementById('cfgdlg').close(); document.getElementById('gatedlg').showModal(); renderGates(); });
-document.getElementById('memAddBtn').addEventListener('click', async () => {
-  const content = document.getElementById('memNewContent').value.trim();
-  if (!content) return;
-  const weightRaw = document.getElementById('memNewWeight').value;
-  const weight = weightRaw === '' ? undefined : Number(weightRaw); // blank falls back to saveMemory's default (3)
-  const r = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content: content, weight: weight }) })).json();
-  if (r.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
-});
 </script></body></html>

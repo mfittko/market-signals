@@ -24,14 +24,17 @@ const VIEWPORTS = {
   'phone-portrait': [390, 844],
   'phone-landscape': [844, 390],
 };
-const MODALS = [['settings', 'cfgbtn'], ['memories', 'memBtn'], ['gates', 'gateBtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
+// #108: memories/gates are now TABS inside the settings modal (global config).
+// Per-combo bot config is instrument-specific, so it stays its own per-view modal.
+// (memBtn/gateBtn deep-link into the settings modal's tabs — checked below.)
+const MODALS = [['settings', 'cfgbtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
 // fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
 for (const v of selected) {
   if (!VIEWPORTS[v]) throw new Error(`unknown E2E_VIEWPORT "${v}" — expected one of: ${Object.keys(VIEWPORTS).join(', ')}`);
 }
 
-test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ? false : 'Playwright not installed (dev/e2e only)' }, async (t) => {
+test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', { skip: webkit ? false : 'Playwright not installed (dev/e2e only)' }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'e2e-'));
   const dbPath = join(dir, 'candles.db');
   const settingsPath = join(dir, 'settings.json');
@@ -96,14 +99,29 @@ test('feature walkthrough (dashboard + 5 modals × viewports)', { skip: webkit ?
           await p.evaluate(() => { const t2 = [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'news'); t2 && t2.click(); });
           await p.waitForTimeout(150);
           assert.deepEqual(await p.evaluate(() => [...document.getElementById('f-NEWSAPI_AI_MODE').options].map((o) => o.value)), ['auto', 'shadow', 'off'], 'news modes = auto/shadow/off');
+          // #108: five GLOBAL-config tabs, in order (bot is per-view, not here)
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'gates', 'mem', 'adv'], 'five settings tabs in order (no bot)');
+          // Gates tab: embeds the per-gate sub-tabs (filter/recheck/bot/chat)
+          await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'gates').click());
+          await p.waitForTimeout(200);
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#gatesTabs button')].map((b) => b.dataset.tab)), ['filter', 'recheck', 'bot', 'chat'], 'gates tab embeds one sub-tab per gate');
+          // Save footer hides on a management tab — check COMPUTED display, since a
+          // stray author `display:flex` can defeat the [hidden] attribute
+          assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector('#cfg .cfgfoot')).display), 'none', 'Save footer visually hidden on management tab');
+          // Memories tab: embeds the add-row
+          await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'mem').click());
+          await p.waitForTimeout(200);
+          assert.ok(await p.evaluate(() => !!document.getElementById('memAddBtn')), 'memories tab embeds the add control');
+          // header deep-link: memBtn opens settings on the memories tab
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-          // gates: one tab per gate, panels switch
-          await p.evaluate(() => document.getElementById('gateBtn').click());
+          await p.evaluate(() => document.getElementById('memBtn').click());
           await p.waitForTimeout(300);
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#gatesTabs button')].map((b) => b.dataset.tab)), ['filter', 'recheck', 'bot', 'chat'], 'one tab per gate');
-          await p.evaluate(() => { const t2 = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'bot'); t2 && t2.click(); });
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => [...document.querySelectorAll('#gatesList .gatepanel')].filter((x) => !x.hidden).map((x) => x.dataset.panel)[0]), 'bot', 'gate tab switch shows the bot panel');
+          assert.equal(await p.evaluate(() => document.querySelector('#cfgTabs button.on')?.dataset.tab), 'mem', 'memBtn deep-links to the memories tab');
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+          // per-view bot modal opens from the header 🤖 and carries its tabs
+          await p.evaluate(() => document.getElementById('botBtn').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).
