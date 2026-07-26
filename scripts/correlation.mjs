@@ -97,11 +97,19 @@ export function openOrExtendWindow(dbPath, { instrument, direction, trigger = {}
     if (n >= cfg.maxWindowsPerDay) return { id: null, state: null, action: 'day_cap_reached' };
     const at = new Date(now).toISOString();
     const deadline = new Date(now + cfg.windowMinutes * 60000).toISOString();
-    const info = db.prepare(`INSERT INTO correlation_windows
-      (instrument, direction, state, opened_at, deadline_at, trigger_range_atr, trigger_vol_ratio, trigger_price)
-      VALUES (?,?,'watching_news',?,?,?,?,?)`)
-      .run(instrument, direction, at, deadline, trigger.rangeAtr ?? null, trigger.volumeRatio ?? null, trigger.price ?? null);
-    return { id: Number(info.lastInsertRowid), state: 'watching_news', action: 'opened' };
+    try {
+      const info = db.prepare(`INSERT INTO correlation_windows
+        (instrument, direction, state, opened_at, deadline_at, trigger_range_atr, trigger_vol_ratio, trigger_price)
+        VALUES (?,?,'watching_news',?,?,?,?,?)`)
+        .run(instrument, direction, at, deadline, trigger.rangeAtr ?? null, trigger.volumeRatio ?? null, trigger.price ?? null);
+      return { id: Number(info.lastInsertRowid), state: 'watching_news', action: 'opened' };
+    } catch (e) {
+      // lost the race to a concurrent opener (partial-unique index) — return the
+      // window that won rather than throwing out of the polling loop
+      const won = db.prepare("SELECT id FROM correlation_windows WHERE instrument=? AND state='watching_news'").get(instrument);
+      if (won) return { id: won.id, state: 'watching_news', action: 'strengthened' };
+      throw e;
+    }
   });
 }
 
@@ -121,11 +129,12 @@ export function cancelWindow(dbPath, instrument, { now = Date.now() } = {}) {
 }
 
 // Precision-first default classifier: a credible confirmation needs escalation/
-// incident language (not routine commentary) AND a publication time inside the
-// window. Injectable so thresholds can be tuned/replaced without touching state.
+// incident language (not routine commentary) AND a FINITE publication time inside
+// the window (undated items are never credible — no confirming on missing/garbled
+// dates). Injectable so thresholds can be tuned/replaced without touching state.
 export function defaultClassify(item, { openedAtMs, now }) {
-  const t = item.timeIso ? Date.parse(item.timeIso) : null;
-  const inWindow = t == null || (t >= openedAtMs - 20 * 60000 && t <= now + 60000);
+  const t = item.timeIso ? Date.parse(item.timeIso) : NaN;
+  const inWindow = Number.isFinite(t) && t >= openedAtMs - 20 * 60000 && t <= now + 60000;
   const incident = Boolean(item.escalation);
   return { credible: inWindow && incident, reasons: { inWindow, incident } };
 }

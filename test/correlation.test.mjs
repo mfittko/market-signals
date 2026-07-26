@@ -132,9 +132,9 @@ test('pollWindow: mean reversion below the re-arm threshold closes as mean_rever
 test('pollWindow: a provider error is charged, bumps poll_count, and never throws', async () => {
   const p = db('err'); rmSync(p, { force: true });
   openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
-  const boom = async () => { const e = new Error('HTTP 429'); e.status = 429; throw e; };
-  // fetchNewsApiAiArticles will surface the 429 from safeFetchJson
-  const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: async () => ({ ok: false, status: 429, text: async () => 'rate limited' }) });
+  // fetcher THROWS directly (network error), distinct from an ok:false HTTP response
+  const boom = async () => { const e = new Error('network down'); e.status = 429; throw e; };
+  const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: boom });
   assert.equal(r.action, 'poll-error');
   assert.equal(getActiveWindow(p, INST).poll_count, 1, 'poll counted even on error');
   assert.equal(providerRequestsUsed(p), 1, 'the failed attempt is still charged (transient, circuit stays closed)');
