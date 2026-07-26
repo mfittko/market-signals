@@ -53,9 +53,10 @@ function seedDecision(dbPath, { instrument = INSTRUMENT, granularity = 'M5', at,
 test('modal chrome (#56): every dialog closes via a top-right X; settings render as tabs with plumbing in the Advanced tab (#108)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
-    // #108: memories/gates/bot are consolidated into settings TABS — only two
-    // standalone dialogs remain (portfolio + the tabbed settings modal).
-    for (const id of ['pfdlg', 'cfgdlg']) {
+    // #108: memories/gates are consolidated into settings TABS. The per-combo
+    // bot stays its own per-view modal (instrument-specific), so three dialogs
+    // remain: portfolio, the tabbed settings modal, and the bot modal.
+    for (const id of ['pfdlg', 'cfgdlg', 'botdlg']) {
       const start = page.indexOf('<dialog id="' + id + '"');
       assert.ok(start >= 0, id + ' dialog exists');
       const end = page.indexOf('</dialog>', start);
