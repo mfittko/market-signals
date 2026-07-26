@@ -17,7 +17,9 @@ export async function sampleFreshness({ instrument, granularity, count = 3, fetc
   catch (e) { error = String(e?.message ?? e); }
   const t1 = now();
   const forming = rows.find((c) => !c.complete) ?? null;
-  const lastComplete = [...rows].reverse().find((c) => c.complete) ?? null;
+  // newest completed bar by timestamp — don't assume the fetcher returns sorted rows
+  const lastComplete = rows.filter((c) => c.complete)
+    .reduce((a, c) => (a && Date.parse(a.time) >= Date.parse(c.time) ? a : c), null);
   const stepMs = granularityMs(granularity);
   // lag: ms since the forming bar's close boundary (negative ⇒ bar still open)
   const formingLagMs = forming ? (t1 - (Date.parse(forming.time) + stepMs)) : null;

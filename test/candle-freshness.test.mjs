@@ -21,6 +21,15 @@ test('sampleFreshness: times the request and extracts forming + last-complete + 
   assert.equal(s.error, null);
 });
 
+test('sampleFreshness: picks the newest completed bar even from an unsorted tail', async () => {
+  const now = clock([1, 2]);
+  // rows newest-first + shuffled; bar(4) is the newest completed, bar(5) forming
+  const fetcher = async () => [bar(5, { complete: false }), bar(2), bar(4), bar(3)];
+  const s = await sampleFreshness({ instrument: 'X', granularity: 'M1', fetcher, now });
+  assert.equal(s.lastComplete.time, bar(4).time, 'newest completed by timestamp, not by position');
+  assert.equal(s.forming.time, bar(5).time);
+});
+
 test('sampleFreshness: a fetch error is captured, not thrown', async () => {
   const now = clock([1000, 1005]);
   const s = await sampleFreshness({ instrument: 'X', granularity: 'M1', fetcher: async () => { throw new Error('boom'); }, now });

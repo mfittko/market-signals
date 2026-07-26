@@ -82,6 +82,14 @@ test('acquireWindow: no DB → full fetch every time (prior behavior preserved)'
   assert.equal(r.candles.length, 2);
 });
 
+test('acquireWindow: the full/backfill path returns ascending time even if the fetcher is unsorted', async () => {
+  const fetcher = async () => [bar(3), bar(1), bar(2, { complete: false }), bar(0)]; // shuffled, one forming
+  const r = await acquireWindow({ instrument: 'BCO/USD', granularity: 'M1', count: 500 }, { fetcher });
+  const times = r.candles.map((c) => Date.parse(c.time));
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), 'window is sorted ascending regardless of fetcher order');
+  assert.ok(r.candles.every((c) => c.complete), 'forming bar excluded from the window');
+});
+
 test('acquireWindow: repeated tail runs are idempotent (upsert keys, no dup rows)', async () => {
   const dbPath = tmp('idem'); rmSync(dbPath, { force: true });
   storeCandles(dbPath, 'BCO/USD', 'M1', [bar(0), bar(1), bar(2), bar(3), bar(4)]);

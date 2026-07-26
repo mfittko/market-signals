@@ -965,7 +965,9 @@ export async function acquireWindow(opts, { fetcher = fetchCandles } = {}) {
   const { instrument, granularity, count = 500, db } = opts;
   const full = async (why) => {
     const all = await fetcher({ instrument, granularity, count });
-    const complete = all.filter((c) => c.complete);
+    // enforce the ascending-time contract regardless of fetcher ordering, cap to count
+    const complete = all.filter((c) => c.complete)
+      .sort((a, b) => Date.parse(a.time) - Date.parse(b.time)).slice(-count);
     const store = db ? storeCandles(db, instrument, granularity, complete) : null;
     return { candles: complete, forming: all.find((c) => !c.complete) ?? null, store, mode: why };
   };
