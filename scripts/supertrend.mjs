@@ -940,6 +940,57 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
   });
 }
 
+// Read the most recent `limit` complete bars for a combo from SQLite, ascending
+// by time. The candles table only ever holds complete bars (storeCandles filters
+// partials), so no completeness column is needed — we tag complete:true so the
+// rows match fetchCandles' shape for the merge in acquireWindow.
+export function loadRecentCandles(dbPath, instrument, granularity, limit) {
+  return withDb(dbPath, (db) => db.prepare(
+    'SELECT time, open, high, low, close, volume FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+    .all(instrument, granularity, limit)
+    .reverse()
+    .map((c) => ({ ...c, complete: true })));
+}
+
+// #145 tail-fetch: once a full `count`-bar calc window is warm in SQLite, a
+// routine tick fetches only a small TAIL (newest completed bars + the forming
+// bar) and merges it with the stored window instead of re-downloading the whole
+// history. A cold/short window or a gap (downtime) between the stored tail and
+// the fetched tail falls back to a full backfill fetch, so Supertrend always
+// computes from a complete, contiguous window — money-path behavior unchanged.
+// Returns { candles (complete, ascending), forming (partial bar|null), store, mode }.
+export const TAIL_COUNT = 5;
+export async function acquireWindow(opts, { fetcher = fetchCandles } = {}) {
+  const { instrument, granularity, count = 500, db } = opts;
+  const full = async (why) => {
+    const all = await fetcher({ instrument, granularity, count });
+    const complete = all.filter((c) => c.complete);
+    const store = db ? storeCandles(db, instrument, granularity, complete) : null;
+    return { candles: complete, forming: all.find((c) => !c.complete) ?? null, store, mode: why };
+  };
+  if (!db) return full('full'); // no persistence → full fetch every time (prior behavior)
+
+  const stored = loadRecentCandles(db, instrument, granularity, count);
+  // not enough warm history yet → backfill the whole window (also the first run)
+  if (stored.length < count) return full('backfill');
+
+  const tail = await fetcher({ instrument, granularity, count: TAIL_COUNT });
+  const tailComplete = tail.filter((c) => c.complete);
+  const forming = tail.find((c) => !c.complete) ?? null;
+  const stepMs = granularityMs(granularity);
+  const newestStored = Date.parse(stored[stored.length - 1].time);
+  const oldestTail = tailComplete.length ? Date.parse(tailComplete[0].time) : null;
+  // a gap the tail can't bridge (missed bars during downtime) → full reconcile
+  if (oldestTail != null && oldestTail - newestStored > stepMs * 1.5) return full('backfill');
+
+  const store = tailComplete.length ? storeCandles(db, instrument, granularity, tailComplete) : null;
+  const map = new Map();
+  for (const c of stored) map.set(c.time, c);
+  for (const c of tailComplete) map.set(c.time, c); // tail wins (freshest)
+  const candles = [...map.values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time)).slice(-count);
+  return { candles, forming, store, mode: 'tail' };
+}
+
 // The one granularity→duration rule (M=minutes, H=hours; unknown → 5min).
 export const granularityMs = (g) => {
   const m = /^([MH])(\d+)$/.exec(g);
@@ -1182,9 +1233,9 @@ export async function buildBotContext(dbPath, instrument, { supertrend, trend, b
 }
 
 async function runOne(opts) {
-  const all = await fetchCandles(opts);
-  const candles = all.filter((c) => c.complete);
-  const store = opts.db ? storeCandles(opts.db, opts.instrument, opts.granularity, candles) : null;
+  // #145: tail-fetch when the calc window is warm, full backfill otherwise —
+  // signals still compute from complete, contiguous candles.
+  const { candles, store } = await acquireWindow(opts);
   const st = computeSupertrend(candles, opts);
   const flips = detectFlips(candles, st);
   const backtest = backtestFlips(candles, flips);
