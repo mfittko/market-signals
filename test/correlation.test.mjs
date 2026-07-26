@@ -145,6 +145,31 @@ test('pollWindow: exhausted budget and open circuit both stop as budget_blocked 
   rmSync(p2, { force: true });
 });
 
+test('pollWindow: a local query-parse error never spends budget or a poll', async () => {
+  const p = db('badq'); rmSync(p, { force: true });
+  openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
+  const tooMany = Array.from({ length: 16 }, (_, i) => `kw${i}`).join(' OR '); // > 15-keyword limit
+  let called = false;
+  const r = await pollWindow(p, { instrument: INST, query: tooMany, apiKey: 'k', cfg, now: NOW + 1000, fetcher: async () => { called = true; return { ok: true, status: 200, text: async () => '{}' }; } });
+  assert.equal(r.action, 'bad-query');
+  assert.equal(called, false, 'no HTTP attempt for a config error');
+  assert.equal(providerRequestsUsed(p), 0, 'no budget spent');
+  assert.equal(getActiveWindow(p, INST).poll_count, 0, 'no poll counted');
+  rmSync(p, { force: true });
+});
+
+test('pollWindow: a concurrent poll within the claim debounce is skipped (no double-spend)', async () => {
+  const p = db('claim'); rmSync(p, { force: true });
+  openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
+  await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: fetcherFor([rawArticle()]) }); // routine → open, last_poll_at set
+  assert.equal(providerRequestsUsed(p), 1);
+  // a second poll 5s later (inside the 30s debounce) must not call the provider again
+  const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 6000, fetcher: fetcherFor([rawArticle()]) });
+  assert.equal(r.action, 'already-claimed');
+  assert.equal(providerRequestsUsed(p), 1, 'budget not double-spent');
+  rmSync(p, { force: true });
+});
+
 test('pollWindow: mean reversion below the re-arm threshold closes as mean_reverted', async () => {
   const p = db('revert'); rmSync(p, { force: true });
   openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });

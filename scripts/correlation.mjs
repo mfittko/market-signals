@@ -13,7 +13,11 @@
 // observations table — it never adds a second market-data poller or provider.
 import { withDb } from './supertrend.mjs';
 import { NEWSAPI_AI_PROVIDER, providerRequestsUsed, providerCircuitOpen, recordProviderCall, recordProviderObservations } from './news.mjs';
-import { fetchNewsApiAiArticles } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+import { fetchNewsApiAiArticles, parseSentinelQueryToKeywords } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+
+// half the ~1-min poll cadence: an atomic claim within this window blocks a second
+// concurrent poller of the same instrument (cross-process, via SQLite)
+const CLAIM_DEBOUNCE_MS = 30 * 1000;
 
 export const CORRELATION_STATES = ['watching_news', 'confirmed', 'expired', 'mean_reverted', 'budget_blocked', 'cancelled'];
 
@@ -179,6 +183,17 @@ export async function pollWindow(dbPath, {
     return corrDb(dbPath, (db) => ({ action: 'stopped', ...close(db, active.id, 'budget_blocked', 'circuit_open', now, null) }));
   }
   if (!apiKey || !query) return { action: 'no-provider' }; // nothing to call; leave the window open
+  // pre-validate the query BEFORE the charged path — a keyword/parse error is a
+  // config problem, never an HTTP attempt, so it must not spend budget or a poll
+  try { parseSentinelQueryToKeywords(query); }
+  catch (e) { return { action: 'bad-query', error: String(e?.message ?? e) }; }
+
+  // atomic cross-process claim: only one poller advances last_poll_at within the
+  // debounce, so concurrent callers can't double-spend budget on the same window
+  const claimed = corrDb(dbPath, (db) => db.prepare(
+    "UPDATE correlation_windows SET last_poll_at=? WHERE id=? AND state='watching_news' AND (last_poll_at IS NULL OR last_poll_at <= ?)")
+    .run(new Date(now).toISOString(), active.id, new Date(now - CLAIM_DEBOUNCE_MS).toISOString()).changes);
+  if (!claimed) return { action: 'already-claimed' };
 
   // --- one chargeable getArticles ---
   // First poll: a full ~windowMinutes lookback (the report may predate the move).
