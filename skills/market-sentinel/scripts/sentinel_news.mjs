@@ -446,7 +446,8 @@ export async function fetchSentinelNews({
   // when paid returns. NewsAPI.ai items go FIRST, so on a canonical (url/fuzzy-
   // title) collision the richer NewsAPI.ai item wins the dedup below.
   const merged = [...naiInWindow, ...freeInWindow];
-  // Retained for diagnostics: whether the paid provider had in-window results.
+  // Retained for diagnostics: paid provider had in-window results AND is not in
+  // shadow mode (shadow can return in-window items yet stays false by design).
   const naiAuthoritative = newsApiAi?.enabled === true && newsApiAi.shadow !== true && naiInWindow.length > 0;
   const deduped = dedupeItems(merged).sort((a, b) => (Date.parse(b.timeIso) || 0) - (Date.parse(a.timeIso) || 0));
   const items = deduped.slice(0, totalCap);
@@ -466,7 +467,7 @@ export async function fetchSentinelNews({
       status: newsApiOutcome ? newsApiOutcome.status : null,
       shadow: newsApiAi.shadow === true,
       itemsReturned: newsApiAi.shadow ? shadowItems.length : newsApiItems.length,
-      // true => paid returned in-window items (now merged WITH free, not instead of it).
+      // true => paid returned in-window items and is not in shadow mode (now merged WITH free, not instead of it).
       authoritative: naiAuthoritative,
     };
     out.providersAttempted = providersAttempted;

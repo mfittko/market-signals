@@ -454,7 +454,7 @@ test('fetchSentinelNews: NewsAPI.ai + free are unioned — paid items lead, free
   assert.equal(res.newsApiAi.authoritative, true, 'NewsAPI.ai returned items => authoritative flag stays true');
   assert.ok(res.items.some((it) => it.provider === 'newsapi-ai'), 'paid story present in the result');
   assert.ok(res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story merged into the result (not suppressed)');
-  assert.equal(res.items[0].provider, 'newsapi-ai', 'paid item leads (wins dedup on collision)');
+  assert.equal(res.items[0].provider, 'newsapi-ai', 'newest item (paid, 18:30 > free 18:00) leads after time-sort');
   // provenance intact: every provider's in-window sighting still recorded in `observed`
   assert.ok(res.observed.some((it) => it.title === 'Free-only oil story'), 'free story recorded in observed');
   assert.ok(res.observed.some((it) => it.provider === 'newsapi-ai'), 'paid story recorded in observed');
