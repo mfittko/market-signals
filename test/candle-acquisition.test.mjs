@@ -69,7 +69,6 @@ test('acquireWindow: no DB → full fetch every time (prior behavior preserved)'
   assert.equal(r.mode, 'full');
   assert.equal(gotCount, 500);
   assert.equal(r.candles.length, 2);
-  rmSync;
 });
 
 test('acquireWindow: repeated tail runs are idempotent (upsert keys, no dup rows)', async () => {

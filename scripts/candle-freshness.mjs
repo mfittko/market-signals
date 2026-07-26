@@ -25,7 +25,7 @@ export async function sampleFreshness({ instrument, granularity, count = 3, fetc
     at: t1,
     requestMs: t1 - t0,
     error,
-    forming: forming && { time: forming.time, o: forming.open, h: forming.high, l: forming.low, close: forming.close, volume: forming.volume },
+    forming: forming && { time: forming.time, open: forming.open, high: forming.high, low: forming.low, close: forming.close, volume: forming.volume },
     lastComplete: lastComplete && { time: lastComplete.time, close: lastComplete.close },
     formingLagMs,
   };
