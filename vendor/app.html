@@ -83,6 +83,8 @@
   .cfgpanel.mgmt[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
   .cfgfoot[hidden] { display: none; } /* author display:flex would otherwise defeat [hidden] */
+  #histMore { display: block; margin: 10px auto; }
+  #histMore[hidden] { display: none; } /* block display would otherwise defeat [hidden] */
   /* #108/#110: wider default + a 220px label column so long NEWSAPI_AI_* labels fit
      one line. The #cfg id selector outweighs the generic dialog-form collapse in the
      max-width:900px query, so an explicit #cfg override there restores single-column. */
@@ -209,7 +211,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="memBtn" type="button" title="trader memories" aria-label="trader memories">🧠</button> <button id="gateBtn" type="button" title="gates &amp; prompts" aria-label="gates and prompts">📜</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button> <span id="indbar"></span></span></header>
 <div id="wrap" style="height:460px"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -306,7 +308,7 @@ const INFO = {
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
-const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', memBtn: 'memories', gateBtn: 'gates', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
+const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
@@ -727,8 +729,18 @@ function draw(d) {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
       events: [], // hover is fully owned by fullColumnTooltip (nearest-by-x, full chart height)
       scales: {
-        x: { type: 'timeseries', ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18 },
-             grid: { color: 'rgba(48,54,61,0.5)' }, time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } } },
+        x: { type: 'timeseries', grid: { color: 'rgba(48,54,61,0.5)' },
+             time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
+             ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
+               // show the date on the first visible tick of each day (time-only labels
+               // repeat across days otherwise), the time on the rest
+               callback(value, index, ticks) {
+                 const d = new Date(ticks[index].value);
+                 const prev = index > 0 ? new Date(ticks[index - 1].value) : null;
+                 const newDay = !prev || prev.getDate() !== d.getDate() || prev.getMonth() !== d.getMonth();
+                 return newDay ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+                   : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+               } } },
         y: { position: 'right', ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
         vol: { position: 'left', display: false, max: maxVol * 5, min: 0 },
       },
@@ -1455,8 +1467,6 @@ async function openCfg(tab) {
 }
 document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
 // header icons deep-link into the consolidated modal's Memories/Gates tabs
-document.getElementById('memBtn').addEventListener('click', () => openCfg('mem'));
-document.getElementById('gateBtn').addEventListener('click', () => openCfg('gates'));
 // #126: chat sidebar is collapsible, collapsed by default (no dead column when
 // idle). State persists; the chart redraws to fill the reclaimed width.
 (function initChatToggle() {

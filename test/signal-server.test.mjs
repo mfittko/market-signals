@@ -577,7 +577,7 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     // icon-only header buttons carry an accessible name (aria-label), not just title
-    for (const [id, label] of [['cfgbtn', 'settings'], ['memBtn', 'trader memories'], ['gateBtn', 'gates and prompts'], ['botBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
+    for (const [id, label] of [['cfgbtn', 'settings'], ['botBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
       assert.ok(new RegExp('id="' + id + '"[^>]*aria-label="' + label).test(html), id + ' has an aria-label');
     // canvas charts expose a text alternative
     assert.ok(/id="chart"[^>]*role="img"[^>]*aria-label=/.test(html), 'price chart canvas has role=img + aria-label');
@@ -1162,7 +1162,7 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'memories tab ships list + archived count');
     assert.ok(html.includes('id="memNewContent"') && html.includes('id="memAddBtn"'), 'memories tab ships an add affordance (new memory input + button)');
     assert.ok(html.includes("['mem', 'Memories']"), 'memories is a consolidated settings tab (#108)');
-    assert.ok(html.includes('id="memBtn"'), 'header carries a memories entry point');
+    assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the settings tab');
   });
 });
 
@@ -1218,7 +1218,7 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     assert.ok(!html.includes('<dialog id="gatedlg"'), 'standalone gates dialog removed');
     assert.ok(html.includes('id="gatesTabs"') && html.includes('id="gatesList"'), 'gates tab ships the gates transparency section');
     assert.ok(html.includes("['gates', 'Gates']"), 'gates is a consolidated settings tab (#108)');
-    assert.ok(html.includes('id="gateBtn"'), 'header carries a gates entry point');
+    assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the settings tab');
   });
 });
 
