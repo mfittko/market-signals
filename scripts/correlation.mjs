@@ -86,7 +86,8 @@ export function openOrExtendWindow(dbPath, { instrument, direction, trigger = {}
     if (active) {
       // strengthen: keep the earlier deadline, record the stronger displacement
       if (Number.isFinite(trigger.rangeAtr) && trigger.rangeAtr > (active.trigger_range_atr ?? -Infinity)) {
-        db.prepare('UPDATE correlation_windows SET trigger_range_atr=?, trigger_vol_ratio=?, trigger_price=? WHERE id=?')
+        // COALESCE so a stronger move that omits volume/price keeps the recorded context
+        db.prepare('UPDATE correlation_windows SET trigger_range_atr=?, trigger_vol_ratio=COALESCE(?, trigger_vol_ratio), trigger_price=COALESCE(?, trigger_price) WHERE id=?')
           .run(trigger.rangeAtr, trigger.volumeRatio ?? null, trigger.price ?? null, active.id);
       }
       return { id: active.id, state: 'watching_news', action: 'strengthened' };
@@ -189,11 +190,15 @@ export async function pollWindow(dbPath, {
     });
   }
 
-  // novelty: only items THIS instrument hasn't seen count as fresh evidence
+  // novelty: only items THIS instrument hasn't seen count as fresh evidence. Query
+  // just the fetched batch's ids (not the whole append-only history) so a large
+  // observations table doesn't slow each poll.
   const items = fetched.items || [];
-  const seen = new Set(corrDb(dbPath, (db) =>
-    db.prepare('SELECT provider_item_id FROM news_provider_observations WHERE instrument=? AND provider=?')
-      .all(instrument, NEWSAPI_AI_PROVIDER).map((r) => r.provider_item_id)));
+  const fetchedIds = items.map((it) => it.providerItemId).filter(Boolean);
+  const seen = new Set(fetchedIds.length ? corrDb(dbPath, (db) =>
+    db.prepare(`SELECT provider_item_id FROM news_provider_observations
+      WHERE instrument=? AND provider=? AND provider_item_id IN (${fetchedIds.map(() => '?').join(',')})`)
+      .all(instrument, NEWSAPI_AI_PROVIDER, ...fetchedIds).map((r) => r.provider_item_id)) : []);
   recordProviderObservations(dbPath, instrument, items, now);
   const fresh = items.filter((it) => it.providerItemId && !seen.has(it.providerItemId));
   const credible = fresh.map((it) => ({ it, verdict: classify(it, { openedAtMs, now, direction: active.direction }) }))
