@@ -14,7 +14,7 @@ export async function sampleFreshness({ instrument, granularity, count = 3, fetc
   let rows = [];
   let error = null;
   try { rows = await fetcher({ instrument, granularity, count }); }
-  catch (e) { error = e.message; }
+  catch (e) { error = String(e?.message ?? e); }
   const t1 = now();
   const forming = rows.find((c) => !c.complete) ?? null;
   const lastComplete = [...rows].reverse().find((c) => c.complete) ?? null;
@@ -42,7 +42,8 @@ export function foldChange(state, sample) {
   const cur = sample.forming;
   let changed = false;
   if (cur && (!prev || cur.time !== prev.time)) changed = true; // a new forming bar
-  else if (cur && prev && (cur.close !== prev.close || cur.volume !== prev.volume)) changed = true; // same bar, moved
+  // same bar, any OHLCV field moved (providers often revise high/low, not just close)
+  else if (cur && prev && ['open', 'high', 'low', 'close', 'volume'].some((k) => cur[k] !== prev[k])) changed = true;
   const changeIntervals = state.changeIntervals.slice();
   if (changed && state.lastChangeAt != null) changeIntervals.push(sample.at - state.lastChangeAt);
   return {
@@ -97,5 +98,5 @@ async function main(argv) {
 }
 
 if (isMain(import.meta.url)) {
-  main(process.argv.slice(2)).catch((e) => { process.stderr.write(`candle-freshness error: ${e.message}\n`); process.exit(1); });
+  main(process.argv.slice(2)).catch((e) => { process.stderr.write(`candle-freshness error: ${String(e?.message ?? e)}\n`); process.exit(1); });
 }

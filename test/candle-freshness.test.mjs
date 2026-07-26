@@ -29,6 +29,21 @@ test('sampleFreshness: a fetch error is captured, not thrown', async () => {
   assert.equal(s.requestMs, 5);
 });
 
+test('sampleFreshness: a non-Error throw is coerced to a string (no undefined)', async () => {
+  const now = clock([1, 2]);
+  const s = await sampleFreshness({ instrument: 'X', granularity: 'M1', fetcher: async () => { throw 'raw failure'; }, now }); // eslint-disable-line no-throw-literal
+  assert.equal(s.error, 'raw failure', 'coerced, not undefined');
+});
+
+test('foldChange: a high/low-only move (close unchanged) still counts as a change', () => {
+  let st = initState();
+  st = foldChange(st, { at: 1000, requestMs: 5, forming: { time: bar(5).time, open: 100, high: 101, low: 99, close: 100, volume: 5 } });
+  // close/volume identical, but high extended — providers do this intrabar
+  st = foldChange(st, { at: 1020, requestMs: 5, forming: { time: bar(5).time, open: 100, high: 102, low: 99, close: 100, volume: 5 } });
+  assert.equal(st.changes, 2, 'both the new bar and the high extension are changes');
+  assert.deepEqual(st.changeIntervals, [20]);
+});
+
 test('foldChange: counts a moved forming bar and a new bar as changes, records intervals', () => {
   let st = initState();
   // sample A: forming bar 5, close 105, at t=1000

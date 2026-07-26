@@ -941,9 +941,10 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
 }
 
 // Read the most recent `limit` complete bars for a combo from SQLite, ascending
-// by time. The candles table only ever holds complete bars (storeCandles filters
-// partials), so no completeness column is needed — we tag complete:true so the
-// rows match fetchCandles' shape for the merge in acquireWindow.
+// by time. The candles table only ever holds complete bars (every caller filters
+// to `complete` before storeCandles persists), so no completeness column is
+// needed — we tag complete:true so rows match fetchCandles' shape for the merge
+// in acquireWindow.
 export function loadRecentCandles(dbPath, instrument, granularity, limit) {
   return withDb(dbPath, (db) => db.prepare(
     'SELECT time, open, high, low, close, volume FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
