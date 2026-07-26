@@ -89,6 +89,18 @@ test('pollWindow: routine commentary does not confirm — polls and bumps poll_c
   rmSync(p, { force: true });
 });
 
+test('pollWindow: persists a NewsAPI cursor/watermark for resume-safe incremental polling', async () => {
+  const p = db('cursor'); rmSync(p, { force: true });
+  openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
+  const artTime = new Date(NOW - 3 * 60000).toISOString();
+  await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: fetcherFor([rawArticle({ uri: 'w1', dateTimePub: artTime })]) });
+  const w = getActiveWindow(p, INST); // routine article → still open
+  assert.ok(w, 'window still open (routine, unconfirmed)');
+  assert.equal(w.newsapi_watermark, artTime, 'watermark advanced to the newest article time — survives a restart');
+  assert.equal(w.poll_count, 1);
+  rmSync(p, { force: true });
+});
+
 test('pollWindow: an already-seen article is not re-counted as fresh evidence (dedup)', async () => {
   const p = db('dedup'); rmSync(p, { force: true });
   openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });

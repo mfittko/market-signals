@@ -28,6 +28,7 @@ const CORRELATION_DDL = `CREATE TABLE IF NOT EXISTS correlation_windows (
   trigger_range_atr REAL, trigger_vol_ratio REAL, trigger_price REAL,
   poll_count INTEGER NOT NULL DEFAULT 0,
   last_poll_at TEXT,
+  newsapi_watermark TEXT,
   evidence_json TEXT,
   stop_reason TEXT)`;
 // at most ONE active (watching_news) window per instrument — enforced in SQLite,
@@ -105,8 +106,9 @@ export function openOrExtendWindow(dbPath, { instrument, direction, trigger = {}
         .run(instrument, direction, at, deadline, trigger.rangeAtr ?? null, trigger.volumeRatio ?? null, trigger.price ?? null);
       return { id: Number(info.lastInsertRowid), state: 'watching_news', action: 'opened' };
     } catch (e) {
-      // lost the race to a concurrent opener (partial-unique index) — return the
-      // window that won rather than throwing out of the polling loop
+      // ONLY the partial-unique race is expected here — swallow it and return the
+      // window that won. Surface anything else (I/O, corruption, busy-timeout).
+      if (!/unique|constraint/i.test(String(e?.message))) throw e;
       const won = db.prepare("SELECT id FROM correlation_windows WHERE instrument=? AND state='watching_news'").get(instrument);
       if (won) return { id: won.id, state: 'watching_news', action: 'strengthened' };
       throw e;
@@ -179,7 +181,13 @@ export async function pollWindow(dbPath, {
   if (!apiKey || !query) return { action: 'no-provider' }; // nothing to call; leave the window open
 
   // --- one chargeable getArticles ---
-  const hours = active.poll_count === 0 ? Math.max(cfg.windowMinutes, 15) / 60 : shortLookbackMin / 60;
+  // First poll: a full ~windowMinutes lookback (the report may predate the move).
+  // After that: incremental from the PERSISTED watermark (resume-safe across a
+  // KeepAlive restart), floored at shortLookbackMin and capped at the window span.
+  const watermarkMs = active.newsapi_watermark ? Date.parse(active.newsapi_watermark) : NaN;
+  const hours = (active.poll_count === 0 || !Number.isFinite(watermarkMs))
+    ? Math.max(cfg.windowMinutes, 15) / 60
+    : Math.min(Math.max((now - watermarkMs) / 60000, shortLookbackMin), cfg.windowMinutes) / 60;
   let fetched;
   try {
     fetched = await fetchNewsApiAiArticles({ query, hours, maxItems: 50, apiKey, fetcher, now });
@@ -208,8 +216,15 @@ export async function pollWindow(dbPath, {
     .filter((x) => x.verdict.credible)
     .map((x) => ({ title: x.it.title, url: x.it.url, source: x.it.source, timeIso: x.it.timeIso, providerItemId: x.it.providerItemId }));
 
+  // advance the persisted cursor to the newest article time we've seen (or hold at
+  // the window open time) so the next incremental poll — even after a restart —
+  // resumes from here
+  const pubs = items.map((it) => (it.timeIso ? Date.parse(it.timeIso) : NaN)).filter(Number.isFinite);
+  const wmCandidates = [watermarkMs, ...pubs].filter(Number.isFinite);
+  const newWatermark = new Date(wmCandidates.length ? Math.max(...wmCandidates) : openedAtMs).toISOString();
   return corrDb(dbPath, (db) => {
-    db.prepare('UPDATE correlation_windows SET poll_count=poll_count+1, last_poll_at=? WHERE id=?').run(new Date(now).toISOString(), active.id);
+    db.prepare('UPDATE correlation_windows SET poll_count=poll_count+1, last_poll_at=?, newsapi_watermark=? WHERE id=?')
+      .run(new Date(now).toISOString(), newWatermark, active.id);
     if (credible.length) {
       const prior = active.evidence_json ? JSON.parse(active.evidence_json) : [];
       return { action: 'confirmed', evidence: credible, ...close(db, active.id, 'confirmed', 'catalyst_confirmed', now, [...prior, ...credible]) };
