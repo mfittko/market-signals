@@ -26,7 +26,7 @@ const VIEWPORTS = {
 };
 // #108: memories/gates are now TABS inside the settings modal (global config).
 // Per-combo bot config is instrument-specific, so it stays its own per-view modal.
-// (memBtn/gateBtn deep-link into the settings modal's tabs — checked below.)
+// (Gates/Memories are reached via the settings modal's tabs — no header buttons.)
 const MODALS = [['settings', 'cfgbtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
 // fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
@@ -112,11 +112,8 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'mem').click());
           await p.waitForTimeout(200);
           assert.ok(await p.evaluate(() => !!document.getElementById('memAddBtn')), 'memories tab embeds the add control');
-          // header deep-link: memBtn opens settings on the memories tab
-          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-          await p.evaluate(() => document.getElementById('memBtn').click());
-          await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.querySelector('#cfgTabs button.on')?.dataset.tab), 'mem', 'memBtn deep-links to the memories tab');
+          // the redundant header memories/gates buttons are gone (reached via tabs)
+          assert.equal(await p.evaluate(() => !!document.getElementById('memBtn') || !!document.getElementById('gateBtn')), false, 'no redundant header gates/memories buttons');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           // per-view bot modal opens from the header 🤖 and carries its tabs
           await p.evaluate(() => document.getElementById('botBtn').click());

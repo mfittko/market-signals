@@ -68,10 +68,11 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   (`/?instrument=…&granularity=…&t=<flip-time>`) render the signal context
   through to the present.
 - **Header**: a two-row consolidated header — a global row (💼 portfolio, ⚙
-  settings, 🧠 memories, 📜 gates & prompts, 💬 chat toggle) and a per-instrument
-  row (instrument/granularity selects, 🔔/🔕 watch toggle, 🤖 bot for this view,
-  indicator toggles). Icon buttons carry `aria-label`s; the canvases expose
-  `role="img"` text alternatives.
+  settings, 💬 chat toggle) and a per-instrument row (instrument/granularity
+  selects, 🔔/🔕 watch toggle, 🤖 bot for this view, indicator toggles). Memories
+  and gates live inside the settings modal's tabs (no redundant header buttons).
+  Icon buttons carry `aria-label`s; the canvases expose `role="img"` text
+  alternatives.
 - **Quote strip**: last price, 1h/24h change, day range, supertrend distance,
   `live · candle forming` freshness.
 - **Signals**: verdict panel with an inline 🔁 operator re-check (asks the
@@ -102,8 +103,7 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   - **Advanced** — watcher fields, launch plumbing, and the info-overlays toggle.
 
   LLM/News/Advanced commit together via one **Save** (per-tab dirty dot);
-  Gates/Memories auto-save each edit. The 🧠/📜 header icons deep-link straight
-  to the Memories/Gates tabs.
+  Gates/Memories auto-save each edit.
 - **Chat sidebar** (💬, collapsible — collapsed by default so the chart claims
   the full width; the toggle reveals it and remembers your choice): a trading
   copilot on the configured provider with persistent threads
