@@ -441,14 +441,13 @@ export async function fetchSentinelNews({
   const inWin = (it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs;
   const naiInWindow = newsApiItems.filter(inWin);
   const freeInWindow = results.flat().filter(inWin);
-  // NewsAPI.ai-first (#115): when the preferred provider returned in-window
-  // results, present THOSE ONLY — the free stack is a fallback, used only when
-  // NewsAPI.ai is empty / disabled / errored / over-budget / unsupported query.
-  // Free items are still fetched and kept in `observed` for the trial benchmark;
-  // they're just not merged into the result. NewsAPI.ai FIRST either way, so on a
-  // canonical (url/fuzzy-title) collision the richer NewsAPI.ai item wins the dedup.
+  // Union both stacks (#115 revisited): paid MIGHT be faster, but we want
+  // COMPLETE results — so merge NewsAPI.ai + free rather than suppressing free
+  // when paid returns. NewsAPI.ai items go FIRST, so on a canonical (url/fuzzy-
+  // title) collision the richer NewsAPI.ai item wins the dedup below.
+  const merged = [...naiInWindow, ...freeInWindow];
+  // Retained for diagnostics: whether the paid provider had in-window results.
   const naiAuthoritative = newsApiAi?.enabled === true && newsApiAi.shadow !== true && naiInWindow.length > 0;
-  const merged = naiAuthoritative ? naiInWindow : [...naiInWindow, ...freeInWindow];
   const deduped = dedupeItems(merged).sort((a, b) => (Date.parse(b.timeIso) || 0) - (Date.parse(a.timeIso) || 0));
   const items = deduped.slice(0, totalCap);
   const out = {
@@ -467,7 +466,7 @@ export async function fetchSentinelNews({
       status: newsApiOutcome ? newsApiOutcome.status : null,
       shadow: newsApiAi.shadow === true,
       itemsReturned: newsApiAi.shadow ? shadowItems.length : newsApiItems.length,
-      // true => the result is NewsAPI.ai-only (free suppressed); false => free fallback merged.
+      // true => paid returned in-window items (now merged WITH free, not instead of it).
       authoritative: naiAuthoritative,
     };
     out.providersAttempted = providersAttempted;

@@ -440,8 +440,8 @@ test('sentinel_news CLI: no key in env => provider disabled (free stack only)', 
   assert.equal(JSON.parse(res.stdout).meta.newsApiAiEnabled, false);
 });
 
-// --- NewsAPI.ai-first (issue #115): free stack only when NewsAPI.ai is empty ---
-test('fetchSentinelNews: NewsAPI.ai-first — when it returns items, the free stack is suppressed from the result but kept in observed', async () => {
+// --- union (#115 revisited): paid + free merged for COMPLETE results ---------
+test('fetchSentinelNews: NewsAPI.ai + free are unioned — paid items lead, free items are kept too', async () => {
   const gnews = '<rss><channel><item><title>Free-only oil story</title><link>https://g/free1</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>';
   const naiFx = { articles: { results: [{ uri: 'n1', url: 'https://e/n1', title: 'NewsAPI oil story', dateTimePub: '2026-07-24T18:30:00Z', source: { title: 'Reuters', uri: 'reuters.com' } }] } };
   const now = Date.parse('2026-07-24T19:00:00Z');
@@ -451,10 +451,10 @@ test('fetchSentinelNews: NewsAPI.ai-first — when it returns items, the free st
     throw new Error('offline');
   };
   const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K' } });
-  assert.equal(res.newsApiAi.authoritative, true, 'NewsAPI.ai returned items => authoritative');
-  assert.ok(res.items.length > 0 && res.items.every((it) => it.provider === 'newsapi-ai'), 'result is NewsAPI.ai-only');
-  assert.ok(!res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story suppressed from the result');
-  assert.ok(res.observed.some((it) => it.title === 'Free-only oil story'), 'free story still recorded in observed (benchmark intact)');
+  assert.equal(res.newsApiAi.authoritative, true, 'NewsAPI.ai returned items => authoritative flag stays true');
+  assert.ok(res.items.some((it) => it.provider === 'newsapi-ai'), 'paid story present in the result');
+  assert.ok(res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story merged into the result (not suppressed)');
+  assert.equal(res.items[0].provider, 'newsapi-ai', 'paid item leads (wins dedup on collision)');
 });
 
 test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative false)', async () => {
