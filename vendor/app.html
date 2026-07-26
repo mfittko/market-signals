@@ -81,7 +81,6 @@
      their own single-column layout instead of flowing into the label/input grid */
   .cfgpanel.mgmt { display: block; grid-column: 1 / -1; }
   .cfgpanel.mgmt[hidden] { display: none; }
-  .bottitle { margin: 0 0 8px; font-size: 15px; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
   .cfgfoot[hidden] { display: none; } /* author display:flex would otherwise defeat [hidden] */
   /* #108/#110: wider default + a 220px label column so long NEWSAPI_AI_* labels fit
@@ -104,11 +103,12 @@
   /* #87: wide enough that the strategy tab's prompt/spec textareas breathe on
      desktop; the max-width:900px query still caps dialogs at 92vw (box-sizing:
      border-box) so 390px stays single-column with no overflow. */
-  /* #108: bot config is an embedded settings tab (#botBody) — same field layout
-     that used to live in the standalone #botdlg. */
-  #botBody label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
-  #botBody select, #botBody input[type=number], #botBody input[type=text], #botBody textarea { width: 100%; }
-  #botBody #bmEditPrompt { min-height: 200px; } #botBody #bmEditSpec { min-height: 66px; }
+  /* per-combo bot config is instrument-specific — its own per-view modal (#108
+     keeps it out of the global settings modal). */
+  #botdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; width: min(720px, 92vw); }
+  #botdlg label { display: block; margin: 8px 0 2px; color: #8b949e; font-size: 12px; }
+  #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
+  #botdlg #bmEditPrompt { min-height: 200px; } #botdlg #bmEditSpec { min-height: 66px; }
   .botwarn { color: #d29922; font-size: 12px; }
   #bmVersions { max-height: 160px; overflow-y: auto; }
   #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; }
@@ -236,6 +236,11 @@
   </div>
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
+</dialog>
+<dialog id="botdlg">
+  <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
+  <h2 id="botTitle">🤖 bot</h2>
+  <div id="botBody"></div>
 </dialog>
 <div class="verdict" id="verdict">loading…</div>
 <dialog id="cfgdlg">
@@ -435,11 +440,10 @@ async function openBotModal() {
   const inst = qs.get('instrument') || document.getElementById('instSel').value;
   const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   const combo = inst + '|' + gran;
-  const body = document.getElementById('botBody');
-  if (!body) return; // bot panel not mounted (settings modal not open)
+  document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
+  document.getElementById('botTitle').dataset.info = INFO.botModal;
   bmActiveTab = 'setup';
-  body.innerHTML =
-    '<h3 class="bottitle" data-info="' + esc(INFO.botModal) + '">🤖 bot — ' + esc(inst) + ' · ' + esc(gran) + '</h3>' +
+  document.getElementById('botBody').innerHTML =
     '<div id="bmTabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
     '<div id="bm-setup"></div><div id="bm-strategy" hidden></div>';
   const save = async (patch) => {
@@ -465,6 +469,7 @@ async function openBotModal() {
     if (tab === 'strategy') await paint();
   };
   await paint();
+  document.getElementById('botdlg').showModal();
 }
 function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
   const body = document.getElementById('bm-setup');
@@ -490,11 +495,11 @@ function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
     document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
   };
   document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
-  document.getElementById('bmToPf').onclick = () => { document.getElementById('cfgdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
+  document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   // #126: confirm before removing — it sits next to the primary action
   document.getElementById('bmRemove').onclick = async () => {
     if (!confirm('Remove this bot from the view? Its configuration will be cleared.')) return;
-    await save(null); document.getElementById('cfgdlg').close();
+    await save(null); document.getElementById('botdlg').close();
   };
 }
 // #75 strategy tab: assign by name (scope-filtered, "show all" escape),
@@ -602,7 +607,7 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     }
   }
 }
-document.getElementById('botBtn').addEventListener('click', () => openCfg('bot'));
+document.getElementById('botBtn').addEventListener('click', openBotModal);
 // Read-only activated-bots list + halt banner in the portfolio overview.
 async function renderOverviewBots() {
   const r = await (await fetch('/api/bots')).json();
@@ -975,12 +980,14 @@ const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-// #108: one modal, six tabs. LLM/News/Advanced use the batched Save (dirty dots);
-// Gates/Memories/Bot are embedded management panels that auto-save each edit.
-const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['gates', 'Gates'], ['mem', 'Memories'], ['bot', 'Bot'], ['adv', 'Advanced']];
+// #108: one modal for GLOBAL config — five tabs. LLM/News/Advanced use the
+// batched Save (dirty dots); Gates/Memories are embedded management panels that
+// auto-save each edit. Per-combo bot config is instrument-specific, so it stays
+// in its own per-view modal (🤖), NOT a global settings tab.
+const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['gates', 'Gates'], ['mem', 'Memories'], ['adv', 'Advanced']];
 const CFG_TAB_IDS = CFG_TABS.map(([id]) => id);
 const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // batched-Save tabs; mgmt tabs excluded
-const CFG_MGMT_TABS = ['gates', 'mem', 'bot'];
+const CFG_MGMT_TABS = ['gates', 'mem'];
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
@@ -1041,7 +1048,6 @@ async function cfg() {
     flatPanel('news', NEWS_FIELDS) +
     mgmtPanel('gates', '<div id="gatesTabs"></div><div id="gatesList"></div>') +
     mgmtPanel('mem', memAddRow + '<div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>') +
-    mgmtPanel('bot', '<div id="botBody"></div>') +
     flatPanel('adv', ADV_FIELDS) +
     '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
   // swap the LLM panel's fields when the provider changes (client-side, from s)
@@ -1050,7 +1056,7 @@ async function cfg() {
   };
   const foot = f.querySelector('.cfgfoot');
   // lazily populate whichever management tab is shown (each auto-saves internally)
-  const renderMgmt = (tab) => { if (tab === 'gates') renderGates(); else if (tab === 'mem') renderMemories(); else if (tab === 'bot') openBotModal(); };
+  const renderMgmt = (tab) => { if (tab === 'gates') renderGates(); else if (tab === 'mem') renderMemories(); };
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
@@ -1168,7 +1174,7 @@ async function renderGates() {
     };
   });
   const toBot = document.getElementById('gateToBot');
-  if (toBot) toBot.onclick = () => { document.querySelector('#cfgTabs button[data-tab="bot"]')?.click(); };
+  if (toBot) toBot.onclick = () => { document.getElementById('cfgdlg').close(); openBotModal(); };
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();
@@ -1346,7 +1352,7 @@ document.getElementById('chatForm').onsubmit = async (e) => {
   loadThreads();
 };
 loadThreads();
-load().then(() => { if (qs.get('bot') === '1') openCfg('bot'); });
+load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
 
 // Speech-to-text (#137): MediaRecorder captures mic audio, POSTed to
 // /api/transcribe which routes to the local sttBin or OpenAI Whisper per

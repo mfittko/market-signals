@@ -24,10 +24,10 @@ const VIEWPORTS = {
   'phone-portrait': [390, 844],
   'phone-landscape': [844, 390],
 };
-// #108: memories/gates/bot are now TABS inside the settings modal, not separate
-// dialogs. The two remaining standalone dialogs are settings and portfolio.
-// (memBtn/gateBtn/botBtn deep-link into the settings modal's tabs — checked below.)
-const MODALS = [['settings', 'cfgbtn'], ['portfolio', 'pfBtn']];
+// #108: memories/gates are now TABS inside the settings modal (global config).
+// Per-combo bot config is instrument-specific, so it stays its own per-view modal.
+// (memBtn/gateBtn deep-link into the settings modal's tabs — checked below.)
+const MODALS = [['settings', 'cfgbtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
 // fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
 for (const v of selected) {
@@ -99,8 +99,8 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => { const t2 = [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'news'); t2 && t2.click(); });
           await p.waitForTimeout(150);
           assert.deepEqual(await p.evaluate(() => [...document.getElementById('f-NEWSAPI_AI_MODE').options].map((o) => o.value)), ['auto', 'shadow', 'off'], 'news modes = auto/shadow/off');
-          // #108: six consolidated tabs, in order
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'gates', 'mem', 'bot', 'adv'], 'six settings tabs in order');
+          // #108: five GLOBAL-config tabs, in order (bot is per-view, not here)
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'gates', 'mem', 'adv'], 'five settings tabs in order (no bot)');
           // Gates tab: embeds the per-gate sub-tabs (filter/recheck/bot/chat)
           await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'gates').click());
           await p.waitForTimeout(200);
@@ -112,15 +112,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'mem').click());
           await p.waitForTimeout(200);
           assert.ok(await p.evaluate(() => !!document.getElementById('memAddBtn')), 'memories tab embeds the add control');
-          // Bot tab: embeds the bot setup panel
-          await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'bot').click());
-          await p.waitForTimeout(200);
-          assert.ok(await p.evaluate(() => !!document.getElementById('bmTabs')), 'bot tab embeds the bot config');
           // header deep-link: memBtn opens settings on the memories tab
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           await p.evaluate(() => document.getElementById('memBtn').click());
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.querySelector('#cfgTabs button.on')?.dataset.tab), 'mem', 'memBtn deep-links to the memories tab');
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+          // per-view bot modal opens from the header 🤖 and carries its tabs
+          await p.evaluate(() => document.getElementById('botBtn').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).

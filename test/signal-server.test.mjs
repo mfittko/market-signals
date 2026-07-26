@@ -64,13 +64,16 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
       assert.ok(dlg.includes('class="dlg-x"'), id + ' has a top-right X');
       assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
-    // the removed standalone dialogs are gone
-    for (const id of ['botdlg', 'memdlg', 'gatedlg']) {
+    // the removed standalone dialogs are gone (global config only); the per-combo
+    // bot modal stays — bot config is instrument-specific, not global settings.
+    for (const id of ['memdlg', 'gatedlg']) {
       assert.ok(!page.includes('<dialog id="' + id + '"'), id + ' standalone dialog removed (now a settings tab)');
     }
+    assert.ok(page.includes('<dialog id="botdlg"'), 'per-view bot modal stays (instrument-specific, not a global tab)');
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
     assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
-    assert.ok(page.includes("['gates', 'Gates']") && page.includes("['mem', 'Memories']") && page.includes("['bot', 'Bot']"), 'gates/memories/bot are consolidated tabs (#108)');
+    assert.ok(page.includes("['gates', 'Gates']") && page.includes("['mem', 'Memories']"), 'gates/memories are consolidated global tabs (#108)');
+    assert.ok(!page.includes("['bot', 'Bot']"), 'bot is NOT a global settings tab (per-view modal)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
     assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
     assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
@@ -878,7 +881,7 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
     assert.ok(html.includes('id="botBtn"'), 'contextual bot icon in the header');
-    assert.ok(html.includes('id="botBody"') && html.includes("['bot', 'Bot']"), 'per-combo bot config shipped as a settings tab (#108)');
+    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
     assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
@@ -975,8 +978,8 @@ test('save_strategy scope defaulting from the current view (#75): dedicated draf
 test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="botBody"'), 'per-combo bot config shipped (embedded settings tab, #108)');
-    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot config carries setup + strategy tabs, setup first');
+    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
+    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
     assert.ok(html.includes('id="bm-setup"') && html.includes('id="bm-strategy"'), 'both tab bodies present');
     assert.match(html, /bmStratSel/, 'scope-filtered strategy assignment select present');
     assert.match(html, /bmShowAll/, '"show all" scope-escape checkbox present');
