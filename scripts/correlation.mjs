@@ -132,10 +132,12 @@ export function cancelWindow(dbPath, instrument, { now = Date.now() } = {}) {
 // Precision-first default classifier: a credible confirmation needs escalation/
 // incident language (not routine commentary) AND a FINITE publication time inside
 // the window (undated items are never credible — no confirming on missing/garbled
-// dates). Injectable so thresholds can be tuned/replaced without touching state.
-export function defaultClassify(item, { openedAtMs, now }) {
+// dates). The lower bound is the SAME lookback pollWindow fetches with
+// (`lookbackMs`), so the accepted range never rejects an article the poll actually
+// retrieved. Injectable so thresholds can be tuned/replaced without touching state.
+export function defaultClassify(item, { openedAtMs, now, lookbackMs = 15 * 60000 }) {
   const t = item.timeIso ? Date.parse(item.timeIso) : NaN;
-  const inWindow = Number.isFinite(t) && t >= openedAtMs - 20 * 60000 && t <= now + 60000;
+  const inWindow = Number.isFinite(t) && t >= openedAtMs - lookbackMs && t <= now + 60000;
   const incident = Boolean(item.escalation);
   return { credible: inWindow && incident, reasons: { inWindow, incident } };
 }
@@ -201,7 +203,8 @@ export async function pollWindow(dbPath, {
       .all(instrument, NEWSAPI_AI_PROVIDER, ...fetchedIds).map((r) => r.provider_item_id)) : []);
   recordProviderObservations(dbPath, instrument, items, now);
   const fresh = items.filter((it) => it.providerItemId && !seen.has(it.providerItemId));
-  const credible = fresh.map((it) => ({ it, verdict: classify(it, { openedAtMs, now, direction: active.direction }) }))
+  const lookbackMs = Math.max(cfg.windowMinutes, 15) * 60000; // same span pollWindow's first fetch uses
+  const credible = fresh.map((it) => ({ it, verdict: classify(it, { openedAtMs, now, direction: active.direction, lookbackMs }) }))
     .filter((x) => x.verdict.credible)
     .map((x) => ({ title: x.it.title, url: x.it.url, source: x.it.source, timeIso: x.it.timeIso, providerItemId: x.it.providerItemId }));
 

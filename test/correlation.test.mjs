@@ -67,6 +67,18 @@ test('pollWindow: a novel credible incident confirms and attaches evidence; prov
   rmSync(p, { force: true });
 });
 
+test('pollWindow: with windowMinutes>20, an article older than 20m but inside the lookback still confirms', async () => {
+  const p = db('longwin'); rmSync(p, { force: true });
+  const wideCfg = { ...cfg, windowMinutes: 30 };
+  openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg: wideCfg, now: NOW });
+  // incident published 25m before the window opened — within the 30m lookback,
+  // but outside the old hard-coded 20m classifier bound (the regression)
+  const incident = rawArticle({ uri: 'inc30', title: 'Sanctions escalate on major oil exporter', body: 'embargo', dateTimePub: new Date(NOW - 25 * 60000).toISOString() });
+  const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg: wideCfg, now: NOW + 1000, fetcher: fetcherFor([incident]) });
+  assert.equal(r.action, 'confirmed', 'classifier lower-bound tracks the configured lookback');
+  rmSync(p, { force: true });
+});
+
 test('pollWindow: routine commentary does not confirm — polls and bumps poll_count', async () => {
   const p = db('routine'); rmSync(p, { force: true });
   openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
