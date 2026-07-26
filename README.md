@@ -11,8 +11,8 @@ Node (stdlib only, no npm dependencies; the one chart library is vendored).
 │ scripts/supertrend.mjs                       │   │ scripts/signal-server.mjs             │
 │  fetch candles → supertrend(10,3) flips      │   │  http://127.0.0.1:8787                │
 │  → LLM filter verdict → notification         │   │  chart · quote strip · signals        │
-│  → per-combo bot deliberation (paper trades) │   │  settings · portfolio/bot/memories/    │
-│  → refresh HTF cache (M15/M30/H1/H4)         │   │  gates modals · chat copilot (tools)   │
+│  → per-combo bot deliberation (paper trades) │   │  tabbed settings (LLM/news/gates/      │
+│  → refresh HTF cache (M15/M30/H1/H4)         │   │  memories/bot/adv) · chat copilot      │
 │  → refresh sentinel news cache               │   │                                        │
 └──────────────┬───────────────────────────────┘   └──────────────┬─────────────────────────┘
                └────────────────── data/candles.db ─────────────────┘
@@ -87,18 +87,20 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   open positions, trade history, per-strategy performance, and the audit
   journal (every open/skip/close/halt/reset row) — plus the list of activated
   bots.
-- **Bot modal** (🤖): per-combo bot configuration (enable, strategy binding,
-  risk%/allocation% overrides) and a dedicated strategy tab for drafting or
-  activating that combo's strategy.
-- **Memories modal** (🧠): add, reweight, edit, and archive trader memories.
-- **Gates & prompts modal** (📜): transparency into the filter, recheck, bot,
-  and chat gates — the effective system prompt and declared toolset for each,
-  plus drafted overrides and human-only activation for the filter and recheck
-  gates.
-- **Settings modal** (⚙): watcher fields, provider, models, API keys (masked,
-  atomic writes), the resolved active provider, and the info-overlays toggle;
-  links out to the memories and gates modals (memories/gates management lives
-  in their own modals, not this one).
+- **Settings modal** (⚙, #108): one tabbed modal (reopens on the last-used tab)
+  consolidating six tabs:
+  - **LLM provider** — contextual provider/model/key panel (masked keys, atomic writes);
+  - **News provider** — every `NEWSAPI_AI_*` setting (masked key);
+  - **Gates** — per-gate transparency (filter/recheck/bot/chat): effective system
+    prompt + declared toolset, drafted overrides, human-only activation for the
+    filter and recheck gates;
+  - **Memories** — add, reweight, edit, and archive trader memories;
+  - **Bot** — the current view's per-combo bot config (setup + strategy);
+  - **Advanced** — watcher fields, launch plumbing, and the info-overlays toggle.
+
+  LLM/News/Advanced commit together via one **Save** (per-tab dirty dot);
+  Gates/Memories/Bot auto-save each edit. The 🧠/📜/🤖 header icons deep-link
+  straight to the Memories/Gates/Bot tabs.
 - **Chat sidebar** (💬, collapsible — collapsed by default so the chart claims
   the full width; the toggle reveals it and remembers your choice): a trading
   copilot on the configured provider with persistent threads
@@ -169,7 +171,7 @@ trigger), and any malformed output, timeout, or provider error is a journaled
 Durable, trader-scoped standing rules (`memories` table) ride along as
 advisory context in the filter, bot deliberation, and chat prompts — never a
 substitute for the fail-safe clamps above. Chat can save a memory as a
-conversational side effect (`save_memory` tool); the memories modal is the
+conversational side effect (`save_memory` tool); the memories tab (settings) is the
 manual add/edit/reweight/archive surface. Archiving hides a memory from
 context but never deletes the row.
 
@@ -181,10 +183,10 @@ revisions:
 
 | Gate | What it does | Overridable? |
 |------|---------------|---------------|
-| **Filter** | Single-shot sanity check on every fresh flip; no tools. | Yes — draft via chat or the gates modal, human-activated. |
+| **Filter** | Single-shot sanity check on every fresh flip; no tools. | Yes — draft via chat or the gates tab, human-activated. |
 | **Bot** | Tool-loop deliberation (fxempire articles, sentinel news, Truth Social posts, live rates; plus Anthropic-only server-side web search) that opens/closes/holds. | No — strategy-owned, not gate-owned. |
 | **Chat** | The copilot; full tool loop including the save-draft tools. | No — constant system prompt. |
-| **Recheck** | Operator-initiated 🔁 re-check of a past signal's verdict. | Yes — draft via chat or the gates modal, human-activated. |
+| **Recheck** | Operator-initiated 🔁 re-check of a past signal's verdict. | Yes — draft via chat or the gates tab, human-activated. |
 
 Overridable gates store versioned drafts in `gate_prompts` (append-only,
 `draft` is chat- or manual-created, `active` flips on a human act). The gates
@@ -270,7 +272,7 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 3. Open `http://127.0.0.1:8787`, hit ⚙ to configure the provider, and 🔔 the
    combos you want alerts for.
 4. Optional: keep trading notes in `data/notes.md`, arm a bot for a watched
-   combo in the 🤖 bot modal, and add standing rules in the 🧠 memories modal.
+   combo in the 🤖 Bot tab, and add standing rules in the 🧠 Memories tab (both in settings).
 
 `npm test` runs the full unit suite (fixture db, fake provider binaries,
 served-page assertions — no live network, zero deps). `npm run test:e2e` runs the

@@ -53,7 +53,9 @@ function seedDecision(dbPath, { instrument = INSTRUMENT, granularity = 'M5', at,
 test('modal chrome (#56): every dialog closes via a top-right X; settings render as tabs with plumbing in the Advanced tab (#108)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
-    for (const id of ['pfdlg', 'botdlg', 'cfgdlg', 'memdlg', 'gatedlg']) {
+    // #108: memories/gates/bot are consolidated into settings TABS — only two
+    // standalone dialogs remain (portfolio + the tabbed settings modal).
+    for (const id of ['pfdlg', 'cfgdlg']) {
       const start = page.indexOf('<dialog id="' + id + '"');
       assert.ok(start >= 0, id + ' dialog exists');
       const end = page.indexOf('</dialog>', start);
@@ -62,8 +64,13 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
       assert.ok(dlg.includes('class="dlg-x"'), id + ' has a top-right X');
       assert.ok(!/<button[^>]*>\s*close\s*<\/button>/i.test(dlg.replace(/class="dlg-x"[^>]*>×/, '')), id + ' has no bottom close button');
     }
+    // the removed standalone dialogs are gone
+    for (const id of ['botdlg', 'memdlg', 'gatedlg']) {
+      assert.ok(!page.includes('<dialog id="' + id + '"'), id + ' standalone dialog removed (now a settings tab)');
+    }
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
-    assert.match(page, /const CFG_FLAT_TABS = /, 'settings render as tabbed sections (#108)');
+    assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
+    assert.ok(page.includes("['gates', 'Gates']") && page.includes("['mem', 'Memories']") && page.includes("['bot', 'Bot']"), 'gates/memories/bot are consolidated tabs (#108)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
     assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
     assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
@@ -871,7 +878,7 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
     assert.ok(html.includes('id="botBtn"'), 'contextual bot icon in the header');
-    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped');
+    assert.ok(html.includes('id="botBody"') && html.includes("['bot', 'Bot']"), 'per-combo bot config shipped as a settings tab (#108)');
     assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
     assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
@@ -968,8 +975,8 @@ test('save_strategy scope defaulting from the current view (#75): dedicated draf
 test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped');
-    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
+    assert.ok(html.includes('id="botBody"'), 'per-combo bot config shipped (embedded settings tab, #108)');
+    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot config carries setup + strategy tabs, setup first');
     assert.ok(html.includes('id="bm-setup"') && html.includes('id="bm-strategy"'), 'both tab bodies present');
     assert.match(html, /bmStratSel/, 'scope-filtered strategy assignment select present');
     assert.match(html, /bmShowAll/, '"show all" scope-escape checkbox present');
@@ -1144,13 +1151,14 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.match(ctx, /Hold through FOMC unless stopped out\./);
 
     const html = await (await fetch(base + '/')).text();
-    // #90: memories live in their own dedicated modal, not the settings dialog
-    const cfgSection = html.slice(html.indexOf('<dialog id="cfgdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="cfgdlg"')));
-    assert.ok(!cfgSection.includes('id="memList"'), 'settings modal no longer ships the trader memories section');
-    const memSection = html.slice(html.indexOf('<dialog id="memdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="memdlg"')));
-    assert.ok(memSection.includes('id="memList"') && memSection.includes('id="memArchivedWrap"'), 'dedicated memories modal ships list + archived count');
-    assert.ok(memSection.includes('id="memNewContent"') && memSection.includes('id="memAddBtn"'), 'dedicated memories modal ships an add affordance (new memory input + button)');
-    assert.ok(html.includes('id="memBtn"'), 'header carries a dedicated memories entry point');
+    // #108: memories is a tab inside the consolidated settings modal — the static
+    // cfgdlg markup stays empty (panels are rendered by cfg()); the container ids
+    // live in the inline script and the standalone memdlg is gone.
+    assert.ok(!html.includes('<dialog id="memdlg"'), 'standalone memories dialog removed');
+    assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'memories tab ships list + archived count');
+    assert.ok(html.includes('id="memNewContent"') && html.includes('id="memAddBtn"'), 'memories tab ships an add affordance (new memory input + button)');
+    assert.ok(html.includes("['mem', 'Memories']"), 'memories is a consolidated settings tab (#108)');
+    assert.ok(html.includes('id="memBtn"'), 'header carries a memories entry point');
   });
 });
 
@@ -1201,13 +1209,12 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     assert.equal(deact.ok, true);
     assert.equal(activeGatePrompt(dbPath, 'filter'), null);
 
-    // #90: gates live in their own dedicated modal, not the settings dialog
+    // #108: gates is a tab inside the consolidated settings modal (was a standalone dialog)
     const html = await (await fetch(base + '/')).text();
-    const cfgSection = html.slice(html.indexOf('<dialog id="cfgdlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="cfgdlg"')));
-    assert.ok(!cfgSection.includes('id="gatesList"'), 'settings modal no longer ships the gates transparency section');
-    const gateSection = html.slice(html.indexOf('<dialog id="gatedlg"'), html.indexOf('</dialog>', html.indexOf('<dialog id="gatedlg"')));
-    assert.ok(gateSection.includes('id="gatesList"'), 'dedicated gates modal ships the gates transparency section');
-    assert.ok(html.includes('id="gateBtn"'), 'header carries a dedicated gates entry point');
+    assert.ok(!html.includes('<dialog id="gatedlg"'), 'standalone gates dialog removed');
+    assert.ok(html.includes('id="gatesTabs"') && html.includes('id="gatesList"'), 'gates tab ships the gates transparency section');
+    assert.ok(html.includes("['gates', 'Gates']"), 'gates is a consolidated settings tab (#108)');
+    assert.ok(html.includes('id="gateBtn"'), 'header carries a gates entry point');
   });
 });
 
