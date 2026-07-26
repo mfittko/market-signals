@@ -455,6 +455,9 @@ test('fetchSentinelNews: NewsAPI.ai + free are unioned — paid items lead, free
   assert.ok(res.items.some((it) => it.provider === 'newsapi-ai'), 'paid story present in the result');
   assert.ok(res.items.some((it) => it.title === 'Free-only oil story'), 'free-only story merged into the result (not suppressed)');
   assert.equal(res.items[0].provider, 'newsapi-ai', 'paid item leads (wins dedup on collision)');
+  // provenance intact: every provider's in-window sighting still recorded in `observed`
+  assert.ok(res.observed.some((it) => it.title === 'Free-only oil story'), 'free story recorded in observed');
+  assert.ok(res.observed.some((it) => it.provider === 'newsapi-ai'), 'paid story recorded in observed');
 });
 
 test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative false)', async () => {
