@@ -169,6 +169,11 @@ test('a per-combo run leaves positions of instruments it did not quote untouched
   const r2 = markToMarket(db, CFG, { 'XAG/USD': 59.5 });
   assert.equal(byName(r2, WTI).stale, false, 'unrelated run must not flag WTI stale');
   assert.equal(byName(r2, WTI).last_mark, 87.5);
+  // a prototype key is not a quote: an instrument named "constructor" must be
+  // treated as absent, not as quoted-with-a-junk-price (Copilot #152)
+  openPosition(db, CFG, { instrument: 'constructor', side: 'long', notional: 1000, price: 5, stop: 1 });
+  const r3 = markToMarket(db, CFG, { 'XAG/USD': 59.6 });
+  assert.equal(byName(r3, 'constructor').stale, false, 'prototype key must not count as a quote');
 });
 
 test('invariant: equity == starting + Σrealized + Σunrealized over random sequences', () => {

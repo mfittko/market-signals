@@ -214,7 +214,9 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
   return pdb(dbPath, cfg, (db) => {
     const closed = [];
     for (const pos of db.prepare('SELECT * FROM positions').all()) {
-      if (!(pos.instrument in quotes)) continue;
+      // own-property only: `in` would count prototype keys, so an instrument
+      // named "constructor" would take the quoted path and get staled.
+      if (!Object.hasOwn(quotes, pos.instrument)) continue;
       const q = quotes[pos.instrument];
       if (!(q > 0)) {
         db.prepare('UPDATE positions SET stale=1 WHERE id=?').run(pos.id);
