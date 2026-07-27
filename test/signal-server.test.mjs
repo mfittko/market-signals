@@ -1984,11 +1984,14 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
     assert.match(html, /botDecision\.reasoning/, 'verdict row renders the escaped bot annotation');
     assert.match(html, /class="botnote"/, 'bot note is its own dimmed line, not an inline fragment (#78)');
     assert.ok(!/reasoning\s*\.\s*slice\s*\(/.test(html), 'reasoning is no longer truncated at all (#78)');
-    // pin the LOGIC that applies the class, not just the class name existing in CSS
-    assert.match(html, /action\s*===\s*'hold'/, 'overruled state derives from a hold decision (#78)');
-    assert.match(html, /overruled\s*\?\s*'overruled'\s*:/, 'the side label picks overruled over buy/sell (#78)');
-    assert.equal((html.match(/overruled\s*\?\s*'overruled'\s*:/g) || []).length, 2, 'both the verdict row and history rows grey an overruled signal');
-    assert.match(html, /\.overruled \{ color: #8b949e; \}/, 'overruled styling present');
+    // #164: the signal word is strictly buy/sell — a hold decision no longer
+    // recolours it grey. Instead a labelled two-lane display (gates:/bot:) plus
+    // a relationship badge ("⚑ declined an alert" etc) carries that signal.
+    assert.ok(!/overruled/.test(html), 'the .overruled recolouring is gone (#164)');
+    assert.match(html, /gatesBotBadge/, 'a shared gates/bot relationship-badge function renders both the verdict row and history rows');
+    assert.match(html, /⚑ declined an alert/, 'the amber "declined an alert" badge vocabulary is present');
+    assert.match(html, /⚑ acted against gates/, 'the amber "acted against gates" badge vocabulary is present');
+    assert.match(html, /✓ agreed/, 'the muted agreement badge vocabulary is present');
     assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
 
     const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString();

@@ -867,6 +867,57 @@ test('processSignal (#98): a reasoning-model null-content openai filter fails OP
   } finally { await new Promise((r) => srv.close(r)); }
 });
 
+test('processSignal (#164): non-pi filter llmRequest uses a 90s timeout, not 30s (Makora/GLM generations routinely exceed 30s)', async () => {
+  const realTimeout = AbortSignal.timeout;
+  const seen = [];
+  AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { content: '{"alert":true,"reason":"ok"}' } }] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
+    await processSignal(opts, result, c);
+    assert.ok(seen.length > 0, 'the filter call went through fetch/AbortSignal.timeout');
+    assert.ok(seen.every((ms) => ms === 90000), `expected every AbortSignal.timeout during this processSignal run to be 90000, saw ${seen}`);
+  } finally {
+    AbortSignal.timeout = realTimeout;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('recheckSignal (#164): non-pi recheck llmRequest also uses the 90s timeout', async () => {
+  const realTimeout = AbortSignal.timeout;
+  const seen = [];
+  AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ choices: [{ message: { content: '{"assessment":"played out","reason":"ok"}' } }] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  try {
+    AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const { opts, result, candles: c } = fixture(dir, { notify: false, settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
+    await processSignal(opts, result, c); // seeds the signal row + candles
+    seen.length = 0;
+    const { recheckSignal } = await import('../scripts/supertrend.mjs');
+    await recheckSignal(opts.db, opts.settings, opts.instrument, opts.granularity, result.signal).catch(() => {});
+    assert.ok(seen.length > 0, 'the recheck call went through fetch/AbortSignal.timeout');
+    assert.ok(seen.every((ms) => ms === 90000), `expected every AbortSignal.timeout during this recheckSignal run to be 90000, saw ${seen}`);
+  } finally {
+    AbortSignal.timeout = realTimeout;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
 test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rounds, reported once', async () => {
   const { llmChat } = await import('../scripts/supertrend.mjs');
   const realFetch = globalThis.fetch;

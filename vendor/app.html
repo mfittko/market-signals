@@ -144,10 +144,15 @@
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
-  /* the bot declined to act on this signal — the effective stance is neutral */
-  .overruled { color: #8b949e; }
   .botnote { margin-top: 4px; color: #8b949e; font-size: 12px; }
   .recheckline { margin-top: 4px; font-size: 12px; }
+  /* #164: two-lane gates/bot relationship badge — amber = the bot's decision
+     diverged from the gate lane, muted = agreement/exit/no-bot, never buy/sell
+     colours (those stay reserved for the signal word itself). */
+  .lanes { margin-top: 4px; }
+  .lane { color: #8b949e; font-size: 12px; }
+  .badge-amber { color: #d29922; }
+  .badge-muted { color: #8b949e; }
   #recheckBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
   #recheckBtn:disabled { opacity: 0.5; cursor: default; }
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
@@ -203,6 +208,8 @@
   dialog { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px;
            padding: 18px 20px; min-width: min(420px, 92vw); max-width: 92vw; box-sizing: border-box; position: relative; }
   dialog::backdrop { background: rgba(1, 4, 9, 0.7); }
+  /* #164 F26: a stable floor so switching tabs (perf/audit/etc) never re-centres the dialog */
+  #pfdlg, #botdlg { min-height: min(420px, 70vh); }
   dialog h2 { margin-top: 0; }
   .dlg-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; color: #8b949e;
            font-size: 18px; line-height: 1; padding: 4px 6px; cursor: pointer; height: auto;
@@ -264,7 +271,8 @@
 <form id="cfg"></form>
 </dialog>
 <h2>Signal history <small>· current chart window</small></h2>
-<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>verdict</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
+<p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
+<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>gates</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
 <button type="button" id="histMore" hidden>load 10 more</button>
 </main>
 <aside>
@@ -293,7 +301,7 @@ const INFO = {
   change1h: 'Price change over the last hour.',
   change24h: 'Price change over the last 24 hours.',
   forming: 'When this price was last retrieved from the provider. The candle it belongs to is still forming, so it is provisional — signals and bot actions use closed candles only.',
-  verdict: 'alert means every axis gate cleared; suppress means at least one axis vetoed the signal.',
+  gates: 'gates: alert means every axis gate cleared; suppress means at least one axis vetoed the signal. This lane is advisory — it never trades.',
   equity: 'Equity: cash plus unrealized P&L of open positions.',
   pnl: 'Total P&L: realized plus unrealized.',
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
@@ -312,7 +320,7 @@ const INFO = {
   memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
   botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
   botDecision: 'What the bot did on this signal: hold (no trade), open (entered a position), or close (exited one) — full reasoning and history in portfolio → audit.',
-  recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded verdict above — the result renders as its own line.',
+  recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded gates outcome above — the result renders as its own line.',
   info: 'Toggle styled hover explanations for metrics across the UI.',
   settings: 'Watcher and filter settings.',
   memories: 'Standing notes/preferences the copilot and bot weigh as advisory context — never a substitute for the fail-safe clamps.',
@@ -378,7 +386,7 @@ async function portfolio() {
   // bot_trades, not just the 50-row pf.trades slice this page also renders).
   const totalPnl = pf.realizedTotal + pf.unrealized;
   mini.innerHTML =
-    '<b data-info="' + esc(INFO.equity) + '">' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
+    '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
   const dayPnl = pf.dayPnl;
   document.getElementById('pfChips').innerHTML =
@@ -401,9 +409,10 @@ async function portfolio() {
     ' · <span title="execution time">opened ' + esc(localFull(p.entry_time)) + '</span></span>').join('');
   sparkline(pf);
   }
+  // #164 (F17): equity+cash live in the always-visible strip — the modal header
+  // keeps only what the strip doesn't show (margin, unrealized, status)
   document.getElementById('pfHead').innerHTML =
-    '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b> · cash ' + esc(pf.cash.toFixed(2)) +
-    ' · <span data-info="' + esc(INFO.margin) + '">margin ' + esc(pf.marginLocked.toFixed(2)) + '</span>' +
+    '<span data-info="' + esc(INFO.margin) + '">margin ' + esc(pf.marginLocked.toFixed(2)) + '</span>' +
     ' · unrealized <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> · ' + status;
   document.getElementById('pfPositions').innerHTML = pf.positions.map(p => {
     const age = Math.round((Date.now() - Date.parse(p.entry_time)) / 60000);
@@ -666,7 +675,7 @@ async function renderOverviewBots() {
   const off = r.bots.filter(b => !b.enabled);
   const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
     (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won’t trade</span>') + '</span>' +
-    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '×' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + b.trades + ' trades · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
+    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '×' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + nTrades(b.trades) + ' · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
     (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
     '<button class="jump" data-combo="' + esc(b.combo) + '" aria-label="open this bot’s view (' + esc(b.combo) + ')" title="open this bot’s view">→</button></div>';
   list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click 🤖 in the header to configure a bot for that view.</div>') +
@@ -692,13 +701,25 @@ async function renderEvaluation() {
   const r = await (await fetch('/api/evaluation?' + evalParams)).json();
   if (!r.ok) return;
   const perf = document.getElementById('tab-performance');
+  // #164 (F19): honesty over precision-theater — a 100% "win rate" on 2 trades
+  // isn't a rate, it's a coin flip; below n=20 show the raw W-L record instead,
+  // and flag n<5 as descriptive-only. PF of ∞ (no losing trade yet) is "—",
+  // not a real number to trust.
+  const winRateCell = (s) => {
+    if (s.trades < 20) {
+      const draws = s.trades - (s.wins ?? 0) - (s.losses ?? 0);
+      return esc(s.wins ?? 0) + 'W-' + esc(s.losses ?? 0) + 'L' + (draws > 0 ? '-' + esc(draws) + 'B' : '') + (s.trades < 5 ? ' <span title="fewer than 5 trades — descriptive only, not predictive">⚠ n&lt;5</span>' : '');
+    }
+    return esc(s.winRatePct ?? '—') + '%';
+  };
   const rowsHtml = r.scoreboard.map(s =>
-    '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + s.trades +
-    '</td><td>' + esc(s.winRatePct ?? '—') + '%</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
-    '</td><td>' + esc(s.profitFactor == null ? '—' : (s.profitFactor === 'inf' ? '∞' : Number(s.profitFactor).toFixed(2))) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
+    '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + nTrades(s.trades) +
+    '</td><td>' + winRateCell(s) + '</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
+    '</td><td>' + esc(s.profitFactor == null || s.profitFactor === 'inf' ? '—' : Number(s.profitFactor).toFixed(2)) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
   const b = r.baselines;
   perf.innerHTML = '<table><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th>PF</th><th>max DD</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="6">no attributed trades yet</td></tr>') + '</tbody></table>' +
-    (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + esc(b.flipFollowing.winRatePct ?? '—') + '% win / ' + esc(b.flipFollowing.totalReturnPct ?? '—') + '% return (' + esc(b.flipFollowing.trades ?? 0) + ' trades) · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
+    '<p class="lane">realized figures exclude open positions.</p>' +
+    (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + winRateText(b.flipFollowing.winRatePct) + ' win / ' + winRateText(b.flipFollowing.totalReturnPct) + ' return (' + nTrades(b.flipFollowing.trades) + ') · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
   // execSizing (#83/#85) carries what actually happened at open (effective,
   // sized-down notional), not the LLM's raw ask — the decision journal on its
   // own only ever had the requested figure, which disagreed with the position
@@ -940,9 +961,9 @@ function quoteStrip(q) {
 }
 
 // #70: a re-check verdict picks buy/sell-style coloring for valid/invalidated
-// and the #78 .overruled grey for played-out — NOT the literal 'overruled' ?
-// ternary shape (that pattern is pinned to the bot-hold override elsewhere).
-function recheckCls(v) { return v === 'valid' ? 'buy' : v === 'invalidated' ? 'sell' : 'overruled'; }
+// and muted grey for played-out — bot agreement/disagreement is a separate
+// badge (gatesBotBadge), never a recolour of the signal or recheck word.
+function recheckCls(v) { return v === 'valid' ? 'buy' : v === 'invalidated' ? 'sell' : 'badge-muted'; }
 function recheckLabel(v) { return v === 'valid' ? 'still valid' : v === 'invalidated' ? 'invalidated' : 'played out'; }
 function renderRecheckLine(r) {
   if (!r) return '';
@@ -951,25 +972,64 @@ function renderRecheckLine(r) {
   if (r.error) return '<div class="recheckline sell">🔁 re-check failed — ' + esc(r.error) + '</div>';
   return '<div class="recheckline ' + recheckCls(r.verdict) + '" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁 re-check ' + esc(localHm(r.at)) + ' · ' + esc(recheckLabel(r.verdict)) + (r.reason ? ' — ' + esc(r.reason) : '') + '</div>';
 }
+// #164 (F3): raw stored reasons from a since-fixed server bug (#98's null-.match
+// crash, pre-2026-07-24) or a fire-and-forget backfill row shouldn't stay
+// cryptic forever — heal them at RENDER time (no data rewrite) into a plain
+// explanation, keeping the raw string as the title for anyone who needs it.
+function friendlyReason(verdictWord, raw) {
+  if (verdictWord === 'backfill' && !raw) return { text: 'backfilled — no live gate', title: '' };
+  if (raw && /^filter error:/.test(raw)) {
+    const timedOut = /timeout|timed out|ETIMEDOUT/i.test(raw);
+    return { text: timedOut ? 'gate unavailable (timed out)' : 'gate unavailable (internal error)', title: raw };
+  }
+  return { text: raw || '', title: raw || '' };
+}
+// #164 (F19): "?%" is not a number — n/a reads honestly for an unrecorded win rate.
+function winRateText(v) { return v == null ? 'n/a' : esc(v) + '%'; }
+function nTrades(n) { return esc(n ?? 0) + ((n ?? 0) === 1 ? ' trade' : ' trades'); }
+// #164 (F3): the gates lane (advisory, never trades) vs the bot lane (the only
+// lane that can move money) plus a relationship badge — see docs/ux-redesign-
+// plan.md §4 for the exact vocabulary/colour table this implements.
+function gatesBotBadge(gateVerdict, botDecision) {
+  if (!botDecision) return { text: '— no bot on this view', cls: 'badge-muted' };
+  if (botDecision.action === 'close') return { text: '↩ exit', cls: 'badge-muted' };
+  // a relationship badge needs BOTH lanes: backfill/unfiltered rows have no
+  // live gate stance to agree or disagree with
+  if (gateVerdict !== 'suppress' && gateVerdict !== 'alert') return null;
+  if (gateVerdict === 'suppress' && botDecision.action === 'open') return { text: '⚑ acted against gates', cls: 'badge-amber' };
+  if (gateVerdict === 'alert' && botDecision.action === 'hold') return { text: '⚑ declined an alert', cls: 'badge-amber' };
+  return { text: '✓ agreed', cls: 'badge-muted' };
+}
+const BOT_ACTION_LABEL = { open: 'OPENED', hold: 'HELD', close: 'CLOSED' };
+function renderLanes(s, botDecision) {
+  const gr = friendlyReason(s.verdict, s.reason);
+  const gateLane = '<div class="lane" data-info="' + esc(INFO.gates) + '" title="' + esc(gr.title || INFO.gates) + '">gates: <b>' + esc((s.verdict || 'unfiltered').toUpperCase()) + '</b>' + (gr.text ? ' · ' + esc(gr.text) : '') + '</div>';
+  const botLane = botDecision
+    ? '<div class="lane botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: <b>' + esc(BOT_ACTION_LABEL[botDecision.action] || botDecision.action.toUpperCase()) + '</b>' + (botDecision.reasoning ? ' · ' + esc(botDecision.reasoning) : '') + '</div>'
+    : '';
+  const badge = gatesBotBadge(s.verdict, botDecision);
+  const badgeLine = badge ? '<div class="lane ' + badge.cls + '">' + esc(badge.text) + '</div>' : '';
+  return '<div class="lanes">' + gateLane + botLane + badgeLine + '</div>';
+}
 function verdict(s, botDecision, recheck, view) {
   const el = document.getElementById('verdict');
   if (!s) { el.textContent = 'No recorded signal yet.'; return; }
   const out = fmtOutcome(s.outcomePct);
   const adv = fmtOutcome(s.adverseOutcomePct, s.adverseOpen);
-  const botNote = botDecision ? '<div class="botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + esc(botDecision.action) + ' — ' + esc(botDecision.reasoning) + '</div>' : '';
-  const overruled = botDecision && botDecision.action === 'hold';
   // #70 follow-up: /api/recheck always re-checks the LATEST signal — the
   // button must only render when the shown signal IS that latest one, never
   // on a deep-linked historical view, or a click would re-check a different
   // signal than the one displayed. A past re-check line (if any) still shows
   // for a historical signal — read-only, no new-recheck affordance.
   const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
-  el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
-    ' — <span title="candle time">' + esc(localFull(s.time)) + '</span> · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
-    (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min: <b>' + out + '</b> · to reversal: <b>' + adv + '</b>' +
-    ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' +
+  // #164 (F3): the signal word itself is strictly buy/sell — the bot's
+  // agreement/disagreement is now a separate labelled badge, not a recolour.
+  el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
+    ' — <span title="candle time">' + esc(localFull(s.time)) + '</span>' +
+    ' · 30-min: <b>' + out + '</b> · to reversal: <b>' + adv + '</b>' +
+    ' · window win rate at signal: ' + winRateText(s.win_rate) +
     recheckBtn +
-    botNote + '<div id="recheckLine">' + renderRecheckLine(recheck) + '</div>';
+    renderLanes(s, botDecision) + '<div id="recheckLine">' + renderRecheckLine(recheck) + '</div>';
   const recheckBtnEl = document.getElementById('recheckBtn');
   if (recheckBtnEl) recheckBtnEl.onclick = async () => {
     const btn = document.getElementById('recheckBtn');
@@ -1002,10 +1062,14 @@ function histRow(s, botDecisions) {
   const out = fmtOutcome(s.outcomePct);
   const adv = fmtOutcome(s.adverseOutcomePct, s.adverseOpen);
   const bd = botDecisions && botDecisions[s.time];
-  const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
-  const overruled = bd && bd.action === 'hold';
-  tr.innerHTML = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
-    '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + out + '</td><td>' + adv + '</td>';
+  const gr = friendlyReason(s.verdict, s.reason);
+  const badge = bd ? gatesBotBadge(s.verdict, bd) : null; // history rows: no per-row "no bot" restatement
+  const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(BOT_ACTION_LABEL[bd.action] || bd.action.toUpperCase()) + '</span>' : '';
+  const badgeNote = badge ? ' · <span class="' + badge.cls + '">' + esc(badge.text) + '</span>' : '';
+  // #164 (F3): the signal word stays strictly buy/sell — the badge above carries
+  // the agreement/disagreement signal instead of recolouring it.
+  tr.innerHTML = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    '</td><td>' + esc((s.verdict || '—').toUpperCase()) + '</td><td title="' + esc(gr.title) + '">' + esc(gr.text) + botNote + badgeNote + '</td><td>' + out + '</td><td>' + adv + '</td>';
   return tr;
 }
 function history(list, botDecisions, view) {
