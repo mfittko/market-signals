@@ -92,3 +92,17 @@ test('foldChange: records completion delay when a newly completed bar appears', 
   assert.equal(sum.completionDelayMsMax, 2400);
   assert.equal(sum.completionSamples, 1);
 });
+
+test('foldChange: a non-finite or negative completion delay is dropped, not folded into the stats', () => {
+  const step = 60000;
+  let st = initState();
+  st = foldChange(st, { at: T0 + 5 * step, requestMs: 5, stepMs: step, lastComplete: { time: bar(4).time }, forming: null });
+  // caller omitted stepMs -> NaN delay
+  st = foldChange(st, { at: T0 + 6 * step + 500, requestMs: 5, lastComplete: { time: bar(5).time }, forming: null });
+  // unparseable upstream timestamp
+  st = foldChange(st, { at: T0 + 7 * step + 500, requestMs: 5, stepMs: step, lastComplete: { time: 'not-a-date' }, forming: null });
+  // clock skew: served BEFORE the bar closed
+  st = foldChange(st, { at: T0 + 7 * step - 4000, requestMs: 5, stepMs: step, lastComplete: { time: bar(7).time }, forming: null });
+  assert.deepEqual(st.completionDelays, [], 'no junk samples recorded');
+  assert.equal(summarize(st).completionDelayMsMedian, null, 'median stays null rather than NaN');
+});

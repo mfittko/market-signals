@@ -58,8 +58,12 @@ export function foldChange(state, sample) {
   // treat it as an upper bound, not an exact figure.
   const completionDelays = state.completionDelays.slice();
   const seen = sample.lastComplete?.time ?? null;
-  if (seen && seen !== state.lastCompleteTime) {
-    if (state.lastCompleteTime != null) completionDelays.push(sample.at - (Date.parse(seen) + sample.stepMs));
+  if (seen && seen !== state.lastCompleteTime && state.lastCompleteTime != null) {
+    const d = sample.at - (Date.parse(seen) + sample.stepMs);
+    // Drop non-finite (unparseable upstream time, or a caller that omitted
+    // stepMs) and negative values (clock skew — a bar cannot be served before
+    // it closes). One bad sample would otherwise poison the median.
+    if (Number.isFinite(d) && d >= 0) completionDelays.push(d);
   }
   return {
     lastForming: cur ?? prev,
