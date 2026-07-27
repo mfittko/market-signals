@@ -238,7 +238,12 @@ const lastLiveFetch = new Map(); // key -> { at, tail }: upstream fetch gate, fo
 // latency. 10s bounds the displayed forming candle at ~20s old including the
 // client's own tick, at ~6 requests/min per OPEN chart. Adaptive/incident-scoped
 // cadence stays out of scope here (#145 phase 2).
-export const LIVE_TAIL_GATE_MS = 10000;
+// Deliberately BELOW the client's 10s tick. At exactly 10s the two beat against
+// each other: roughly every other tick lands a few ms inside the gate, gets the
+// cached tail back, and is a wasted request — measured effective refresh was
+// ~20s, not ~10s. 8s means every tick finds the gate open, for the same request
+// count (#156).
+export const LIVE_TAIL_GATE_MS = 8000;
 
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
