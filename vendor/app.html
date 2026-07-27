@@ -40,17 +40,37 @@
   #app.chat-collapsed { grid-template-columns: 1fr; }
   #app.chat-collapsed > aside, #app.chat-collapsed > #asideResize { display: none; }
   #chatToggle.on { background: #1f6feb33; border-color: #1f6feb; }
+  /* default: expand toggle + detail row hidden until the <900px media query
+     below opts them in (must come BEFORE that query — equal specificity,
+     source order decides, and this rule used to be declared after it,
+     permanently hiding detail rows at every width). */
+  .rowExpandCell, table.collapsible tr.rowDetail { display: none; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #asideResize { display: none; }
     aside { position: static; height: auto; border-left: 0; border-top: 1px solid #30363d; }
     #msgs { max-height: 45vh; min-height: 120px; }
-    #wrap { height: 320px !important; }
 
-    table { display: block; overflow-x: auto; white-space: nowrap; }
+    /* #168 F10: collapse to key columns instead of horizontal-scrolling a
+       reason column — collapsible tables opt in via .collapsible + mark the
+       columns to hide with .mobile-hide; the hidden cells surface in the
+       row's expand toggle instead. */
+    table.collapsible th.mobile-hide, table.collapsible td.mobile-hide { display: none; }
+    table.collapsible .rowExpandCell { display: table-cell; }
+    table.collapsible tr.rowDetail { display: table-row; }
     dialog form, dialog .advgrid { grid-template-columns: 1fr; }
     dialog form button { grid-column: auto; }
+
+    /* #168 wfn: tables without the collapsible opt-in (chat markdown tables,
+       audit) still need a mobile fallback — horizontal scroll instead of
+       overflow/squash. */
+    table:not(.collapsible) { display: block; overflow-x: auto; }
   }
+  /* #168: chart height clamp (spec: min 260px, 45vh, max 460px) replaces the
+     old fixed 460px + mobile !important override — one rule, every viewport. */
+  #wrap { height: clamp(260px, 45vh, 460px); }
+  .rowExpandBtn { background: none; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; cursor: pointer; font-size: 12px; padding: 1px 7px; }
+  tr.rowDetail td { white-space: normal; cursor: default; background: #0d1117; }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
   #pf { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px; margin: 10px 0; }
   #pf summary { cursor: pointer; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; }
@@ -252,31 +272,31 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
-<div id="wrap" style="height:460px"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
+<div id="wrap"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
 <details id="pf" hidden>
   <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
 </details>
-<dialog id="pfdlg">
+<dialog id="pfdlg" aria-labelledby="pfDlgTitle">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-  <h2 id="pfDlgTitle">ledger <small>(bot-only — view)</small></h2>
+  <h2 id="pfDlgTitle">portfolio <small>(paper trading — view only)</small></h2>
   <div id="pfHead"></div>
   <div id="haltBanner" hidden></div>
-  <div id="pfTabs">
-    <button data-tab="overview" class="on">equity</button><button data-tab="trades">all trades</button><button data-tab="performance">scoreboard</button><button data-tab="audit">audit</button>
+  <div id="pfTabs" role="tablist" aria-label="portfolio sections">
+    <button type="button" role="tab" aria-selected="true" data-tab="overview" class="on">equity</button><button type="button" role="tab" aria-selected="false" data-tab="trades">all trades</button><button type="button" role="tab" aria-selected="false" data-tab="performance">scoreboard</button><button type="button" role="tab" aria-selected="false" data-tab="audit">audit</button>
   </div>
   <div id="tab-overview">
     <div class="sparkbox">
       <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
       <div id="pfSparkLegend" class="sparklegend"></div>
     </div>
-    <p><small>Bots live in the fleet rail (left/top nav).</small></p>
+    <p><button id="pfShowBots" type="button">☰ show bots</button></p>
   </div>
   <div id="tab-trades" hidden>
     <div id="pfTradesHead" class="tradeshead"></div>
@@ -285,16 +305,16 @@
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
 </dialog>
-<dialog id="botdlg">
+<dialog id="botdlg" aria-labelledby="botTitle">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
   <h2 id="botTitle">🤖 bot</h2>
   <div id="botBody"></div>
 </dialog>
 <div class="verdict" id="verdict">loading…</div>
-<dialog id="cfgdlg">
+<dialog id="cfgdlg" aria-labelledby="cfgDlgTitle">
 <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-<h2>Settings</h2>
-<div id="cfgTabs" class="cfgtabs"></div>
+<h2 id="cfgDlgTitle">Settings</h2>
+<div id="cfgTabs" class="cfgtabs" role="tablist" aria-label="settings sections"></div>
 <form id="cfg"></form>
 </dialog>
 <div id="wsTabs" role="tablist" aria-label="workspace for the focused view">
@@ -303,9 +323,9 @@
   <button type="button" role="tab" aria-selected="false" data-tab="tuning">tuning</button>
 </div>
 <div id="ws-tape" role="tabpanel">
-<h2>Signal history <small>· current chart window</small></h2>
+<h2>Signal history <small id="histWindowLabel">· current chart window</small></h2>
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
-<table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>gates</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
+<table id="hist" class="collapsible"><thead><tr><th>time</th><th>signal</th><th>price</th><th class="mobile-hide">gates</th><th class="mobile-hide">reason</th><th title="+30min move (signal direction): directional return 30 minutes after the signal">+30min move</th><th class="mobile-hide" title="MFE to flip: directional return held until the next opposite signal (open = no reversal yet)">MFE to flip</th><th class="rowExpandCell"></th></tr></thead><tbody></tbody></table>
 <button type="button" id="histMore" hidden>load 10 more</button>
 </div>
 <div id="ws-trades" role="tabpanel" hidden>
@@ -348,7 +368,7 @@ const INFO = {
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
   bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy — won\'t trade (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
-  portfolio: 'Virtual trading portfolio ledger: equity · all trades · scoreboard · audit.',
+  portfolio: 'Virtual trading portfolio (paper money): equity · all trades · scoreboard · audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
   macd: 'MACD: trend and momentum oscillator (fast EMA minus slow EMA, with a signal line).',
@@ -405,7 +425,7 @@ async function load() {
   if (d.tz) TZ = d.tz;
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
@@ -443,6 +463,29 @@ function wsRefresh(view, { fromTick } = {}) {
   if (fromTick && sameCombo) return;
   wsRenderActive().catch(() => {});
 }
+// #168 (2.7): one ArrowLeft/ArrowRight/Home/End keyboard-nav helper for every
+// tab strip (wsTabs/pfTabs/cfgTabs/gatesTabs/bmtabs), per the WAI-ARIA tabs
+// pattern — moves focus and activates (dispatches a real click, so each
+// strip's own click handler still owns activation; behavior is unchanged,
+// only keyboard reach is added). Roving tabindex is skipped: every tab
+// button is already in the natural tab order, which is enough here.
+function tabStrip(container) {
+  if (!container || container.dataset.tabStripBound) return;
+  container.dataset.tabStripBound = '1';
+  container.addEventListener('keydown', (e) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+    const btns = [...container.querySelectorAll(':scope > button')];
+    const idx = btns.indexOf(document.activeElement);
+    if (idx === -1) return;
+    e.preventDefault();
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 :
+      e.key === 'ArrowLeft' ? (idx - 1 + btns.length) % btns.length : (idx + 1) % btns.length;
+    btns[next].focus();
+    btns[next].click();
+  });
+}
+// gatesTabs is bound in renderTuningTab (below) — it doesn't exist in the DOM until that render runs.
+for (const id of ['wsTabs', 'pfTabs', 'cfgTabs']) tabStrip(document.getElementById(id));
 document.getElementById('wsTabs').addEventListener('click', (e) => {
   const tab = e.target.dataset?.tab;
   if (!tab || tab === wsActiveTab) return;
@@ -498,7 +541,7 @@ async function portfolio() {
 }
 // #166: the canonical trade timeline (plan §5 C4) — the ONLY place a position
 // renders as a row, shared by the workspace [trades] tab (scoped to one
-// combo) and the ledger's "all trades" tab (every combo).
+// combo) and the portfolio's "all trades" tab (every combo).
 const CLOSE_REASON_CLS = { target: 'buy', stop: 'sell', 'bot-close': 'badge-blue', manual: 'badge-gray' };
 function tradeRowHtml(t, { showInstrument } = {}) {
   const sideCls = t.side === 'long' ? 'buy' : 'sell';
@@ -604,7 +647,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   let activeTab = 'setup';
   container.innerHTML =
-    '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
+    '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections"><button type="button" role="tab" aria-selected="true" data-tab="setup" class="on">setup</button><button type="button" role="tab" aria-selected="false" data-tab="strategy">strategy</button></div>' +
     '<div id="' + bid(prefix, '-setup') + '"></div><div id="' + bid(prefix, '-strategy') + '" hidden></div>';
   let modalState = isViewedCombo() ? botStateCache : null;
   const refreshModalState = async () => {
@@ -625,11 +668,12 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
     if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
   };
+  tabStrip(document.getElementById(bid(prefix, 'Tabs'))); // #168 (2.7): arrow-key nav, shared with wsTabs/pfTabs/cfgTabs/gatesTabs
   document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
     const tab = e.target.dataset?.tab;
     if (!tab) return;
     activeTab = tab;
-    for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) b.classList.toggle('on', b === e.target);
+    for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
     document.getElementById(bid(prefix, '-setup')).hidden = tab !== 'setup';
     document.getElementById(bid(prefix, '-strategy')).hidden = tab !== 'strategy';
     if (tab === 'strategy') await paint();
@@ -657,9 +701,10 @@ async function renderTuningTab(inst, gran) {
   // in-progress gate draft or memory input mid-keystroke.
   document.getElementById('ws-tuning').insertAdjacentHTML('beforeend',
     '<fieldset><legend>global — affects every bot</legend>' +
-    '<div class="gates-wrap"><div id="gatesTabs"></div><div id="gatesList"></div></div>' +
+    '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
     '<div><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
     '</fieldset>');
+  tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
   await renderGates();
   await renderMemories();
 }
@@ -714,7 +759,7 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
   };
   document.getElementById(bid(p, 'Kill')).onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   // "view in portfolio" closes the enclosing dialog first, if any (the tuning
-  // workspace tab has none — it just opens the ledger over the current page).
+  // workspace tab has none — it just opens the portfolio over the current page).
   document.getElementById(bid(p, 'ToPf')).onclick = () => { document.getElementById(bid(p, 'ToPf')).closest('dialog')?.close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   // #126: confirm before removing — it sits next to the primary action
   document.getElementById(bid(p, 'Remove')).onclick = async () => {
@@ -845,7 +890,7 @@ async function renderOverviewBots() {
 document.getElementById('pfTabs').addEventListener('click', async (e) => {
   const tab = e.target.dataset?.tab;
   if (!tab) return;
-  for (const b of document.querySelectorAll('#pfTabs button')) b.classList.toggle('on', b === e.target);
+  for (const b of document.querySelectorAll('#pfTabs button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
   for (const name of ['overview', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
   if (tab === 'overview') renderOverviewBots();
   if (tab === 'trades') {
@@ -871,14 +916,24 @@ async function renderEvaluation() {
     }
     return esc(s.winRatePct ?? '—') + '%';
   };
-  const rowsHtml = r.scoreboard.map(s =>
-    '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + nTrades(s.trades) +
-    '</td><td>' + winRateCell(s) + '</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
-    '</td><td>' + esc(s.profitFactor == null || s.profitFactor === 'inf' ? '—' : Number(s.profitFactor).toFixed(2)) + '</td><td>' + esc(s.maxDrawdownPct) + '%</td></tr>').join('');
+  // #168 F10: PF/max DD hide <900px (mobile-hide) behind a per-row expand
+  // toggle — strategy/trades/win rate/realized stay the 4 always-visible columns.
+  // #168 wfn: one expand mechanism (collapsibleRow), shared with histRow — no
+  // bespoke markup/delegated handler here.
   const b = r.baselines;
-  perf.innerHTML = '<table><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th>PF</th><th>max DD</th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="6">no attributed trades yet</td></tr>') + '</tbody></table>' +
+  perf.innerHTML = '<table class="collapsible"><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th class="mobile-hide">PF</th><th class="mobile-hide">max DD</th><th class="rowExpandCell"></th></tr></thead><tbody>' + (r.scoreboard.length ? '' : '<tr><td colspan="7">no attributed trades yet</td></tr>') + '</tbody></table>' +
     '<p class="lane">realized figures exclude open positions.</p>' +
     (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + winRateText(b.flipFollowing.winRatePct) + ' win / ' + winRateText(b.flipFollowing.totalReturnPct) + ' return (' + nTrades(b.flipFollowing.trades) + ') · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
+  const tb = perf.querySelector('tbody');
+  for (const s of r.scoreboard) {
+    const pf = esc(s.profitFactor == null || s.profitFactor === 'inf' ? '—' : Number(s.profitFactor).toFixed(2));
+    const dd = esc(s.maxDrawdownPct) + '%';
+    const mainCells = '<td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + nTrades(s.trades) +
+      '</td><td>' + winRateCell(s) + '</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
+      '</td><td class="mobile-hide">PF ' + pf + '</td><td class="mobile-hide">max DD ' + dd + '</td>';
+    const detailHtml = '<div class="lane">PF ' + pf + ' · max DD ' + dd + '</div>';
+    for (const row of collapsibleRow(mainCells, detailHtml, 7, 'profit factor and max drawdown')) tb.appendChild(row);
+  }
   // execSizing (#83/#85) carries what actually happened at open (effective,
   // sized-down notional), not the LLM's raw ask — the decision journal on its
   // own only ever had the requested figure, which disagreed with the position
@@ -1075,7 +1130,12 @@ function selectors(d) {
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
   // #166: selects always drive the chart directly (no hash, no visibility
   // gating) — same location.search pattern as every other state change here.
-  const go = () => { qs.set('instrument', inst.value); qs.set('granularity', gran.value); location.search = '?' + qs.toString(); };
+  // the user's explicit selection must WIN: a stale #bot hash left in place
+  // would be re-asserted by the boot redirect on reload (dead-UI bug, 27/07)
+  const go = () => {
+    qs.set('instrument', inst.value); qs.set('granularity', gran.value);
+    location.href = location.pathname + '?' + qs.toString(); // no hash — cleared deliberately
+  };
   inst.onchange = go; gran.onchange = go;
   // #167 (F9/F30): a labelled state word, not just a silent glyph swap, plus a
   // visible confirmation flash on change (the toggle otherwise gives no feedback
@@ -1368,16 +1428,38 @@ function verdict(s, botDecision, recheck, view) {
     }
   };
 }
-// signed, sign-coloured outcome %, with a muted × when the trade is still open
-// (no opposite signal has fired yet). null → em dash.
+// signed, sign-coloured outcome %, with a muted "open" word (not a bare ×)
+// when the trade is still open (no opposite signal has fired yet). Colour is
+// never the only signal: the sign character (+/-) always carries the
+// direction too. null → em dash.
 function fmtOutcome(v, open) {
   if (v == null) return '<span style="color:#8b949e">—</span>';
   return '<span class="' + (v >= 0 ? 'buy' : 'sell') + '">' + (v >= 0 ? '+' : '') + v + '%</span>' +
-    (open ? ' <span style="color:#8b949e" title="still open — no opposite signal yet">×</span>' : '');
+    (open ? ' <span style="color:#8b949e" title="still open — no opposite signal yet">open</span>' : '');
+}
+// #168 F10: pairs a compact row with a hidden detail row, toggled by a
+// button — CSS (table.collapsible) only shows the toggle + detail row
+// <900px; desktop already shows every column directly, nothing to expand.
+function collapsibleRow(mainCellsHtml, detailHtml, colspan, label) {
+  const tr = document.createElement('tr');
+  const btnId = 'rowExpand' + Math.random().toString(36).slice(2);
+  const detailId = 'rowDetail' + Math.random().toString(36).slice(2);
+  tr.innerHTML = mainCellsHtml + '<td class="rowExpandCell"><button type="button" id="' + btnId + '" class="rowExpandBtn" aria-expanded="false" aria-controls="' + detailId + '" aria-label="show ' + esc(label || 'more') + '">▸</button></td>';
+  const detail = document.createElement('tr');
+  detail.className = 'rowDetail';
+  detail.id = detailId;
+  detail.hidden = true;
+  detail.innerHTML = '<td colspan="' + colspan + '">' + detailHtml + '</td>';
+  tr.querySelector('.rowExpandBtn').onclick = (e) => {
+    e.stopPropagation();
+    const opening = detail.hidden;
+    detail.hidden = !opening;
+    e.currentTarget.setAttribute('aria-expanded', String(opening));
+    e.currentTarget.textContent = opening ? '▾' : '▸';
+  };
+  return [tr, detail];
 }
 function histRow(s, botDecisions) {
-  const tr = document.createElement('tr');
-  tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
   const out = fmtOutcome(s.outcomePct);
   const adv = fmtOutcome(s.adverseOutcomePct, s.adverseOpen);
   const bd = botDecisions && botDecisions[s.time];
@@ -1387,14 +1469,27 @@ function histRow(s, botDecisions) {
   const badgeNote = badge ? ' · <span class="' + badge.cls + '">' + esc(badge.text) + '</span>' : '';
   // #164 (F3): the signal word stays strictly buy/sell — the badge above carries
   // the agreement/disagreement signal instead of recolouring it.
-  tr.innerHTML = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
-    '</td><td>' + esc((s.verdict || '—').toUpperCase()) + '</td><td title="' + esc(gr.title) + '">' + esc(gr.text) + botNote + badgeNote + '</td><td>' + out + '</td><td>' + adv + '</td>';
-  return tr;
+  const mainCells = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+    '</td><td class="mobile-hide">' + esc((s.verdict || '—').toUpperCase()) + '</td><td class="mobile-hide" title="' + esc(gr.title) + '">' + esc(gr.text) + botNote + badgeNote + '</td><td>' + out + '</td><td class="mobile-hide">' + adv + '</td>';
+  // #168 F10: gates/reason/MFE-to-flip (already visible on desktop as their own
+  // columns) repeat here so the mobile toggle can reach them once those columns
+  // hide — only "time/signal/price/+30min move" stay visible <900px.
+  const detailHtml = '<div class="lane">gates: <b>' + esc((s.verdict || '—').toUpperCase()) + '</b>' + (gr.text ? ' · ' + esc(gr.text) : '') + '</div>' +
+    (botNote || badgeNote ? '<div class="lane">' + botNote.replace(/^ · /, '') + badgeNote + '</div>' : '') +
+    '<div class="lane">MFE to flip: ' + adv + '</div>';
+  const [tr, detail] = collapsibleRow(mainCells, detailHtml, 8, 'reason and gates');
+  tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
+  return [tr, detail];
 }
-function history(list, botDecisions, view) {
+// renamed from 'history' — a top-level classic-script function declaration
+// named 'history' OVERWRITES window.history entirely (27/07 dead-UI bug).
+function renderHistory(list, botDecisions, view) {
   const tb = document.querySelector('#hist tbody');
   tb.innerHTML = '';
-  for (const s of list) tb.appendChild(histRow(s, botDecisions));
+  for (const s of list) for (const row of histRow(s, botDecisions)) tb.appendChild(row);
+  // #164/#168 (F23): the label starts as "current chart window" and flips to
+  // "loaded history" once load-more pulls in signals beyond that window.
+  document.getElementById('histWindowLabel').textContent = '· current chart window';
   // "load 10 more" pages in older signals beyond the current chart window
   const more = document.getElementById('histMore');
   let oldest = list.length ? list[list.length - 1].time : null;
@@ -1406,8 +1501,11 @@ function history(list, botDecisions, view) {
       if (oldest) q.set('before', oldest);
       const r = await (await fetch('/api/signals?' + q)).json();
       const older = (r && r.signals) || [];
-      for (const s of older) tb.appendChild(histRow(s, botDecisions));
-      if (older.length) oldest = older[older.length - 1].time;
+      for (const s of older) for (const row of histRow(s, botDecisions)) tb.appendChild(row);
+      if (older.length) {
+        oldest = older[older.length - 1].time;
+        document.getElementById('histWindowLabel').textContent = '· loaded history';
+      }
       if (older.length < 10) more.hidden = true; // reached the start of history
     } finally { more.disabled = false; }
   };
@@ -1477,7 +1575,7 @@ async function cfg() {
   const active = CFG_TAB_IDS.includes(stored) ? stored : 'llm';
   const curProvider = s.activeProvider || 'none';
   document.getElementById('cfgTabs').innerHTML = CFG_TABS.map(([id, label]) =>
-    '<button type="button" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) +
+    '<button type="button" role="tab" aria-selected="' + (id === active) + '" data-tab="' + id + '"' + (id === active ? ' class="on"' : '') + '>' + esc(label) +
       (CFG_DIRTY_TABS.includes(id) ? '<span class="dirty" hidden> •</span>' : '') + '</button>').join('');
   const providerSelect = '<label for="f-provider">provider</label><select id="f-provider" name="provider">' +
     PROVIDER_OPTS.map(([v, lab]) => '<option value="' + esc(v) + '"' + (v === curProvider ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
@@ -1502,7 +1600,7 @@ async function cfg() {
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
-    for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+    for (const b of document.querySelectorAll('#cfgTabs button')) { b.classList.toggle('on', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); }
     for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
     foot.hidden = !CFG_DIRTY_TABS.includes(tab); // Save applies only to field tabs
   };
@@ -1587,13 +1685,13 @@ async function renderGates() {
   const storedTab = localStorage.getItem('gatesTab');
   const activeTab = GATE_ORDER.includes(storedTab) ? storedTab : 'filter';
   document.getElementById('gatesTabs').innerHTML = GATE_ORDER.map((name) =>
-    '<button type="button" data-tab="' + name + '"' + (name === activeTab ? ' class="on"' : '') + '>' + esc(name) + '</button>').join('');
+    '<button type="button" role="tab" aria-selected="' + (name === activeTab) + '" data-tab="' + name + '"' + (name === activeTab ? ' class="on"' : '') + '>' + esc(name) + '</button>').join('');
   list.innerHTML = GATE_ORDER.map((name) =>
     '<div class="gatepanel" data-panel="' + name + '"' + (name === activeTab ? '' : ' hidden') + '>' + panels[name] + '</div>').join('');
   document.getElementById('gatesTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('gatesTab', tab);
-    for (const b of document.querySelectorAll('#gatesTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
+    for (const b of document.querySelectorAll('#gatesTabs button')) { b.classList.toggle('on', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); }
     for (const p of list.querySelectorAll('.gatepanel')) p.hidden = p.dataset.panel !== tab;
   };
   list.querySelectorAll('.gatedraft').forEach((row) => {
@@ -1809,11 +1907,23 @@ loadThreads();
 // wins on first load — redirect the query string to match before fetching.
 (() => {
   const c0 = comboFromHash();
-  if (c0 && (qs.get('instrument') !== c0.inst || (qs.get('granularity') || 'M5') !== c0.gran)) {
+  if (!c0) return;
+  const qInst = qs.get('instrument'); const qGran = qs.get('granularity');
+  // #168: a PARTIAL explicit query (e.g. only ?instrument=, no granularity)
+  // that disagrees with the hash still counts as "explicit user action wins"
+  // — checking only the both-present case let a disagreeing hash silently
+  // override a partial query.
+  if ((qInst && qInst !== c0.inst) || (qGran && qGran !== c0.gran)) {
+    // query and hash disagree: the query is the newer, explicit user action —
+    // drop the stale hash instead of re-asserting it (dead-UI bug, 27/07)
+    window.history.replaceState(null, '', location.pathname + '?' + new URLSearchParams(location.search).toString());
+    return;
+  }
+  if (qInst !== c0.inst || (qGran || 'M5') !== c0.gran) {
     const p = new URLSearchParams(location.search);
     p.set('instrument', c0.inst); p.set('granularity', c0.gran);
     qs.set('instrument', c0.inst); qs.set('granularity', c0.gran);
-    history.replaceState(null, '', '?' + p.toString() + location.hash);
+    window.history.replaceState(null, '', '?' + p.toString() + location.hash);
   }
 })();
 load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
@@ -1968,6 +2078,12 @@ document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
     const next = !grid.classList.contains('rail-collapsed');
     localStorage.setItem('railCollapsed', next ? '1' : '0');
     apply(next);
+  });
+  // in-modal shortcut: close the portfolio dialog and make sure the rail shows
+  document.getElementById('pfShowBots')?.addEventListener('click', () => {
+    document.getElementById('pfdlg')?.close();
+    localStorage.setItem('railCollapsed', '0');
+    apply(false);
   });
 })();
 </script></body></html>
