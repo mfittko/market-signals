@@ -6,6 +6,7 @@
 // once on entry.
 import { readFileSync } from 'node:fs';
 import { withDb } from './supertrend.mjs';
+import { positionAttribution } from './evaluation.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS portfolio (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -277,4 +278,80 @@ export function portfolioView(dbPath, cfg) {
     trades: db.prepare(TRADES_QUERY).all(50),
     journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
   }));
+}
+
+// The canonical trade timeline (issue #162, docs/ux-redesign-plan.md §3): one
+// shape for a position's whole life, open or closed — open positions first
+// (chronology doesn't matter for a handful of live positions), then closed
+// trades from bot_trades newest-first. Attribution (combo/granularity/
+// strategyName) comes from the single shared positionAttribution() walk —
+// null for anything the journal never attributed.
+export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = null, state = null, limit = 100 } = {}) {
+  // computed before pdb() so we never hold two connections to the same db
+  const attribution = positionAttribution(dbPath);
+  return pdb(dbPath, cfg, (db) => {
+    const openAgeMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
+    // closed rows: ageMin is the HOLD duration, not elapsed-since-entry —
+    // otherwise it grows forever after close (#162 finding).
+    const closedAgeMin = (entry, close) => Math.round((Date.parse(close) - Date.parse(entry)) / 60000);
+    const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
+
+    // openReason: same per-position subquery pattern as viewInDb() — one query
+    // for all positions instead of one bot_journal SELECT per position (N+1).
+    const openRows = state === 'closed' ? [] : db.prepare(`SELECT p.*,
+        (SELECT reason FROM bot_journal j WHERE j.position_id = p.id AND j.action = 'open' ORDER BY j.id LIMIT 1) AS openReason
+      FROM positions p ORDER BY p.id DESC`).all()
+      .filter((p) => (!instrument || p.instrument === instrument))
+      .map((p) => {
+        const a = attribution.get(p.id) ?? null;
+        const gran = a?.granularity ?? null;
+        if (granularity && gran !== granularity) return null;
+        const pnl = unrealized(p, p.last_mark);
+        const { openReason } = p;
+        return {
+          id: p.id, state: 'open', instrument: p.instrument, granularity: gran,
+          ...rowFor(a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
+          margin: p.margin, entryPrice: p.entry_price, entryTime: p.entry_time,
+          mark: p.last_mark, exitTime: null, stop: p.stop, target: p.target,
+          pnl, pnlPct: p.margin > 0 ? Math.round((pnl / p.margin) * 10000) / 100 : null,
+          stale: !!p.stale, closeReason: null, openReason, ageMin: openAgeMin(p.entry_time),
+        };
+      }).filter(Boolean);
+
+    // Instrument filter pushed into SQL; granularity needs attribution so it
+    // stays post-SQL — iterate newest-first and stop at the remaining budget
+    // instead of loading the whole trade history.
+    const closedBudget = state === 'open' ? 0 : Math.max(0, limit - openRows.length);
+    const closedRows = [];
+    if (closedBudget > 0) {
+      const stmt = instrument
+        ? db.prepare('SELECT * FROM bot_trades WHERE instrument=? ORDER BY id DESC').iterate(instrument)
+        : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').iterate();
+      // Bounded scan (mirrors /api/bots' lastDecisionByCombo): granularity-only
+      // filters have no SQL pushdown, so cap the walk instead of scanning the
+      // whole table.
+      const SCAN_CEILING = 20000;
+      let scanned = 0;
+      for (const t of stmt) {
+        if (closedRows.length >= closedBudget || scanned >= SCAN_CEILING) break;
+        scanned++;
+        const a = attribution.get(t.position_id) ?? null;
+        const gran = a?.granularity ?? null;
+        if (granularity && gran !== granularity) continue;
+        // margin isn't stored on bot_trades but is derivable — keeps pnlPct
+        // comparable across open and closed rows (plan §3)
+        const margin = t.leverage > 0 ? t.notional / t.leverage : null;
+        closedRows.push({
+          id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
+          ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
+          margin, entryPrice: t.entry_price, entryTime: t.entry_time,
+          mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
+          pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
+          openReason: null, ageMin: closedAgeMin(t.entry_time, t.close_time),
+        });
+      }
+    }
+
+    return [...openRows, ...closedRows].slice(0, limit);
+  });
 }

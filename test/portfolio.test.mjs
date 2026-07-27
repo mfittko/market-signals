@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   BOT_DEFAULTS, botConfig, instrumentLeverage, instrumentSpread,
-  openPosition, closePosition, markToMarket, portfolioView, unrealized,
+  openPosition, closePosition, markToMarket, portfolioView, unrealized, tradeTimeline,
 } from '../scripts/portfolio.mjs';
+import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
+import { runBot } from '../scripts/bot.mjs';
+import { withDb } from '../scripts/supertrend.mjs';
 
 const WTI = 'WTICO/USD';
 const CFG = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 } } });
@@ -320,6 +323,121 @@ test('sequential trades fit within allocation (#83): $100-margin opens until the
   assert.equal(portfolioView(db, cfg).positions.length, 10, 'skip never opens a position');
 });
 
+
+async function attributedOpen(db, { instrument = WTI, granularity = 'M5', notional = 500, stop = 85, name = 'tt-strat' } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-'));
+  const bin = join(dir, 'pi');
+  writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho '{"action":"open","side":"long","notional":${notional},"stop":${stop},"reasoning":"tt fixture"}'\n`);
+  chmodSync(bin, 0o755);
+  // explicit per-combo binding by NAME (#75): two different strategy names can
+  // both be active=1 simultaneously (activation scopes by name), so the
+  // legacy single-active-strategy fallback is ambiguous with >1 name in play —
+  // bind this combo's bot to its name explicitly, like a real bot-modal assignment.
+  const settings = { provider: 'pi', piBin: bin, bot: { bots: { [`${instrument}|${granularity}`]: { enabled: true, strategyName: name, riskPct: 100 } } } };
+  const st = saveStrategy(db, { name, prompt: 'Open long on confirmed flips with a protective stop; hold otherwise.' });
+  activateStrategy(db, st.id);
+  const candle = { open: 87, high: 87.1, low: 86.9, close: 87, time: '2026-07-23T08:00:00.000000000Z', complete: true };
+  const r = await runBot(db, settings, { instrument, granularity, candle, quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+  return { positionId: r.executed.opened, strategyName: name };
+}
+
+test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first, attribution + unattributed', async () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  const { positionId: openPosId, strategyName } = await attributedOpen(db, { notional: 300 });
+  // an unattributed manual position, still open — combo/strategyName null
+  const unattrId = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  // an attributed, closed trade (second bot deliberation + manual close)
+  const { positionId: closedPosId } = await attributedOpen(db, { notional: 200, name: 'tt-strat-2' });
+  const { realized: closedRealized } = closePosition(db, cfg, closedPosId, 88, 'target');
+  // an unattributed closed trade
+  const unattrClosedId = openPosition(db, cfg, { instrument: WTI, side: 'short', notional: 100, price: 87 });
+  closePosition(db, cfg, unattrClosedId, 86, 'bot-close');
+
+  const rows = tradeTimeline(db, cfg);
+  const opens = rows.filter((r) => r.state === 'open');
+  const closeds = rows.filter((r) => r.state === 'closed');
+  assert.equal(opens.length, 2, 'both open positions present');
+  assert.equal(closeds.length, 2, 'both closed trades present');
+  assert.deepEqual(rows.map((r) => r.state), ['open', 'open', 'closed', 'closed'], 'open rows precede closed rows');
+
+  const openAttr = opens.find((r) => r.id === openPosId);
+  assert.equal(openAttr.instrument, WTI);
+  assert.equal(openAttr.granularity, 'M5');
+  assert.equal(openAttr.combo, `${WTI}|M5`);
+  assert.equal(openAttr.strategyName, strategyName);
+  assert.equal(openAttr.mark, 87, 'open row marks at last_mark');
+  assert.ok(Math.abs(openAttr.pnl - unrealized({ side: 'long', entry_price: openAttr.entryPrice, units: openAttr.units }, 87)) < 1e-9);
+  assert.ok(Math.abs(openAttr.pnlPct - (openAttr.pnl / openAttr.margin) * 100) < 0.01, 'pnlPct = pnl/margin*100 (rounded)');
+  assert.equal(openAttr.exitTime, null);
+  assert.equal(openAttr.closeReason, null);
+  assert.equal(openAttr.stop, 85, 'stop carried through');
+  assert.ok(Number.isFinite(openAttr.ageMin) && openAttr.ageMin >= 0, `ageMin finite and non-negative, got ${openAttr.ageMin}`);
+  assert.equal(openAttr.openReason, 'tt fixture', 'open row surfaces the journal open reason');
+
+  const openUnattr = opens.find((r) => r.id === unattrId);
+  assert.equal(openUnattr.combo, null);
+  assert.equal(openUnattr.granularity, null);
+  assert.equal(openUnattr.strategyName, null);
+
+  const closedAttr = closeds.find((r) => r.id === closedPosId);
+  assert.equal(closedAttr.combo, `${WTI}|M5`);
+  assert.equal(closedAttr.strategyName, 'tt-strat-2');
+  assert.equal(closedAttr.mark, 88, 'closed row marks at close_price');
+  assert.equal(closedAttr.pnl, closedRealized, 'realized P&L matches the value closePosition() actually recorded');
+  assert.ok(closedRealized > 0, 'sanity: a long entered at 87 and closed at 88 books a real, non-zero profit');
+  assert.equal(closedAttr.stop, null, 'closed rows carry no stop/target');
+  assert.equal(closedAttr.target, null);
+  assert.equal(closedAttr.closeReason, 'target');
+  assert.equal(closedAttr.openReason, null, 'closed rows do not carry an open reason');
+  assert.equal(closedAttr.exitTime !== null, true);
+
+  const closedUnattr = closeds.find((r) => r.id === unattrClosedId);
+  assert.equal(closedUnattr.combo, null);
+  assert.equal(closedUnattr.closeReason, 'bot-close');
+
+  // newest-first among closed: the trade closed LAST should sort first
+  assert.equal(closeds[0].id, unattrClosedId, 'closed rows are newest-first');
+});
+
+test('tradeTimeline (#162): closed-row ageMin is the HOLD duration, not elapsed-since-close', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  closePosition(db, cfg, id, 88, 'target');
+  // backdate entry/close so the trade "was held" for a known duration, long
+  // in the past — if ageMin were still elapsed-since-entry (the bug) this
+  // would report ~days old instead of the 45-minute hold.
+  withDb(db, (conn) => {
+    conn.prepare("UPDATE bot_trades SET entry_time=?, close_time=? WHERE position_id=?")
+      .run('2020-01-01T00:00:00.000Z', '2020-01-01T00:45:00.000Z', id);
+  });
+  const row = tradeTimeline(db, cfg, { state: 'closed' }).find((r) => r.id === id);
+  assert.equal(row.ageMin, 45, 'closed ageMin is the hold duration (close - entry), not now - entry');
+});
+
+test('tradeTimeline (#162): instrument/granularity/state filters and limit clamp', async () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  await attributedOpen(db, { instrument: WTI, granularity: 'M5', notional: 100 });
+  const otherId = openPosition(db, cfg, { instrument: 'SPX500/USD', side: 'long', notional: 100, price: 5000 });
+  closePosition(db, cfg, otherId, 5001, 'target');
+
+  const wtiOnly = tradeTimeline(db, cfg, { instrument: WTI });
+  assert.ok(wtiOnly.every((r) => r.instrument === WTI), 'instrument filter scopes both open and closed rows');
+
+  const m5Only = tradeTimeline(db, cfg, { granularity: 'M5' });
+  assert.ok(m5Only.every((r) => r.granularity === 'M5'), 'granularity filter excludes unattributed/foreign-granularity rows');
+  assert.equal(m5Only.length, 1, 'only the attributed M5 open position matches');
+
+  const openOnly = tradeTimeline(db, cfg, { state: 'open' });
+  assert.ok(openOnly.every((r) => r.state === 'open'));
+  const closedOnly = tradeTimeline(db, cfg, { state: 'closed' });
+  assert.ok(closedOnly.every((r) => r.state === 'closed'));
+  assert.equal(openOnly.length + closedOnly.length, tradeTimeline(db, cfg).length);
+
+  assert.equal(tradeTimeline(db, cfg, { limit: 1 }).length, 1, 'limit clamps the row count');
+});
 
 test('server-side sizing (#83): a tiny requested notional with budget available opens, is not mislabeled no-budget', () => {
   const db = fresh();
