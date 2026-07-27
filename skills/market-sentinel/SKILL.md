@@ -65,10 +65,11 @@ reason to bypass the stop/risk clamps.
 ## NewsAPI.ai preferred provider (issue #104)
 
 When `NEWSAPI_AI_KEY` is set, NewsAPI.ai (Event Registry) is the **preferred, effectively-primary** provider.
-**NewsAPI.ai-first (#115):** when it returns in-window results, the result is NewsAPI.ai **only** — the free
-stack is a fallback, used only when NewsAPI.ai is empty / disabled / errored / over-budget / unsupported query
-(`out.newsApiAi.authoritative` flags which). The free sources are still fetched and recorded in the provenance
-log (`observed`) for the trial benchmark; they're just not merged into the result. Without a key, behavior is
+**NewsAPI.ai-first, union (#115 revisited, #149):** in-window NewsAPI.ai and free-stack items are **merged**,
+not either/or — completeness beats speed. NewsAPI.ai items go first, so on a canonical (url/fuzzy-title)
+collision the richer NewsAPI.ai item wins the dedup. `out.newsApiAi.authoritative` is now diagnostic only: it
+flags that the paid provider returned in-window items and is not in shadow mode. The free sources are also
+recorded in the provenance log (`observed`) for the trial benchmark. Without a key, behavior is
 byte-for-byte the free stack. Never a single point of failure: any error/timeout/quota falls back to the free
 sources, and news stays advisory — it never bypasses the deterministic risk clamps or opens a trade.
 
