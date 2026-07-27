@@ -290,7 +290,10 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
   // computed before pdb() so we never hold two connections to the same db
   const attribution = positionAttribution(dbPath);
   return pdb(dbPath, cfg, (db) => {
-    const ageMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
+    const openAgeMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
+    // closed rows: ageMin is the HOLD duration, not elapsed-since-entry —
+    // otherwise it grows forever after close (#162 finding).
+    const closedAgeMin = (entry, close) => Math.round((Date.parse(close) - Date.parse(entry)) / 60000);
     const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
 
     // openReason: same per-position subquery pattern as viewInDb() — one query
@@ -311,7 +314,7 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
           margin: p.margin, entryPrice: p.entry_price, entryTime: p.entry_time,
           mark: p.last_mark, exitTime: null, stop: p.stop, target: p.target,
           pnl, pnlPct: p.margin > 0 ? Math.round((pnl / p.margin) * 10000) / 100 : null,
-          stale: !!p.stale, closeReason: null, openReason, ageMin: ageMin(p.entry_time),
+          stale: !!p.stale, closeReason: null, openReason, ageMin: openAgeMin(p.entry_time),
         };
       }).filter(Boolean);
 
@@ -324,8 +327,14 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
       const stmt = instrument
         ? db.prepare('SELECT * FROM bot_trades WHERE instrument=? ORDER BY id DESC').iterate(instrument)
         : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').iterate();
+      // Bounded scan (mirrors /api/bots' lastDecisionByCombo): granularity-only
+      // filters have no SQL pushdown, so cap the walk instead of scanning the
+      // whole table.
+      const SCAN_CEILING = 20000;
+      let scanned = 0;
       for (const t of stmt) {
-        if (closedRows.length >= closedBudget) break;
+        if (closedRows.length >= closedBudget || scanned >= SCAN_CEILING) break;
+        scanned++;
         const a = attribution.get(t.position_id) ?? null;
         const gran = a?.granularity ?? null;
         if (granularity && gran !== granularity) continue;
@@ -338,7 +347,7 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
           margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
           pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
-          openReason: null, ageMin: ageMin(t.entry_time),
+          openReason: null, ageMin: closedAgeMin(t.entry_time, t.close_time),
         });
       }
     }

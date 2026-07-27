@@ -3,6 +3,7 @@
 // trades journal, baselines from the same candle windows, and the decision
 // audit — all read-only, computed on demand from what #22/#23 already record.
 import { withDb, computeSupertrend, detectFlips, backtestFlips, granularityMs } from './supertrend.mjs';
+import { normCombo } from './bot.mjs';
 
 function rows(dbPath, sql, args = []) {
   return withDb(dbPath, (db) => {
@@ -47,6 +48,40 @@ export function positionAttribution(dbPath) {
   }
   attributionCache.set(dbPath, { maxId, map });
   return map;
+}
+
+// Most-recent decision per configured combo (bot.bots keys, "instrument|
+// granularity"), streamed newest-first with early exit once every combo is
+// found — a combo whose only decision is ancient still gets found (unlike a
+// fixed LIMIT scan), while a normal request only touches a handful of rows.
+export function lastDecisionByCombo(dbPath, combos) {
+  const wantedCombos = new Set(combos.map(normCombo));
+  return withDb(dbPath, (db) => {
+    const found = new Map();
+    let stmt;
+    try { stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC"); }
+    catch (err) { if (/no such table/i.test(String(err.message))) return found; throw err; }
+    // ponytail: 20k-row scan ceiling — only reachable when a configured combo
+    // has NEVER decided (its true answer is "never"); a combo whose only
+    // decision is older than the newest 20k shows "never" too — acceptable
+    // until #169's granularity column makes this a lookup.
+    let scanned = 0;
+    for (const j of stmt.iterate()) {
+      if (found.size >= wantedCombos.size || ++scanned > 20000) break;
+      let ctx;
+      try { ctx = JSON.parse(j.context); } catch { continue; }
+      let combo = `${ctx?.instrument}|${ctx?.granularity}`;
+      if (!wantedCombos.has(combo) && ctx?.instrument && !ctx?.granularity) {
+        // legacy decision rows carry no granularity — attribute them to the
+        // instrument's single configured combo when unambiguous
+        const candidates = [...wantedCombos].filter((c) => c.startsWith(`${ctx.instrument}|`));
+        if (candidates.length === 1) combo = candidates[0];
+      }
+      if (!wantedCombos.has(combo) || found.has(combo)) continue;
+      found.set(combo, { at: j.at, reason: j.reason });
+    }
+    return found;
+  });
 }
 
 // Pure metrics over a chronological list of realized trade P&Ls.
@@ -156,31 +191,47 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
 }
 
 // Decision audit: newest-first journal decisions with parsed context, filterable
-// by strategy id. Read-only; the exact pinned prompt text lives in strategies.
+// by strategy id/instrument/granularity. Streams newest-first via iterate() and
+// stops as soon as `limit` matches are found, so a filtered combo whose rows
+// are older than a fixed LIMIT window still surfaces (mirrors /api/bots'
+// lastDecisionByCombo walk) — bounded by a 20k-row scan ceiling for the case
+// where the filter genuinely matches nothing.
 export function decisionAudit(dbPath, { strategyId = null, instrument = null, granularity = null, limit = 50 } = {}) {
-  const out = [];
-  const scan = Math.max(500, limit * 10);
-  for (const j of rows(dbPath, `SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC LIMIT ${scan}`)) {
-    let ctx = null;
-    try { ctx = JSON.parse(j.context); } catch { /* keep raw-less entry */ }
-    // halt/reset rows carry no strategyId/instrument/granularity but ARE the
-    // 'why did it stop' story — filters only apply to decision rows, halt/reset
-    // always pass through
-    if (strategyId != null && j.action === 'decision' && ctx?.strategyId !== strategyId) continue;
-    if (instrument != null && j.action === 'decision' && ctx?.instrument !== instrument) continue;
-    if (granularity != null && j.action === 'decision' && ctx?.granularity !== granularity) continue;
-    out.push({
-      id: j.id, at: j.at, action: j.action, reason: j.reason,
-      instrument: ctx?.instrument ?? null, granularity: ctx?.granularity ?? null, event: ctx?.event ?? null,
-      decision: ctx?.decision ?? null, executed: ctx?.executed ?? null, error: ctx?.error ?? null,
-      execSizing: ctx?.execSizing ?? null,
-      strategyId: ctx?.strategyId ?? null, strategyName: ctx?.strategyName ?? null,
-      strategyDbVersion: ctx?.strategyDbVersion ?? null,
-      toolTrace: ctx?.toolTrace ?? [], snapshot: ctx?.snapshot ?? null,
-    });
-    if (out.length >= limit) break;
-  }
-  return out;
+  return withDb(dbPath, (db) => {
+    let stmt;
+    try {
+      stmt = db.prepare("SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC").iterate();
+    } catch (err) {
+      if (/no such table/i.test(String(err.message))) return []; // pre-schema db: nothing recorded yet
+      throw err;
+    }
+    const out = [];
+    let scanned = 0;
+    for (const j of stmt) {
+      if (out.length >= limit || ++scanned > 20000) break;
+      let ctx = null;
+      try { ctx = JSON.parse(j.context); } catch { /* keep raw-less entry */ }
+      // halt/reset rows carry no strategyId/instrument/granularity but ARE the
+      // 'why did it stop' story — filters only apply to decision rows, halt/reset
+      // always pass through
+      if (strategyId != null && j.action === 'decision' && ctx?.strategyId !== strategyId) continue;
+      if (instrument != null && j.action === 'decision' && ctx?.instrument !== instrument) continue;
+      // legacy decision rows predate granularity stamping (null/absent
+      // ctx.granularity) — let them pass a granularity filter rather than
+      // silently erasing pre-granularity history.
+      if (granularity != null && j.action === 'decision' && ctx?.granularity != null && ctx.granularity !== granularity) continue;
+      out.push({
+        id: j.id, at: j.at, action: j.action, reason: j.reason,
+        instrument: ctx?.instrument ?? null, granularity: ctx?.granularity ?? null, event: ctx?.event ?? null,
+        decision: ctx?.decision ?? null, executed: ctx?.executed ?? null, error: ctx?.error ?? null,
+        execSizing: ctx?.execSizing ?? null,
+        strategyId: ctx?.strategyId ?? null, strategyName: ctx?.strategyName ?? null,
+        strategyDbVersion: ctx?.strategyDbVersion ?? null,
+        toolTrace: ctx?.toolTrace ?? [], snapshot: ctx?.snapshot ?? null,
+      });
+    }
+    return out;
+  });
 }
 
 // Transport-safe scoreboard: JSON has no Infinity, so a flawless strategy's

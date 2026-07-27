@@ -1517,6 +1517,51 @@ test('/api/bots exposes per-combo openPnl (sum of unrealized for attributed open
   });
 });
 
+test('/api/bots (#162): unattributed OPEN positions on an instrument with exactly one configured combo absorb into that combo\'s openPnl', async () => {
+  const { botConfig, openPosition } = await import('../scripts/portfolio.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [`${INSTRUMENT}|M5`]: { enabled: true, riskPct: 100 } } } }) });
+    const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+    const cfg = botConfig(settings);
+    // opened directly via openPosition() — never attributed to any combo's decision journal
+    openPosition(dbPath, cfg, { instrument: INSTRUMENT, side: 'long', notional: 1000, price: 87 });
+    const { portfolioView } = await import('../scripts/portfolio.mjs');
+    const pos = portfolioView(dbPath, cfg).positions[0];
+    const bots = await (await fetch(base + '/api/bots')).json();
+    const row = bots.bots.find((b) => b.combo === `${INSTRUMENT}|M5`);
+    assert.ok(Math.abs(row.openPnl - pos.unrealized) < 0.01, 'unattributed open position absorbed into the sole combo\'s openPnl');
+  });
+});
+
+test('/api/chart botState (#162 F5/F6): two positions on one instrument at M1 and M5 — each granularity sees only its own', async () => {
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  const { runBot } = await import('../scripts/bot.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, { name: 'bleed-strat', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    activateStrategy(dbPath, st.id);
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [`${INSTRUMENT}|M1`]: { enabled: true, strategyId: st.id, riskPct: 10 }, [`${INSTRUMENT}|M5`]: { enabled: true, strategyId: st.id, riskPct: 10 } } } }) });
+    const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8'));
+
+    const binM1 = join(dir, 'pi-m1');
+    writeFileSync(binM1, '#!/bin/sh\ncat > /dev/null\necho \'{"action":"open","side":"long","notional":300,"stop":85,"reasoning":"m1 open"}\'\n');
+    chmodSync(binM1, 0o755);
+    await runBot(dbPath, { ...settings, provider: 'pi', piBin: binM1 }, { instrument: INSTRUMENT, granularity: 'M1', candle: { open: 87, high: 87.1, low: 86.9, close: 87, time: '2026-07-23T08:00:00Z' }, quote: { last: 87 }, freshFlip: { signal: 'buy' } });
+
+    const binM5 = join(dir, 'pi-m5');
+    writeFileSync(binM5, '#!/bin/sh\ncat > /dev/null\necho \'{"action":"open","side":"short","notional":300,"stop":90,"reasoning":"m5 open"}\'\n');
+    chmodSync(binM5, 0o755);
+    await runBot(dbPath, { ...settings, provider: 'pi', piBin: binM5 }, { instrument: INSTRUMENT, granularity: 'M5', candle: { open: 87, high: 87.1, low: 86.9, close: 87, time: '2026-07-23T08:05:00Z' }, quote: { last: 87 }, freshFlip: { signal: 'sell' } });
+
+    const dM1 = await (await fetch(base + `/api/chart?instrument=${encodeURIComponent(INSTRUMENT)}&granularity=M1`)).json();
+    assert.equal(dM1.botState.openPosition.side, 'long', 'M1 chart sees only its own long position');
+
+    const dM5 = await (await fetch(base + `/api/chart?instrument=${encodeURIComponent(INSTRUMENT)}&granularity=M5`)).json();
+    assert.equal(dM5.botState.openPosition.side, 'short', 'M5 chart sees only its own short position, not M1\'s');
+  });
+});
+
 test('GET /api/trades (#162): canonical timeline route, filters + limit clamp, mutations rejected', async () => {
   const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
   const { runBot } = await import('../scripts/bot.mjs');

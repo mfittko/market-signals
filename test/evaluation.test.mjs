@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { tradeMetrics, strategyScoreboard, decisionAudit, baselines, botPerformanceSummary, positionAttribution } from '../scripts/evaluation.mjs';
+import { tradeMetrics, strategyScoreboard, decisionAudit, baselines, botPerformanceSummary, positionAttribution, lastDecisionByCombo } from '../scripts/evaluation.mjs';
 import { botConfig, openPosition, closePosition } from '../scripts/portfolio.mjs';
 import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
 import { runBot } from '../scripts/bot.mjs';
@@ -154,6 +154,52 @@ test('decisionAudit (#162): instrument/granularity filters scope decision rows b
 
   const wrongGranularity = decisionAudit(db, { instrument: WTI, granularity: 'H1' });
   assert.equal(wrongGranularity.filter((a) => a.action === 'decision').length, 0, 'foreign granularity excludes decision rows');
+});
+
+test('decisionAudit (#162): a combo\'s decision buried under 600 newer other-combo rows still surfaces under a filter + small limit', async () => {
+  const db = fresh();
+  // seeds the bot_journal schema (openPosition journals an 'open' row, not a 'decision')
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => {
+    const ins = dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)');
+    // the target combo's ONE decision, written first (oldest / lowest id)
+    ins.run(new Date().toISOString(), 'decision', 'target combo', JSON.stringify({ instrument: WTI, granularity: 'M5' }));
+    // 600 newer rows for an unrelated combo — old LIMIT-based window (max(500,
+    // limit*10)) would have entirely dropped the target row above
+    for (let i = 0; i < 600; i++) {
+      ins.run(new Date().toISOString(), 'decision', 'noise', JSON.stringify({ instrument: 'SPX500/USD', granularity: 'M1' }));
+    }
+  });
+  const out = decisionAudit(db, { instrument: WTI, granularity: 'M5', limit: 5 });
+  assert.equal(out.length, 1, 'the buried target-combo decision is still found');
+  assert.equal(out[0].reason, 'target combo');
+});
+
+test('decisionAudit (#162): legacy rows with no ctx.granularity pass a granularity filter instead of being erased', async () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 }); // seeds the schema
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+    .run(new Date().toISOString(), 'decision', 'legacy', JSON.stringify({ instrument: WTI })));
+  const out = decisionAudit(db, { instrument: WTI, granularity: 'M5' });
+  assert.equal(out.length, 1, 'legacy row (no granularity) passes an instrument+granularity filter');
+  assert.equal(out[0].granularity, null);
+  const wrongInstrument = decisionAudit(db, { instrument: 'SPX500/USD', granularity: 'M5' });
+  assert.equal(wrongInstrument.filter((a) => a.action === 'decision').length, 0, 'instrument filter still excludes it');
+});
+
+test('lastDecisionByCombo (#162): most recent decision per configured combo, extracted from /api/bots', async () => {
+  const db = fresh();
+  await seededBotTrade(db); // one decision for WTI|M5
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+    .run('2099-01-01T00:00:00.000Z', 'decision', 'newest wins', JSON.stringify({ instrument: WTI, granularity: 'M5' })));
+  const found = lastDecisionByCombo(db, [`${WTI}|M5`, 'SPX500/USD|M1']);
+  assert.equal(found.get(`${WTI}|M5`).reason, 'newest wins', 'newest-first: the later decision wins');
+  assert.equal(found.has('SPX500/USD|M1'), false, 'a combo with no decisions is absent, not a false entry');
 });
 
 test('unattributed trades label as "unattributed", never "hash null"', () => {

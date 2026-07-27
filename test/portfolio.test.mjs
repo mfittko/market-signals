@@ -9,6 +9,7 @@ import {
 } from '../scripts/portfolio.mjs';
 import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
 import { runBot } from '../scripts/bot.mjs';
+import { withDb } from '../scripts/supertrend.mjs';
 
 const WTI = 'WTICO/USD';
 const CFG = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 } } });
@@ -397,6 +398,22 @@ test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first
 
   // newest-first among closed: the trade closed LAST should sort first
   assert.equal(closeds[0].id, unattrClosedId, 'closed rows are newest-first');
+});
+
+test('tradeTimeline (#162): closed-row ageMin is the HOLD duration, not elapsed-since-close', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  closePosition(db, cfg, id, 88, 'target');
+  // backdate entry/close so the trade "was held" for a known duration, long
+  // in the past — if ageMin were still elapsed-since-entry (the bug) this
+  // would report ~days old instead of the 45-minute hold.
+  withDb(db, (conn) => {
+    conn.prepare("UPDATE bot_trades SET entry_time=?, close_time=? WHERE position_id=?")
+      .run('2020-01-01T00:00:00.000Z', '2020-01-01T00:45:00.000Z', id);
+  });
+  const row = tradeTimeline(db, cfg, { state: 'closed' }).find((r) => r.id === id);
+  assert.equal(row.ageMin, 45, 'closed ageMin is the hold duration (close - entry), not now - entry');
 });
 
 test('tradeTimeline (#162): instrument/granularity/state filters and limit clamp', async () => {

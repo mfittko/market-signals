@@ -27,7 +27,7 @@ import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemor
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -827,7 +827,20 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const pfB = portfolioView(dbPath, botConfig(cfg));
         // #75: the ACTIVE version of the bot's strategy name — not a frozen row.
         const strat = resolvedStrategy(dbPath, botFor);
-        const pos = pfB.positions.find((pp) => pp.instrument === instrument) ?? null;
+        // Attribution-aware position match (#162 F5/F6): a position must belong
+        // to THIS chart's combo, not just this instrument — otherwise two bots
+        // on the same instrument at different granularities bleed each other's
+        // open position into the header. Unattributed positions only fall back
+        // to the instrument when it has exactly one configured combo (legacy
+        // journal rows with no combo attribution, pre-#162).
+        const chartCombo = normCombo(`${instrument}|${granularity}`);
+        const attributionB = positionAttribution(dbPath);
+        const instrumentCombos = new Set(Object.keys((cfg.bot && cfg.bot.bots) || {})
+          .map(normCombo).filter((c) => c.startsWith(`${instrument}|`)));
+        const pos = pfB.positions.find((pp) => attributionB.get(pp.id)?.combo === chartCombo)
+          ?? (instrumentCombos.size === 1
+            ? pfB.positions.find((pp) => pp.instrument === instrument && !attributionB.get(pp.id)?.combo) ?? null
+            : null);
         data.botState = {
           configured: botFor.configured === true,
           enabled: botFor.enabled,
@@ -948,36 +961,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // as soon as every combo has its lastDecision, so a combo whose only
         // decision is ancient still gets found (the old LIMIT 200 "shows never"
         // bug) while a normal request only touches a handful of rows.
-        const wantedCombos = new Set(Object.keys(bots).map((k) => {
-          const [inst0, gran0] = k.split('|').map((x) => x.trim());
-          return `${inst0}|${gran0}`;
-        }));
-        const lastDecisionByCombo = withDb(dbPath, (db) => {
-          const found = new Map();
-          let stmt;
-          try { stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC"); }
-          catch (err) { if (/no such table/i.test(String(err.message))) return found; throw err; }
-          // ponytail: 20k-row scan ceiling — only reachable when a configured
-          // combo has NEVER decided (its true answer is "never"); a combo whose
-          // only decision is older than the newest 20k shows "never" too —
-          // acceptable until #169's granularity column makes this a lookup.
-          let scanned = 0;
-          for (const j of stmt.iterate()) {
-            if (found.size >= wantedCombos.size || ++scanned > 20000) break;
-            let ctx;
-            try { ctx = JSON.parse(j.context); } catch { continue; }
-            let combo = `${ctx?.instrument}|${ctx?.granularity}`;
-            if (!wantedCombos.has(combo) && ctx?.instrument && !ctx?.granularity) {
-              // legacy decision rows carry no granularity — attribute them to
-              // the instrument's single configured combo when unambiguous
-              const candidates = [...wantedCombos].filter((c) => c.startsWith(`${ctx.instrument}|`));
-              if (candidates.length === 1) combo = candidates[0];
-            }
-            if (!wantedCombos.has(combo) || found.has(combo)) continue;
-            found.set(combo, { at: j.at, reason: j.reason });
-          }
-          return found;
-        });
+        const lastDecisions = lastDecisionByCombo(dbPath, Object.keys(bots));
         // complete aggregates straight from bot_trades — attributed PER COMBO via
         // the shared attribution; a bot that is the sole bot on its instrument
         // also absorbs unattributed trades for that instrument
@@ -995,10 +979,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // per-combo openPnl: sum of unrealized for OPEN positions attributed to
         // that combo; a combo with no attributed open positions gets null (not 0)
         const comboOpenPnl = new Map();
+        const soloOpenUnattributed = new Map(); // instrument -> summed unrealized of unattributed OPEN positions
         for (const p of pf.positions) {
           const combo = attribution.get(p.id)?.combo ?? null;
-          if (!combo) continue;
-          comboOpenPnl.set(combo, (comboOpenPnl.get(combo) ?? 0) + p.unrealized);
+          if (combo) comboOpenPnl.set(combo, (comboOpenPnl.get(combo) ?? 0) + p.unrealized);
+          else soloOpenUnattributed.set(p.instrument, (soloOpenUnattributed.get(p.instrument) ?? 0) + p.unrealized);
         }
         const engineCfg = botConfig(cfgB); // once per request, not per row
         const botsPerInstrument = new Map();
@@ -1006,20 +991,27 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const inst0 = k.split('|')[0].trim();
           botsPerInstrument.set(inst0, (botsPerInstrument.get(inst0) ?? 0) + 1);
         }
-        const rows = Object.entries(bots).map(([combo, b]) => {
-          const [inst, gran] = combo.split('|').map((x) => x.trim());
+        const rows = Object.entries(bots).map(([rawCombo, b]) => {
+          const combo = normCombo(rawCombo);
+          const [inst, gran] = combo.split('|');
           // #75: resolve through the SAME name→active-version path runBot uses,
           // so this list always reflects the version the bot will actually
           // trade next — never a frozen row.
           const botFor = resolveBotFor(cfgB, inst, gran, dbPath);
           const strat = resolvedStrategy(dbPath, botFor);
-          const attributed = comboAgg.get(`${inst}|${gran}`) ?? { c: 0, r: 0 };
-          const orphan = botsPerInstrument.get(inst) === 1 ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
+          const attributed = comboAgg.get(combo) ?? { c: 0, r: 0 };
+          const solo = botsPerInstrument.get(inst) === 1;
+          const orphan = solo ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
-          const lastDecision = lastDecisionByCombo.get(`${inst}|${gran}`) ?? null;
-          const openPnl = comboOpenPnl.has(`${inst}|${gran}`) ? Math.round(comboOpenPnl.get(`${inst}|${gran}`) * 100) / 100 : null;
+          const lastDecision = lastDecisions.get(combo) ?? null;
+          // unattributed OPEN positions on this instrument absorb into the sole
+          // configured combo's openPnl (mirrors the closed-trade orphan absorption
+          // above) rather than vanishing from every combo's view.
+          const orphanOpen = solo ? (soloOpenUnattributed.get(inst) ?? 0) : 0;
+          const openSum = (comboOpenPnl.get(combo) ?? 0) + orphanOpen;
+          const openPnl = comboOpenPnl.has(combo) || orphanOpen !== 0 ? Math.round(openSum * 100) / 100 : null;
           return {
-            combo: `${inst}|${gran}`, instrument: inst, granularity: gran,
+            combo, instrument: inst, granularity: gran,
             enabled: b.enabled === true,
             strategyId: strat?.id ?? null,
             strategyName: strat ? `${strat.name} v${strat.version}` : null,
