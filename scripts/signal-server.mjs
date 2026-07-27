@@ -54,7 +54,7 @@ const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'not
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
-const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
+const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots', 'staleAfterMs'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'sttOpenaiKey'];
 const MASK = '•••';
@@ -250,6 +250,43 @@ const lastLiveFetch = new Map(); // key -> { at, tail }: upstream fetch gate, fo
 // takes a client polling faster than 8s to reach that, which none of ours does.
 export const LIVE_TAIL_GATE_MS = 8000;
 
+// #163: GET /api/chart must be side-effect-free — the DB writes that used to
+// run synchronously inside the GET (persisting newly-completed live candles,
+// backfilling historical flips into `signals`) now run via this debounced
+// fire-and-forget task instead, guarded by an in-flight set so two requests
+// for the same combo can never race a duplicate write. The forming-candle
+// READ path (fetcher() + the in-memory lastLiveFetch cache) is untouched —
+// that's an upstream HTTP read, not a local mutation, so chart freshness is
+// unaffected; only the persistence of what it read is deferred.
+const acquisitionInFlight = new Set();
+function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
+  if (!complete.length && !flips.length) return;
+  const key = `${dbPath}|${instrument}|${granularity}`;
+  if (acquisitionInFlight.has(key)) return;
+  acquisitionInFlight.add(key);
+  setImmediate(() => {
+    try {
+      if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+      // Lazy backfill: persist historical flips for whatever combo is being
+      // viewed so history/outcomes populate beyond the watcher's own
+      // instrument. Flips newer than the watcher's fresh+cooldown horizon are
+      // left to the watcher — backfilling them would make its dedup swallow
+      // the live notification.
+      const horizonMs = 6 * granularityMs(granularity);
+      for (const f of flips.slice(-20)) {
+        if (Date.now() - Date.parse(f.time) <= horizonMs) continue;
+        const { isNew } = recordSignal(dbPath, instrument, granularity, { time: f.time, signal: f.signal, price: f.price }, null);
+        if (isNew) {
+          withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=?')
+            .run('backfill', instrument, granularity, f.time));
+        }
+      }
+    } finally {
+      acquisitionInFlight.delete(key);
+    }
+  });
+}
+
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
@@ -262,11 +299,13 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   let tailFetchedAt = null;
   const fetchKey = `${dbPath}|${instrument}|${granularity}`;
   const gate = lastLiveFetch.get(fetchKey);
+  // #163: candles newly retrieved this call, persisted asynchronously below
+  // (scheduleAcquisition) — never written synchronously inside this GET.
+  let pendingComplete = [];
   if (fetcher && (!gate || Date.now() - gate.at > LIVE_TAIL_GATE_MS)) {
     try {
       const live = await fetcher({ instrument, granularity, count: 60 });
-      const complete = live.filter((c) => c.complete);
-      if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+      pendingComplete = live.filter((c) => c.complete);
       liveTail = live.find((c) => !c.complete) ?? null;
       tailFetchedAt = Date.now();
       lastLiveFetch.set(fetchKey, { at: tailFetchedAt, tail: liveTail });
@@ -314,19 +353,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     if ((!t && (!candles.length || tailMs > lastMs)) || (t && reachesPresent)) candles.push(tail);
     if (!recent.length || Date.parse(tail.time) > Date.parse(recent[recent.length - 1].time)) recent.push(tail);
   }
-  // Lazy backfill: persist historical flips for whatever combo is being viewed
-  // so history/outcomes populate beyond the watcher's own instrument. Flips
-  // newer than the watcher's fresh+cooldown horizon are left to the watcher —
-  // backfilling them would make its dedup swallow the live notification.
-  const horizonMs = 6 * granularityMs(granularity);
-  for (const f of flips.slice(-20)) {
-    if (Date.now() - Date.parse(f.time) <= horizonMs) continue;
-    const { isNew } = recordSignal(dbPath, instrument, granularity, { time: f.time, signal: f.signal, price: f.price }, null);
-    if (isNew) {
-      withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=?')
-        .run('backfill', instrument, granularity, f.time));
-    }
-  }
+  // #163: the actual persistence (new complete candles + flip backfill) is
+  // deferred out of this GET — see scheduleAcquisition above.
+  scheduleAcquisition(dbPath, instrument, granularity, pendingComplete, flips);
   // The history table is scoped to the visible chart window: only signals whose
   // time falls within the shown candles (falls back to the latest 50 when there
   // are no candles yet). The current/deep-linked signal is resolved separately.
@@ -350,6 +379,13 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     signal = latest;
   }
   const quote = buildQuote(recent);
+  if (quote) {
+    // #163: overwrite the granularity-scoped 24h% with the fixed-resolution
+    // one; only when the fixed-res series has enough data (fresh db / new
+    // instrument) does it fall back to the granularity-scoped value above.
+    const fixed = fixedResChange24hPct(dbPath, instrument);
+    if (fixed != null) quote.change24hPct = fixed;
+  }
   if (quote && liveTail) { quote.partial = true; quote.fetchedAt = tailFetchedAt; }
   const out = { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
   // #70 follow-up: the re-check button re-checks the LATEST signal server-side
@@ -676,6 +712,29 @@ async function gatesInfo(dbPath) {
 }
 
 // Current course info from the latest stored candles (at most one candle stale).
+// #163: the header's "24h" stat must read the same regardless of which
+// granularity the chart happens to be displaying — computed from a fixed
+// resolution (M5) candle series for the instrument rather than `recent`
+// (which is scoped to the VIEWED granularity and so shifted the number when
+// the trader switched granularity). Falls back to whatever granularity is
+// actually stored for this instrument when M5 isn't.
+function fixedResChange24hPct(dbPath, instrument) {
+  return withDb(dbPath, (db) => {
+    const hasM5 = db.prepare('SELECT 1 FROM candles WHERE instrument=? AND granularity=? LIMIT 1').get(instrument, 'M5');
+    let gran = 'M5';
+    if (!hasM5) {
+      const row = db.prepare('SELECT granularity FROM candles WHERE instrument=? ORDER BY time DESC LIMIT 1').get(instrument);
+      if (!row) return null;
+      gran = row.granularity;
+    }
+    const dayBars = Math.ceil(86400000 / granularityMs(gran));
+    const rows = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+      .all(instrument, gran, dayBars).reverse();
+    if (rows.length < 2 || !(rows[0].close > 0)) return null;
+    return Number(((rows[rows.length - 1].close - rows[0].close) / rows[0].close * 100).toFixed(2));
+  });
+}
+
 function buildQuote(recent) {
   if (!recent.length) return null;
   const last = recent[recent.length - 1];
@@ -891,8 +950,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const cfg = readSettings(settingsPath);
         const instrument = body?.instrument || cfg.instrument || DEFAULT_INSTRUMENT;
         const granularity = body?.granularity || cfg.granularity || 'M5';
-        const [signal] = signalOutcomes(dbPath, instrument, granularity, { limit: 1 });
-        if (!signal) return json(res, 404, { ok: false, error: 'no signal recorded for this view yet' });
+        // #163: ?signal=<time> rechecks that exact signal (its time is its id —
+        // signals have no numeric id, PK is instrument+granularity+time); no
+        // param keeps the original latest-signal behavior.
+        const signalParam = url.searchParams.get('signal');
+        const signal = signalParam
+          ? (signalOutcomes(dbPath, instrument, granularity, { time: signalParam })[0] ?? null)
+          : (signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null);
+        if (!signal) {
+          return json(res, 404, { ok: false, error: signalParam ? `unknown signal '${signalParam}' for this view` : 'no signal recorded for this view yet' });
+        }
         try {
           // MS_DEBUG_LLM (#93): recheck is non-streamed, so all four X-LLM-*
           // headers are available together, unlike chat's SSE split below.
@@ -1138,6 +1205,42 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           baselines: baselines(dbPath, inst, gran, { fromTime }),
           audit: decisionAudit(dbPath, { strategyId, instrument: inst, granularity: gran, limit: 50 }),
           axisExpectancy: axisExpectancy(dbPath, { instrument: inst, granularity: gran }),
+        });
+      }
+      // #163: cheap, read-only operational snapshot — derived entirely from
+      // existing tables/settings, no new deps, no writes.
+      if (url.pathname === '/api/health' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const watchers = [...new Set((cfg.watchers ?? '').split(',').map((x) => normCombo(x.trim())).filter((x) => x.includes('|')))];
+        const feed = withDb(dbPath, (db) => watchers.map((w) => {
+          const [instrument, granularity] = w.split('|');
+          const row = db.prepare('SELECT time FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity);
+          const lastCandleTime = row ? row.time : null;
+          return { instrument, granularity, lastCandleTime, ageSec: lastCandleTime ? Math.round((Date.now() - Date.parse(lastCandleTime)) / 1000) : null };
+        }));
+        const pf = portfolioView(dbPath, botConfig(cfg));
+        // llm.lastOkAt: no dedicated telemetry table exists — the most recent
+        // successful bot deliberation ('decision' journal action) is the
+        // cheapest existing proxy for "the LLM last answered OK".
+        const lastDecisionRow = withDb(dbPath, (db) => {
+          try { return db.prepare("SELECT at FROM bot_journal WHERE action='decision' ORDER BY id DESC LIMIT 1").get(); }
+          catch (err) { if (/no such table/i.test(String(err.message))) return null; throw err; }
+        });
+        const newsSrc = resolveNewsApiAiSource(cfg);
+        const botsCfg = (cfg.bot && typeof cfg.bot.bots === 'object' && cfg.bot.bots) || {};
+        const combos = Object.keys(botsCfg).map(normCombo);
+        const lastDecisions = lastDecisionByCombo(dbPath, combos);
+        const bots = combos.map((combo) => {
+          const d = lastDecisions.get(combo) ?? null;
+          return { combo, lastDecisionAt: d?.at ?? null, ageMin: d?.at ? Math.round((Date.now() - Date.parse(d.at)) / 60000) : null };
+        });
+        return json(res, 200, {
+          ok: true,
+          halted: pf.halted,
+          feed,
+          llm: { lastOkAt: lastDecisionRow?.at ?? null },
+          news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },
+          bots,
         });
       }
       if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {

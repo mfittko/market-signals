@@ -179,6 +179,57 @@ test('a per-combo run leaves positions of instruments it did not quote untouched
   assert.equal(byName(r3, 'constructor').stale, false, 'prototype key must not count as a quote');
 });
 
+test('#163: an absent instrument goes stale once its own last mark ages past the threshold', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 }, staleAfterMs: 50 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  // never quoted on this run (absent from the map): a fresh mark is not yet stale…
+  let r = markToMarket(db, cfg, {});
+  assert.equal(r.positions[0].stale, false, 'fresh mark, absent instrument: untouched');
+  // …but once the last mark ages past the (test-tiny) threshold, an absent
+  // instrument's position IS flagged stale — it can no longer hide behind
+  // "never asked about on this run" forever.
+  withDb(db, (dbc) => dbc.prepare('UPDATE positions SET last_mark_at=? WHERE id=?').run(new Date(Date.now() - 1000).toISOString(), id));
+  r = markToMarket(db, cfg, {});
+  assert.equal(r.positions[0].stale, true, 'aged-out absent instrument is flagged stale');
+  // a subsequent USABLE quote clears it and stamps a fresh last_mark_at
+  const r2 = markToMarket(db, cfg, { [WTI]: 88 });
+  assert.equal(r2.positions[0].stale, false, 'a real quote clears the age-based flag too');
+});
+
+test('#163: realizedTotal sums ALL bot_trades (beyond the 50-row trades slice); dayPnl = today-closed realized + current unrealized', () => {
+  const db = fresh();
+  // 60 closed trades — more than the 50-row TRADES_QUERY slice.
+  for (let i = 0; i < 60; i++) {
+    const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+    closePosition(db, CFG, id, 88, 'bot-close');
+  }
+  const view = portfolioView(db, CFG);
+  const sumAll = withDb(db, (dbc) => dbc.prepare('SELECT SUM(realized) r FROM bot_trades').get().r);
+  assert.equal(view.trades.length, 50, 'display slice still capped at 50');
+  assert.ok(Math.abs(view.realizedTotal - sumAll) < 1e-9, 'realizedTotal reflects ALL trades, not just the 50-row slice');
+  assert.ok(view.realizedTotal > sumAll * 0.9, 'sanity: not accidentally scoped to the 50-row slice');
+  // dayPnl: all 60 trades just closed "now" (today, local) — plus a fresh
+  // open position's unrealized.
+  const openId = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  const v2 = portfolioView(db, CFG);
+  const posUnreal = unrealized(v2.positions.find((p) => p.id === openId), v2.positions.find((p) => p.id === openId).last_mark);
+  assert.ok(Math.abs(v2.dayPnl - (v2.realizedTotal + posUnreal)) < 1e-6, 'dayPnl = today-closed realized + current unrealized (all trades closed today here)');
+});
+
+test('#163: portfolioView carries entry_time_local on positions and opened/closed local strings on trades', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  closePosition(db, CFG, id, 88, 'bot-close');
+  const openId = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  const v = portfolioView(db, CFG);
+  const pos = v.positions.find((p) => p.id === openId);
+  assert.equal(typeof pos.entry_time_local, 'string');
+  assert.ok(pos.entry_time_local.length > 0);
+  assert.equal(typeof v.trades[0].entry_time_local, 'string');
+  assert.equal(typeof v.trades[0].close_time_local, 'string');
+});
+
 test('invariant: equity == starting + Σrealized + Σunrealized over random sequences', () => {
   for (let seed = 1; seed <= 5; seed++) {
     const db = fresh();
