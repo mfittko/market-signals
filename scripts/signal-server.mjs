@@ -234,11 +234,21 @@ export function writeSettings(settingsPath, patch) {
 
 const lastLiveFetch = new Map(); // key -> { at, tail }: upstream fetch gate, forming candle cached in between
 // #145 measured the provider as effectively tick-driven (poll-limited at every
-// interval tried, ~229ms median request), so a 55s gate was ~all self-inflicted
-// latency. 10s bounds the displayed forming candle at ~20s old including the
-// client's own tick, at ~6 requests/min per OPEN chart. Adaptive/incident-scoped
-// cadence stays out of scope here (#145 phase 2).
-export const LIVE_TAIL_GATE_MS = 10000;
+// interval tried, ~229ms median request), so the old 55s gate was ~all
+// self-inflicted latency. Adaptive/incident-scoped cadence stays out of scope
+// here (#145 phase 2).
+//
+// 8s is deliberately BELOW the client's 10s tick. At 10s the two beat against
+// each other: roughly every other tick lands a few ms inside the gate, gets the
+// cached tail back, and is a wasted request — measured effective refresh was
+// ~20s, not ~10s (#156). At 8s every tick finds the gate open, so the displayed
+// forming candle is ~10s old rather than ~20s.
+//
+// Rate: the client drives one chart at 10s, so the practical cost stays ~6
+// requests/min per OPEN chart. The gate is only a floor on spacing, so the
+// THEORETICAL max per instrument+granularity rises from 6/min to 7.5/min — it
+// takes a client polling faster than 8s to reach that, which none of ours does.
+export const LIVE_TAIL_GATE_MS = 8000;
 
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,

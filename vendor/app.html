@@ -292,7 +292,7 @@ const INFO = {
   dayRange: 'Lowest to highest traded price today.',
   change1h: 'Price change over the last hour.',
   change24h: 'Price change over the last 24 hours.',
-  forming: 'This candle is still forming — not yet closed.',
+  forming: 'When this price was last retrieved from the provider. The candle it belongs to is still forming, so it is provisional — signals and bot actions use closed candles only.',
   verdict: 'alert means every axis gate cleared; suppress means at least one axis vetoed the signal.',
   equity: 'Equity: cash plus unrealized P&L of open positions.',
   pnl: 'Total P&L: realized plus unrealized.',
@@ -903,6 +903,7 @@ function selectors(d) {
 }
 
 const localHm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const localHms = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 const localFull = (iso) => new Date(iso).toLocaleString('en-GB', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/[,\s]+/, ' ');
 function quoteStrip(q) {
   const el = document.getElementById('quote');
@@ -921,31 +922,15 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>', 'change24h') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh), 'dayRange') +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>', 'supertrend') : '') +
-    // "07:20 candle forming" restated the clock and hid the fact that matters:
-    // when this number last came in from upstream. Show that age instead, and
-    // tick it between fetches so a frozen feed is visible rather than implied
-    // (#154). fetchedAt is the UPSTREAM retrieval time, so a gate-closed
-    // response keeps counting from the original fetch.
+    // The one fact wanted here is WHEN THIS PRICE IS FROM — an absolute
+    // wall-clock time to the second. "candle forming" restated the clock, and a
+    // ticking "Ns ago" was motion rather than information (#156). fetchedAt is
+    // the upstream retrieval time, so a gate-closed response reports the
+    // original fetch, not this render.
     box('updated', q.partial
-      ? '<span class="buy">live</span> · forming ' + esc(localHm(q.time)) +
-        ' · <span id="fetchAge" data-fetched="' + esc(q.fetchedAt ?? '') + '">' + esc(fetchAgeText(q.fetchedAt)) + '</span>'
+      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) : 'no live update')
       : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
-// Relative age of the last upstream fetch. Null (fetch failed / no live tail)
-// must never read as fresh.
-function fetchAgeText(fetchedAt) {
-  if (!fetchedAt) return 'no live update';
-  const s = Math.max(0, Math.round((Date.now() - fetchedAt) / 1000));
-  return s < 60 ? 'updated ' + s + 's ago' : 'updated ' + Math.floor(s / 60) + 'm ago';
-}
-// Tick the age between fetches — the label must keep counting up if the feed
-// stalls, instead of freezing at whatever the last render said.
-setInterval(() => {
-  const el = document.getElementById('fetchAge');
-  if (!el) return;
-  const at = Number(el.dataset.fetched);
-  el.textContent = fetchAgeText(at || null);
-}, 1000);
 
 // #70: a re-check verdict picks buy/sell-style coloring for valid/invalidated
 // and the #78 .overruled grey for played-out — NOT the literal 'overruled' ?
