@@ -316,12 +316,15 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
         const a = attribution.get(t.position_id) ?? null;
         const gran = a?.granularity ?? null;
         if (granularity && gran !== granularity) return null;
+        // margin isn't stored on bot_trades but is derivable — keeps pnlPct
+        // comparable across open and closed rows (plan §3)
+        const margin = t.leverage > 0 ? t.notional / t.leverage : null;
         return {
           id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
           ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
-          margin: null, entryPrice: t.entry_price, entryTime: t.entry_time,
+          margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
-          pnl: t.realized, pnlPct: null, stale: false, closeReason: t.close_reason,
+          pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
           openReason: null, ageMin: ageMin(t.entry_time),
         };
       }).filter(Boolean);
