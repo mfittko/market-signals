@@ -52,6 +52,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
     assert.equal(trades.ok, true);
     assert.ok(Array.isArray(trades.trades));
 
+    // #164: DoD — the two-lane explainer ships in the served page, "verdict" retired
+    const html = await (await fetch(base + '/')).text();
+    assert.ok(html.includes('Gates are a mechanical filter on the signal'), 'plan §4 explainer present');
+    assert.ok(html.includes('gatesBotBadge'), 'two-lane badge renderer shipped');
+
     // seed a filter draft so the gates modal has drafts content
     const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
     assert.equal(seed.status, 200, 'gate-draft seed request succeeded');

@@ -879,6 +879,7 @@ test('processSignal (#164): non-pi filter llmRequest uses a 90s timeout, not 30s
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
+    AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
     const dir = mkdtempSync(join(tmpdir(), 'st-'));
     const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
     await processSignal(opts, result, c);
@@ -902,6 +903,7 @@ test('recheckSignal (#164): non-pi recheck llmRequest also uses the 90s timeout'
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
+    AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
     const dir = mkdtempSync(join(tmpdir(), 'st-'));
     const { opts, result, candles: c } = fixture(dir, { notify: false, settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
     await processSignal(opts, result, c); // seeds the signal row + candles
