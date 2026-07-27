@@ -593,6 +593,11 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('openai (official)') && html.includes('openai-compatible (base URL)'), 'provider select is explicit (#99 split)');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
+    // #172 (must-fix 1): a fresh/empty thread renders a muted onboarding hint
+    // instead of a blank pane, and it's cleared once a message exists.
+    assert.ok(html.includes('Ask about the current view'), 'chat empty-state onboarding hint shipped');
+    assert.ok(/CHAT_EMPTY_HINT[\s\S]*?function renderMsgs/.test(html), 'renderMsgs renders the empty-state hint');
+    assert.ok(/chatHint[^;]*\.remove\(\)/.test(html), 'appendMsg clears the empty-state hint once a message exists');
   });
 });
 
@@ -853,7 +858,14 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
     const script = html.slice(html.indexOf('<script>'));
     assert.ok(!/fetch\((['"])\/api\/portfolio\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio route (either quote style)');
-    assert.equal((await fetch(base + '/api/bot-trades')).status, 404, '/api/bot-trades retired (#172)');
+    // status chip copy (operator-facing) is pinned — a future refactor that
+    // silently renames it would otherwise slip past every other assertion here.
+    assert.ok(script.includes('trading enabled'), 'status chip renders the "trading enabled" copy');
+    const botTradesRes = await fetch(base + '/api/bot-trades');
+    assert.equal(botTradesRes.status, 404, '/api/bot-trades retired (#172)');
+    assert.equal((await botTradesRes.json()).error, 'not found', '/api/bot-trades 404 body carries the generic not-found error');
+    const portfolioModule = await import('../scripts/portfolio.mjs');
+    assert.ok(!('botTrades' in portfolioModule), 'botTrades is no longer exported from portfolio.mjs (#172)');
   });
 });
 
