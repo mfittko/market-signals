@@ -85,12 +85,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // selects render visible anyway (no render-then-hide flicker).
         let releaseBots;
         const botsGate = new Promise((r) => { releaseBots = r; });
-        await p.route('**/api/bots', async (route) => { await botsGate; await route.continue(); });
+        // continue() can race unroute/page teardown once the gate opens — a
+        // route that was auto-continued in between throws "already handled".
+        await p.route('**/api/bots', async (route) => { await botsGate; try { await route.continue(); } catch { /* already handled */ } });
         await p.goto(base + '/', { waitUntil: 'domcontentloaded' });
         assert.equal(await p.evaluate(() => getComputedStyle(document.getElementById('instSel')).display !== 'none' && getComputedStyle(document.getElementById('granSel')).display !== 'none'), true, 'instrument/granularity selects visible before rail data arrives');
         releaseBots();
-        await p.unroute('**/api/bots');
         await p.waitForLoadState('networkidle');
+        await p.unroute('**/api/bots');
         await p.waitForTimeout(400);
 
         // base page invariants
