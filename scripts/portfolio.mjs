@@ -314,24 +314,33 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
         };
       }).filter(Boolean);
 
-    const closedRows = state === 'open' ? [] : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').all()
-      .filter((t) => (!instrument || t.instrument === instrument))
-      .map((t) => {
+    // Instrument filter pushed into SQL; granularity needs attribution so it
+    // stays post-SQL — iterate newest-first and stop at the remaining budget
+    // instead of loading the whole trade history.
+    const closedBudget = state === 'open' ? 0 : Math.max(0, limit - openRows.length);
+    const closedRows = [];
+    if (closedBudget > 0) {
+      const stmt = instrument
+        ? db.prepare('SELECT * FROM bot_trades WHERE instrument=? ORDER BY id DESC').iterate(instrument)
+        : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').iterate();
+      for (const t of stmt) {
+        if (closedRows.length >= closedBudget) break;
         const a = attribution.get(t.position_id) ?? null;
         const gran = a?.granularity ?? null;
-        if (granularity && gran !== granularity) return null;
+        if (granularity && gran !== granularity) continue;
         // margin isn't stored on bot_trades but is derivable — keeps pnlPct
         // comparable across open and closed rows (plan §3)
         const margin = t.leverage > 0 ? t.notional / t.leverage : null;
-        return {
+        closedRows.push({
           id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
           ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
           margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
           pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
           openReason: null, ageMin: ageMin(t.entry_time),
-        };
-      }).filter(Boolean);
+        });
+      }
+    }
 
     return [...openRows, ...closedRows].slice(0, limit);
   });
