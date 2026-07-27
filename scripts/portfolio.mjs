@@ -292,14 +292,18 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
     const ageMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
     const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
 
-    const openRows = state === 'closed' ? [] : db.prepare('SELECT * FROM positions ORDER BY id DESC').all()
+    // openReason: same per-position subquery pattern as viewInDb() — one query
+    // for all positions instead of one bot_journal SELECT per position (N+1).
+    const openRows = state === 'closed' ? [] : db.prepare(`SELECT p.*,
+        (SELECT reason FROM bot_journal j WHERE j.position_id = p.id AND j.action = 'open' ORDER BY j.id LIMIT 1) AS openReason
+      FROM positions p ORDER BY p.id DESC`).all()
       .filter((p) => (!instrument || p.instrument === instrument))
       .map((p) => {
         const a = attribution.get(p.id) ?? null;
         const gran = a?.granularity ?? null;
         if (granularity && gran !== granularity) return null;
         const pnl = unrealized(p, p.last_mark);
-        const openReason = db.prepare("SELECT reason FROM bot_journal WHERE position_id=? AND action='open' ORDER BY id LIMIT 1").get(p.id)?.reason ?? null;
+        const { openReason } = p;
         return {
           id: p.id, state: 'open', instrument: p.instrument, granularity: gran,
           ...rowFor(a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,

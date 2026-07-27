@@ -348,7 +348,7 @@ test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first
   const unattrId = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
   // an attributed, closed trade (second bot deliberation + manual close)
   const { positionId: closedPosId } = await attributedOpen(db, { notional: 200, name: 'tt-strat-2' });
-  closePosition(db, cfg, closedPosId, 88, 'target');
+  const { realized: closedRealized } = closePosition(db, cfg, closedPosId, 88, 'target');
   // an unattributed closed trade
   const unattrClosedId = openPosition(db, cfg, { instrument: WTI, side: 'short', notional: 100, price: 87 });
   closePosition(db, cfg, unattrClosedId, 86, 'bot-close');
@@ -383,7 +383,8 @@ test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first
   assert.equal(closedAttr.combo, `${WTI}|M5`);
   assert.equal(closedAttr.strategyName, 'tt-strat-2');
   assert.equal(closedAttr.mark, 88, 'closed row marks at close_price');
-  assert.equal(closedAttr.pnl, closedAttr.pnl, 'realized set');
+  assert.equal(closedAttr.pnl, closedRealized, 'realized P&L matches the value closePosition() actually recorded');
+  assert.ok(closedRealized > 0, 'sanity: a long entered at 87 and closed at 88 books a real, non-zero profit');
   assert.equal(closedAttr.stop, null, 'closed rows carry no stop/target');
   assert.equal(closedAttr.target, null);
   assert.equal(closedAttr.closeReason, 'target');

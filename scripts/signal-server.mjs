@@ -944,11 +944,28 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // one shared attribution walk (#162) — no LIMIT cap, so lastDecision
         // below can't miss an older decision the way the old LIMIT 200 audit did
         const attribution = positionAttribution(dbPath);
-        const decisions = withDb(dbPath, (db) => {
-          const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
-          return safe("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC")
-            .map((j) => { try { return { at: j.at, reason: j.reason, ctx: JSON.parse(j.context) }; } catch { return null; } })
-            .filter(Boolean);
+        // Bounded by early exit, not by row count: stream newest-first and stop
+        // as soon as every combo has its lastDecision, so a combo whose only
+        // decision is ancient still gets found (the old LIMIT 200 "shows never"
+        // bug) while a normal request only touches a handful of rows.
+        const wantedCombos = new Set(Object.keys(bots).map((k) => {
+          const [inst0, gran0] = k.split('|').map((x) => x.trim());
+          return `${inst0}|${gran0}`;
+        }));
+        const lastDecisionByCombo = withDb(dbPath, (db) => {
+          const found = new Map();
+          let stmt;
+          try { stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC"); }
+          catch (err) { if (/no such table/i.test(String(err.message))) return found; throw err; }
+          for (const j of stmt.iterate()) {
+            if (found.size >= wantedCombos.size) break;
+            let ctx;
+            try { ctx = JSON.parse(j.context); } catch { continue; }
+            const combo = `${ctx?.instrument}|${ctx?.granularity}`;
+            if (!wantedCombos.has(combo) || found.has(combo)) continue;
+            found.set(combo, { at: j.at, reason: j.reason });
+          }
+          return found;
         });
         // complete aggregates straight from bot_trades — attributed PER COMBO via
         // the shared attribution; a bot that is the sole bot on its instrument
@@ -988,7 +1005,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const attributed = comboAgg.get(`${inst}|${gran}`) ?? { c: 0, r: 0 };
           const orphan = botsPerInstrument.get(inst) === 1 ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
-          const lastDecision = decisions.find((d) => d.ctx?.instrument === inst && (d.ctx?.granularity == null || d.ctx?.granularity === gran));
+          const lastDecision = lastDecisionByCombo.get(`${inst}|${gran}`) ?? null;
           const openPnl = comboOpenPnl.has(`${inst}|${gran}`) ? Math.round(comboOpenPnl.get(`${inst}|${gran}`) * 100) / 100 : null;
           return {
             combo: `${inst}|${gran}`, instrument: inst, granularity: gran,

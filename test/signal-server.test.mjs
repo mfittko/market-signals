@@ -1501,6 +1501,10 @@ test('/api/bots exposes per-combo openPnl (sum of unrealized for attributed open
     const before = await (await fetch(base + '/api/bots')).json();
     const row = before.bots.find((b) => b.combo === `${INSTRUMENT}|M5`);
     assert.ok(Math.abs(row.openPnl - pos.unrealized) < 0.01, 'openPnl sums unrealized for attributed open positions');
+    // a bot that just ran a decision must surface it — regression guard for
+    // matching decision rows on the wrong shape (top-level fields, not ctx.*)
+    assert.ok(row.lastDecisionAt, 'lastDecisionAt is populated for a bot with a recorded decision');
+    assert.equal(row.lastDecisionReason, 'openpnl fixture', 'lastDecisionReason surfaces the actual decision reason');
     // existing fields untouched
     for (const f of ['combo', 'instrument', 'granularity', 'enabled', 'strategyId', 'strategyName', 'riskPct', 'allocationPct', 'leverage', 'trades', 'realized', 'lastDecisionAt', 'lastDecisionReason']) {
       assert.ok(Object.hasOwn(row, f), `existing field ${f} still present`);
