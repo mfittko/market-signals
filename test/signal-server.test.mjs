@@ -89,7 +89,7 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
   });
 });
 
-test('header structure: two rows — pfMini right-clusters on row 1, indicators live in hdr2 after the bot button (#63)', async () => {
+test('header structure: two rows — pfMini right-clusters on row 1, watch bell live in hdr2 after the selects (#63)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const page = await (await fetch(base + '/')).text();
     const hdr = page.slice(page.indexOf('<header id="topbar">'), page.indexOf('</header>'));
@@ -98,12 +98,12 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
     // #166: the ad-hoc bot button is gone — selects (+ watch bell) stay permanently
-    // in hdr2, indicators follow them.
-    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="instSel"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the selects');
+    // in hdr2. #170: indicators moved out of the header into a chart-corner popover.
+    assert.ok(hdr2.includes('id="watchBtn"') && hdr2.indexOf('id="instSel"') < hdr2.indexOf('id="watchBtn"'), 'watch bell sits in hdr2 after the selects');
+    assert.ok(!hdr2.includes('id="indbar"'), 'indicators no longer live in the header (moved to the chart popover, #170)');
     const auto = /margin-left:\s*auto/;
     assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
-    assert.match(page.match(/#indbar \{[^}]*\}/)[0], auto);
   });
 });
 
@@ -1603,10 +1603,11 @@ test('chart ind= param serves display series + state axis gate; chat context car
   });
 });
 
-test('page ships the indicator toggle row and oscillator panel (#32)', async () => {
+test('page ships the indicator popover and oscillator panel (#32, #170)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    assert.ok(html.includes('id="indbar"'), 'indicator toggle row present');
+    // #170: the header checkbox row moved into a chart-corner "indicators ▾" popover
+    assert.ok(html.includes('id="indbtn"') && html.includes('id="indpanel"'), 'indicator popover trigger + panel present');
     assert.ok(html.includes('id="oscwrap"') && html.includes('id="osc"'), 'oscillator sub-panel canvas present');
     assert.ok(html.includes("data-ind"), 'toggles carry indicator keys');
   });
