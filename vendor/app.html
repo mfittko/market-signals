@@ -193,8 +193,13 @@
   #healthStrip .warn { color: #d29922; }
   #watchBtn.on { color: #3fb950; }
   #pfMini b { color: #e6edf3; }
-  #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; margin-left: auto; }
-  #indbar label { cursor: pointer; }
+  /* #170: indicators moved off the header into a corner popover on the chart itself */
+  #indpop { position: absolute; top: 10px; right: 10px; z-index: 3; }
+  #indbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; font-size: 12px; height: auto; }
+  #indpanel { position: absolute; top: 100%; right: 0; margin-top: 4px; background: #161b22; border: 1px solid #30363d;
+              border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
+              color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
+  #indpanel label { cursor: pointer; white-space: normal; }
   #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
   #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
@@ -278,11 +283,17 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
-<div id="wrap"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
+<div id="wrap">
+  <div id="indpop">
+    <button id="indbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="indpanel">indicators ▾</button>
+    <div id="indpanel" hidden></div>
+  </div>
+  <canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas>
+</div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
@@ -409,12 +420,25 @@ function applyInfo(on) {
   if (cb) cb.checked = on;
 }
 const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWAP'], ['rsi', 'RSI'], ['macd', 'MACD']];
+// #170: header checkbox row → compact "indicators ▾" popover at the chart
+// corner. Persistence unchanged (global setting, ?ind= override) — only the
+// chrome moved.
+const indBtn = document.getElementById('indbtn');
+const indPanel = document.getElementById('indpanel');
+indBtn.onclick = () => {
+  const open = indPanel.hidden;
+  indPanel.hidden = !open;
+  indBtn.setAttribute('aria-expanded', String(open));
+};
+document.addEventListener('click', (e) => {
+  if (!indPanel.hidden && !e.target.closest('#indpop')) { indPanel.hidden = true; indBtn.setAttribute('aria-expanded', 'false'); }
+});
 function indBar(d) {
   const on = new Set(d.activeInd || []);
-  document.getElementById('indbar').innerHTML = 'indicators: ' + INDICATORS.map(([k, label]) =>
+  indPanel.innerHTML = INDICATORS.map(([k, label]) =>
     '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
-  document.getElementById('indbar').onchange = async () => {
-    const next = [...document.querySelectorAll('#indbar input:checked')].map(el => el.dataset.ind);
+  indPanel.onchange = async () => {
+    const next = [...indPanel.querySelectorAll('input:checked')].map(el => el.dataset.ind);
     // persisted globally (#49): every view opens with this selection
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ ind: next.join(',') || null }) });
     if (next.length) qs.set('ind', next.join(',')); else qs.delete('ind');
@@ -431,7 +455,10 @@ async function load() {
   if (d.tz) TZ = d.tz;
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
+  // #170 (F8): the chart's own entry/stop/target lines + trade markers reuse
+  // this combo-scoped fetch — no separate polling loop, no double-fetch.
+  const chartTrades = await fetchTrades({ instrument: d.instrument, granularity: d.granularity, limit: 30 }).catch(() => []);
+  draw(d, chartTrades); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
@@ -605,24 +632,35 @@ function sparkline(pf) {
   // trades arrive newest-first; the curve runs oldest → newest realized equity
   const pts = pf.trades.slice().reverse().reduce((acc, t) => { acc.push(acc[acc.length - 1] + t.realized); return acc; }, [pf.startingBalance]);
   if (pts.length < 2) pts.push(pts[0]);
-  const min = Math.min(...pts), max = Math.max(...pts), span = (max - min) || 1;
+  // #170 (F19 residue): append live equity (incl. unrealized on open positions)
+  // as a final, visually distinct point instead of leaving it out with a caveat.
+  const liveEquity = pf.equity;
+  const allPts = [...pts, liveEquity];
+  const min = Math.min(...allPts), max = Math.max(...allPts), span = (max - min) || 1;
+  const xAt = (i) => (i / (allPts.length - 1)) * (c.width - 8) + 4;
+  const yAt = (v) => c.height - 6 - ((v - min) / span) * (c.height - 12);
   g.strokeStyle = pts[pts.length - 1] >= pts[0] ? '#3fb950' : '#f85149';
   g.lineWidth = 1.5;
   g.beginPath();
-  pts.forEach((v, i) => {
-    const x = (i / (pts.length - 1)) * (c.width - 8) + 4;
-    const y = c.height - 6 - ((v - min) / span) * (c.height - 12);
-    i ? g.lineTo(x, y) : g.moveTo(x, y);
-  });
+  pts.forEach((v, i) => { i ? g.lineTo(xAt(i), yAt(v)) : g.moveTo(xAt(i), yAt(v)); });
   g.stroke();
+  // live-equity segment: dashed, distinct color, to mark it as "as of now"
+  // rather than a realized-at-close point like the rest of the line.
+  g.setLineDash([3, 2]);
+  g.strokeStyle = liveEquity >= pts[pts.length - 1] ? '#3fb950' : '#f85149';
+  g.beginPath();
+  g.moveTo(xAt(pts.length - 1), yAt(pts[pts.length - 1]));
+  g.lineTo(xAt(allPts.length - 1), yAt(liveEquity));
+  g.stroke();
+  g.setLineDash([]);
+  g.fillStyle = g.strokeStyle;
+  g.beginPath(); g.arc(xAt(allPts.length - 1), yAt(liveEquity), 2.5, 0, Math.PI * 2); g.fill();
   // The bare line said nothing about what it plots or over what range. Endpoint
-  // values + a caption; note it is REALIZED only, which is why it can sit flat
-  // while equity moves with an open position's unrealized P&L.
+  // values + a caption.
   const last = pts[pts.length - 1];
   document.getElementById('pfSparkLegend').innerHTML =
-    'realized equity after each closed trade · ' + pf.trades.length + ' trade' + (pf.trades.length === 1 ? '' : 's') +
-    ' · start ' + esc(pts[0].toFixed(2)) + ' → ' + '<span class="' + pnlCls(last - pts[0]) + '">' + esc(last.toFixed(2)) + '</span>' +
-    (pf.unrealized ? ' · open positions <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> (not in this line)' : '');
+    'realized equity after each closed trade, plus current equity (incl. unrealized) as the final point · ' + pf.trades.length + ' trade' + (pf.trades.length === 1 ? '' : 's') +
+    ' · start ' + esc(pts[0].toFixed(2)) + ' → ' + '<span class="' + pnlCls(liveEquity - pts[0]) + '">' + esc(liveEquity.toFixed(2)) + '</span> now';
 }
 document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
@@ -960,13 +998,48 @@ async function renderEvaluation() {
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
 }
+const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
+// #170 (F28): one gap-break helper for every polyline overlay (EMA/BB/VWAP/
+// supertrend/RSI/MACD) — a session gap (weekend, feed outage) skips candles
+// entirely rather than leaving null placeholders, so a plain line dataset
+// draws a long diagonal "balloon" across the gap. Insert a null point just
+// after the pre-gap time so spanGaps:false breaks the line there instead.
+function gapBreakData(times, ys, granMs) {
+  const out = [];
+  for (let i = 0; i < times.length; i++) {
+    if (i > 0 && granMs && times[i] - times[i - 1] > 3 * granMs) out.push({ x: times[i - 1] + 1, y: null });
+    out.push({ x: times[i], y: ys[i] });
+  }
+  return out;
+}
+// #170 (F28): round-boundary x-axis ticks, granularity-aware — a plain
+// autoSkip pass doesn't line labels up on clean boundaries (:00/:30 for M5,
+// midnight/noon for H1…). Ticks land on round time boundaries here; the
+// existing autoSkipPadding still drops collisions on narrow (mobile) widths.
+function roundAxisTicks(minTime, maxTime, granMinutes) {
+  if (!(maxTime > minTime)) return [];
+  const stepMinutes = granMinutes >= 240 ? 24 * 60 // H4 → daily
+    : granMinutes >= 60 ? 12 * 60 // H1 → midnight/noon
+      : granMinutes >= 15 ? 4 * 60 // M15/M30 → every 4h
+        : granMinutes >= 5 ? 30 // M5 → :00/:30
+          : 10; // M1 → every 10m
+  const stepMs = stepMinutes * 60 * 1000;
+  const first = Math.ceil(minTime / stepMs) * stepMs;
+  const out = [];
+  for (let t = first; t <= maxTime; t += stepMs) out.push(t);
+  return out;
+}
 let chart = null;
-function draw(d) {
+function draw(d, trades) {
   const cs = d.candles; if (!cs.length) return;
   const stByTime = Object.fromEntries(d.supertrend.map(s => [s.time, s]));
   const P = (t) => Date.parse(t);
+  const times = cs.map(k => P(k.time));
+  const granMs = (GRAN_MINUTES[d.granularity] || 5) * 60 * 1000;
   const candleData = cs.map(k => ({ x: P(k.time), o: k.open, h: k.high, l: k.low, c: k.close, k }));
-  const stData = d.supertrend.map(s => ({ x: P(s.time), y: s.value, trend: s.trend }));
+  const stByMs = Object.fromEntries(d.supertrend.map(s => [P(s.time), s.trend]));
+  const stData = gapBreakData(d.supertrend.map(s => P(s.time)), d.supertrend.map(s => s.value), granMs)
+    .map((p) => ({ ...p, trend: stByMs[p.x] }));
   const maxVol = Math.max(1, ...cs.map(k => k.volume || 0));
   const volData = cs.map(k => ({ x: P(k.time), y: k.volume || 0 }));
   const volColor = cs.map(k => k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)');
@@ -981,11 +1054,36 @@ function draw(d) {
     const ind = d.indicators;
     const line = (series, color, dash) => overlays.push({
       type: 'line', yAxisID: 'y', pointRadius: 0, borderWidth: 1, borderColor: color,
-      borderDash: dash || [], data: cs.map((k, i) => ({ x: P(k.time), y: series[i] ?? null })), spanGaps: false,
+      borderDash: dash || [], data: gapBreakData(times, series.map((v, i) => v ?? null), granMs), spanGaps: false,
     });
     if (ind.ema) { line(ind.ema.ema20, '#d2a8ff'); line(ind.ema.ema50, '#79c0ff'); line(ind.ema.ema200, '#ffa657'); }
     if (ind.bb) { line(ind.bb.upper, '#8b949e', [4, 4]); line(ind.bb.lower, '#8b949e', [4, 4]); }
     if (ind.vwap) line(ind.vwap, '#f2cc60', [2, 2]);
+  }
+
+  // #170 (F8): trade markers/lines for the focused combo, from the shared
+  // /api/trades fetch — kept lazy: entry (▲/▼) + exit (■) glyphs, and for the
+  // one open position, thin dashed entry/stop/target lines with right-edge tags.
+  const tradeMarkers = [];
+  const priceLines = []; // drawn via a chart.js afterDatasetsDraw plugin below
+  for (const tr of (trades || [])) {
+    const entryX = P(tr.entryTime);
+    const isLong = tr.side === 'long';
+    tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'triangle', rotation: isLong ? 0 : 180, radius: 5,
+      backgroundColor: isLong ? '#3fb95099' : '#f8514999', borderWidth: 0,
+      data: [{ x: entryX, y: tr.entryPrice }],
+      _tooltip: (tr.state === 'open' ? 'open ' : '') + tr.side + ' entry ' + tr.entryPrice });
+    if (tr.state === 'closed' && tr.exitTime != null) {
+      tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'rect', radius: 4,
+        backgroundColor: '#8b949e99', borderWidth: 0,
+        data: [{ x: P(tr.exitTime), y: tr.mark }], _tooltip: 'exit ' + tr.mark + ' (' + tr.closeReason + ')' });
+    }
+    if (tr.state === 'open') {
+      const rightX = times[times.length - 1];
+      if (tr.entryPrice != null) priceLines.push({ y: tr.entryPrice, color: 'rgba(139,148,158,0.7)', label: 'entry ' + tr.entryPrice, x: rightX });
+      if (tr.stop != null) priceLines.push({ y: tr.stop, color: 'rgba(248,81,73,0.7)', label: 'stop ' + tr.stop, x: rightX });
+      if (tr.target != null) priceLines.push({ y: tr.target, color: 'rgba(63,185,80,0.7)', label: 'target ' + tr.target, x: rightX });
+    }
   }
 
   if (chart) chart.destroy();
@@ -1002,14 +1100,43 @@ function draw(d) {
         { type: 'scatter', data: sells, yAxisID: 'y', pointStyle: 'triangle', rotation: 180, radius: 7, backgroundColor: '#f85149', borderWidth: 0 },
         { type: 'scatter', data: marker, yAxisID: 'y', pointStyle: 'circle', radius: 7, backgroundColor: '#d29922', borderWidth: 0 },
         ...overlays,
+        ...tradeMarkers,
       ],
     },
+    plugins: [{
+      // #170 (F8): entry/stop/target as thin dashed lines with a right-edge
+      // price tag — plain canvas draw so it stays uncluttered (no extra
+      // dataset noise in the tooltip/legend).
+      id: 'priceLines',
+      afterDatasetsDraw(c) {
+        if (!priceLines.length) return;
+        const { ctx, chartArea: area, scales } = c;
+        ctx.save();
+        for (const pl of priceLines) {
+          const py = scales.y.getPixelForValue(pl.y);
+          if (py < area.top || py > area.bottom) continue;
+          ctx.strokeStyle = pl.color; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+          ctx.beginPath(); ctx.moveTo(area.left, py); ctx.lineTo(area.right, py); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.font = '10px sans-serif'; ctx.fillStyle = pl.color; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+          ctx.fillText(pl.label, area.right - 3, py - 2);
+        }
+        ctx.restore();
+      },
+    }],
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false, normalized: true,
       events: [], // hover is fully owned by fullColumnTooltip (nearest-by-x, full chart height)
       scales: {
         x: { type: 'timeseries', grid: { color: 'rgba(48,54,61,0.5)' },
              time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
+             // #170 (F28): round-boundary ticks (granularity-aware) instead of
+             // whatever the auto algorithm lands on — autoSkipPadding still
+             // drops collisions on narrow/mobile widths.
+             afterBuildTicks(axis) {
+               const built = roundAxisTicks(times[0], times[times.length - 1], GRAN_MINUTES[d.granularity] || 5);
+               if (built.length) axis.ticks = built.map((value) => ({ value }));
+             },
              ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
                // show the date on the first visible tick of each day (time-only labels
                // repeat across days otherwise), the time on the rest
@@ -1167,7 +1294,6 @@ function selectors(d) {
 // /api/bots), hash-focused (#bot/<combo>). Selects always drive the chart
 // directly (see selectors() above) — the rail hash route is only for rail
 // row jumps, never gated behind rail data (no render-then-hide flicker).
-const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 let railBots = [];
 let railFeed = [];
 // ONE derivation of the viewed combo (qs wins, selects fall back — same

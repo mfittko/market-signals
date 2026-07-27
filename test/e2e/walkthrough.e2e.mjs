@@ -105,6 +105,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => document.getElementById('botdlg')?.open), '+ add bot opens the bot modal');
           await p.evaluate(() => document.getElementById('botdlg').close());
+
+          // carry-over from PR #181 (#170 item 6): #railAddBot must be ABSENT
+          // when the viewed combo already has a bot — navigate to the seeded
+          // WTICO/USD|M15 combo (has a bot from the seed above) and assert no
+          // add-bot row renders for it.
+          const pBotted = await browser.newPage({ viewport: { width, height } });
+          await pBotted.goto(base + '/?instrument=WTICO%2FUSD&granularity=M15', { waitUntil: 'networkidle' });
+          await pBotted.waitForFunction(() => document.querySelectorAll('#rail .railjump[data-combo]').length > 0, { timeout: 5000 });
+          await pBotted.waitForTimeout(300);
+          assert.equal(await pBotted.evaluate(() => document.getElementById('railAddBot')), null, 'rail offers no + add bot row when the viewed combo already has a bot');
+          await pBotted.close();
         }
 
         // 27/07 dead-UI regression: a stale #bot hash disagreeing with explicit
@@ -282,6 +293,32 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'portfolio all-trades tab rendered content');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+
+          // #170: indicators popover — opens from the chart-corner button,
+          // toggling a checkbox persists (reflected in the ?ind= URL + a
+          // fresh load carrying the same selection through /api/settings).
+          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'indicators popover starts closed');
+          await p.evaluate(() => document.getElementById('indbtn').click());
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), false, 'indicators popover opens on click');
+          assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'popover lists indicator toggles');
+          await Promise.all([
+            p.waitForNavigation(),
+            p.evaluate(() => { const cb = document.querySelector('#indpanel input[data-ind="ema"]'); cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }),
+          ]);
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('ind')), 'ema', 'toggling an indicator updates the ?ind= URL');
+          // fresh navigation with NO ?ind= param — the global setting (not just
+          // the URL) must carry the selection through
+          await p.goto(base + '/', { waitUntil: 'networkidle' });
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.querySelector('#indpanel input[data-ind="ema"]')?.checked), true, 'indicator selection persists via the global setting, not just the URL');
+          // clean up: un-check it so later assertions in this test aren't affected
+          await Promise.all([
+            p.waitForNavigation(),
+            p.evaluate(() => { const cb = document.querySelector('#indpanel input[data-ind="ema"]'); cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true })); }),
+          ]);
+          await p.waitForTimeout(300);
 
           // #165/#166: fleet rail — one row for the seeded bot combo, and navigating
           // to its hash focuses the chart on that combo (instSel value flips).
