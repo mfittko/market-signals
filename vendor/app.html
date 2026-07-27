@@ -133,7 +133,7 @@
   /* #166: rail toggle collapses the sidebar entirely (width reclaimed) */
   #mainGrid.rail-collapsed #rail { display: none; }
   #railToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
-  .railrow { display: flex; align-items: stretch; gap: 4px; }
+  .railrow { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
   .railjump { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
               text-align: left; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
               padding: 6px 8px; cursor: pointer; font-size: 12px; min-height: 26px; }
@@ -147,7 +147,8 @@
   .railrow.warn .railstat { color: #d29922; } .railrow.off .railstat { color: #8b949e; }
   .railcombo { opacity: .9; } .railstrat, .railage, .railnote { font-size: 11px; opacity: .7; }
   /* #171 3.6: gray/informational — a tuning signal (bot vs. gate divergence), never a health warning */
-  .railnote { display: block; color: #8b949e; }
+  /* full-width wrapped line BELOW the jump/cfg buttons — as a middle flex item it squeezed the row */
+  .railnote { display: block; color: #8b949e; flex-basis: 100%; order: 1; }
   @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
   @media (max-width: 899px) {
     #mainGrid { flex-direction: column; }
