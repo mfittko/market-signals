@@ -102,6 +102,11 @@ export function tradeMetrics(realizedSeries, startingEquity = 0) {
   }
   return {
     trades: realizedSeries.length,
+    // #164 (F19): exact W-L counts — a rounded winRatePct alone can't honestly
+    // render "n wins / m losses" for small samples (e.g. 1/3 rounds to 33.3%,
+    // not a distinguishable record).
+    wins: wins.length,
+    losses: losses.length,
     winRatePct: realizedSeries.length ? Math.round((wins.length / realizedSeries.length) * 1000) / 10 : null,
     avgWin: wins.length ? grossWin / wins.length : null,
     avgLoss: losses.length ? -grossLoss / losses.length : null,

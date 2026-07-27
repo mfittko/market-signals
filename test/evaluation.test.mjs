@@ -16,6 +16,8 @@ test('tradeMetrics: hand-computed fixture incl. drawdown across reopened peaks',
   // start 100; +10 (peak 110), -22 (equity 88, DD 20%), +30 (118 new peak), -5.9 (112.1, DD 5%)
   const m = tradeMetrics([10, -22, 30, -5.9], 100);
   assert.equal(m.trades, 4);
+  assert.equal(m.wins, 2, '#164: exact win/loss counts alongside the rounded rate, for small-n honest display');
+  assert.equal(m.losses, 2);
   assert.equal(m.winRatePct, 50);
   assert.equal(m.avgWin, 20);
   assert.ok(Math.abs(m.avgLoss - (-13.95)) < 1e-9);

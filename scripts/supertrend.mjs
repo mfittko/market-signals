@@ -601,7 +601,7 @@ export function llmUsageLine(tag, info) {
 }
 
 export async function llmVerdict(settings, payload, system, onUsage) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000, onUsage });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: 90000, onUsage });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -625,7 +625,7 @@ function normalizeRecheckVerdict(v) {
 }
 
 async function llmRecheckVerdict(settings, payload, system, onUsage) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: settings.provider === 'pi' ? 90000 : 30000, onUsage });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: 90000, onUsage });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);
