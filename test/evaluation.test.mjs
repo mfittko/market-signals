@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { tradeMetrics, strategyScoreboard, decisionAudit, baselines, botPerformanceSummary, positionAttribution, lastDecisionByCombo } from '../scripts/evaluation.mjs';
+import { tradeMetrics, strategyScoreboard, decisionAudit, gateDisagreement, baselines, botPerformanceSummary, positionAttribution, lastDecisionByCombo } from '../scripts/evaluation.mjs';
 import { botConfig, openPosition, closePosition } from '../scripts/portfolio.mjs';
 import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
 import { runBot } from '../scripts/bot.mjs';
@@ -263,4 +263,64 @@ test('baselines run over the stored-candle window with warm-up context', () => {
   assert.equal(baselines(db, WTI, 'M5', { fromTime: midBar }).window.candles, 40, 'mid-bar entry anchors at the containing candle, no one-bar skew');
   const inLastBar = new Date(Date.parse(candles[59].time) + 200000).toISOString();
   assert.ok(baselines(db, WTI, 'M5', { fromTime: inLastBar }), 'entry inside the still-open last bar still yields a window');
+});
+
+test('decisionAudit (#171 F24): surfaces the recorded sentinel headlines, null when the decision carried no news context', async () => {
+  const db = fresh();
+  await seededBotTrade(db); // a plain decision with no sentinel block
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+    .run(new Date().toISOString(), 'decision', 'with news', JSON.stringify({
+      instrument: WTI, granularity: 'M5', event: 'flip', decision: { action: 'hold' },
+      instrumentContext: { sentinel: { escalation: false, asOf: '2026-07-27T00:00:00Z', headlines: [{ title: 'OPEC+ trims output', source: 'reuters', time: '2026-07-27T00:00:00Z', url: 'https://reuters.example/1' }] } },
+    })));
+  const out = decisionAudit(db, { instrument: WTI, granularity: 'M5' });
+  const withNews = out.find((a) => a.reason === 'with news');
+  assert.equal(withNews.news.headlines.length, 1);
+  assert.equal(withNews.news.headlines[0].title, 'OPEC+ trims output');
+  const plain = out.find((a) => a.reason === 'per strategy');
+  assert.equal(plain.news, null, 'a decision with no recorded sentinel block reports null, never invented headlines');
+});
+
+test('gateDisagreement (#171 3.6): counts suppress+open / alert+hold over a combo\'s last N flip decisions with a live gate verdict', async () => {
+  const db = fresh();
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 }); // seeds bot_journal schema
+  withDb(db, (dbh) => {
+    dbh.exec("CREATE TABLE IF NOT EXISTS signals (instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL, signal TEXT NOT NULL, price REAL, win_rate REAL, verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0, PRIMARY KEY (instrument, granularity, time))");
+    const sig = dbh.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict) VALUES (?,?,?,?,?)');
+    const dec = dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)');
+    // 3 disagreements (suppress+open x2, alert+hold x1) + 7 agreements = 10 gate-bearing flip decisions
+    const rows = [
+      ['suppress', 'open'], ['suppress', 'open'], ['alert', 'hold'],
+      ['suppress', 'hold'], ['alert', 'open'], ['alert', 'open'], ['alert', 'open'],
+      ['suppress', 'hold'], ['alert', 'open'], ['suppress', 'hold'],
+    ];
+    rows.forEach(([verdict, action], i) => {
+      const t = `2026-07-27T00:${String(i).padStart(2, '0')}:00.000Z`;
+      sig.run(WTI, 'M5', t, 'buy', verdict);
+      dec.run(t, 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action }, instrumentContext: { flip: { time: t } } }));
+    });
+    // a 'review' event (no flip) must never count toward the gate-bearing window
+    dec.run('2026-07-27T00:20:00.000Z', 'decision', 'review', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'review', decision: { action: 'hold' } }));
+  });
+  const gd = gateDisagreement(db, { instrument: WTI, granularity: 'M5' });
+  assert.equal(gd.checked, 10);
+  assert.equal(gd.disagreements, 3);
+  assert.equal(gateDisagreement(db, { instrument: 'SPX500/USD', granularity: 'M5' }), null, 'no history for a foreign combo ⇒ null, not a crash');
+});
+
+test('gateDisagreement: fewer than 10 gate-bearing decisions yields null (no noisy small-sample note)', async () => {
+  const db = fresh();
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  withDb(db, (dbh) => {
+    dbh.exec("CREATE TABLE IF NOT EXISTS signals (instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL, signal TEXT NOT NULL, price REAL, win_rate REAL, verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0, PRIMARY KEY (instrument, granularity, time))");
+    dbh.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict) VALUES (?,?,?,?,?)').run(WTI, 'M5', '2026-07-27T00:00:00.000Z', 'buy', 'suppress');
+    dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+      .run('2026-07-27T00:00:00.000Z', 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action: 'open' }, instrumentContext: { flip: { time: '2026-07-27T00:00:00.000Z' } } }));
+  });
+  assert.equal(gateDisagreement(db, { instrument: WTI, granularity: 'M5' }), null);
 });

@@ -21,13 +21,13 @@ import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
-import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
+import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, gateDisagreement, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -685,7 +685,7 @@ const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals 
 // Off by default ⇒ base CHAT_SYSTEM unchanged.
 const CHAT_SOURCE_FOOTNOTE_RULE = ` When you cite headlines from sentinel_news, add a brief footnote naming each item's fetch source (its \`provider\` field, e.g. newsapi-ai or google-news) — this is separate from the publisher's own link.`;
 export function chatSystemFor(cfg) {
-  return isSettingOn(cfg?.sentinelSourceFootnotes) ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
+  return isSentinelFootnotesOn(cfg?.sentinelSourceFootnotes) ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
 }
 
 // Gate transparency (#58): server-built (no secrets) so the settings gates
@@ -1101,6 +1101,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const orphan = solo ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
           const lastDecision = lastDecisions.get(combo) ?? null;
+          // #171 3.6: gray tuning-signal rail note, not a health warning —
+          // null until 10 gate-bearing flip decisions exist for this combo.
+          const gd = gateDisagreement(dbPath, { instrument: inst, granularity: gran });
+          const gateNote = gd && gd.disagreements >= 3 ? `disagreed with gates ${gd.disagreements} of last ${gd.checked}` : null;
           // unattributed OPEN positions on this instrument absorb into the sole
           // configured combo's openPnl (mirrors the closed-trade orphan absorption
           // above) rather than vanishing from every combo's view.
@@ -1120,6 +1124,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             openPnl,
             lastDecisionAt: lastDecision?.at ?? null,
             lastDecisionReason: lastDecision?.reason ?? null,
+            gateNote,
           };
         });
         return json(res, 200, { ok: true, bots: rows, halted: pf.halted, equity: pf.equity });

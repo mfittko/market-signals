@@ -141,7 +141,9 @@
   .railstat { font-weight: 600; }
   .railrow.pos .railstat { color: #3fb950; } .railrow.armed .railstat { color: #58a6ff; }
   .railrow.warn .railstat { color: #d29922; } .railrow.off .railstat { color: #8b949e; }
-  .railcombo { opacity: .9; } .railstrat, .railage { font-size: 11px; opacity: .7; }
+  .railcombo { opacity: .9; } .railstrat, .railage, .railnote { font-size: 11px; opacity: .7; }
+  /* #171 3.6: gray/informational — a tuning signal (bot vs. gate divergence), never a health warning */
+  .railnote { display: block; color: #8b949e; }
   @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
   @media (max-width: 899px) {
     #mainGrid { flex-direction: column; }
@@ -211,6 +213,7 @@
      colours (those stay reserved for the signal word itself). */
   .lanes { margin-top: 4px; }
   .lane { color: #8b949e; font-size: 12px; }
+  .newslist { margin: 2px 0 6px; padding-left: 18px; font-size: 12px; }
   .badge-amber { color: #d29922; }
   .badge-muted { color: #8b949e; }
   #recheckBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
@@ -1019,6 +1022,27 @@ async function renderEvaluation() {
     if (bindingCap && bindingCap !== 'none') return 'sized to ' + effectiveNotional + ' (' + bindingCap + ' cap, requested ' + requestedNotional + ')';
     return null;
   };
+  // #171 F24: the decision's `news` block IS what news.mjs#newsContextFor
+  // actually recorded at decision time — real headline/source/time(/url). A
+  // separate raw sentinel_news/fxempire_articles TOOL call (the LLM fetching
+  // news itself, mid-deliberation) never had its output journaled (toolTrace
+  // only keeps ok/error, see bot.mjs) — render the honest fallback for THAT
+  // case rather than inventing headline storage (out of scope per the plan).
+  const NEWS_TOOL_NAMES = ['sentinel_news', 'fxempire_articles'];
+  const newsHtml = (a) => {
+    const heads = a.news && Array.isArray(a.news.headlines) ? a.news.headlines : [];
+    if (heads.length) {
+      return '<div class="meta">news used:</div><ul class="newslist">' + heads.map((h) =>
+        '<li>' + (h.url ? '<a href="' + esc(h.url) + '" target="_blank" rel="noopener">' + esc(h.title) + '</a>' : esc(h.title)) +
+        ' <span class="lane">' + esc(h.source || 'unknown source') + (h.provider ? ' via ' + esc(h.provider) : '') + ' · ' + esc(localFull(h.time)) + '</span></li>'
+      ).join('') + '</ul>';
+    }
+    const newsToolCalls = (a.toolTrace || []).filter((t) => NEWS_TOOL_NAMES.includes(t.name));
+    if (newsToolCalls.length) {
+      return '<div class="meta">news consulted (' + newsToolCalls.length + ') — headlines not recorded</div>';
+    }
+    return '';
+  };
   document.getElementById('tab-audit').innerHTML = r.audit.map(a =>
     '<div class="audit-entry"><div class="meta">' + esc(localFull(a.at)) + ' · ' + esc(a.action) + (a.event ? ' · ' + esc(a.event) : '') + (a.instrument ? ' · ' + esc(a.instrument) : '') +
     (a.strategyName ? ' · ' + esc(a.strategyName) + (a.strategyDbVersion ? ' v' + esc(a.strategyDbVersion) : '') : '') + '</div>' +
@@ -1026,6 +1050,7 @@ async function renderEvaluation() {
     (a.reason ? '<div>' + esc(a.reason) + '</div>' : '') +
     (sizeNote(a) ? '<div class="meta">' + esc(sizeNote(a)) + '</div>' : '') +
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
+    newsHtml(a) +
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
 }
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
@@ -1490,7 +1515,12 @@ function renderRail(ok) {
       '<span class="railcombo">' + esc(b.combo.replace('|', ' · ')) + '</span>' +
       (b.strategyName ? '<span class="railstrat">' + esc(b.strategyName) + '</span>' : '') +
       (b.openPnl != null ? '<span class="' + pnlCls(b.openPnl) + '">' + esc(money(b.openPnl)) + '</span>' : '') +
-      '<span class="railage">' + esc(age) + '</span></button>' +
+      '<span class="railage">' + esc(age) + '</span>' +
+      // #171 3.6: informational gray, never amber (the STALE lesson) — a
+      // tuning signal (bot vs. gate divergence over its last 10 flip
+      // decisions with a live verdict), not a health problem.
+      (b.gateNote ? '<span class="railnote">' + esc(b.gateNote) + '</span>' : '') +
+      '</button>' +
       '<button type="button" class="railcfg" data-combo="' + esc(b.combo) + '" aria-label="configure ' + esc(b.combo) + '" title="configure bot">⚙</button></div>';
   }).join('');
   const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
@@ -1754,7 +1784,7 @@ function renderHistory(list, botDecisions, view) {
 // the two client uses (the select + the validation below) in sync via this one
 // const. The old primary mode was dropped (byte-identical to auto).
 const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']]]];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
@@ -1793,7 +1823,10 @@ async function cfg() {
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts]) => {
-    const cur = s[k] ?? '';
+    // #171: sentinelSourceFootnotes defaults ON — an untouched setting (s[k]
+    // undefined) must render its 'on' option selected, matching the server's
+    // isSentinelFootnotesOn(undefined) === true.
+    const cur = s[k] ?? (k === 'sentinelSourceFootnotes' ? '1' : '');
     if (kind === 'select') {
       const curS = String(cur);
       const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];

@@ -25,6 +25,15 @@ export function isSettingOn(v) {
   return v === '1' || v === true || v === 1;
 }
 
+// sentinelSourceFootnotes (#171): default flips to ON — an operator who has
+// never touched the toggle should see provider footnotes by default. Explicit
+// user settings still win: '0' (the UI's off option, chosen over '' so the
+// generic settings-merge "'' deletes the key" rule can't collapse an explicit
+// off back to unset) or any other non-'1' string turns it off.
+export function isSentinelFootnotesOn(v) {
+  return v === undefined ? true : isSettingOn(v);
+}
+
 // The NewsAPI.ai provider modes (#128). Lives in this leaf lib so both the
 // market-sentinel skill and the signal-server can import one list without the
 // server hard-depending on the skill (the #114 boundary). `auto` = use it when a

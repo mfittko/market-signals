@@ -251,9 +251,55 @@ export function decisionAudit(dbPath, { strategyId = null, instrument = null, gr
         strategyId: ctx?.strategyId ?? null, strategyName: ctx?.strategyName ?? null,
         strategyDbVersion: ctx?.strategyDbVersion ?? null,
         toolTrace: ctx?.toolTrace ?? [], snapshot: ctx?.snapshot ?? null,
+        // #171: the sentinel block IS the recorded news context (real
+        // headlines/source/url from the moment of decision, see
+        // news.mjs#newsContextFor) — surface it as-is. toolTrace above still
+        // carries any raw sentinel_news/fxempire_articles TOOL calls the LLM
+        // made on its own; those don't record their output (ok/error only),
+        // so the UI renders an honest "consulted, not recorded" fallback for
+        // those instead of inventing headline storage.
+        news: ctx?.instrumentContext?.sentinel ?? null,
       });
     }
     return out;
+  });
+}
+
+// Gate-disagreement rail note (#171 3.6): over a combo's last `need` FLIP-event
+// decisions that had a live gate verdict (alert/suppress — 'unfiltered' isn't a
+// gate call, so it doesn't count toward the window), count how often the bot's
+// action contradicted the gate (suppress+open / alert+hold). The caller renders
+// a note once disagreements>=3 — informational GRAY, never amber: this is a
+// tuning signal (bot vs. gate divergence), not a health warning (the #151
+// STALE lesson). Bounded scan (scanCap) so a combo with sparse flip history
+// can't turn this into an unbounded table scan.
+export function gateDisagreement(dbPath, { instrument, granularity, need = 10, scanCap = 2000 } = {}) {
+  return withDb(dbPath, (db) => {
+    let stmt;
+    try {
+      stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC").iterate();
+    } catch (err) {
+      if (/no such table/i.test(String(err.message))) return null; // pre-schema db: nothing recorded yet
+      throw err;
+    }
+    let checked = 0; let disagreements = 0; let scanned = 0;
+    for (const j of stmt) {
+      if (checked >= need || ++scanned > scanCap) break;
+      let ctx;
+      try { ctx = JSON.parse(j.context); } catch { continue; }
+      if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || ctx?.event !== 'flip') continue;
+      const flipTime = ctx?.instrumentContext?.flip?.time;
+      if (!flipTime) continue;
+      let sig;
+      try { sig = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?').get(instrument, granularity, flipTime); } catch { continue; }
+      const verdict = sig?.verdict;
+      if (verdict !== 'alert' && verdict !== 'suppress') continue; // no live gate verdict on this flip
+      checked++;
+      const action = ctx?.decision?.action;
+      if ((verdict === 'suppress' && action === 'open') || (verdict === 'alert' && action === 'hold')) disagreements++;
+    }
+    if (checked < need) return null; // not enough gate-bearing history yet — say nothing rather than a noisy small-sample note
+    return { checked, disagreements };
   });
 }
 

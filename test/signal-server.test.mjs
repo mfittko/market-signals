@@ -2131,20 +2131,22 @@ test('NewsAPI.ai modes: dropped primary; client uses NEWSAPI_AI_MODE_VALUES, not
   assert.deepEqual(NEWSAPI_AI_MODES, ['auto', 'shadow', 'off'], 'server/skill modes list has no primary');
 });
 
-test('provider footnotes (#116): opt-in toggle round-trips, appends chat rule only when on, ships in News tab', async () => {
-  // chatSystemFor: default off ⇒ base prompt unchanged; on ⇒ footnote instruction appended
-  const base = chatSystemFor({});
-  assert.equal(chatSystemFor({ sentinelSourceFootnotes: '' }), base, 'empty/off ⇒ unchanged');
-  assert.equal(chatSystemFor({ sentinelSourceFootnotes: '0' }), base, '"0" ⇒ off, not any-non-empty-string (Copilot #116 r1)');
+test('provider footnotes (#116, default flipped ON by #171): toggle round-trips, appends chat rule unless explicitly off, ships in News tab', async () => {
+  // chatSystemFor: base prompt with no footnote rule vs. the on variant
+  const base = chatSystemFor({ sentinelSourceFootnotes: '0' });
   const on = chatSystemFor({ sentinelSourceFootnotes: '1' });
   assert.ok(on.length > base.length && /provider/i.test(on.slice(base.length)), 'on ⇒ provider footnote rule appended');
+  // #171: an untouched setting (never saved) now defaults ON, not off
+  assert.equal(chatSystemFor({}), on, 'default (unset) ⇒ on');
+  assert.equal(chatSystemFor({ sentinelSourceFootnotes: '0' }), base, '"0" ⇒ explicit off');
+  assert.equal(chatSystemFor({ sentinelSourceFootnotes: '' }), base, '"" is still off (only an entirely UNSET key gets the new default)');
 
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base: b }) => {
-    let res = await fetch(b + '/api/settings', { method: 'POST', body: JSON.stringify({ sentinelSourceFootnotes: '1' }) });
+    let res = await fetch(b + '/api/settings', { method: 'POST', body: JSON.stringify({ sentinelSourceFootnotes: '0' }) });
     assert.equal(res.status, 200, 'accepted (whitelisted key)');
-    assert.equal((await (await fetch(b + '/api/settings')).json()).sentinelSourceFootnotes, '1', 'persisted');
+    assert.equal((await (await fetch(b + '/api/settings')).json()).sentinelSourceFootnotes, '0', 'explicit off persists (not the deletable "" sentinel)');
     await fetch(b + '/api/settings', { method: 'POST', body: JSON.stringify({ sentinelSourceFootnotes: '' }) });
-    assert.equal((await (await fetch(b + '/api/settings')).json()).sentinelSourceFootnotes, undefined, 'empty deletes it');
+    assert.equal((await (await fetch(b + '/api/settings')).json()).sentinelSourceFootnotes, undefined, 'empty deletes it, reverting to the new default (on)');
     // the toggle ships as a field in the settings modal
     assert.ok((await (await fetch(b + '/')).text()).includes('sentinelSourceFootnotes'), 'rendered as a settings field');
   });
