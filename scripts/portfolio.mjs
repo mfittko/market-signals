@@ -287,8 +287,9 @@ export function portfolioView(dbPath, cfg) {
 // strategyName) comes from the single shared positionAttribution() walk —
 // null for anything the journal never attributed.
 export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = null, state = null, limit = 100 } = {}) {
+  // computed before pdb() so we never hold two connections to the same db
+  const attribution = positionAttribution(dbPath);
   return pdb(dbPath, cfg, (db) => {
-    const attribution = positionAttribution(dbPath);
     const ageMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
     const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
 

@@ -966,7 +966,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             if (found.size >= wantedCombos.size || ++scanned > 20000) break;
             let ctx;
             try { ctx = JSON.parse(j.context); } catch { continue; }
-            const combo = `${ctx?.instrument}|${ctx?.granularity}`;
+            let combo = `${ctx?.instrument}|${ctx?.granularity}`;
+            if (!wantedCombos.has(combo) && ctx?.instrument && !ctx?.granularity) {
+              // legacy decision rows carry no granularity — attribute them to
+              // the instrument's single configured combo when unambiguous
+              const candidates = [...wantedCombos].filter((c) => c.startsWith(`${ctx.instrument}|`));
+              if (candidates.length === 1) combo = candidates[0];
+            }
             if (!wantedCombos.has(combo) || found.has(combo)) continue;
             found.set(combo, { at: j.at, reason: j.reason });
           }
