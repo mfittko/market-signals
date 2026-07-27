@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "split": {
+    "trainPct": 0.6,
+    "splitTime": "2026-07-22T02:00:00.000000000Z",
+    "trainCandles": 393,
+    "validationCandles": 282
+  },
+  "candidatesTried": 2,
+  "results": [
+    {
+      "name": "conservative-trend",
+      "ok": true,
+      "train": {
+        "signals": 0,
+        "entered": 0,
+        "winRatePct": null,
+        "expectancyPct": null,
+        "totalReturnPct": 0,
+        "maxDrawdownPct": 0,
+        "exposurePct": 0
+      },
+      "validation": {
+        "signals": 0,
+        "entered": 0,
+        "winRatePct": null,
+        "expectancyPct": null,
+        "totalReturnPct": 0,
+        "maxDrawdownPct": 0,
+        "exposurePct": 0
+      },
+      "vetoAttribution": {},
+      "promoted": false
+    },
+    {
+      "name": "impulse-scalp",
+      "ok": true,
+      "train": {
+        "signals": 0,
+        "entered": 0,
+        "winRatePct": null,
+        "expectancyPct": null,
+        "totalReturnPct": 0,
+        "maxDrawdownPct": 0,
+        "exposurePct": 0
+      },
+      "validation": {
+        "signals": 0,
+        "entered": 0,
+        "winRatePct": null,
+        "expectancyPct": null,
+        "totalReturnPct": 0,
+        "maxDrawdownPct": 0,
+        "exposurePct": 0
+      },
+      "vetoAttribution": {},
+      "promoted": false
+    }
+  ],
+  "promotionGate": {
+    "minValidationTrades": 3,
+    "minValidationExpectancy": 0,
+    "mechanical": true
+  },
+  "hash": "1435680dbedc8df7",
+  "window": {
+    "instrument": "WTICO/USD",
+    "granularity": "M5",
+    "snapshots": 0,
+    "candles": 655
+  }
+}

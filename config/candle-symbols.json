@@ -1,16 +1,85 @@
 {
-  "note": "Validated FXEmpire candle symbols per market (issue #7 F3). DISTINCT from the rates slugs in config/instruments.yaml — candle fetches need these symbols, not slugs. Coverage is patchy; only symbols proven to return candles are listed. Crypto candles 404 and FX candles come back empty on this endpoint, so they are out of scope.",
+  "note": "Validated candle symbols per market (issue #7 F3, extended in #18/PR #19). DISTINCT from the rates slugs in config/instruments.yaml. Coverage notes: the fxempire chart-candles endpoint is patchy (crypto 404s, FX empty), but the Oanda proxy (p.fxempire.com/oanda/candles/latest) \u2014 which supertrend.mjs and signal-server.mjs use \u2014 serves every symbol listed here (probed 2026-07-22).",
   "markets": {
     "indices": [
-      { "symbol": "NAS100/USD", "name": "Nasdaq 100" },
-      { "symbol": "US30/USD", "name": "Dow Jones 30" }
+      {
+        "symbol": "NAS100/USD",
+        "name": "Nasdaq 100"
+      },
+      {
+        "symbol": "US30/USD",
+        "name": "Dow Jones 30"
+      },
+      {
+        "symbol": "SPX500/USD",
+        "name": "S&P 500"
+      },
+      {
+        "symbol": "DE30/EUR",
+        "name": "DAX 40"
+      },
+      {
+        "symbol": "EU50/EUR",
+        "name": "Euro Stoxx 50"
+      },
+      {
+        "symbol": "UK100/GBP",
+        "name": "FTSE 100"
+      },
+      {
+        "symbol": "JP225/USD",
+        "name": "Nikkei 225"
+      },
+      {
+        "symbol": "AU200/AUD",
+        "name": "ASX 200"
+      }
     ],
     "commodities": [
-      { "symbol": "XAU/USD", "name": "Gold" },
-      { "symbol": "XAG/USD", "name": "Silver" },
-      { "symbol": "NATGAS/USD", "name": "Natural Gas" },
-      { "symbol": "BCO/USD", "name": "Brent Crude" },
-      { "symbol": "WTICO/USD", "name": "WTI Crude" }
+      {
+        "symbol": "XAU/USD",
+        "name": "Gold"
+      },
+      {
+        "symbol": "XAG/USD",
+        "name": "Silver"
+      },
+      {
+        "symbol": "NATGAS/USD",
+        "name": "Natural Gas"
+      },
+      {
+        "symbol": "BCO/USD",
+        "name": "Brent Crude"
+      },
+      {
+        "symbol": "WTICO/USD",
+        "name": "WTI Crude"
+      },
+      {
+        "symbol": "XPT/USD",
+        "name": "Platinum"
+      }
+    ],
+    "currencies": [
+      {
+        "symbol": "EUR/USD",
+        "name": "Euro"
+      },
+      {
+        "symbol": "GBP/USD",
+        "name": "Pound Sterling"
+      },
+      {
+        "symbol": "USD/JPY",
+        "name": "Dollar-Yen"
+      }
+    ],
+    "crypto": [
+      {
+        "symbol": "BTC/USD",
+        "name": "Bitcoin"
+      }
     ]
   }
 }

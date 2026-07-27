@@ -1,0 +1,393 @@
+#!/usr/bin/env node
+// Trading-bot decision loop (issue #23, epic #27). Paper money only.
+// Deterministic work happens every candle close (fills, mark-to-market,
+// kill-switch); the LLM deliberates ONLY on events (fresh flip or adverse
+// move past the review trigger). Decisions are fail-SAFE: any malformed
+// output, timeout, or provider error is a journaled `hold` — the inverse of
+// the alert filter's fail-open, deliberately.
+import { createHash } from 'node:crypto';
+import { withDb, llmChat, sendNotification, llmUsageLine } from './supertrend.mjs';
+
+const dbg = (msg) => process.stderr.write(`[bot] ${msg}\n`);
+import {
+  botConfig, openPosition, closePosition, markToMarket, portfolioView,
+} from './portfolio.mjs';
+import { activeStrategy, activeStrategyByName, ensureSeedStrategy, strategyNameById } from './strategies.mjs';
+
+export const BOT_LOOP_DEFAULTS = {
+  enabled: false,
+  reviewTriggerPct: 1,
+  killSwitchDrawdownPct: 20,
+  strategy: 'Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume).',
+};
+
+// Per-combo bots (#49): settings.bot.bots maps "INSTRUMENT|GRAN" → per-bot
+// config; unset fields inherit the global bot defaults. The legacy flat shape
+// (bot.enabled + bot.watchers + globally-active strategy) migrates on read.
+// The ONE combo-key normalization rule — write path, resolve path, and the
+// server's configured-check must agree byte-for-byte.
+export const normCombo = (k) => String(k).split('|').map((p) => p.trim()).join('|');
+
+export function resolveBotFor(settings, instrument, granularity, dbPath = null) {
+  const bot = settings?.bot ?? {};
+  const key = `${instrument}|${granularity}`;
+  let entry = null;
+  if (bot.bots && typeof bot.bots === 'object') {
+    // write path normalizes keys; the scan fallback covers settings files
+    // written before normalization shipped
+    entry = bot.bots[key] ?? Object.entries(bot.bots).find(([k, v]) => normCombo(k) === key && v && typeof v === 'object')?.[1] ?? null;
+    if (entry && typeof entry !== 'object') entry = null;
+  } else if (bot.enabled === true) {
+    // NOTE deliberately superseded: once ANY bots map exists, this legacy
+    // branch is dead — legacy-watched combos not in the map stop trading
+    // (fail-safe direction; the overview list is the source of truth).
+    // legacy migration-on-read: watchers CSV (or all combos when unset) become
+    // implicit bot entries bound to the globally-active strategy (by name, #75)
+    const csv = typeof bot.watchers === 'string' ? bot.watchers.trim() : '';
+    const combos = csv ? csv.split(',').map(normCombo).filter((x) => x && x !== '|') : null;
+    if (!combos || combos.includes(key)) {
+      const act = dbPath ? (() => { try { return activeStrategy(dbPath); } catch { return null; } })() : null;
+      entry = { enabled: true, strategyName: act?.name ?? null };
+    }
+  }
+  if (!entry) return { enabled: false, configured: false };
+  const legacyId = Number.isInteger(entry.strategyId) ? entry.strategyId : null;
+  // #75 migration: bots follow a strategy NAME's active version, not a frozen
+  // row id. entry.strategyName (new writes) wins; a legacy strategyId
+  // resolves to its row's name here, once per read, then is name-referenced
+  // from that point on — so even old settings.json entries start following
+  // the active version instead of a permanently frozen row. Name resolution
+  // is archive-inclusive (strategyNameById, not strategyById): a legacy id
+  // that happens to point at a now-archived version must still resolve the
+  // name, otherwise the bot silently goes unconfigured even though that
+  // name has an active version elsewhere (review fix).
+  const strategyName = typeof entry.strategyName === 'string' && entry.strategyName
+    ? entry.strategyName
+    : (dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
+  return {
+    configured: true,
+    enabled: entry.enabled === true,
+    strategyId: legacyId,
+    strategyName,
+    riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
+    allocationPct: Number.isFinite(entry.allocationPct) && entry.allocationPct > 0 ? entry.allocationPct : null,
+    killSwitchDrawdownPct: Number.isFinite(entry.killSwitchDrawdownPct) && entry.killSwitchDrawdownPct > 0 ? entry.killSwitchDrawdownPct : null,
+  };
+}
+
+// The one place "bots follow a name's active version" happens (#75): resolves
+// the CURRENTLY active row for a resolved bot's strategy name, called fresh
+// at every deliberation — a chat draft + bot-modal activation takes effect on
+// the next run without ever touching the bot's stored config.
+export function resolvedStrategy(dbPath, botFor) {
+  return botFor?.strategyName ? activeStrategyByName(dbPath, botFor.strategyName) : null;
+}
+
+export function botLoopConfig(settings = {}) {
+  const bot = settings.bot || {};
+  return {
+    ...BOT_LOOP_DEFAULTS,
+    enabled: bot.enabled === true,
+    reviewTriggerPct: Number.isFinite(bot.reviewTriggerPct) && bot.reviewTriggerPct > 0 ? bot.reviewTriggerPct : BOT_LOOP_DEFAULTS.reviewTriggerPct,
+    killSwitchDrawdownPct: Number.isFinite(bot.killSwitchDrawdownPct) && bot.killSwitchDrawdownPct > 0 ? bot.killSwitchDrawdownPct : BOT_LOOP_DEFAULTS.killSwitchDrawdownPct,
+    strategy: typeof bot.strategy === 'string' && bot.strategy.trim() ? bot.strategy : BOT_LOOP_DEFAULTS.strategy,
+    resetHalt: bot.resetHalt === true,
+  };
+}
+
+export const strategyVersion = (strategy) => createHash('sha256').update(strategy).digest('hex').slice(0, 8);
+
+function journalBot(dbPath, cfg, action, reason, context) {
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, action TEXT NOT NULL, position_id INTEGER, reason TEXT, context TEXT)');
+    let ctx = null;
+    if (context) { try { ctx = JSON.stringify(context); } catch { ctx = '{"unserializable":true}'; } }
+    db.prepare('INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,NULL,?,?)')
+      .run(new Date().toISOString(), action, reason ?? null, ctx);
+  });
+}
+
+// --- deterministic per-candle work ------------------------------------------
+
+// Simulate stop/target fills from a completed candle. Gap-through the level at
+// the open fills at the open (the realistic worse price); otherwise at the level.
+export function simulateFills(dbPath, cfg, instrument, candle) {
+  const closed = [];
+  const positions = portfolioView(dbPath, cfg).positions.filter((p) => p.instrument === instrument);
+  for (const pos of positions) {
+    const long = pos.side === 'long';
+    // Gap-at-open events execute at t=0, BEFORE any intrabar level can trade —
+    // evaluate them first or a both-touched candle inverts a win into a loss.
+    // In the intrabar both-touched case (no gap) the stop wins: pessimistic fill.
+    const gapStop = pos.stop != null && (long ? candle.open <= pos.stop : candle.open >= pos.stop);
+    const gapTarget = pos.target != null && (long ? candle.open >= pos.target : candle.open <= pos.target);
+    let fill = null;
+    if (gapStop) fill = { price: candle.open, reason: 'stop' };
+    else if (gapTarget) fill = { price: candle.open, reason: 'target' };
+    else if (pos.stop != null && (long ? candle.low <= pos.stop : candle.high >= pos.stop)) fill = { price: pos.stop, reason: 'stop' };
+    else if (pos.target != null && (long ? candle.high >= pos.target : candle.low <= pos.target)) fill = { price: pos.target, reason: 'target' };
+    if (fill) closed.push(closePosition(dbPath, cfg, pos.id, fill.price, fill.reason, { candleTime: candle.time }));
+  }
+  return closed;
+}
+
+function peakEquity(dbPath, equity) {
+  return withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+    const row = db.prepare('SELECT value FROM bot_state WHERE key=?').get('peak_equity');
+    const peak = Math.max(row?.value ?? 0, equity);
+    db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
+      .run('peak_equity', peak);
+    return peak;
+  });
+}
+
+function setHalted(dbPath, cfg, halted) {
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS portfolio (id INTEGER PRIMARY KEY CHECK (id = 1), starting_balance REAL NOT NULL, cash REAL NOT NULL, halted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)');
+    db.prepare('UPDATE portfolio SET halted=? WHERE id=1').run(halted ? 1 : 0);
+  });
+}
+
+// One-shot halt reset for the settings surface (#49): performed immediately,
+// never persisted as a flag.
+export function performHaltReset(dbPath, settings = {}) {
+  const cfg = botConfig(settings);
+  if (!portfolioView(dbPath, cfg).halted) return { reset: false, reason: 'not halted' };
+  setHalted(dbPath, cfg, false);
+  const eq = portfolioView(dbPath, cfg).equity;
+  withDb(dbPath, (db) => {
+    db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+    db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('peak_equity', eq);
+  });
+  journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (settings UI); peak re-baselined', { peakEquity: eq });
+  return { reset: true };
+}
+
+// --- decision layer ---------------------------------------------------------
+
+const DECISION_RE = /\{[\s\S]*"action"[\s\S]*\}/;
+
+export function parseDecision(text) {
+  const m = String(text).match(DECISION_RE);
+  if (!m) return null;
+  let d;
+  try { d = JSON.parse(m[0]); } catch { return null; }
+  if (!['open', 'close', 'hold'].includes(d.action)) return null;
+  if (d.action === 'open') {
+    if (d.side !== 'long' && d.side !== 'short') return null;
+    if (!(d.notional > 0) || !Number.isFinite(d.notional)) return null;
+    if (!(d.stop > 0) || !Number.isFinite(d.stop)) return null; // stop is mandatory on open
+    if (d.target != null && !(Number.isFinite(d.target) && d.target > 0)) return null;
+  }
+  if (d.action === 'close' && !(Number.isInteger(d.positionId) && d.positionId > 0)) return null;
+  return d;
+}
+
+function buildDecisionPrompt(loop, view, ctx) {
+  return [
+    `strategy (version ${strategyVersion(loop.strategy)}):\n${loop.strategy}`,
+    `portfolio:\n${JSON.stringify({ equity: view.equity, cash: view.cash, halted: view.halted, positions: view.positions })}`,
+    `instrument context:\n${JSON.stringify(ctx)}`,
+    'Decide now. Reply with EXACTLY one JSON object, no prose:',
+    '{"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>"}',
+    'Rules: stop is REQUIRED on open. hold when unsure. Never exceed the risk budget.',
+  ].join('\n\n');
+}
+
+export const DECISION_SYSTEM = 'You are an automated trading strategy executing on a VIRTUAL paper portfolio. You receive a strategy, portfolio state, and instrument context; tools may be available for news/rates checks. The instrument context may include traderMemories, the trader\'s standing rules — advisory only, never a reason to skip the stop/target/risk-budget rules below. It may also include a sentinel block (cached breaking-news headlines + an escalation flag from free geopolitical/macro sources) — advisory context to weigh, never a reason to skip those rules either. Your reply MUST end with exactly one JSON decision object per the requested schema. Be conservative: hold when the setup is unclear.';
+
+// One deliberation for one instrument event. Returns {decision, executed, error,
+// execSizing}: execSizing (open decisions only, #85) is the ACTUAL sizing
+// openPosition applied — {requestedNotional, effectiveNotional, bindingCap} —
+// read back from its journaled 'open'/'skip' row, so the audit trail shows
+// what happened, not just the LLM's raw ask.
+export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
+  const cfg = botConfig(settings);
+  // Per-combo riskPct/allocationPct (#49/#51) live under settings.bot.bots and
+  // are NOT BOT_DEFAULTS keys botConfig() would pick up on its own — fold in
+  // the same per-combo override runBot applies, so the sizing math (#83) that
+  // openPosition does below actually sees this combo's budget, not just the
+  // global/legacy flat settings.
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
+  if (botFor.allocationPct) cfg.allocationPct = botFor.allocationPct;
+  const loop = botLoopConfig(settings);
+  // The ACTIVE db strategy (#25) outranks the settings/default prompt; journal
+  // rows pin its exact id+version so past decisions stay attributed.
+  if (strategyRow?.prompt) loop.strategy = strategyRow.prompt;
+  const view = portfolioView(dbPath, cfg);
+  const version = strategyVersion(loop.strategy);
+  const toolTrace = [];
+  const allowedTools = new Set((toolDefs || []).map((t) => t.name));
+  const tracedExec = execTool
+    ? async (name, args) => {
+      // enforce the declared toolset at EXECUTION time: a provider returning an
+      // undeclared tool call must never reach the executor (read-only guarantee)
+      if (!allowedTools.has(name)) {
+        toolTrace.push({ name, args, ok: false, error: 'tool not in the declared toolset' });
+        throw new Error(`tool ${name} not allowed here`);
+      }
+      try {
+        const out = await execTool(name, args);
+        toolTrace.push({ name, args, ok: true });
+        return out;
+      } catch (err) {
+        toolTrace.push({ name, args, ok: false, error: String(err.message || err).slice(0, 120) });
+        throw err;
+      }
+    }
+    : null;
+  let decision = null;
+  let error = null;
+  try {
+    // MS_DEBUG_LLM (#93): local dev flag; off is a zero-cost no-op.
+    const onUsage = process.env.MS_DEBUG_LLM ? (info) => dbg(llmUsageLine('bot', info)) : undefined;
+    const reply = await llmChat(settings, DECISION_SYSTEM, buildDecisionPrompt(loop, view, ctx), {
+      toolDefs: toolDefs || undefined, execTool: tracedExec || undefined, onUsage,
+    });
+    decision = parseDecision(reply);
+    if (!decision) error = 'malformed decision';
+  } catch (err) {
+    error = String(err.message || err).slice(0, 200);
+  }
+  if (!decision) decision = { action: 'hold', reasoning: `fail-safe hold: ${error}` };
+
+  let executed = null;
+  let execSizing = null;
+  try {
+    if (decision.action === 'open') {
+      const price = ctx.quote?.last ?? ctx.close;
+      const long = decision.side === 'long';
+      if (long ? decision.stop >= price : decision.stop <= price) throw new Error(`stop ${decision.stop} on the wrong side of entry ${price} for ${decision.side}`);
+      if (decision.target != null && (long ? decision.target <= price : decision.target >= price)) throw new Error(`target ${decision.target} on the wrong side of entry ${price} for ${decision.side}`);
+      const id = openPosition(dbPath, cfg, {
+        instrument, side: decision.side, notional: decision.notional, price,
+        stop: decision.stop, target: decision.target ?? null,
+        reason: decision.reasoning, context: { event, granularity, strategyVersion: version },
+      });
+      // openPosition (#83) already journaled the sizing math on its own 'open'
+      // (or, on a no-budget skip, 'skip') row — read that same row back rather
+      // than re-deriving it, so the decision audit shows what actually
+      // happened (effective, sized notional) instead of the LLM's raw ask.
+      const sizingRow = portfolioView(dbPath, cfg).journal[0];
+      if (sizingRow && (sizingRow.action === 'open' || sizingRow.action === 'skip')) {
+        try {
+          const sctx = JSON.parse(sizingRow.context);
+          execSizing = { requestedNotional: sctx.requestedNotional, effectiveNotional: sctx.effectiveNotional, bindingCap: sctx.bindingCap };
+        } catch { /* malformed context: leave execSizing null */ }
+      }
+      if (id == null) {
+        // Server sized the request down to zero: the risk/allocation budget
+        // for this instrument is genuinely exhausted — a legitimate skip,
+        // not an execution failure (#83). Never surface this as `error`
+        // (the UI renders `error` as a rejection).
+        // name the cap that actually bound (execSizing was read from the skip
+        // journal row just above) instead of always saying 'allocation'
+        const cap = execSizing?.bindingCap === 'risk' ? 'risk' : execSizing?.bindingCap === 'allocation' ? 'allocation' : null;
+        decision = { ...decision, action: 'hold', reasoning: cap ? `no budget (${cap} cap exhausted)` : 'no budget' };
+      } else {
+        executed = { opened: id };
+      }
+    } else if (decision.action === 'close') {
+      const price = ctx.quote?.last ?? ctx.close;
+      // Clamp closes to the triggering instrument: the prompt shows the whole
+      // portfolio (and tool output feeds it), so a hallucinated or injected
+      // cross-instrument positionId must never close at this instrument's price.
+      const target_ = view.positions.find((pp) => pp.id === decision.positionId);
+      if (!target_) throw new Error(`unknown position ${decision.positionId}`);
+      if (target_.instrument !== instrument) throw new Error(`position ${decision.positionId} belongs to ${target_.instrument}, not ${instrument}`);
+      executed = closePosition(dbPath, cfg, decision.positionId, price, 'bot-close', { strategyVersion: version });
+    }
+  } catch (err) {
+    error = `execution rejected: ${String(err.message || err).slice(0, 160)}`;
+    decision = { ...decision, action: 'hold', reasoning: `fail-safe hold: ${error}` };
+  }
+  journalBot(dbPath, cfg, 'decision', decision.reasoning ?? null, {
+    instrument, granularity, event, decision, executed, error, execSizing,
+    strategyVersion: version, strategyId: strategyRow?.id ?? null, strategyName: strategyRow?.name ?? null, strategyDbVersion: strategyRow?.version ?? null, toolTrace, instrumentContext: ctx,
+    snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
+  });
+  return { decision, executed, error, execSizing };
+}
+
+// --- per-combo entry point (called from the watcher run) --------------------
+
+// candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
+// fired this run. Returns a summary for logs/tests.
+export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
+  const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
+  if (!botFor.enabled) return { skipped: 'disabled' };
+  const loop = botLoopConfig(settings);
+  if (botFor.killSwitchDrawdownPct) loop.killSwitchDrawdownPct = botFor.killSwitchDrawdownPct;
+  const cfg = botConfig(settings);
+  if (botFor.riskPct) cfg.riskPct = botFor.riskPct;
+  if (botFor.allocationPct) cfg.allocationPct = botFor.allocationPct;
+
+  if (loop.resetHalt && portfolioView(dbPath, cfg).halted) {
+    // guard on halted: a stale persisted flag on a healthy portfolio must not
+    // re-baseline the peak every run (that would neuter the kill-switch)
+    setHalted(dbPath, cfg, false);
+    // Re-baseline the peak to current equity, else the same drawdown re-halts
+    // on this very run and the operator reset is a no-op.
+    const eq = portfolioView(dbPath, cfg).equity;
+    withDb(dbPath, (db) => {
+      db.exec('CREATE TABLE IF NOT EXISTS bot_state (key TEXT PRIMARY KEY, value REAL)');
+      db.prepare('INSERT INTO bot_state (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run('peak_equity', eq);
+    });
+    journalBot(dbPath, cfg, 'reset', 'halt cleared by operator (bot.resetHalt); peak re-baselined', { peakEquity: eq });
+  }
+
+  // 1) deterministic: candle fills, then mark everything at the close.
+  const fills = candle ? simulateFills(dbPath, cfg, instrument, candle) : [];
+  const marked = markToMarket(dbPath, cfg, { [instrument]: quote?.last ?? candle?.close });
+
+  // 2) kill-switch on drawdown from peak equity.
+  const peak = peakEquity(dbPath, marked.equity);
+  const drawdownPct = peak > 0 ? ((peak - marked.equity) / peak) * 100 : 0;
+  if (!marked.halted && drawdownPct > loop.killSwitchDrawdownPct) {
+    setHalted(dbPath, cfg, true);
+    journalBot(dbPath, cfg, 'halt', `kill-switch: drawdown ${drawdownPct.toFixed(1)}% > ${loop.killSwitchDrawdownPct}%`, { peak, equity: marked.equity });
+    try {
+      sendNotification(`bot halted — drawdown ${drawdownPct.toFixed(1)}% (equity ${marked.equity.toFixed(2)})`, null, settings);
+    } catch { /* notification is best-effort */ }
+    return { fills, halted: true, drawdownPct };
+  }
+  if (marked.halted) return { fills, halted: true, skipped: 'halted' };
+
+  // 3) LLM deliberation only on events.
+  const positions = portfolioView(dbPath, cfg).positions.filter((p) => p.instrument === instrument);
+  const adverse = positions.some((p) => {
+    const move = p.side === 'long' ? p.entry_price - p.last_mark : p.last_mark - p.entry_price;
+    return (move / p.entry_price) * 100 > loop.reviewTriggerPct;
+  });
+  const event = freshFlip ? 'flip' : adverse ? 'review' : null;
+  if (!event) return { fills, halted: false, deliberated: false };
+
+  // Active strategy scoping: an instruments CSV on the active strategy limits
+  // deliberation to those combos (deterministic fills always run).
+  // Seed idempotently (ships unassigned), then require a human-assigned
+  // strategy for THIS bot: an unbound bot pauses instead of trading a default.
+  ensureSeedStrategy(dbPath);
+  const strategyRow = resolvedStrategy(dbPath, botFor);
+  if (!strategyRow) return { fills, halted: false, deliberated: false, skipped: 'no strategy assigned to this bot' };
+  if (strategyRow?.instruments) {
+    // normalize each combo the same way the watchers parser does — spaces
+    // around the pipe must not silently unscope a combo
+    const combos = strategyRow.instruments.split(',').map((x) => x.split('|').map((p) => p.trim()).join('|')).filter((x) => x !== '|' && x);
+    if (!combos.includes(`${instrument}|${granularity}`)) return { fills, halted: false, deliberated: false, skipped: 'combo not in active strategy scope' };
+  }
+
+  // Build the decision context ONLY now, past EVERY early-return gate (quiet tick,
+  // no strategy, out-of-scope combo). buildCtx may fetch news (NewsAPI.ai
+  // on-demand); building it any earlier spent a request on ticks that then bailed.
+  // An explicitly-provided ctx (tests) is honored — buildCtx runs only when ctx is empty.
+  if (buildCtx && (!ctx || Object.keys(ctx).length === 0)) ctx = await buildCtx();
+
+  const result = await deliberate(dbPath, settings, {
+    instrument, granularity, event,
+    ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip },
+    toolDefs, execTool, strategyRow,
+  });
+  return { fills, halted: false, deliberated: true, ...result };
+}

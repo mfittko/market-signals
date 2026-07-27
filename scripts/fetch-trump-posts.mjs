@@ -4,6 +4,7 @@
 // created_at, strips HTML, dedupes by id, and writes normalized posts
 // { id, createdAtISO, text, url, engagement }. Stdlib only, bounded retry.
 import { writeFileSync } from 'node:fs';
+import { parseArgs, isMain } from './lib/cli.mjs';
 
 export const ARCHIVE_URL = 'https://ix.cnn.io/data/truth-social/truth_archive.json';
 
@@ -71,10 +72,7 @@ async function fetchArchive(url, { retries = 3, timeoutMs = 60000 } = {}) {
 }
 
 async function main(argv) {
-  const args = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) args.set(argv[i].slice(2), argv[i + 1]?.startsWith('--') ? true : argv[++i]);
-  }
+  const args = parseArgs(argv);
   if (args.has('help')) {
     process.stdout.write('fetch-trump-posts — pull + normalize the CNN Trump archive.\n  --since <ISO>   window start (default: 14 days ago)\n  --until <ISO>   window end (default: now)\n  --out <file>    write JSON array (default: stdout)\n  --url <url>     override archive URL\n');
     return;
@@ -93,7 +91,7 @@ async function main(argv) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   main(process.argv.slice(2)).catch((e) => {
     process.stderr.write(`fetch-trump-posts error: ${e.message}\n`);
     process.exit(1);

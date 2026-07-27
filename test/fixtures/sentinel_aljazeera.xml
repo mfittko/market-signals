@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Al Jazeera English</title>
+    <item>
+      <title>Tensions rise in the Gulf after tanker seizure reported</title>
+      <link>https://aljazeera.example.com/gulf-tanker-seizure</link>
+      <pubDate>Thu, 23 Jul 2026 08:15:00 GMT</pubDate>
+      <description>Regional officials confirmed a tanker seizure near the strait.</description>
+    </item>
+  </channel>
+</rss>

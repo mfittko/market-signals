@@ -2,3 +2,54 @@ version: 1
 
 # CI is set up (.github/workflows/ci.yml), so the dev-loop CI gate is back in
 # force with shipped defaults (both gates require green CI). No overrides needed.
+
+# UI-review recipe (issue #18 web app). The signal-server has no auth, so no
+# login recipe; flows are the explicit allowlist for /loop-review-ui.
+worktree:
+  entries:
+    - path: data
+      mode: copy
+uiReview:
+  run:
+    command: "node scripts/signal-server.mjs --port 4123"
+    readyUrl: "http://127.0.0.1:4123/"
+    readyTimeoutMs: 60000
+  flows:
+    - name: chart-latest
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/", name: latest-signal-chart }
+    - name: chart-deep-link
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/supertrend.mjs"]
+      steps:
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5&t=2026-07-22T10%3A15%3A00.000000000Z", name: deep-linked-signal }
+    - name: chat-threads-view-scope
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M5", name: threads-wti-m5 }
+        - { action: goto, path: "/?instrument=WTICO%2FUSD&granularity=M1", name: threads-wti-m1 }
+    # portfolio modal needs a seeded portfolio; the declarative flow only loads
+    # the page (section hidden on a fresh db is valid) — the modal drive runs in
+    # the manual seeded UI-review pass documented on the PR.
+    - name: portfolio-view
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/portfolio.mjs"]
+      steps:
+        - { action: goto, path: "/", name: portfolio-section }
+    - name: chart-indicators
+      pathPatterns: ["scripts/signal-server.mjs", "scripts/indicators.mjs", "scripts/axis-snapshot.mjs"]
+      steps:
+        - { action: goto, path: "/?ind=ema%2Cbb%2Cvwap%2Crsi", name: indicators-on }
+        - { action: goto, path: "/", name: indicators-off }
+    - name: settings-roundtrip
+      pathPatterns: ["scripts/signal-server.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
+        - { action: click, selector: "#cfg button", name: save-settings }
+        - { action: goto, path: "/", name: reload-after-save }
+
+# Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
+queue:
+  board:
+    number: 5

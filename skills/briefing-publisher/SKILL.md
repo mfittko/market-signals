@@ -7,13 +7,22 @@ description: Publish generated markdown briefings to a GitHub Pages repository w
 
 Use `scripts/publish_briefing.mjs` to publish a local markdown report into a GitHub repository (default: `mfittko/ai-briefings`) via GitHub API, without needing a local git checkout.
 
+> **Note (issue #91):** the FXEmpire raw news/articles channel that used to back the
+> `market` series (`fxempire-market-analysis-24h.md`) is deprecated as a source — it
+> dried out (stale scrape, see #11/#28). The primary input is now
+> `skills/market-sentinel/scripts/sentinel_briefing.mjs`'s markdown digest, published
+> as `--series sentinel`. The generic `market`/fxempire series path still works if
+> anything still produces that input; it's just no longer the default.
+
 ## Quick start
 
 ```bash
+node skills/market-sentinel/scripts/sentinel_briefing.mjs --output-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md
+
 export GH_TOKEN="..."  # repo scope
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
-  --series market
+  --input-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md \
+  --series sentinel
 ```
 
 ## What it publishes
@@ -35,28 +44,30 @@ Feed URLs:
 
 ## Cadence examples
 
-Market pulse (flat series path):
+Sentinel digest (primary, flat series path):
 
 ```bash
+node skills/market-sentinel/scripts/sentinel_briefing.mjs --output-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
-  --series market
+  --input-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md \
+  --series sentinel
 ```
 
-Hourly market pulse (same series, more files):
+Hourly sentinel digest (same series, more files):
 
 ```bash
-node skills/briefing-publisher/scripts/publish_briefing.mjs \
-  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
-  --series market
-```
-
-Sentinel updates:
-
-```bash
+node skills/market-sentinel/scripts/sentinel_briefing.mjs --hours 1 --output-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md
 node skills/briefing-publisher/scripts/publish_briefing.mjs \
   --input-file $WORKSPACE_DIR/sentinel/sentinel-briefing.md \
   --series sentinel/hourly
+```
+
+Legacy fxempire market series (deprecated source, kept working if something still produces this input):
+
+```bash
+node skills/briefing-publisher/scripts/publish_briefing.mjs \
+  --input-file $WORKSPACE_DIR/market/fxempire-market-analysis-24h.md \
+  --series market
 ```
 
 ## Options

@@ -1,2 +1,13 @@
 data/
 *.tmp
+posts.json
+node_modules/
+tmp/
+
+# judge response cache (content-hash keyed; recomputable)
+reports/backtests/cache/
+
+# secrets + local agent state (never commit)
+.env
+.env.*
+.pi/

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>"oil" - Google News</title>
+    <item>
+      <title>Houthi tanker attack near Hormuz sparks crude oil surge</title>
+      <link>https://news.example.com/houthi-tanker-attack</link>
+      <pubDate>Thu, 23 Jul 2026 09:00:00 GMT</pubDate>
+      <description>&lt;a href="https://news.example.com/houthi-tanker-attack"&gt;Houthi tanker attack near Hormuz sparks crude oil surge&lt;/a&gt;&amp;nbsp;&lt;font color="#6f6f6f"&gt;Reuters&lt;/font&gt;</description>
+      <source url="https://news.example.com">Reuters</source>
+    </item>
+    <item>
+      <title>Oil prices steady amid summer demand outlook</title>
+      <link>https://news.example.com/oil-steady</link>
+      <pubDate>Thu, 23 Jul 2026 07:30:00 GMT</pubDate>
+      <description>&lt;a href="https://news.example.com/oil-steady"&gt;Oil prices steady amid summer demand outlook&lt;/a&gt;</description>
+      <source url="https://news.example.com">MarketWatch</source>
+    </item>
+  </channel>
+</rss>
