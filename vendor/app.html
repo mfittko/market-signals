@@ -1163,8 +1163,10 @@ function renderHealthStrip() {
   const feedSeg = worstFeedSec > feedGranSec * 3
     ? '<span class="warn">⚠ feed ' + Math.round(worstFeedSec / 60) + 'm behind</span>'
     : '● feed live';
+  // llm.lastOkAt is just the newest decision's timestamp — decisions are
+  // event-driven, so recency is information, never a warning (the STALE lesson)
   const llmAgeMin = railHealth.llm?.lastOkAt ? (Date.now() - Date.parse(railHealth.llm.lastOkAt)) / 60000 : null;
-  const llmSeg = llmAgeMin == null ? 'LLM —' : llmAgeMin > 60 ? '<span class="warn">⚠ LLM ' + humanAge(llmAgeMin) + ' since last decision</span>' : 'LLM ok';
+  const llmSeg = llmAgeMin == null ? 'LLM —' : 'LLM last used ' + humanAge(llmAgeMin);
   const newsSeg = 'news ' + esc(railHealth.news?.mode || '—');
   el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg;
 }
