@@ -593,6 +593,11 @@ test('page ships the chat sidebar', async () => {
     assert.ok(html.includes('openai (official)') && html.includes('openai-compatible (base URL)'), 'provider select is explicit (#99 split)');
     assert.ok(html.includes('@media (max-width: 900px)'), 'responsive: sidebar stacks underneath on narrow screens');
     assert.ok(html.includes('text/event-stream') === false, 'client parses stream via fetch reader');
+    // #172 (must-fix 1): a fresh/empty thread renders a muted onboarding hint
+    // instead of a blank pane, and it's cleared once a message exists.
+    assert.ok(html.includes('Ask about the current view'), 'chat empty-state onboarding hint shipped');
+    assert.ok(/CHAT_EMPTY_HINT[\s\S]*?function renderMsgs/.test(html), 'renderMsgs renders the empty-state hint');
+    assert.ok(/chatHint[^;]*\.remove\(\)/.test(html), 'appendMsg clears the empty-state hint once a message exists');
   });
 });
 
@@ -842,13 +847,9 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(Math.abs(pf.equity - (pf.cash + pf.marginLocked + pf.unrealized)) < 1e-9, 'equity identity holds in the API payload');
 
     assert.equal(pf.positions[0].reason, 'rejection at **resistance**', 'open position exposes its journaled opening reasoning');
-    const tr = await (await fetch(base + '/api/bot-trades?limit=1')).json();
-    assert.equal(tr.trades.length, 1);
-    assert.equal(tr.trades[0].close_reason, 'target');
-    const zero = await fetch(base + '/api/bot-trades?limit=0');
-    assert.equal((await zero.json()).trades.length, 1, 'limit=0 falls back to default, not zero rows');
+    assert.equal(pf.trades[0].close_reason, 'target');
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-      assert.equal((await fetch(base + '/api/bot-trades', { method, body: '{}' })).status, 405, method + ' rejected');
+      assert.equal((await fetch(base + '/api/portfolio', { method, body: '{}' })).status, 405, method + ' rejected');
     }
 
     const html = await (await fetch(base + '/')).text();
@@ -856,7 +857,15 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(html.includes('<dialog id="pfdlg"'), 'portfolio modal present');
     assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
     const script = html.slice(html.indexOf('<script>'));
-    assert.ok(!/fetch\((['"])\/api\/(?:portfolio|bot-trades)\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes (either quote style)');
+    assert.ok(!/fetch\((['"])\/api\/portfolio\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio route (either quote style)');
+    // status chip copy (operator-facing) is pinned — a future refactor that
+    // silently renames it would otherwise slip past every other assertion here.
+    assert.ok(script.includes('trading enabled'), 'status chip renders the "trading enabled" copy');
+    const botTradesRes = await fetch(base + '/api/bot-trades');
+    assert.equal(botTradesRes.status, 404, '/api/bot-trades retired (#172)');
+    assert.equal((await botTradesRes.json()).error, 'not found', '/api/bot-trades 404 body carries the generic not-found error');
+    const portfolioModule = await import('../scripts/portfolio.mjs');
+    assert.ok(!('botTrades' in portfolioModule), 'botTrades is no longer exported from portfolio.mjs (#172)');
   });
 });
 

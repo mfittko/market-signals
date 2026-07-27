@@ -205,14 +205,14 @@ PR-sized issues through the normal dev-loop; UI-review gate per §8.
 ### Phase 3 — chart layer & durability
 | # | Change | Fixes |
 |---|---|---|
-| 3.1 | Additive migration: nullable `granularity` on `positions`+`bot_trades`, stamped at open/close, one-time journal backfill (`NULL` = "unattributed") | F5, F6 durable |
-| 3.2 | Entry/stop/target lines + trade/signal markers on the chart | F8 |
-| 3.3 | Bollinger gap-ellipse fix; x-axis regularity + mobile overlap; BTC weekend-gap explanation or 24/7 fetch | F28 |
-| 3.4 | Indicator popover; fix or remove MACD; equity curve marked at opens | F27, F19 |
-| 3.5 | News surface: headlines/sources on `[why? ▸]` expansion; sentinel footnotes default on | F24 |
-| 3.6 | Per-bot "disagreed with gates 8 of last 10" rail note | tuning signal |
-| 3.7 | Retire `/api/bot-trades`; copy pass (jargon, grammar, footer phrasing, tooltip glyph, number formatting) | F17, F34 |
-| 3.8 | Settings help text/placeholders/danger flags; Memories explanations; chat/mic feedback; recheck progress | F31, F32, F33 |
+| 3.1 | Additive migration: nullable `granularity` on `positions`+`bot_trades`, stamped at open/close, one-time journal backfill (`NULL` = "unattributed") | F5, F6 durable — delivered (PR #180) |
+| 3.2 | Entry/stop/target lines + trade/signal markers on the chart | F8 — delivered (PR #182) |
+| 3.3 | Bollinger gap-ellipse fix; x-axis regularity + mobile overlap; BTC weekend-gap explanation or 24/7 fetch | F28 — delivered (PR #182) |
+| 3.4 | Indicator popover; fix or remove MACD; equity curve marked at opens | F27, F19 — delivered (PR #182) |
+| 3.5 | News surface: headlines/sources on `[why? ▸]` expansion; sentinel footnotes default on | F24 — delivered (PR #183) |
+| 3.6 | Per-bot "disagreed with gates 8 of last 10" rail note | tuning signal — delivered (PR #183) |
+| 3.7 | Retire `/api/bot-trades`; copy pass (jargon, grammar, footer phrasing, tooltip glyph, number formatting) | F17, F34 — delivered (PR #184) |
+| 3.8 | Settings help text/placeholders/danger flags; Memories explanations; chat/mic feedback; recheck progress | F31, F32, F33 — delivered (PR #184) |
 
 ## 8. Verification (per phase, all three)
 1. `npm test` — extend `test/portfolio.test.mjs` (tradeTimeline open+closed union),

@@ -345,10 +345,6 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
 
 const TRADES_QUERY = 'SELECT * FROM bot_trades ORDER BY id DESC LIMIT ?';
 
-export function botTrades(dbPath, cfg, limit = 50) {
-  return pdb(dbPath, cfg, (db) => db.prepare(TRADES_QUERY).all(limit));
-}
-
 function viewInDb(db) {
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
   const positions = db.prepare(`SELECT p.*,

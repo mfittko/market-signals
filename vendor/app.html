@@ -25,6 +25,7 @@
   .msg.user { background: #1f6feb22; border: 1px solid #1f6feb55; align-self: flex-end; }
   .msg.assistant { background: #161b22; border: 1px solid #30363d; align-self: flex-start; }
   .msg.error { background: #f8514922; border: 1px solid #f8514955; align-self: flex-start; }
+  .msg.hint { background: none; border: 0; color: #8b949e; align-self: stretch; max-width: 100%; }
   .msg code { background: #010409; border: 1px solid #21262d; border-radius: 3px; padding: 0 4px; font-size: 12px; }
   .msg pre { background: #010409; border: 1px solid #21262d; border-radius: 5px; padding: 8px; overflow-x: auto; margin: 6px 0; }
   .msg table { margin: 6px 0; font-size: 12px; } .msg td { padding: 2px 8px; border-bottom: 1px solid #21262d; }
@@ -114,6 +115,11 @@
   #cfgdlg { width: min(760px, 92vw); max-height: 85vh; overflow-y: auto; }
   #cfg { grid-template-columns: 220px 1fr; max-width: none; }
   @media (max-width: 900px) { #cfg { grid-template-columns: 1fr; } }
+  .fieldhint { color: #8b949e; font-size: 0.85em; }
+  .fieldhint.danger { color: #f85149; }
+  #cfg .fieldhint { grid-column: 2; margin: -6px 0 4px; }
+  @media (max-width: 900px) { #cfg .fieldhint { grid-column: 1; } }
+  #ws-tuning .fieldhint { display: block; margin: 0 0 6px; }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
   /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
@@ -129,7 +135,7 @@
   /* #166: rail toggle collapses the sidebar entirely (width reclaimed) */
   #mainGrid.rail-collapsed #rail { display: none; }
   #railToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
-  .railrow { display: flex; align-items: stretch; gap: 4px; }
+  .railrow { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
   .railjump { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
               text-align: left; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
               padding: 6px 8px; cursor: pointer; font-size: 12px; min-height: 26px; }
@@ -143,7 +149,12 @@
   .railrow.warn .railstat { color: #d29922; } .railrow.off .railstat { color: #8b949e; }
   .railcombo { opacity: .9; } .railstrat, .railage, .railnote { font-size: 11px; opacity: .7; }
   /* #171 3.6: gray/informational — a tuning signal (bot vs. gate divergence), never a health warning */
-  .railnote { display: block; color: #8b949e; }
+  /* full-width wrapped line BELOW the jump/cfg buttons — as a middle flex item it squeezed the row */
+  .railnote { color: #8b949e; }
+  /* #172 wfn: the full-width wrap is scoped to >=900px — the <900px chip strip
+     lays rail rows out horizontally (flex-basis:100% there would blow the
+     strip up vertically); the note stays muted inline text there instead. */
+  @media (min-width: 900px) { .railnote { display: block; flex-basis: 100%; order: 1; } }
   @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
   @media (max-width: 899px) {
     #mainGrid { flex-direction: column; }
@@ -218,6 +229,10 @@
   .badge-muted { color: #8b949e; }
   #recheckBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
   #recheckBtn:disabled { opacity: 0.5; cursor: default; }
+  /* #172 wfn: the glyph span spins, not the button box (border/padding no longer rotate) */
+  #recheckBtn .recheckglyph { display: inline-block; }
+  #recheckBtn.spin .recheckglyph { animation: recheckspin 0.9s linear infinite; }
+  @keyframes recheckspin { to { transform: rotate(360deg); } }
   table { border-collapse: collapse; width: 100%; } td, th { padding: 4px 8px; text-align: left; border-bottom: 1px solid #21262d; }
   tr { cursor: pointer; } tr:hover { background: #161b22; }
   form { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; max-width: 520px; }
@@ -386,7 +401,7 @@ const INFO = {
   gates: 'gates: alert means every axis gate cleared; suppress means at least one axis vetoed the signal. This lane is advisory — it never trades.',
   equity: 'Equity: cash plus unrealized P&L of open positions.',
   pnl: 'Total P&L: realized plus unrealized.',
-  active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
+  active: 'trading enabled means the bot(s) may trade. ⛔ halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
   bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy — won\'t trade (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
   portfolio: 'Virtual trading portfolio (paper money): equity · all trades · scoreboard · audit.',
@@ -402,7 +417,7 @@ const INFO = {
   memWeight: 'Memory weight, 1 to 5: how strongly this standing note is weighted as advisory context.',
   botModal: 'Configure the bot for this instrument and granularity: strategy, risk, allocation, leverage, kill-switch.',
   botDecision: 'What the bot did on this signal: hold (no trade), open (entered a position), or close (exited one) — full reasoning and history in portfolio → audit.',
-  recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded gates outcome above — the result renders as its own line.',
+  recheck: 'Re-check the LATEST signal against everything since (price path, current axes, realized excursion): still valid, played-out, or invalidated. Never changes the recorded gates outcome above — the result renders as its own line. Calls the LLM (costs a request).',
   info: 'Toggle styled hover explanations for metrics across the UI.',
   settings: 'Watcher and filter settings.',
   memories: 'Standing notes/preferences the copilot and bot weigh as advisory context — never a substitute for the fail-safe clamps.',
@@ -556,6 +571,7 @@ document.getElementById('wsTabs').addEventListener('click', (e) => {
 });
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
+const fmtNotional = (v) => v == null || v === '' || !Number.isFinite(Number(v)) ? '' : '$' + Number(v).toFixed(2);
 // #167: latest polled equity, reused by the tuning tab's effective-values note
 // (alloc % → $ max margin) instead of a second /api/portfolio fetch.
 let lastEquity = null;
@@ -571,7 +587,7 @@ async function portfolio() {
   const el = document.getElementById('pf');
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
-  const status = pf.halted ? '<span class="halted" data-info="' + esc(INFO.active) + '">halted</span>' : '<span class="active" data-info="' + esc(INFO.active) + '">active</span>';
+  const status = pf.halted ? '<span class="halted" data-info="' + esc(INFO.active) + '">⛔ halted</span>' : '<span class="active" data-info="' + esc(INFO.active) + '">trading enabled</span>';
   // #163: totalPnl/dayPnl are server-computed (pf.realizedTotal sums ALL
   // bot_trades, not just the 50-row pf.trades slice this page also renders).
   const totalPnl = pf.realizedTotal + pf.unrealized;
@@ -779,7 +795,7 @@ async function renderTuningTab(inst, gran) {
   document.getElementById('ws-tuning').insertAdjacentHTML('beforeend',
     '<fieldset><legend>global — affects every bot</legend>' +
     '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
-    '<div><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
+    '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
     '</fieldset>');
   tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
   await renderGates();
@@ -1018,14 +1034,14 @@ async function renderEvaluation() {
   const sizeNote = (a) => {
     if (!a.execSizing) return null;
     const { requestedNotional, effectiveNotional, bindingCap } = a.execSizing;
-    if (!(effectiveNotional > 0)) return 'no budget (requested ' + requestedNotional + ')';
-    if (bindingCap && bindingCap !== 'none') return 'sized to ' + effectiveNotional + ' (' + bindingCap + ' cap, requested ' + requestedNotional + ')';
+    if (!(effectiveNotional > 0)) return 'no budget (bot asked for ' + fmtNotional(requestedNotional) + ')';
+    if (bindingCap && bindingCap !== 'none') return 'sized down to ' + fmtNotional(effectiveNotional) + ' by the ' + bindingCap + ' cap (bot asked for ' + fmtNotional(requestedNotional) + ')';
     return null;
   };
   document.getElementById('tab-audit').innerHTML = r.audit.map(a =>
     '<div class="audit-entry"><div class="meta">' + esc(localFull(a.at)) + ' · ' + esc(a.action) + (a.event ? ' · ' + esc(a.event) : '') + (a.instrument ? ' · ' + esc(a.instrument) : '') +
     (a.strategyName ? ' · ' + esc(a.strategyName) + (a.strategyDbVersion ? ' v' + esc(a.strategyDbVersion) : '') : '') + '</div>' +
-    (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(a.execSizing ? a.execSizing.effectiveNotional : (a.decision.notional ?? '')) : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
+    (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(fmtNotional(a.execSizing ? a.execSizing.effectiveNotional : a.decision.notional)) : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
     (a.reason ? '<div>' + esc(a.reason) + '</div>' : '') +
     (sizeNote(a) ? '<div class="meta">' + esc(sizeNote(a)) + '</div>' : '') +
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
@@ -1576,8 +1592,10 @@ function quoteStrip(q) {
     // ticking "Ns ago" was motion rather than information (#156). fetchedAt is
     // the upstream retrieval time, so a gate-closed response reports the
     // original fetch, not this render.
+    // #172 wfn: one phrasing for both states — absolute time + relative age —
+    // "live" only adds the forming-candle prefix, it never drops the age.
     box('updated', q.partial
-      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) : 'no live update')
+      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) + ' (' + humanAge(Math.max(0, Math.round((Date.now() - Date.parse(q.fetchedAt)) / 60000))) + ')' : 'no live update')
       : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
 
@@ -1670,7 +1688,7 @@ function verdict(s, botDecision, recheck, view) {
   // on a deep-linked historical view, or a click would re-check a different
   // signal than the one displayed. A past re-check line (if any) still shows
   // for a historical signal — read-only, no new-recheck affordance.
-  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
+  const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '"><span class="recheckglyph">🔁</span></button>' : '';
   // #164 (F3): the signal word itself is strictly buy/sell — the bot's
   // agreement/disagreement is now a separate labelled badge, not a recolour.
   el.innerHTML = '<b class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
@@ -1684,6 +1702,7 @@ function verdict(s, botDecision, recheck, view) {
     const btn = document.getElementById('recheckBtn');
     const line = document.getElementById('recheckLine');
     btn.disabled = true;
+    btn.classList.add('spin');
     line.innerHTML = '<div class="botnote">🔁 re-checking…</div>';
     try {
       // #163: send the DISPLAYED signal's time explicitly rather than relying
@@ -1695,6 +1714,7 @@ function verdict(s, botDecision, recheck, view) {
       line.innerHTML = renderRecheckLine({ error: String(err && err.message || err) });
     } finally {
       btn.disabled = false;
+      btn.classList.remove('spin');
     }
   };
 }
@@ -1783,7 +1803,8 @@ function renderHistory(list, botDecisions, view) {
 }
 // Settings modal tabs (#108 phase 1): one dialog, one global Save, fields grouped
 // per section. LLM provider / News provider / Advanced (launch-config plumbing).
-// Gates/Memories/Bot stay their own modals in this phase (see #108).
+// Gates/Memories moved out of this modal (#167 — see below); Bot config stays
+// its own per-combo modal (never global, since it's instrument-specific).
 // #99: the LLM tab is a contextual provider panel — a provider select plus ONLY
 // the fields that provider uses (rendered client-side in cfg()). News/Advanced
 // stay flat field lists. Provider-specific keys (model, base URL, keys,
@@ -1799,6 +1820,32 @@ const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
+// #172 (F31): one-line description per settings field, shown as both a title
+// attr (hover) and small text under the input (no hover required). port gets
+// the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
+// single id === 'port' call site — no per-field danger flag needed here).
+const FIELD_HINTS = {
+  watchers: 'comma-separated instrument:granularity pairs the poller watches in the background',
+  instrument: 'default instrument for the server (poller/bot), not just this tab',
+  instruments: 'comma-separated list of instruments to track (plural — for multi-instrument setups)',
+  granularity: 'candle interval, e.g. M5, H1',
+  freshBars: 'how many recent candles count as "fresh" for gate evaluation',
+  notesFile: 'path to a local notes file the bot can read for extra context',
+  notifierBin: 'path to an executable invoked for desktop/webhook notifications',
+  port: 'HTTP port this server listens on — takes effect only after the server process restarts',
+  NEWSAPI_AI_KEY: 'API key for the paid NewsAPI.ai tier (leave blank to use free sources only)',
+  NEWSAPI_AI_MODE: 'auto uses paid calls when budget allows; shadow logs without spending; off disables paid calls',
+  NEWSAPI_AI_INSTRUMENTS: 'comma-separated instruments NewsAPI.ai should fetch for (defaults to all watched)',
+  NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
+  NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
+  sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
+  piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
+  ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
+  OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
+  OPENAI_BASE_URL: 'base URL of the OpenAI-compatible endpoint (e.g. a local proxy)',
+  maxCompletionTokens: 'cap on tokens the model may generate per call',
+  __model: 'model name/id to request from the provider',
+};
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
 // #108/#167: one modal for GLOBAL provider config — three tabs, all batched-Save.
@@ -1830,8 +1877,17 @@ async function cfg() {
     if (p === 'openai-compatible') return [model, ['OPENAI_BASE_URL', 'text', 'OPENAI_BASE_URL', s.OPENAI_BASE_URL || ''], ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
     return []; // none
   };
+  // #172 review: one hint channel (the <small> fieldhint) — placeholders stay
+  // reserved for real example values, not a duplicate of the same hint text.
+  const fieldHint = (id) => {
+    const h = FIELD_HINTS[id]; if (!h) return '';
+    const danger = id === 'port'; // the one field a UI change can't apply live
+    return '<small class="fieldhint' + (danger ? ' danger' : '') + '">' + (danger ? '⚠ ' : '') + esc(h) + '</small>';
+  };
+  const hintedLabel = (id, label) =>
+    '<label for="f-' + id + '"' + (FIELD_HINTS[id] ? ' title="' + esc(FIELD_HINTS[id]) + '"' : '') + '>' + esc(label) + '</label>';
   const inputRow = (id, kind, label, val, ph) =>
-    '<label for="f-' + id + '">' + esc(label) + '</label><input id="f-' + id + '" name="' + id + '" type="' + kind + '" value="' + esc(val) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + '>';
+    hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '" value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
   const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
@@ -1840,8 +1896,8 @@ async function cfg() {
     if (kind === 'select') {
       const curS = String(cur);
       const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];
-      return '<label for="f-' + k + '">' + k + '</label><select id="f-' + k + '" name="' + k + '">' +
-        list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>';
+      return hintedLabel(k, k) + '<select id="f-' + k + '" name="' + k + '">' +
+        list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>' + fieldHint(k);
     }
     return inputRow(k, kind, k, cur, '');
   };
@@ -2009,7 +2065,7 @@ async function renderMemories() {
     '<div class="memrow" data-id="' + m.id + '">' +
     '<textarea class="memcontent" rows="2">' + esc(m.content) + '</textarea>' +
     '<div class="memmeta"><span data-info="' + esc(INFO.memWeight) + '">weight <input type="number" class="memweight" min="1" max="5" value="' + esc(m.weight) + '"></span>' +
-    '<button type="button" class="memarchive">archive</button></div>' +
+    '<button type="button" class="memarchive" title="hide this note from advisory context without deleting it">archive</button></div>' +
     '</div>').join('') : '<div class="memempty">no trader memories yet</div>';
   list.querySelectorAll('.memrow').forEach(row => {
     const id = Number(row.dataset.id);
@@ -2105,13 +2161,20 @@ function md(t) {
   return out.join('\n');
 }
 
+// #172 (must-fix 1): a fresh/empty thread gets a muted onboarding hint instead
+// of a blank pane — it disappears the moment any message exists (renderMsgs
+// on a non-empty list, or appendMsg for the very first turn).
+const CHAT_EMPTY_HINT = 'Ask about the current view — signals, positions, why the bot did what it did…';
 function renderMsgs(list) {
   const el = document.getElementById('msgs');
-  el.innerHTML = list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + (m.role === 'assistant' ? md(m.content) : esc(m.content)) + '</div>').join('');
+  el.innerHTML = list.length
+    ? list.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : m.role === 'error' ? 'error' : 'assistant') + '">' + (m.role === 'assistant' ? md(m.content) : esc(m.content)) + '</div>').join('')
+    : '<div class="msg hint" id="chatHint">' + esc(CHAT_EMPTY_HINT) + '</div>';
   el.scrollTop = el.scrollHeight;
 }
 function appendMsg(role, text) {
   const el = document.getElementById('msgs');
+  document.getElementById('chatHint')?.remove();
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   div.textContent = text;
@@ -2132,12 +2195,24 @@ const stripTitleTail = (t) => {
   }
   return t.replace(/\n?<(?:!(?:-(?:-(?:\s*(?:t(?:i(?:t(?:l(?:e(?::)?)?)?)?)?)?)?)?)?)?$/, '');
 };
+// #172 (must-fix 2): the original placeholder is captured ONCE at boot (not
+// re-read on each flash, which would clobber it to whatever the previous
+// flash left behind on a rapid double empty-submit) and the pending timer is
+// cleared before re-arming, so two quick empty submits still restore the
+// real placeholder instead of stacking two competing restores.
+const CHAT_PLACEHOLDER = document.getElementById('chatMsg').placeholder;
+let chatPlaceholderTimer = null;
+function flashPlaceholder(el, msg) {
+  clearTimeout(chatPlaceholderTimer);
+  el.placeholder = msg;
+  chatPlaceholderTimer = setTimeout(() => { el.placeholder = CHAT_PLACEHOLDER; }, 1500);
+}
 document.getElementById('chatForm').onsubmit = async (e) => {
   e.preventDefault();
   if (chat.pending) return;
   const input = document.getElementById('chatMsg');
   const message = input.value.trim();
-  if (!message) return;
+  if (!message) { flashPlaceholder(input, 'type a question first…'); return; }
   input.value = '';
   chat.pending = true;
   appendMsg('user', message);
@@ -2208,7 +2283,13 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
 // getUserMedia (older/insecure context) => button stays hidden.
 (() => {
   const mic = document.getElementById('micBtn');
-  if (!mic || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') return;
+  if (!mic) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    // #172 wfn: hint lives on the input itself, not the whole form (a
+    // form-level title swallows the input's own hover/focus title).
+    document.getElementById('chatMsg').title = 'voice input needs a secure context (HTTPS or localhost) and mic support';
+    return;
+  }
   mic.hidden = false;
   let rec = null, chunks = [], stream = null;
   const setState = (on) => { mic.setAttribute('aria-pressed', String(on)); mic.textContent = on ? '⏺️' : '🎙️'; };

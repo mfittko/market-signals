@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, botTrades, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
+import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
@@ -1298,14 +1298,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           bots,
         });
       }
-      if (url.pathname === '/api/portfolio' || url.pathname === '/api/bot-trades') {
-        // Bot-only mutations: these surfaces are strictly read-only (#22/#24).
-        if (req.method !== 'GET') return json(res, 405, { ok: false, error: `${url.pathname.slice(5)} is read-only over HTTP (bot-only trades)` });
-        if (url.pathname === '/api/bot-trades') {
-          const raw = Number(url.searchParams.get('limit'));
-          const limit = Number.isFinite(raw) && raw >= 1 ? Math.min(Math.floor(raw), 500) : 50;
-          return json(res, 200, { ok: true, trades: botTrades(dbPath, botConfig(readSettings(settingsPath)), limit) });
-        }
+      if (url.pathname === '/api/portfolio') {
+        // Bot-only mutations: this surface is strictly read-only (#22/#24).
+        if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'portfolio is read-only over HTTP (bot-only trades)' });
         return json(res, 200, { ok: true, portfolio: portfolioView(dbPath, botConfig(readSettings(settingsPath))) });
       }
       if (url.pathname === '/api/threads' && req.method === 'GET') {
