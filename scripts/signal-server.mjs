@@ -232,27 +232,42 @@ export function writeSettings(settingsPath, patch) {
   return maskedSettings(settingsPath);
 }
 
-const lastLiveFetch = new Map(); // key -> { at, tail }: one upstream fetch per ~minute, forming candle cached in between
+const lastLiveFetch = new Map(); // key -> { at, tail }: upstream fetch gate, forming candle cached in between
+// #145 measured the provider as effectively tick-driven (poll-limited at every
+// interval tried, ~229ms median request), so a 55s gate was ~all self-inflicted
+// latency. 10s bounds the displayed forming candle at ~20s old including the
+// client's own tick, at ~6 requests/min per OPEN chart. Adaptive/incident-scoped
+// cadence stays out of scope here (#145 phase 2).
+export const LIVE_TAIL_GATE_MS = 10000;
 
 export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
   let liveTail = null;
+  // When the forming candle was actually RETRIEVED from upstream — not when this
+  // request was served. A gate-closed request re-serves a cached tail, so it must
+  // report the original fetch time or the UI would claim data is fresher than it
+  // is (#154).
+  let tailFetchedAt = null;
   const fetchKey = `${dbPath}|${instrument}|${granularity}`;
   const gate = lastLiveFetch.get(fetchKey);
-  if (fetcher && (!gate || Date.now() - gate.at > 55000)) {
+  if (fetcher && (!gate || Date.now() - gate.at > LIVE_TAIL_GATE_MS)) {
     try {
       const live = await fetcher({ instrument, granularity, count: 60 });
       const complete = live.filter((c) => c.complete);
       if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
       liveTail = live.find((c) => !c.complete) ?? null;
-      lastLiveFetch.set(fetchKey, { at: Date.now(), tail: liveTail });
+      tailFetchedAt = Date.now();
+      lastLiveFetch.set(fetchKey, { at: tailFetchedAt, tail: liveTail });
     } catch {
-      lastLiveFetch.set(fetchKey, { at: Date.now(), tail: null }); // failed: back off, stale view beats none
+      // failed: back off, stale view beats none — but do NOT stamp a fresh time
+      // onto data we did not get.
+      lastLiveFetch.set(fetchKey, { at: Date.now(), tail: null });
     }
   } else if (fetcher && gate) {
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
+    tailFetchedAt = gate.tail ? gate.at : null;
   }
   const { candles, recent } = withDb(dbPath, (db) => {
     let windowed;
@@ -325,7 +340,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     signal = latest;
   }
   const quote = buildQuote(recent);
-  if (quote && liveTail) quote.partial = true;
+  if (quote && liveTail) { quote.partial = true; quote.fetchedAt = tailFetchedAt; }
   const out = { instrument, granularity, candles, supertrend, flips, signal, signals, quote };
   // #70 follow-up: the re-check button re-checks the LATEST signal server-side
   // (see /api/recheck), so the client must only render it when the shown

@@ -921,8 +921,31 @@ function quoteStrip(q) {
     box('24h', '<span class="' + cls(q.change24hPct) + '">' + esc(pc(q.change24hPct)) + '</span>', 'change24h') +
     box('day range', esc(q.dayLow) + ' – ' + esc(q.dayHigh), 'dayRange') +
     (st ? box('supertrend', esc(st.value) + ' <span class="' + (st.trend === 'up' ? 'buy' : 'sell') + '">' + esc(st.trend) + ' ' + esc(pc(st.distPct)) + '</span>', 'supertrend') : '') +
-    box('updated', q.partial ? '<span class="buy">live</span> · ' + esc(localHm(q.time)) + ' candle forming' : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
+    // "07:20 candle forming" restated the clock and hid the fact that matters:
+    // when this number last came in from upstream. Show that age instead, and
+    // tick it between fetches so a frozen feed is visible rather than implied
+    // (#154). fetchedAt is the UPSTREAM retrieval time, so a gate-closed
+    // response keeps counting from the original fetch.
+    box('updated', q.partial
+      ? '<span class="buy">live</span> · forming ' + esc(localHm(q.time)) +
+        ' · <span id="fetchAge" data-fetched="' + esc(q.fetchedAt ?? '') + '">' + esc(fetchAgeText(q.fetchedAt)) + '</span>'
+      : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
+// Relative age of the last upstream fetch. Null (fetch failed / no live tail)
+// must never read as fresh.
+function fetchAgeText(fetchedAt) {
+  if (!fetchedAt) return 'no live update';
+  const s = Math.max(0, Math.round((Date.now() - fetchedAt) / 1000));
+  return s < 60 ? 'updated ' + s + 's ago' : 'updated ' + Math.floor(s / 60) + 'm ago';
+}
+// Tick the age between fetches — the label must keep counting up if the feed
+// stalls, instead of freezing at whatever the last render said.
+setInterval(() => {
+  const el = document.getElementById('fetchAge');
+  if (!el) return;
+  const at = Number(el.dataset.fetched);
+  el.textContent = fetchAgeText(at || null);
+}, 1000);
 
 // #70: a re-check verdict picks buy/sell-style coloring for valid/invalidated
 // and the #78 .overruled grey for played-out — NOT the literal 'overruled' ?
@@ -1493,6 +1516,18 @@ load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
   handle.addEventListener('dblclick', () => { apply(DEFAULT); localStorage.removeItem('asideW'); });
 })();
 setInterval(load, 60000);
+// Light tick (#154): chart + quote only. A full load() rebuilds the instrument
+// and granularity selects and clears the header, which at this cadence would
+// flicker and fight an open dropdown.
+setInterval(async () => {
+  if (document.hidden) return; // a background tab does not need a live feed
+  try {
+    const p = new URLSearchParams();
+    for (const k of ['instrument', 't', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
+    const d = await (await fetch('/api/chart?' + p)).json();
+    draw(d); quoteStrip(d.quote);
+  } catch { /* transient: the 60s full load is the recovery path */ }
+}, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 // #108: one tabbed settings modal. openCfg(tab) opens it on a given tab; cfg()
 // renders + lazily populates whichever management tab is active.
