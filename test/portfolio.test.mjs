@@ -136,15 +136,44 @@ test('commission: charged exactly once (at open), precondition covers it, cache 
   assert.equal(instrumentSpread(botConfig({}), 'NO/SUCH'), 0);
 });
 
-test('missing quote: mark kept, position flagged stale, no close triggered', () => {
+test('quoted but unusable price: mark kept, position flagged stale, no close triggered', () => {
   const db = fresh();
   openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87, stop: 1 });
-  const r = markToMarket(db, CFG, {});
+  const r = markToMarket(db, CFG, { [WTI]: null });
   assert.equal(r.closed.length, 0);
   assert.equal(r.positions[0].stale, true);
   assert.equal(r.positions[0].last_mark, 87, 'last known mark retained');
   const r2 = markToMarket(db, CFG, { [WTI]: 87.5 });
   assert.equal(r2.positions[0].stale, false, 'fresh quote clears the flag');
+});
+
+// Bot runs are per-combo: runBot passes a single-instrument quote map. An
+// instrument that was never asked about must keep its flag, or every other
+// instrument's position flaps stale/fresh on each unrelated run (#151).
+test('a per-combo run leaves positions of instruments it did not quote untouched', () => {
+  const db = fresh();
+  openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87, stop: 1 });
+  openPosition(db, CFG, { instrument: 'XAG/USD', side: 'long', notional: 1000, price: 59, stop: 1 });
+  const byName = (v, n) => v.positions.find((p) => p.instrument === n);
+  // WTI goes stale on its own run (quoted, no usable price)…
+  markToMarket(db, CFG, { [WTI]: null });
+  assert.equal(byName(portfolioView(db, CFG), WTI).stale, true);
+  // …and an unrelated XAG run must neither clear nor set anything on WTI.
+  const r = markToMarket(db, CFG, { 'XAG/USD': 59.4 });
+  assert.equal(byName(r, WTI).stale, true, 'WTI keeps its own stale flag');
+  assert.equal(byName(r, WTI).last_mark, 87, 'WTI mark untouched by the XAG run');
+  assert.equal(byName(r, 'XAG/USD').stale, false, 'the quoted instrument is fresh');
+  // The reverse direction is the reported bug: a fresh WTI must not be staled
+  // by the next XAG run.
+  markToMarket(db, CFG, { [WTI]: 87.5 });
+  const r2 = markToMarket(db, CFG, { 'XAG/USD': 59.5 });
+  assert.equal(byName(r2, WTI).stale, false, 'unrelated run must not flag WTI stale');
+  assert.equal(byName(r2, WTI).last_mark, 87.5);
+  // a prototype key is not a quote: an instrument named "constructor" must be
+  // treated as absent, not as quoted-with-a-junk-price (Copilot #152)
+  openPosition(db, CFG, { instrument: 'constructor', side: 'long', notional: 1000, price: 5, stop: 1 });
+  const r3 = markToMarket(db, CFG, { 'XAG/USD': 59.6 });
+  assert.equal(byName(r3, 'constructor').stale, false, 'prototype key must not count as a quote');
 });
 
 test('invariant: equity == starting + Σrealized + Σunrealized over random sequences', () => {

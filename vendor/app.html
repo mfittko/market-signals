@@ -57,6 +57,12 @@
   #pf summary button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
   #pfChips b, #pfChips span { margin-right: 12px; }
   #pfSpark { max-width: 100%; height: 46px; display: block; }
+  #pfSpark[hidden] { display: none; }
+  .sparkbox { border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; }
+  .sparklegend { font-size: 11px; opacity: .75; margin-top: 2px; }
+  #pfOpenList { display: inline-flex; flex-wrap: wrap; gap: 8px; vertical-align: middle; }
+  .openpos { font-size: 12px; border: 1px solid #30363d; border-left: 3px solid #58a6ff; border-radius: 6px; padding: 2px 8px; }
+  .openpos .tag { opacity: .65; margin-right: 4px; }
   .pfcard { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
@@ -217,8 +223,8 @@
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
 <details id="pf" hidden>
-  <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
-  <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Portfolio equity sparkline"></canvas>
+  <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button>
+    <div id="pfOpenList"></div></summary>
 </details>
 <dialog id="pfdlg">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
@@ -229,12 +235,18 @@
     <button data-tab="overview" class="on">overview</button><button data-tab="trades">trades</button><button data-tab="performance">performance</button><button data-tab="audit">audit</button>
   </div>
   <div id="tab-overview">
+    <h2>open positions</h2>
     <div id="pfPositions"></div>
+    <h2>equity</h2>
+    <div class="sparkbox">
+      <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
+      <div id="pfSparkLegend" class="sparklegend"></div>
+    </div>
     <h2>activated bots</h2>
     <div id="botList"></div>
   </div>
   <div id="tab-trades" hidden>
-    <table id="pfTrades"><thead><tr><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
+    <table id="pfTrades"><thead><tr><th>opened</th><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
   </div>
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
@@ -373,6 +385,18 @@ async function portfolio() {
     '<span class="' + pnlCls(totalPnl) + '">P&L ' + esc(money(totalPnl)) + '</span>' +
     '<span class="' + pnlCls(dayPnl) + '">day ' + esc(money(dayPnl)) + '</span>' +
     '<span>' + pf.positions.length + ' pos</span>' + status;
+  // The per-instrument page shows only what belongs to THIS chart: an open
+  // position on the viewed instrument, or nothing. The portfolio-wide list
+  // (every open position, every closed trade, the equity curve) is the modal's
+  // job — repeating it under every instrument was noise.
+  const viewed = qs.get('instrument') || document.getElementById('instSel').value;
+  const mine = pf.positions.filter(p => p.instrument === viewed);
+  document.getElementById('pfOpenList').innerHTML = mine.map(p =>
+    '<span class="openpos"><span class="tag">open</span><span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
+    ' <b>' + esc(p.notional.toFixed(2)) + '</b> @ ' + esc(p.entry_price.toFixed(3)) +
+    ' · <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' +
+    (p.stop != null ? ' · stop ' + esc(p.stop) : '') + (p.target != null ? ' · target ' + esc(p.target) : '') +
+    ' · opened ' + esc(localFull(p.entry_time)) + '</span>').join('');
   sparkline(pf);
   }
   document.getElementById('pfHead').innerHTML =
@@ -384,8 +408,9 @@ async function portfolio() {
     const stopD = p.stop != null ? ' · stop ' + esc(p.stop) + ' (' + esc((Math.abs(p.last_mark - p.stop) / p.last_mark * 100).toFixed(2)) + '%)' : '';
     const tgtD = p.target != null ? ' · target ' + esc(p.target) + ' (' + esc((Math.abs(p.target - p.last_mark) / p.last_mark * 100).toFixed(2)) + '%)' : '';
     return '<div class="pfcard"><b>' + esc(p.instrument) + '</b> <span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
-      ' ' + esc(p.notional) + ' @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
-      ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD + ' · ' + age + 'm' +
+      ' ' + esc(p.notional.toFixed(2)) + ' notional @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
+      ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD +
+      ' · opened ' + esc(localFull(p.entry_time)) + ' (' + age + 'm)' +
       (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
       '</div>';
   }).join('') || '<div class="pfcard">' + (hasActivity ? 'no open positions' : 'no bot activity yet — click 🤖 in the header to configure a bot for a view and assign a strategy') + '</div>';
@@ -395,13 +420,16 @@ async function portfolio() {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
     tr.onclick = () => { location.search = '?' + new URLSearchParams({ instrument: t.instrument, granularity: qs.get('granularity') || 'M5', t: t.entry_time }); };
-    tr.innerHTML = '<td>' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
+    tr.innerHTML = '<td>' + esc(localFull(t.entry_time)) + '</td><td>' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
       '</td><td class="' + pnlCls(t.realized) + '">' + esc(money(t.realized)) + '</td><td>' + esc(t.close_reason) + '</td>';
     tb.appendChild(tr);
   }
 }
 function sparkline(pf) {
   const c = document.getElementById('pfSpark');
+  // Fewer than 2 closed trades draws a flat line that says nothing — the
+  // caption below carries the numbers instead.
+  c.hidden = pf.trades.length < 2;
   const g = c.getContext('2d');
   g.clearRect(0, 0, c.width, c.height);
   // trades arrive newest-first; the curve runs oldest → newest realized equity
@@ -417,6 +445,14 @@ function sparkline(pf) {
     i ? g.lineTo(x, y) : g.moveTo(x, y);
   });
   g.stroke();
+  // The bare line said nothing about what it plots or over what range. Endpoint
+  // values + a caption; note it is REALIZED only, which is why it can sit flat
+  // while equity moves with an open position's unrealized P&L.
+  const last = pts[pts.length - 1];
+  document.getElementById('pfSparkLegend').innerHTML =
+    'realized equity after each closed trade · ' + pf.trades.length + ' trade' + (pf.trades.length === 1 ? '' : 's') +
+    ' · start ' + esc(pts[0].toFixed(2)) + ' → ' + '<span class="' + pnlCls(last - pts[0]) + '">' + esc(last.toFixed(2)) + '</span>' +
+    (pf.unrealized ? ' · open positions <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> (not in this line)' : '');
 }
 document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderOverviewBots(); });

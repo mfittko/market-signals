@@ -205,12 +205,18 @@ function closeInDb(db, cfg, positionId, price, closeReason, context) {
   return { positionId, realized, closeReason };
 }
 
-// Mark all positions against quotes {instrument: price}. Missing quote → keep
-// last mark, flag stale. Triggers stop/target/margin closes and the equity halt.
+// Mark all positions against quotes {instrument: price}. An instrument that was
+// QUOTED but came back without a usable price → keep last mark, flag stale. An
+// instrument absent from the map was never asked about on this run, so it is
+// left untouched: bot runs are per-combo (bot.mjs passes a single-instrument
+// map), and staling every other instrument's position made the flag flap.
 export function markToMarket(dbPath, cfg, quotes = {}) {
   return pdb(dbPath, cfg, (db) => {
     const closed = [];
     for (const pos of db.prepare('SELECT * FROM positions').all()) {
+      // own-property only: `in` would count prototype keys, so an instrument
+      // named "constructor" would take the quoted path and get staled.
+      if (!Object.hasOwn(quotes, pos.instrument)) continue;
       const q = quotes[pos.instrument];
       if (!(q > 0)) {
         db.prepare('UPDATE positions SET stale=1 WHERE id=?').run(pos.id);
