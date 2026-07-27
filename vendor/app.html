@@ -416,7 +416,7 @@ async function load() {
   if (d.tz) TZ = d.tz;
   applyInfo(!!d.info);
   selectors(d);
-  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
@@ -1125,7 +1125,12 @@ function selectors(d) {
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
   // #166: selects always drive the chart directly (no hash, no visibility
   // gating) — same location.search pattern as every other state change here.
-  const go = () => { qs.set('instrument', inst.value); qs.set('granularity', gran.value); location.search = '?' + qs.toString(); };
+  // the user's explicit selection must WIN: a stale #bot hash left in place
+  // would be re-asserted by the boot redirect on reload (dead-UI bug, 27/07)
+  const go = () => {
+    qs.set('instrument', inst.value); qs.set('granularity', gran.value);
+    location.href = location.pathname + '?' + qs.toString(); // no hash — cleared deliberately
+  };
   inst.onchange = go; gran.onchange = go;
   // #167 (F9/F30): a labelled state word, not just a silent glyph swap, plus a
   // visible confirmation flash on change (the toggle otherwise gives no feedback
@@ -1468,7 +1473,9 @@ function histRow(s, botDecisions) {
   tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
   return [tr, detail];
 }
-function history(list, botDecisions, view) {
+// renamed from 'history' — a top-level classic-script function declaration
+// named 'history' OVERWRITES window.history entirely (27/07 dead-UI bug).
+function renderHistory(list, botDecisions, view) {
   const tb = document.querySelector('#hist tbody');
   tb.innerHTML = '';
   for (const s of list) for (const row of histRow(s, botDecisions)) tb.appendChild(row);
@@ -1892,11 +1899,19 @@ loadThreads();
 // wins on first load — redirect the query string to match before fetching.
 (() => {
   const c0 = comboFromHash();
-  if (c0 && (qs.get('instrument') !== c0.inst || (qs.get('granularity') || 'M5') !== c0.gran)) {
+  if (!c0) return;
+  const qInst = qs.get('instrument'); const qGran = qs.get('granularity');
+  if (qInst && qGran && (qInst !== c0.inst || qGran !== c0.gran)) {
+    // query and hash disagree: the query is the newer, explicit user action —
+    // drop the stale hash instead of re-asserting it (dead-UI bug, 27/07)
+    window.history.replaceState(null, '', location.pathname + '?' + new URLSearchParams(location.search).toString());
+    return;
+  }
+  if (qInst !== c0.inst || (qGran || 'M5') !== c0.gran) {
     const p = new URLSearchParams(location.search);
     p.set('instrument', c0.inst); p.set('granularity', c0.gran);
     qs.set('instrument', c0.inst); qs.set('granularity', c0.gran);
-    history.replaceState(null, '', '?' + p.toString() + location.hash);
+    window.history.replaceState(null, '', '?' + p.toString() + location.hash);
   }
 })();
 load().then(() => { if (qs.get('bot') === '1') openBotModal(); });

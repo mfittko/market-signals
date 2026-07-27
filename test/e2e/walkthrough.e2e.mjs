@@ -95,6 +95,22 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         await p.unroute('**/api/bots');
         await p.waitForTimeout(400);
 
+        // 27/07 dead-UI regression: a stale #bot hash disagreeing with explicit
+        // query params must not throw (window.history shadow) or re-assert the
+        // hash — the page boots alive and the QUERY combo wins.
+        if (vname === 'desktop-landscape') {
+          const p2 = await browser.newPage({ viewport: { width, height } });
+          const errs2 = [];
+          p2.on('pageerror', (e) => errs2.push(e.message));
+          await p2.goto(base + '/?instrument=WTICO%2FUSD&granularity=M15#bot/' + encodeURIComponent('WTICO/USD|M5'), { waitUntil: 'networkidle' });
+          await p2.waitForTimeout(500);
+          assert.deepEqual(errs2, [], 'no page errors with mismatched query+hash');
+          assert.ok(await p2.evaluate(() => document.getElementById('instSel').options.length > 0), 'selects populated (page alive)');
+          assert.equal(await p2.evaluate(() => document.getElementById('granSel').value), 'M15', 'explicit query granularity wins over stale hash');
+          assert.equal(await p2.evaluate(() => location.hash), '', 'stale hash dropped');
+          await p2.close();
+        }
+
         // base page invariants
         assert.equal(await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, 'no horizontal overflow');
         assert.ok(await p.evaluate(() => !!document.getElementById('chart')), 'chart canvas present');
