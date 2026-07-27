@@ -156,11 +156,15 @@ function backfillGranularity(dbPath, db) {
   const attribution = positionAttribution(dbPath);
   const updatePos = db.prepare('UPDATE positions SET granularity=? WHERE id=? AND granularity IS NULL');
   const updateTrade = db.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=? AND granularity IS NULL');
-  for (const [positionId, a] of attribution) {
-    if (!a.granularity) continue;
-    updatePos.run(a.granularity, positionId);
-    updateTrade.run(a.granularity, positionId);
-  }
+  // one transaction: one implicit-txn UPDATE pair per row would be
+  // disproportionately slow on a large journal and hold locks longer
+  db.transaction(() => {
+    for (const [positionId, a] of attribution) {
+      if (!a.granularity) continue;
+      updatePos.run(a.granularity, positionId);
+      updateTrade.run(a.granularity, positionId);
+    }
+  })();
 }
 
 function journal(db, action, positionId, reason, context) {

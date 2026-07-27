@@ -8,9 +8,8 @@ import { normCombo } from './bot.mjs';
 function rows(dbPath, sql, args = []) {
   return withDb(dbPath, (db) => {
     try { return db.prepare(sql).all(...args); } catch (err) {
-      // pre-schema/pre-migration db: table or #169 granularity column absent yet
-      if (/no such (table|column)/i.test(String(err.message))) return [];
-      throw err;
+      if (/no such table/i.test(String(err.message))) return []; // pre-schema db: nothing recorded yet
+      throw err; // missing COLUMNS surface loudly — callers run after portfolio.mjs's migration
     }
   });
 }
