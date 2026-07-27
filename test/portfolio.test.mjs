@@ -371,7 +371,7 @@ test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first
   assert.equal(openAttr.exitTime, null);
   assert.equal(openAttr.closeReason, null);
   assert.equal(openAttr.stop, 85, 'stop carried through');
-  assert.equal(typeof openAttr.ageMin, 'number');
+  assert.ok(Number.isFinite(openAttr.ageMin) && openAttr.ageMin >= 0, `ageMin finite and non-negative, got ${openAttr.ageMin}`);
   assert.equal(openAttr.openReason, 'tt fixture', 'open row surfaces the journal open reason');
 
   const openUnattr = opens.find((r) => r.id === unattrId);

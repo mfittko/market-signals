@@ -957,8 +957,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           let stmt;
           try { stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC"); }
           catch (err) { if (/no such table/i.test(String(err.message))) return found; throw err; }
+          // ponytail: 20k-row scan ceiling — only reachable when a configured
+          // combo has NEVER decided (its true answer is "never"); a combo whose
+          // only decision is older than the newest 20k shows "never" too —
+          // acceptable until #169's granularity column makes this a lookup.
+          let scanned = 0;
           for (const j of stmt.iterate()) {
-            if (found.size >= wantedCombos.size) break;
+            if (found.size >= wantedCombos.size || ++scanned > 20000) break;
             let ctx;
             try { ctx = JSON.parse(j.context); } catch { continue; }
             const combo = `${ctx?.instrument}|${ctx?.granularity}`;
