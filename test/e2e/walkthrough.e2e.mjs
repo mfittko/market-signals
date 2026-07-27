@@ -163,6 +163,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#ws-tuning fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD', 'global'], 'tuning tab groups fields into scope-explicit fieldsets');
           // gates/memories moved here from the settings modal, reused verbatim
           assert.ok(await p.evaluate(() => !!document.getElementById('gatesTabs') && !!document.getElementById('memAddBtn')), 'gates/memories embedded in the tuning tab global fieldset');
+          // #167: the gates/memories mount moved OUT of renderBotSetupTab (which
+          // repaints on every bot-field save()) into renderTuningTab (mounted once)
+          // — a bot-field save must never wipe an in-progress gate draft or memory input.
+          await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'bot'); t && t.click(); });
+          await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'filter'); t && t.click(); });
+          await p.evaluate(() => { const ta = document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt'); ta.value = 'draft in progress — do not lose me'; });
+          await p.evaluate(() => { const cb = document.getElementById('wsbmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'draft in progress — do not lose me', 'toggling a bot field preserves an in-progress gate draft');
+          await p.evaluate(() => { const cb = document.getElementById('wsbmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
+          await p.waitForTimeout(300);
           await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').click());
 
           // #166: ledger overlay (renamed from "portfolio") — equity/all trades/scoreboard/audit

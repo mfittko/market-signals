@@ -84,10 +84,6 @@
      label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
   .cfgpanel[hidden] { display: none; }
-  /* #108: management tabs (gates/memories/bot) are embedded panels that keep
-     their own single-column layout instead of flowing into the label/input grid */
-  .cfgpanel.mgmt { display: block; grid-column: 1 / -1; }
-  .cfgpanel.mgmt[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
   .cfgfoot[hidden] { display: none; } /* author display:flex would otherwise defeat [hidden] */
   #histMore { display: block; margin: 10px auto; }
@@ -597,7 +593,7 @@ let botStateCache = null;
 // for one combo and the tuning tab for another can coexist in the DOM
 // without id collisions (review finding on #166).
 const bid = (p, s) => p + s;
-async function mountBotConfig(containerId, inst, gran, prefix, isTuning = false) {
+async function mountBotConfig(containerId, inst, gran, prefix) {
   const combo = inst + '|' + gran;
   const container = document.getElementById(containerId);
   // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
@@ -626,7 +622,7 @@ async function mountBotConfig(containerId, inst, gran, prefix, isTuning = false)
   const paint = async (savedMsg) => {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
-    renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState, isTuning);
+    renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
     if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
   };
   document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
@@ -655,7 +651,17 @@ async function openBotModal(instArg, granArg) {
 // wsView is the single source of truth for the focused combo — no re-reading
 // qs/selects here (they can be stale mid-navigation).
 async function renderTuningTab(inst, gran) {
-  await mountBotConfig('ws-tuning', inst, gran, 'wsbm', true);
+  await mountBotConfig('ws-tuning', inst, gran, 'wsbm');
+  // #167: mounted here (once per tuning-tab paint), NOT inside renderBotSetupTab —
+  // that function repaints on every bot-field save(), which would wipe an
+  // in-progress gate draft or memory input mid-keystroke.
+  document.getElementById('ws-tuning').insertAdjacentHTML('beforeend',
+    '<fieldset><legend>global — affects every bot</legend>' +
+    '<div class="gates-wrap"><div id="gatesTabs"></div><div id="gatesList"></div></div>' +
+    '<div><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
+    '</fieldset>');
+  await renderGates();
+  await renderMemories();
 }
 // #167: F18 scope-explicit fieldsets. riskPct/enabled/kill-switch are genuinely
 // per-combo storage (bot.bots[combo] — resolveBotFor in scripts/bot.mjs), so
@@ -665,9 +671,10 @@ async function renderTuningTab(inst, gran) {
 // as leverage (settings.bot.leverage[inst]), hence both live in the instrument
 // fieldset (pre-existing label already said so; this just makes the grouping
 // visual). Gates/memories are genuinely global (one settings.gates/memories
-// store, no per-combo or per-instrument scoping) — moved here from the old
-// settings modal tabs (#167), reusing renderGates/renderMemories verbatim.
-function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState, isTuning) {
+// store, no per-combo or per-instrument scoping) — mounted by renderTuningTab,
+// NOT here: this function repaints on every bot-field save() (see mountBotConfig's
+// save/paint), which would otherwise wipe an in-progress gate draft or memory input.
+function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
   const body = document.getElementById(bid(p, '-setup'));
   // blast-radius: other combos already configured on this instrument share the
   // allocation/leverage fields below (from the rail's /api/bots data — no extra fetch).
@@ -696,12 +703,7 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
     effAlloc +
     '<label for="' + bid(p, 'Lev') + '" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="' + bid(p, 'Lev') + '" value="' + esc(lev ?? '') + '" placeholder="default 10×, cap 20×">' +
     effLev + blastNote +
-    '</fieldset>' +
-    (isTuning ? '<fieldset><legend>global — affects every bot</legend>' +
-      '<div id="' + bid(p, 'GatesTabs') + '" class="gates-wrap"><div id="gatesTabs"></div><div id="gatesList"></div></div>' +
-      '<div id="' + bid(p, 'MemWrap') + '"><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
-      '</fieldset>' : '');
-  if (isTuning) { renderGates(); renderMemories(); }
+    '</fieldset>';
   document.getElementById(bid(p, 'Enabled')).onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById(bid(p, 'Risk')).onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById(bid(p, 'Alloc')).onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -1064,6 +1066,7 @@ function axisChips(gate) {
     chip('RSI', a.exhaustion.rsi, null, 'rsi');
 }
 const GRANULARITIES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
+let watchToastTimer = null; // #167: reset on each toggle so stacked toggles don't hide the newest message early
 function selectors(d) {
   const inst = document.getElementById('instSel');
   const gran = document.getElementById('granSel');
@@ -1088,7 +1091,8 @@ function selectors(d) {
     const toast = document.getElementById('watchToast');
     toast.textContent = willWatch ? 'alerts on for ' + combo : 'alerts muted for ' + combo;
     toast.hidden = false;
-    setTimeout(() => { toast.hidden = true; }, 2500);
+    clearTimeout(watchToastTimer);
+    watchToastTimer = setTimeout(() => { toast.hidden = true; }, 2500);
     load();
   };
 }
@@ -1116,11 +1120,16 @@ function humanAge(m, suffix = ' ago') { return m < 90 ? Math.round(m) + 'm' + su
 const humanDuration = (m) => humanAge(m, '');
 // #166: real health signal — a feed entry more than 3x its own granularity
 // behind is a data problem, not a decision-recency one.
-function feedWarnSec(b) {
-  const f = railFeed.find((x) => x.instrument === b.instrument && x.granularity === b.granularity);
+// shared by the rail rows AND the header health strip (#167) — one per-entry
+// threshold helper, not a global M5 floor, so an M1 feed doesn't get an H4's
+// slack (and vice versa).
+function feedEntryWarnSec(f) {
   if (!f || f.ageSec == null) return null;
-  const granSec = (GRAN_MINUTES[b.granularity] || 5) * 60;
+  const granSec = (GRAN_MINUTES[f.granularity] || 5) * 60;
   return f.ageSec > granSec * 3 ? f.ageSec : null;
+}
+function feedWarnSec(b) {
+  return feedEntryWarnSec(railFeed.find((x) => x.instrument === b.instrument && x.granularity === b.granularity));
 }
 const RAIL_SORT = { pos: 0, armed: 1, warn: 2, off: 3 };
 function navigateToCombo(inst, gran) {
@@ -1157,11 +1166,18 @@ let railHealth = null; // #167: raw /api/health payload, shared with the header 
 function renderHealthStrip() {
   const el = document.getElementById('healthStrip');
   if (!el) return;
-  if (!railHealth || !railHealth.ok) { el.textContent = ''; return; }
-  const worstFeedSec = railHealth.feed.reduce((m, f) => f.ageSec != null ? Math.max(m, f.ageSec) : m, 0);
-  const feedGranSec = 5 * 60; // conservative floor (M5); rail rows carry the per-combo threshold
-  const feedSeg = worstFeedSec > feedGranSec * 3
-    ? '<span class="warn">⚠ feed ' + Math.round(worstFeedSec / 60) + 'm behind</span>'
+  if (!railHealth || !railHealth.ok) { el.textContent = 'health —'; return; }
+  const feed = Array.isArray(railHealth.feed) ? railHealth.feed : [];
+  // worst offender by its OWN granularity threshold, not a global M5 floor —
+  // an empty feed or all-null ageSec is "unknown", never "live".
+  const worst = feed.reduce((w, f) => {
+    const warnSec = feedEntryWarnSec(f);
+    return warnSec != null && (!w || warnSec > w.ageSec) ? f : w;
+  }, null);
+  const feedSeg = feed.length === 0 || feed.every((f) => f.ageSec == null)
+    ? 'feed —'
+    : worst
+    ? '<span class="warn">⚠ feed ' + esc(worst.instrument) + '·' + esc(worst.granularity) + ' ' + Math.round(worst.ageSec / 60) + 'm behind</span>'
     : '● feed live';
   // llm.lastOkAt is just the newest decision's timestamp — decisions are
   // event-driven, so recency is information, never a warning (the STALE lesson)
@@ -1225,6 +1241,8 @@ async function loadRail() {
     renderHealthStrip();
   } catch {
     renderRail(false);
+    railHealth = null;
+    renderHealthStrip(); // #167: strip must survive a failed fetch too, not go blank with the rail
   }
 }
 
@@ -1595,8 +1613,21 @@ async function renderGates() {
       renderGates();
     };
   });
+  // #167: gates now render inside the tuning tab itself (see renderTuningTab),
+  // so "view strategy in bot modal" is stale — jump to the tuning tab of the
+  // current combo instead of closing a (no-longer-open) cfgdlg + opening a
+  // redundant bot modal.
   const toBot = document.getElementById('gateToBot');
-  if (toBot) toBot.onclick = () => { document.getElementById('cfgdlg').close(); openBotModal(); };
+  if (toBot) toBot.onclick = () => {
+    navigateToCombo(wsView.instrument, wsView.granularity);
+    wsActiveTab = 'tuning';
+    for (const b of document.querySelectorAll('#wsTabs button')) {
+      const on = b.dataset.tab === 'tuning';
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', String(on));
+    }
+    wsRefresh(wsView);
+  };
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();
@@ -1891,15 +1922,14 @@ setInterval(async () => {
   } catch { /* transient: the 60s full load is the recovery path */ }
 }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-// #108: one tabbed settings modal. openCfg(tab) opens it on a given tab; cfg()
-// renders + lazily populates whichever management tab is active.
+// #108: one tabbed settings modal (llm/news/adv only — #167 moved gates/memories
+// out to the tuning tab, see renderTuningTab). openCfg(tab) opens it on a given tab.
 async function openCfg(tab) {
   if (tab) localStorage.setItem('cfgTab', tab);
   await cfg();
   document.getElementById('cfgdlg').showModal();
 }
 document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
-// header icons deep-link into the consolidated modal's Memories/Gates tabs
 // #126: chat sidebar is collapsible, collapsed by default (no dead column when
 // idle). State persists; the chart redraws to fill the reclaimed width.
 (function initChatToggle() {
