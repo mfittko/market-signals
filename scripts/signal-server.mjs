@@ -281,6 +281,11 @@ function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
             .run('backfill', instrument, granularity, f.time));
         }
       }
+    } catch (err) {
+      // Fire-and-forget: the GET already returned 200, so a write failure here
+      // (storeCandles/recordSignal/SQL) must never surface as an unhandled
+      // rejection/exception that would crash the process. Log and move on.
+      console.error(`[chart] deferred acquisition failed for ${key}:`, err?.message || err);
     } finally {
       acquisitionInFlight.delete(key);
     }
@@ -1218,7 +1223,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const lastCandleTime = row ? row.time : null;
           return { instrument, granularity, lastCandleTime, ageSec: lastCandleTime ? Math.round((Date.now() - Date.parse(lastCandleTime)) / 1000) : null };
         }));
-        const pf = portfolioView(dbPath, botConfig(cfg));
+        // Read the halted flag directly instead of portfolioView() — that
+        // function runs portfolio.mjs's CREATE/ALTER/seed migrations on first
+        // use, which would make polling health a write. A missing table (DB
+        // never touched by the bot yet) means "not halted".
+        const halted = withDb(dbPath, (db) => {
+          try { return !!db.prepare('SELECT halted FROM portfolio WHERE id=1').get()?.halted; }
+          catch (err) { if (/no such table/i.test(String(err.message))) return false; throw err; }
+        });
         // llm.lastOkAt: no dedicated telemetry table exists — the most recent
         // successful bot deliberation ('decision' journal action) is the
         // cheapest existing proxy for "the LLM last answered OK".
@@ -1236,7 +1248,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         });
         return json(res, 200, {
           ok: true,
-          halted: pf.halted,
+          halted,
           feed,
           llm: { lastOkAt: lastDecisionRow?.at ?? null },
           news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },

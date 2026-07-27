@@ -1374,6 +1374,31 @@ test('#163: /api/recheck accepts ?signal=<time> to recheck an explicit signal (b
   });
 });
 
+test('#163 review: a failing deferred chart acquisition (setImmediate) is caught, not an unhandled exception', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir);
+  const fresh = series([200, 201], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  fresh[1] = { ...fresh[1], complete: false }; // forming candle drives quote.last
+  let uncaught = null;
+  const onUncaught = (err) => { uncaught = err; };
+  process.on('uncaughtException', onUncaught);
+  try {
+    const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => fresh });
+    assert.equal(d.quote.last, 201, 'GET still serves the live tail even though the write is about to fail');
+    // Make the DEFERRED write fail: the read already happened above, so this
+    // only breaks the setImmediate-scheduled storeCandles() call.
+    chmodSync(dbPath, 0o444);
+    // Flush the setImmediate queue a few times over.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(uncaught, null, 'deferred write failure must be caught internally, never surface as an unhandled exception');
+  } finally {
+    process.off('uncaughtException', onUncaught);
+    chmodSync(dbPath, 0o644);
+  }
+});
+
 test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summaries — read-only', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, settingsPath }) => {
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watchers: `${INSTRUMENT}|M5` }) });
@@ -1394,6 +1419,22 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
     assert.equal(post.status, 404, 'health only registers a GET route');
+  });
+});
+
+test('#163 review: GET /api/health never runs portfolio.mjs migrations (no positions/portfolio/bot_trades tables)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.ok, true);
+    assert.equal(h.halted, false, 'missing portfolio table reads as not-halted');
+
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+    db.close();
+    for (const t of ['portfolio', 'positions', 'bot_trades', 'bot_journal']) {
+      assert.ok(!tables.includes(t), `health must not create portfolio table "${t}"`);
+    }
   });
 });
 

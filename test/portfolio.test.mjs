@@ -197,6 +197,21 @@ test('#163: an absent instrument goes stale once its own last mark ages past the
   assert.equal(r2.positions[0].stale, false, 'a real quote clears the age-based flag too');
 });
 
+test('#163 review: legacy NULL last_mark_at is backfilled (to now), not left as instant-stale Infinity age', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 }, staleAfterMs: 50 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  // Simulate a pre-#163 row: last_mark_at was never set.
+  withDb(db, (dbc) => dbc.prepare('UPDATE positions SET last_mark_at=NULL WHERE id=?').run(id));
+  // Any subsequent access through pdb() (markToMarket here) re-runs the
+  // migration path, which backfills NULL last_mark_at rows to "now" instead
+  // of leaving them to read as Infinity age.
+  const r = markToMarket(db, cfg, {}); // absent-instrument path, would have gone stale on Infinity age
+  assert.equal(r.positions[0].stale, false, 'legacy NULL row is backfilled to now, not instantly stale');
+  const row = withDb(db, (dbc) => dbc.prepare('SELECT last_mark_at FROM positions WHERE id=?').get(id));
+  assert.ok(row.last_mark_at, 'last_mark_at backfilled to a real timestamp');
+});
+
 test('#163: realizedTotal sums ALL bot_trades (beyond the 50-row trades slice); dayPnl = today-closed realized + current unrealized', () => {
   const db = fresh();
   // 60 closed trades — more than the 50-row TRADES_QUERY slice.
@@ -215,6 +230,34 @@ test('#163: realizedTotal sums ALL bot_trades (beyond the 50-row trades slice); 
   const v2 = portfolioView(db, CFG);
   const posUnreal = unrealized(v2.positions.find((p) => p.id === openId), v2.positions.find((p) => p.id === openId).last_mark);
   assert.ok(Math.abs(v2.dayPnl - (v2.realizedTotal + posUnreal)) < 1e-6, 'dayPnl = today-closed realized + current unrealized (all trades closed today here)');
+});
+
+test('#163 review: dayPnl compares close_time and now on the SAME (local) basis, not UTC-vs-local', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  closePosition(db, CFG, id, 88, 'bot-close');
+  // Force close_time into a UTC calendar day that differs from today's LOCAL
+  // calendar day, using a fixed-offset (no-DST) zone so the test is
+  // deterministic regardless of the machine's real TZ: 1am local in
+  // UTC+14 is always ~11am UTC on the PREVIOUS calendar day. The old query
+  // (date(close_time) — UTC — vs date('now','localtime')) would drop this
+  // trade from dayRealized under that TZ; the fixed query keeps both sides
+  // on localtime and includes it.
+  const savedTz = process.env.TZ;
+  process.env.TZ = 'Pacific/Kiritimati'; // fixed UTC+14, no DST
+  try {
+    const offsetMs = 14 * 3600 * 1000;
+    const localNowMs = Date.now() + offsetMs;
+    const localMidnightMs = Math.floor(localNowMs / 86400000) * 86400000;
+    const closeUtcMs = (localMidnightMs + 3600 * 1000) - offsetMs; // 1am local
+    withDb(db, (dbc) => dbc.prepare('UPDATE bot_trades SET close_time=? WHERE id=1')
+      .run(new Date(closeUtcMs).toISOString()));
+    const view = portfolioView(db, CFG);
+    assert.ok(Math.abs(view.dayPnl - (view.realizedTotal + view.unrealized)) < 1e-6,
+      'trade closed at 1am local (UTC+14) counts as today even though its UTC date is yesterday');
+  } finally {
+    if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz;
+  }
 });
 
 test('#163: portfolioView carries entry_time_local on positions and opened/closed local strings on trades', () => {

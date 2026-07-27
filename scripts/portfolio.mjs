@@ -92,8 +92,20 @@ function pdb(dbPath, cfg, fn) {
     // can be detected even when an instrument is absent from a run's quotes
     // map (positions previously had no mark-time record at all). Same
     // try/catch-duplicate-column pattern as chatDb's migration in signal-server.
-    try { db.exec('ALTER TABLE positions ADD COLUMN last_mark_at TEXT'); } catch (err) {
+    try {
+      db.exec('ALTER TABLE positions ADD COLUMN last_mark_at TEXT');
+      // Fresh column: nothing has ever been marked, so there is no legacy row
+      // to backfill (new/existing positions all pick up last_mark_at on their
+      // next markToMarket).
+    } catch (err) {
       if (!/duplicate column/i.test(String(err?.message))) throw err;
+      // Column already existed — this may be a pre-#163 DB with legacy
+      // positions whose last_mark_at was never set. Backfilling NULLs to now
+      // (once) avoids the absent-instrument path treating their age as
+      // Infinity and instantly flagging them stale; age-based staleness then
+      // starts counting from this migration/first-run point going forward.
+      db.prepare("UPDATE positions SET last_mark_at=? WHERE last_mark_at IS NULL")
+        .run(new Date().toISOString());
     }
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
@@ -314,7 +326,7 @@ export function portfolioView(dbPath, cfg) {
     // local app, so "trader-local" == the process's own local timezone, same
     // basis localFull/localHm already use) + the portfolio's CURRENT total
     // unrealized (open positions' P&L isn't attributable to a single day).
-    const dayRealized = db.prepare("SELECT COALESCE(SUM(realized),0) r FROM bot_trades WHERE date(close_time)=date('now','localtime')").get().r;
+    const dayRealized = db.prepare("SELECT COALESCE(SUM(realized),0) r FROM bot_trades WHERE date(close_time,'localtime')=date('now','localtime')").get().r;
     const dayPnl = dayRealized + view.unrealized;
     return {
       ...view,
