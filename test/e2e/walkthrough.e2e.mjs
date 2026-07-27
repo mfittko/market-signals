@@ -362,26 +362,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p.evaluate(() => window.safeUrl('javascript:alert(1)')), null, 'safeUrl rejects a non-https scheme');
           assert.equal(await p.evaluate(() => window.safeUrl('https://reuters.example/x')), 'https://reuters.example/x', 'safeUrl passes through an https url');
 
-          // #170: indicators popover — opens from the chart-corner button,
-          // toggling a checkbox persists (reflected in the ?ind= URL + a
-          // fresh load carrying the same selection through /api/settings).
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'indicators popover starts closed');
-          await p.evaluate(() => document.getElementById('indbtn').click());
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), false, 'indicators popover opens on click');
-          assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'popover lists indicator toggles');
-          // #170 review: #indpop (and its #indpanel) live inside #wrap (the chart
-          // corner), not the header — pin that so the popover can't regress back
-          // there.
+          // operator 27/07: the popover toggle was a dead control (author display
+          // beat [hidden]) — checkboxes are now ALWAYS visible, no button.
+          assert.equal(await p.evaluate(() => !!document.getElementById('indbtn')), false, 'dead indicators toggle removed');
+          assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'indicator checkboxes always visible');
           assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpop')), '#indpop lives inside #wrap');
-          // Escape closes the popover and returns focus to #indbtn.
-          await p.evaluate(() => document.getElementById('indbtn').focus());
-          await p.keyboard.press('Escape');
-          await p.waitForTimeout(100);
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'Escape closes the indicators popover');
-          assert.equal(await p.evaluate(() => document.activeElement.id), 'indbtn', 'Escape returns focus to #indbtn');
-          await p.evaluate(() => document.getElementById('indbtn').click());
-          await p.waitForTimeout(150);
           await setInd('ema', true);
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('ind')), 'ema', 'toggling an indicator updates the ?ind= URL');

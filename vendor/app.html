@@ -208,7 +208,6 @@
   #pfMini b { color: #e6edf3; }
   /* #170: indicators moved off the header into a corner popover on the chart itself */
   #indpop { position: absolute; top: 10px; right: 10px; z-index: 3; }
-  #indbtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; font-size: 12px; height: auto; }
   #indpanel { position: absolute; top: 100%; right: 0; margin-top: 4px; background: #161b22; border: 1px solid #30363d;
               border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
               color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
@@ -307,8 +306,7 @@
 <div id="mainCol">
 <div id="wrap">
   <div id="indpop">
-    <button id="indbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="indpanel">indicators ▾</button>
-    <div id="indpanel" hidden role="group" aria-label="indicators"></div>
+    <div id="indpanel" role="group" aria-label="indicators"></div>
   </div>
   <canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas>
 </div>
@@ -442,29 +440,17 @@ const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWA
 // #170: header checkbox row → compact "indicators ▾" popover at the chart
 // corner. Persistence unchanged (global setting, ?ind= override) — only the
 // chrome moved.
-const indBtn = document.getElementById('indbtn');
+// operator, 27/07: the 'indicators ▾' toggle was a dead control — an author
+// display rule beat the hidden attribute so the panel was ALWAYS visible and
+// the button did nothing perceptible. The simpler design is also the honest
+// one: no button, checkboxes always shown.
 const indPanel = document.getElementById('indpanel');
-const closeIndPanel = () => { indPanel.hidden = true; indBtn.setAttribute('aria-expanded', 'false'); };
-indBtn.onclick = () => {
-  const open = indPanel.hidden;
-  indPanel.hidden = !open;
-  indBtn.setAttribute('aria-expanded', String(open));
-};
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || indPanel.hidden) return;
-  closeIndPanel();
-  indBtn.focus();
-});
-document.addEventListener('click', (e) => {
-  if (!(e.target instanceof Element)) return;
-  if (!indPanel.hidden && !e.target.closest('#indpop')) closeIndPanel();
-});
 function indBar(d) {
   const on = new Set(d.activeInd || []);
   // #170 review: while the panel is open, reconcile checked state in place —
   // rebuilding innerHTML on every 60s load() would blow away focus/keyboard
   // position mid-interaction. Rebuild only when closed (or first paint).
-  if (indPanel.hidden || !indPanel.childElementCount) {
+  if (!indPanel.childElementCount) {
     indPanel.innerHTML = INDICATORS.map(([k, label]) =>
       '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
     indPanel.onchange = async () => {
@@ -1416,7 +1402,9 @@ function botRailStatus(b) {
 }
 // shared by the rail row age, the quote strip's "updated" line, and the
 // trade rows' held-duration (suffix '' there, ' ago' elsewhere)
-function humanAge(m, suffix = ' ago') { return m < 90 ? Math.round(m) + 'm' + suffix : m < 1440 ? Math.floor(m / 60) + 'h' + suffix : Math.floor(m / 1440) + 'd' + suffix; }
+function humanAge(m, suffix = ' ago') { if (!Number.isFinite(m)) return '—'; return m < 90 ? Math.round(m) + 'm' + suffix : m < 1440 ? Math.floor(m / 60) + 'h' + suffix : Math.floor(m / 1440) + 'd' + suffix; }
+// fetchedAt is an epoch NUMBER (Date.now() server-side) while candle times are ISO — Date.parse(number) is NaN
+const epochOf = (t) => typeof t === 'number' ? t : Date.parse(t);
 const humanDuration = (m) => humanAge(m, '');
 // #166: real health signal — a feed entry more than 3x its own granularity
 // behind is a data problem, not a decision-recency one.
@@ -1595,7 +1583,7 @@ function quoteStrip(q) {
     // #172 wfn: one phrasing for both states — absolute time + relative age —
     // "live" only adds the forming-candle prefix, it never drops the age.
     box('updated', q.partial
-      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) + ' (' + humanAge(Math.max(0, Math.round((Date.now() - Date.parse(q.fetchedAt)) / 60000))) + ')' : 'no live update')
+      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) + ' (' + humanAge(Math.max(0, Math.round((Date.now() - epochOf(q.fetchedAt)) / 60000))) + ')' : 'no live update')
       : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
 
@@ -1659,7 +1647,7 @@ function gatesBotBadge(gateVerdict, botDecision) {
   if (gateVerdict !== 'suppress' && gateVerdict !== 'alert') return null;
   if (gateVerdict === 'suppress' && botDecision.action === 'open') return { text: '⚑ acted against gates', cls: 'badge-amber' };
   if (gateVerdict === 'alert' && botDecision.action === 'hold') return { text: '⚑ declined an alert', cls: 'badge-amber' };
-  return { text: '✓ agreed', cls: 'badge-muted' };
+  return null; // agreement is the default state — flagging it was noise (operator, 27/07)
 }
 const BOT_ACTION_LABEL = { open: 'OPENED', hold: 'HELD', close: 'CLOSED' };
 function renderLanes(s, botDecision) {

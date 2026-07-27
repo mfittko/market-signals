@@ -1616,7 +1616,7 @@ test('page ships the indicator popover and oscillator panel (#32, #170)', async 
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     // #170: the header checkbox row moved into a chart-corner "indicators ▾" popover
-    assert.ok(html.includes('id="indbtn"') && html.includes('id="indpanel"'), 'indicator popover trigger + panel present');
+    assert.ok(!html.includes('id="indbtn"') && html.includes('id="indpanel"'), 'indicator checkboxes always visible — the dead popover trigger is gone');
     assert.ok(html.includes('id="oscwrap"') && html.includes('id="osc"'), 'oscillator sub-panel canvas present');
     assert.ok(html.includes("data-ind"), 'toggles carry indicator keys');
   });
@@ -2061,7 +2061,8 @@ test('bot decision INFO overlay entry present, verdict/history render the inline
     assert.match(html, /gatesBotBadge/, 'a shared gates/bot relationship-badge function renders both the verdict row and history rows');
     assert.match(html, /⚑ declined an alert/, 'the amber "declined an alert" badge vocabulary is present');
     assert.match(html, /⚑ acted against gates/, 'the amber "acted against gates" badge vocabulary is present');
-    assert.match(html, /✓ agreed/, 'the muted agreement badge vocabulary is present');
+    assert.doesNotMatch(html, /✓ agreed/, 'agreement badge retired — agreement is the default, only exceptions are flagged (operator, 27/07)');
+    assert.match(html, /acted against gates/, 'the disagreement flag vocabulary remains');
     assert.match(html, /botDecisions\[s\.time\]/, 'history rows look up the per-signal decision map');
 
     const at = new Date(Date.parse(sigTime) + 6 * 60000).toISOString();
