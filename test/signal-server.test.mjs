@@ -905,7 +905,8 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     assert.ok(html.includes('id="adhocBotBtn"'), 'contextual bot icon (ad-hoc row)');
     assert.ok(html.includes('id="rail"'), 'fleet rail nav present');
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
-    assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
+    // #165 review: the read-only activated-bots list is gone — the rail is authoritative
+    assert.ok(html.includes('data-tab="overview"') && !html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview drops the redundant bot list (rail is authoritative) but keeps the halt banner');
     assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
     // settings whitelist accepts the bot object, rejects junk bot keys
@@ -1015,10 +1016,13 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
 test('bmWarn (UI review finding 1) is driven by the RESOLVED botState.strategyName, not the raw settings name, and options flag draft/no-active-version names', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    // the setup-tab warning span must gate on botStateCache (the resolved
-    // active-version name from /api/chart), never on entry.strategyName —
-    // an assigned name with zero active versions must still warn.
-    assert.match(html, /entry\.enabled && !botStateCache\?\.strategyName/, 'bmWarn gates on resolved botStateCache.strategyName');
+    // the setup-tab warning span must gate on the resolved active-version name
+    // for the MODAL's own combo (modalState, from /api/chart — #165 review:
+    // renamed from the shared botStateCache so a rail ⚙ open for a different
+    // combo than the current view can't read/clobber the wrong state), never
+    // on entry.strategyName — an assigned name with zero active versions must
+    // still warn.
+    assert.match(html, /entry\.enabled && !modalState\?\.strategyName/, 'bmWarn gates on resolved modalState.strategyName (scoped to the modal\'s combo)');
     assert.doesNotMatch(html, /entry\.enabled && !entry\.strategyName/, 'bmWarn no longer trusts the raw settings name alone');
     // the assign <select> must label each option with its active-version
     // state so an operator sees "won't trade" risk before assigning.

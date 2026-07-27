@@ -125,6 +125,9 @@
     .railjump { flex-direction: row; gap: 8px; white-space: nowrap; }
   }
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
+  /* #165 review: halted chip — full-width in the rail, inline in the header strip */
+  .railhalt { display: block; text-align: center; padding: 6px; margin-bottom: 2px; background: #f8514922; border: 1px solid #f85149; border-radius: 5px; color: #f85149; font-weight: 600; }
+  #pfMini .railhalt { display: inline-block; padding: 1px 8px; margin: 0; }
   /* #87: wide enough that the strategy tab's prompt/spec textareas breathe on
      desktop; the max-width:900px query still caps dialogs at 92vw (box-sizing:
      border-box) so 390px stays single-column with no overflow. */
@@ -240,7 +243,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel" hidden><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
@@ -268,9 +271,7 @@
       <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
       <div id="pfSparkLegend" class="sparklegend"></div>
     </div>
-    <h2>activated bots</h2>
-    <p><small>Also navigable from the fleet rail (left/top nav) — this read-only list stays for a full overview.</small></p>
-    <div id="botList"></div>
+    <p><small>Bots live in the fleet rail (left/top nav).</small></p>
   </div>
   <div id="tab-trades" hidden>
     <table id="pfTrades"><thead><tr><th>opened</th><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
@@ -328,7 +329,7 @@ const INFO = {
   pnl: 'Total P&L: realized plus unrealized.',
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
-  bot: 'grey = configured but off. green = armed. amber = enabled with no strategy assigned. red ring = a global halt is in effect.',
+  bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy / STALE (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
   portfolio: 'Virtual trading portfolio: positions, trades, performance, and audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
@@ -387,7 +388,7 @@ async function load() {
   applyInfo(!!d.info);
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
-  indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
+  indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
 }
@@ -409,6 +410,7 @@ async function portfolio() {
   // bot_trades, not just the 50-row pf.trades slice this page also renders).
   const totalPnl = pf.realizedTotal + pf.unrealized;
   mini.innerHTML =
+    (pf.halted ? '<span class="railhalt">⛔ HALTED</span>' : '') +
     '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
   const dayPnl = pf.dayPnl;
@@ -491,10 +493,10 @@ function sparkline(pf) {
 document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 // Contextual per-combo bot modal + read-only overview (#49 design grill).
+// botStateCache mirrors the CURRENTLY VIEWED combo's bot state (set in load()
+// and, when the bot modal is opened for the viewed combo, in openBotModal's
+// save()); the fleet rail row shows the word+glyph status itself.
 let botStateCache = null;
-// #165: the per-view status dot moved to the fleet rail row (word+glyph there);
-// this cache still drives the bot modal's "won't trade" warning.
-function botIcon(bs) { botStateCache = bs; }
 // #75: bot modal tabs — setup (unchanged knobs) + strategy (assignment by
 // NAME, version list w/ per-version activate, inline draft/edit). A single
 // shared save() drives both tabs and repaints them both, so the setup tab's
@@ -506,23 +508,35 @@ async function openBotModal(instArg, granArg) {
   const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
   const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   const combo = inst + '|' + gran;
+  // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
+  // one on screen — bmStatus/bmWarn must reflect COMBO's own state, not
+  // whatever the view last cached, and saving here must never clobber the
+  // view's cache when they differ.
+  const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
+    (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
   document.getElementById('botTitle').dataset.info = INFO.botModal;
   bmActiveTab = 'setup';
   document.getElementById('botBody').innerHTML =
     '<div id="bmTabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
     '<div id="bm-setup"></div><div id="bm-strategy" hidden></div>';
+  let modalState = isViewedCombo() ? botStateCache : null;
+  const refreshModalState = async () => {
+    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
+    modalState = d2.botState;
+    if (isViewedCombo()) botStateCache = d2.botState;
+  };
   const save = async (patch) => {
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
-    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
-    botIcon(d2.botState);
+    await refreshModalState();
     await paint(r.error ? r.error : 'saved');
+    loadRail().catch(() => {}); // reflect enable/disable/strategy changes on the rail immediately
     return r;
   };
   const paint = async (savedMsg) => {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
-    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg);
+    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState);
     if (bmActiveTab === 'strategy') await renderBotStrategyTab(inst, gran, entry, save, savedMsg);
   };
   document.getElementById('bmTabs').onclick = async (e) => {
@@ -534,23 +548,24 @@ async function openBotModal(instArg, granArg) {
     document.getElementById('bm-strategy').hidden = tab !== 'strategy';
     if (tab === 'strategy') await paint();
   };
+  await refreshModalState();
   await paint();
   document.getElementById('botdlg').showModal();
 }
-function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
+function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState) {
   const body = document.getElementById('bm-setup');
   body.innerHTML =
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
-    // review fix: gate on the RESOLVED active-version name (botStateCache,
-    // same value /api/bots + runBot see), not entry.strategyName — a name
-    // whose versions are all inactive must still show the warning.
-    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !botStateCache?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
+    // review fix: gate on the RESOLVED active-version name (modalState, scoped
+    // to THIS combo — same value /api/bots + runBot see), not entry.strategyName
+    // — a name whose versions are all inactive must still show the warning.
+    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !modalState?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
     '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
     '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
     '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
     '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
-    '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '● ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
+    '<div id="bmStatus"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
     '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove">remove bot</button></p>';
   document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -674,7 +689,8 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   }
 }
 document.getElementById('adhocBotBtn').addEventListener('click', () => openBotModal());
-// Read-only activated-bots list + halt banner in the portfolio overview.
+// Halt banner in the portfolio overview — the activated-bots list itself
+// lives in the fleet rail now (#165); this dialog no longer duplicates it.
 async function renderOverviewBots() {
   const r = await (await fetch('/api/bots')).json();
   if (!r.ok) return;
@@ -687,22 +703,6 @@ async function renderOverviewBots() {
       renderOverviewBots(); portfolio();
     };
   }
-  const list = document.getElementById('botList');
-  const active = r.bots.filter(b => b.enabled);
-  const off = r.bots.filter(b => !b.enabled);
-  const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
-    (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won’t trade</span>') + '</span>' +
-    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '×' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + nTrades(b.trades) + ' · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
-    (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
-    '<button class="jump" data-combo="' + esc(b.combo) + '" aria-label="open this bot’s view (' + esc(b.combo) + ')" title="open this bot’s view">→</button></div>';
-  list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click 🤖 in the header to configure a bot for that view.</div>') +
-    (off.length ? '<details><summary><small>configured (off): ' + off.length + '</small></summary>' + off.map(row).join('') + '</details>' : '');
-  list.onclick = (e) => {
-    const combo = e.target.dataset?.combo;
-    if (!combo) return;
-    const [i2, g2] = combo.split('|');
-    location.search = '?' + new URLSearchParams({ instrument: i2, granularity: g2, bot: '1' });
-  };
 }
 document.getElementById('pfTabs').addEventListener('click', async (e) => {
   const tab = e.target.dataset?.tab;
@@ -932,7 +932,10 @@ function selectors(d) {
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
   // #165: ad-hoc select changes are hash-driven too (chart-without-a-bot mode)
   // — location.hash first so back/forward and bookmarking capture the combo.
-  const go = () => { location.hash = '#chart/' + encodeURIComponent(inst.value) + '/' + encodeURIComponent(gran.value); location.search = '?' + new URLSearchParams({ instrument: inst.value, granularity: gran.value }); };
+  // #165 review: one navigation (navigateToCombo owns hash+search as a single
+  // assignment) — setting hash then search separately created two history
+  // entries and a Back trap.
+  const go = () => navigateToCombo(inst.value, gran.value, true);
   inst.onchange = go; gran.onchange = go;
   const btn = document.getElementById('watchBtn');
   btn.textContent = d.watched ? '🔔' : '🔕';
@@ -956,8 +959,10 @@ function botRailStatus(b) {
   if (!b.enabled) return { glyph: '○', word: 'off', cls: 'off' };
   if (!b.strategyName) return { glyph: '⚠', word: "no strategy — won't trade", cls: 'warn' };
   const granMin = GRAN_MINUTES[b.granularity] || 5;
-  const ageMin = b.lastDecisionAt ? (Date.now() - Date.parse(b.lastDecisionAt)) / 60000 : Infinity;
-  if (ageMin > granMin * 2) return { glyph: '⚠', word: 'STALE ' + Math.round(ageMin) + 'm', cls: 'warn' };
+  // review fix: no decisions yet (lastDecisionAt null) is NOT stale — it just
+  // hasn't run. STALE only applies once there's a finite age to compare.
+  const ageMin = b.lastDecisionAt ? (Date.now() - Date.parse(b.lastDecisionAt)) / 60000 : null;
+  if (ageMin != null && ageMin > granMin * 2) return { glyph: '⚠', word: 'STALE ' + Math.round(ageMin) + 'm', cls: 'warn' };
   if (b.openPnl != null) return { glyph: '●', word: 'in position', cls: 'pos' };
   return { glyph: '●', word: 'armed', cls: 'armed' };
 }
@@ -967,29 +972,51 @@ function railIsAdhoc(cur) { return !railBots.some((b) => b.combo === cur); }
 // every other state change on this page, which navigates via location.search).
 function navigateToCombo(inst, gran, adhoc) {
   const hash = adhoc ? '#chart/' + encodeURIComponent(inst) + '/' + encodeURIComponent(gran) : '#bot/' + encodeURIComponent(inst + '|' + gran);
-  if (location.hash !== hash) location.hash = hash;
-  if (qs.get('instrument') === inst && (qs.get('granularity') || 'M5') === gran) return; // already on this combo
+  if (qs.get('instrument') === inst && (qs.get('granularity') || 'M5') === gran) {
+    if (location.hash !== hash) location.hash = hash; // same combo — only the hash needs to move
+    return;
+  }
+  // #165 review: one URL, one navigation — setting hash then search
+  // separately created two history entries (a Back trap). Build '?'+params+
+  // hash and assign it once.
   const p = new URLSearchParams(location.search);
   p.set('instrument', inst); p.set('granularity', gran);
-  location.search = '?' + p.toString();
+  location.href = location.pathname + '?' + p.toString() + hash;
 }
+// review fix: a granularity must be one of GRANULARITIES (and instrument
+// non-empty) or the route is ignored — e.g. an unencoded slash in
+// '#chart/WTICO/USD/M5' would otherwise split into gran='USD'.
+const validCombo = (i, g) => !!i && GRANULARITIES.includes(g);
 function comboFromHash() {
   const h = location.hash;
-  if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return i && g ? { inst: i, gran: g, adhoc: false } : null; }
+  if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return validCombo(i, g) ? { inst: i, gran: g, adhoc: false } : null; }
   // split BEFORE decoding: encoded instruments contain %2F which must not act as a separator
-  if (h.startsWith('#chart/')) { const [i, g] = h.slice(7).split('/').map((x) => decodeURIComponent(x)); return i && g ? { inst: i, gran: g, adhoc: true } : null; }
+  if (h.startsWith('#chart/')) { const [i, g] = h.slice(7).split('/').map((x) => decodeURIComponent(x)); return validCombo(i, g) ? { inst: i, gran: g, adhoc: true } : null; }
   return null;
 }
 window.addEventListener('hashchange', () => {
   const c = comboFromHash();
   if (c) navigateToCombo(c.inst, c.gran, c.adhoc);
 });
-function renderRail() {
+// review fix: rail load failure must not strand navigation — the ad-hoc
+// inst/gran selects default to visible in the HTML and are hidden ONLY after
+// a successful rail render whose current combo IS a configured bot. Kept as
+// a small pure function so its branches are unit-testable without needing to
+// actually break /api/bots.
+function adhocSelVisible(ok, adhoc) { return ok === false ? true : adhoc; }
+let railHalted = false;
+function renderRail(ok) {
   const el = document.getElementById('rail');
+  if (ok === false) {
+    el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>';
+    document.getElementById('adhocSel').hidden = !adhocSelVisible(false, true);
+    return;
+  }
   const cur = currentCombo();
-  const sorted = railBots.slice().sort((a, b) => RAIL_SORT[botRailStatus(a).cls] - RAIL_SORT[botRailStatus(b).cls]);
-  const rows = sorted.map((b) => {
-    const s = botRailStatus(b);
+  // status computed once per row before sorting (stable order, no re-derive on read)
+  const withStatus = railBots.map((b) => ({ b, s: botRailStatus(b) }));
+  withStatus.sort((x, y) => RAIL_SORT[x.s.cls] - RAIL_SORT[y.s.cls]);
+  const rows = withStatus.map(({ b, s }) => {
     const active = b.combo === cur;
     const age = b.lastDecisionAt ? Math.round((Date.now() - Date.parse(b.lastDecisionAt)) / 60000) + 'm ago' : '—';
     return '<div class="railrow ' + s.cls + '" role="listitem">' +
@@ -1002,9 +1029,10 @@ function renderRail() {
       '<button type="button" class="railcfg" data-combo="' + esc(b.combo) + '" aria-label="configure ' + esc(b.combo) + '" title="configure bot">⚙</button></div>';
   }).join('');
   const adhoc = railIsAdhoc(cur);
-  el.innerHTML = rows +
+  const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
+  el.innerHTML = haltChip + rows +
     '<div class="railrow" role="listitem"><button type="button" id="railAdhocBtn" class="railjump"' + (adhoc ? ' aria-current="true"' : '') + '>⌕ chart without a bot</button></div>';
-  document.getElementById('adhocSel').hidden = !adhoc;
+  document.getElementById('adhocSel').hidden = !adhocSelVisible(true, adhoc);
   el.onclick = (e) => {
     const cfg = e.target.closest('.railcfg');
     if (cfg) { const [i, g] = cfg.dataset.combo.split('|'); openBotModal(i, g); return; }
@@ -1015,10 +1043,18 @@ function renderRail() {
   };
 }
 async function loadRail() {
-  const r = await (await fetch('/api/bots')).json();
-  if (!r.ok) return;
-  railBots = r.bots;
-  renderRail();
+  // review fix: a failed/unreachable /api/bots must not strand navigation
+  // behind a rail that never rendered — render an explicit failure state and
+  // keep the ad-hoc inst/gran selects reachable (see adhocSelVisible/renderRail(false)).
+  try {
+    const r = await (await fetch('/api/bots')).json();
+    if (!r.ok) { renderRail(false); return; }
+    railBots = r.bots;
+    railHalted = !!r.halted;
+    renderRail(true);
+  } catch {
+    renderRail(false);
+  }
 }
 
 // #163: one tz pipeline — the server exposes its trader tz (data.tz /

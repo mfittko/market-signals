@@ -169,6 +169,22 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#chart/<inst>/<gran> parsed the encoded instrument whole');
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', '#chart/<inst>/<gran> parsed the granularity');
+          // #165 review: an unencoded slash in the instrument ('#chart/WTICO/USD/M5')
+          // must not be mistaken for the granularity separator — gran='USD' is not a
+          // valid granularity, so the route is ignored (state stays on the prior combo).
+          await p.evaluate(() => { location.hash = '#chart/WTICO/USD/M5'; });
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', 'invalid hash route (bad granularity) is ignored, chart state unchanged');
+          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', 'invalid hash route (bad granularity) is ignored, chart state unchanged');
+          // #165 review: adhocSelVisible is a small pure function driving the rail's
+          // ad-hoc select visibility — smoke-assert its branches directly.
+          const adhocSelBranches = await p.evaluate(() => [
+            adhocSelVisible(true, true),
+            adhocSelVisible(true, false),
+            adhocSelVisible(false, true),
+            adhocSelVisible(false, false),
+          ]);
+          assert.deepEqual(adhocSelBranches, [true, false, true, true], 'adhocSelVisible: visible unless a successful render focused a configured combo');
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).
           const moreShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });
