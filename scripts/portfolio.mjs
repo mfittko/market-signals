@@ -5,7 +5,7 @@
 // notional; margin = notional / leverage; fixed per-instrument spread is paid
 // once on entry.
 import { readFileSync } from 'node:fs';
-import { withDb } from './supertrend.mjs';
+import { withDb, LOCAL_TZ } from './supertrend.mjs';
 import { positionAttribution } from './evaluation.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS portfolio (
@@ -61,6 +61,7 @@ export const BOT_DEFAULTS = {
   leverageCap: 20,
   defaultLeverage: 10,
   commission: 0,
+  staleAfterMs: 10 * 60 * 1000, // #163: absent-from-quotes staleness threshold
 };
 
 export function botConfig(settings = {}, spreadsPath = 'config/spreads.json') {
@@ -87,6 +88,15 @@ export function instrumentLeverage(cfg, instrument) {
 function pdb(dbPath, cfg, fn) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
+    // #163: additive column for the last markToMarket timestamp, so staleness
+    // can be detected even when an instrument is absent from a run's quotes
+    // map (positions previously had no mark-time record at all). Same
+    // try/catch-duplicate-column pattern as chatDb's migration in signal-server.
+    try {
+      db.exec('ALTER TABLE positions ADD COLUMN last_mark_at TEXT');
+    } catch (err) {
+      if (!/duplicate column/i.test(String(err?.message))) throw err;
+    }
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
     if (seeded.changes > 0) journal(db, 'init', null, 'portfolio seeded', { startingBalance: cfg.startingBalance });
@@ -174,10 +184,11 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     const units = effectiveNotional / price;
     const cash = p.cash - margin - cfg.commission;
     db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(cash);
+    const now = new Date().toISOString();
     const id = db.prepare(`INSERT INTO positions
-      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(instrument, side, effectiveNotional, units, entry, new Date().toISOString(), leverage, margin, stop, target, price).lastInsertRowid;
+      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark, last_mark_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(instrument, side, effectiveNotional, units, entry, now, leverage, margin, stop, target, price, now).lastInsertRowid;
     journal(db, 'open', id, reason, {
       ...context, side, notional: effectiveNotional, requestedNotional, effectiveNotional, bindingCap, price, entry, spread, leverage, margin,
     });
@@ -208,22 +219,42 @@ function closeInDb(db, cfg, positionId, price, closeReason, context) {
 
 // Mark all positions against quotes {instrument: price}. An instrument that was
 // QUOTED but came back without a usable price → keep last mark, flag stale. An
-// instrument absent from the map was never asked about on this run, so it is
-// left untouched: bot runs are per-combo (bot.mjs passes a single-instrument
-// map), and staling every other instrument's position made the flag flap.
+// instrument absent from the map was never asked about on this run, so its
+// mark/price is left untouched: bot runs are per-combo (bot.mjs passes a
+// single-instrument map), and staling every other instrument's position on
+// every unrelated run made the flag flap. It is still flagged stale, though,
+// once its last mark is older than the threshold — an instrument that stops
+// being watched entirely must not look perpetually fresh (#163).
 export function markToMarket(dbPath, cfg, quotes = {}) {
+  // botConfig() already filters/validates against BOT_DEFAULTS, so cfg.staleAfterMs
+  // is always a valid positive number here — no need to re-validate.
+  const { staleAfterMs } = cfg;
   return pdb(dbPath, cfg, (db) => {
     const closed = [];
+    const now = new Date().toISOString();
     for (const pos of db.prepare('SELECT * FROM positions').all()) {
       // own-property only: `in` would count prototype keys, so an instrument
       // named "constructor" would take the quoted path and get staled.
-      if (!Object.hasOwn(quotes, pos.instrument)) continue;
+      if (!Object.hasOwn(quotes, pos.instrument)) {
+        // Only ever SET stale here, never clear — clearing is the quoted-and-
+        // usable path below; an absent instrument stays untouched unless its
+        // mark has aged past the threshold (#163), same "leave it alone"
+        // contract #151 relies on for the common per-combo-run case.
+        // No last_mark_at yet (legacy row, or never marked) → treat as fresh
+        // (age 0): it gets stamped on the next successful mark rather than
+        // being instantly flagged stale.
+        const ageMs = pos.last_mark_at ? Date.now() - Date.parse(pos.last_mark_at) : 0;
+        if (ageMs > staleAfterMs && !pos.stale) {
+          db.prepare('UPDATE positions SET stale=1 WHERE id=?').run(pos.id);
+        }
+        continue;
+      }
       const q = quotes[pos.instrument];
       if (!(q > 0)) {
         db.prepare('UPDATE positions SET stale=1 WHERE id=?').run(pos.id);
         continue;
       }
-      db.prepare('UPDATE positions SET last_mark=?, stale=0 WHERE id=?').run(q, pos.id);
+      db.prepare('UPDATE positions SET last_mark=?, last_mark_at=?, stale=0 WHERE id=?').run(q, now, pos.id);
       const u = unrealized(pos, q);
       const stopHit = pos.stop != null && (pos.side === 'long' ? q <= pos.stop : q >= pos.stop);
       const targetHit = pos.target != null && (pos.side === 'long' ? q >= pos.target : q <= pos.target);
@@ -273,11 +304,32 @@ function viewInDb(db) {
 }
 
 export function portfolioView(dbPath, cfg) {
-  return pdb(dbPath, cfg, (db) => ({
-    ...viewInDb(db),
-    trades: db.prepare(TRADES_QUERY).all(50),
-    journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
-  }));
+  return pdb(dbPath, cfg, (db) => {
+    const view = viewInDb(db);
+    const trades = db.prepare(TRADES_QUERY).all(50);
+    // #163: realizedTotal is SUM(realized) over ALL bot_trades — the 50-row
+    // TRADES_QUERY slice above is display-only and would silently undercount
+    // once a bot has traded more than 50 times.
+    const realizedTotal = db.prepare('SELECT COALESCE(SUM(realized),0) r FROM bot_trades').get().r;
+    // dayPnl formula: realized P&L from trades whose close_time falls on
+    // today (server machine's local calendar day — this is a single-trader
+    // local app, so "trader-local" == the process's own local timezone, same
+    // basis localFull/localHm already use) + the portfolio's CURRENT total
+    // unrealized (open positions' P&L isn't attributable to a single day).
+    const dayRealized = db.prepare("SELECT COALESCE(SUM(realized),0) r FROM bot_trades WHERE date(close_time,'localtime')=date('now','localtime')").get().r;
+    const dayPnl = dayRealized + view.unrealized;
+    return {
+      ...view,
+      trades,
+      realizedTotal,
+      dayPnl,
+      journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
+      // #163: the one tz pipeline — server exposes its trader timezone once;
+      // every client-rendered timestamp formats with `timeZone: tz` instead
+      // of a server-formatted *_local field per row.
+      tz: LOCAL_TZ,
+    };
+  });
 }
 
 // The canonical trade timeline (issue #162, docs/ux-redesign-plan.md §3): one

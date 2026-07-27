@@ -302,12 +302,21 @@ test('viewing a combo lazily backfills historical flips, sparing the watcher-fre
     storeCandles(dbPath, INSTRUMENT, 'M15', closes.map((c, i) => ({
       time: new Date(start + i * 900000).toISOString(), open: c, high: c + 0.2, low: c - 0.2, close: c, volume: 5, complete: true,
     })));
-    const d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
-    assert.ok(d.flips.length >= 1, 'fixture produces flips');
+    const d0 = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    assert.ok(d0.flips.length >= 1, 'fixture produces flips');
+    // #163: GET is side-effect-free — the backfill write now runs in a
+    // deferred background task, so it may not have landed in THIS response.
+    // Poll a couple more times (each a fresh GET) until it shows up.
+    let d = d0;
+    for (let i = 0; i < 20 && d.signals.length < 1; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    }
     assert.ok(d.signals.length >= 1, 'flips backfilled into signal history');
     assert.equal(d.signals[0].verdict, 'backfill');
     assert.equal(typeof d.signals[0].outcomePct, 'number', 'outcome computed from stored candles');
-    // Idempotent: second view adds nothing.
+    // Idempotent: further views add nothing once settled.
+    await new Promise((r) => setTimeout(r, 25));
     const d2 = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
     assert.equal(d2.signals.length, d.signals.length);
     // Any flip inside the fresh+cooldown horizon must NOT be backfilled (watcher owns it).
@@ -1327,6 +1336,170 @@ test('re-check (#70): POST /api/recheck runs the LATEST signal via fake pi, pers
     const html = await (await fetch(base + '/')).text();
     assert.match(html, /id="recheckBtn"/);
     assert.match(html, /recheck: '[^']*re-check/i, 'INFO overlay entry documents the 🔁 button');
+  });
+});
+
+test('#163: /api/recheck accepts ?signal=<time> to recheck an explicit signal (back-compat: no param rechecks latest)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, sigTime, settingsPath, dbPath }) => {
+    // a second, older signal for the same combo
+    const olderTime = '2026-07-22T09:00:00.000Z';
+    recordSignal(dbPath, INSTRUMENT, 'M5', { time: olderTime, signal: 'buy', price: 99 }, 40);
+
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho '{"verdict": "valid", "reason": "still holds"}'\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    // explicit signal param rechecks THAT signal, not the latest one
+    const r = await (await fetch(`${base}/api/recheck?${new URLSearchParams({ signal: olderTime })}`, {
+      method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }),
+    })).json();
+    assert.equal(r.ok, true);
+    assert.equal(r.verdict, 'valid');
+    const { latestRecheck } = await import('../scripts/signal-rechecks.mjs');
+    assert.ok(latestRecheck(dbPath, INSTRUMENT, 'M5', olderTime), 'recheck persisted against the explicit signal, not the latest');
+    assert.equal(latestRecheck(dbPath, INSTRUMENT, 'M5', sigTime), null, 'the latest signal was NOT touched');
+
+    // unknown signal id -> 404-style error, not a crash
+    const unknown = await (await fetch(`${base}/api/recheck?${new URLSearchParams({ signal: '2099-01-01T00:00:00.000Z' })}`, {
+      method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }),
+    }));
+    assert.equal(unknown.status, 404);
+
+    // no param: back-compat, latest signal
+    const latest = await (await fetch(base + '/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5' }) })).json();
+    assert.equal(latest.ok, true);
+    assert.ok(latestRecheck(dbPath, INSTRUMENT, 'M5', sigTime), 'no-param recheck lands on the latest signal');
+  });
+});
+
+test('#163 review: a failing deferred chart acquisition (setImmediate) is caught, not an unhandled exception', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir);
+  const fresh = series([200, 201], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  fresh[1] = { ...fresh[1], complete: false }; // forming candle drives quote.last
+  let uncaught = null;
+  const onUncaught = (err) => { uncaught = err; };
+  process.on('uncaughtException', onUncaught);
+  try {
+    const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => fresh });
+    assert.equal(d.quote.last, 201, 'GET still serves the live tail even though the write is about to fail');
+    // Make the DEFERRED write fail: the read already happened above, so this
+    // only breaks the setImmediate-scheduled storeCandles() call.
+    chmodSync(dbPath, 0o444);
+    // Flush the setImmediate queue a few times over.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(uncaught, null, 'deferred write failure must be caught internally, never surface as an unhandled exception');
+  } finally {
+    process.off('uncaughtException', onUncaught);
+    chmodSync(dbPath, 0o644);
+  }
+});
+
+test('#163: a live fetch\'s newly-COMPLETE candles are in the response candles array before the deferred write lands (no gap)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir);
+  // one brand-new complete candle the DB has never seen, plus a forming tail
+  const fresh = series([202, 203], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  fresh[1] = { ...fresh[1], complete: false };
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => fresh });
+  assert.ok(d.candles.some((c) => c.time === fresh[0].time && c.close === 202), 'the newly-fetched complete candle is already in the response');
+  // and it is NOT yet in the DB — persistence is still deferred
+  const stillNotPersisted = withDb(dbPath, (d2) => d2.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time=?').get(INSTRUMENT, 'M5', fresh[0].time));
+  assert.equal(stillNotPersisted, undefined, 'the deferred write has not run yet — merge is in-memory only');
+});
+
+test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summaries — read-only', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, settingsPath }) => {
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watchers: `${INSTRUMENT}|M5` }) });
+    seedDecision(dbPath, { at: new Date().toISOString(), action: 'buy', reasoning: 'trend' });
+
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.ok, true);
+    assert.equal(h.halted, false);
+    assert.equal(h.feed.length, 1);
+    assert.equal(h.feed[0].instrument, INSTRUMENT);
+    assert.equal(h.feed[0].granularity, 'M5');
+    assert.equal(typeof h.feed[0].ageSec, 'number');
+    assert.equal(h.news.mode, 'free', 'no NEWSAPI_AI_KEY configured');
+    assert.equal(typeof h.llm, 'object');
+    assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
+    assert.ok(Array.isArray(h.bots));
+
+    // mutating verbs are never accepted on a read-only surface
+    const post = await fetch(base + '/api/health', { method: 'POST' });
+    assert.equal(post.status, 404, 'health only registers a GET route');
+  });
+});
+
+test('#163 review: GET /api/health never runs portfolio.mjs migrations (no positions/portfolio/bot_trades tables)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.ok, true);
+    assert.equal(h.halted, false, 'missing portfolio table reads as not-halted');
+
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath);
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+    db.close();
+    for (const t of ['portfolio', 'positions', 'bot_trades', 'bot_journal']) {
+      assert.ok(!tables.includes(t), `health must not create portfolio table "${t}"`);
+    }
+  });
+});
+
+test('#163: the 24h stat is granularity-independent — same value whether the chart is viewed at M5 or a coarser granularity', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    // 24h of M5 candles (288 bars) trending from 100 to 90, PLUS a sparser M15
+    // series over the same span whose endpoints differ slightly — proves the
+    // 24h% comes from the fixed M5 resolution, not the requested granularity.
+    const start = Date.now() - 24 * 3600000;
+    const m5 = Array.from({ length: 289 }, (_, i) => {
+      const close = 100 - (i / 288) * 10;
+      return { time: new Date(start + i * 300000).toISOString(), open: close, high: close + 0.2, low: close - 0.2, close, volume: 5, complete: true };
+    });
+    storeCandles(dbPath, INSTRUMENT, 'M5', m5);
+    const m15 = Array.from({ length: 20 }, (_, i) => {
+      const close = 50; // deliberately flat/different so a granularity-scoped read would disagree
+      return { time: new Date(start + i * 900000).toISOString(), open: close, high: close + 0.2, low: close - 0.2, close, volume: 5, complete: true };
+    });
+    storeCandles(dbPath, INSTRUMENT, 'M15', m15);
+
+    const d5 = await (await fetch(`${base}/api/chart?${new URLSearchParams({ instrument: INSTRUMENT, granularity: 'M5' })}`)).json();
+    const d15 = await (await fetch(`${base}/api/chart?${new URLSearchParams({ instrument: INSTRUMENT, granularity: 'M15' })}`)).json();
+    assert.equal(d5.quote.change24hPct, d15.quote.change24hPct, 'same 24h% regardless of viewed granularity');
+    assert.ok(d5.quote.change24hPct < 0, 'sanity: the fixed M5 series drives the number (trending down), not the flat M15 one');
+  });
+});
+
+test('#163: GET /api/chart persists its backfill via the deferred acquisition task (never crashes the response), and settles idempotently', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const closes = [...Array(20).fill(50), ...Array.from({ length: 20 }, (_, i) => 50 - i)];
+    const start = Date.now() - 40 * 900000;
+    storeCandles(dbPath, INSTRUMENT, 'M15', closes.map((c, i) => ({
+      time: new Date(start + i * 900000).toISOString(), open: c, high: c + 0.2, low: c - 0.2, close: c, volume: 5, complete: true,
+    })));
+    const beforeSignals = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+    const res = await fetch(`${base}/api/chart?granularity=M15`);
+    assert.equal(res.status, 200, 'the GET itself never fails even though persistence is deferred');
+    // the deferred task settles shortly after — same guarantee the "lazily
+    // backfills" test exercises via the response body; here we assert on the
+    // table directly to prove the write is the DEFERRED task's, not the GET's.
+    let after = beforeSignals;
+    for (let i = 0; i < 40 && after.length === beforeSignals.length; i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      after = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+    }
+    assert.ok(after.length > beforeSignals.length, 'backfill eventually persists via the deferred task');
+    // a second GET after settling adds nothing more (idempotent, no duplicate writes)
+    await fetch(`${base}/api/chart?granularity=M15`);
+    await new Promise((r) => setTimeout(r, 50));
+    const final = withDb(dbPath, (d) => d.prepare('SELECT * FROM signals').all());
+    assert.equal(final.length, after.length, 'idempotent: no duplicate backfill rows on a settled combo');
   });
 });
 

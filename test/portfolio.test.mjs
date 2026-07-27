@@ -179,6 +179,98 @@ test('a per-combo run leaves positions of instruments it did not quote untouched
   assert.equal(byName(r3, 'constructor').stale, false, 'prototype key must not count as a quote');
 });
 
+test('#163: an absent instrument goes stale once its own last mark ages past the threshold', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 }, staleAfterMs: 50 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  // never quoted on this run (absent from the map): a fresh mark is not yet stale…
+  let r = markToMarket(db, cfg, {});
+  assert.equal(r.positions[0].stale, false, 'fresh mark, absent instrument: untouched');
+  // …but once the last mark ages past the (test-tiny) threshold, an absent
+  // instrument's position IS flagged stale — it can no longer hide behind
+  // "never asked about on this run" forever.
+  withDb(db, (dbc) => dbc.prepare('UPDATE positions SET last_mark_at=? WHERE id=?').run(new Date(Date.now() - 1000).toISOString(), id));
+  r = markToMarket(db, cfg, {});
+  assert.equal(r.positions[0].stale, true, 'aged-out absent instrument is flagged stale');
+  // a subsequent USABLE quote clears it and stamps a fresh last_mark_at
+  const r2 = markToMarket(db, cfg, { [WTI]: 88 });
+  assert.equal(r2.positions[0].stale, false, 'a real quote clears the age-based flag too');
+});
+
+test('#163 review: legacy NULL last_mark_at reads as fresh (age 0), not instant-stale Infinity age', () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 }, staleAfterMs: 50 } });
+  const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  // Simulate a pre-#163 row: last_mark_at was never set.
+  withDb(db, (dbc) => dbc.prepare('UPDATE positions SET last_mark_at=NULL WHERE id=?').run(id));
+  // The absent-instrument path in markToMarket() treats a NULL last_mark_at
+  // as age 0 (not Infinity) — it gets stamped on the next successful mark.
+  const r = markToMarket(db, cfg, {}); // absent-instrument path
+  assert.equal(r.positions[0].stale, false, 'legacy NULL row reads as fresh, not instantly stale');
+  const row = withDb(db, (dbc) => dbc.prepare('SELECT last_mark_at FROM positions WHERE id=?').get(id));
+  assert.equal(row.last_mark_at, null, 'last_mark_at stays NULL until a real quote marks it');
+});
+
+test('#163: realizedTotal sums ALL bot_trades (beyond the 50-row trades slice); dayPnl = today-closed realized + current unrealized', () => {
+  const db = fresh();
+  // 60 closed trades — more than the 50-row TRADES_QUERY slice.
+  for (let i = 0; i < 60; i++) {
+    const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+    closePosition(db, CFG, id, 88, 'bot-close');
+  }
+  const view = portfolioView(db, CFG);
+  const sumAll = withDb(db, (dbc) => dbc.prepare('SELECT SUM(realized) r FROM bot_trades').get().r);
+  assert.equal(view.trades.length, 50, 'display slice still capped at 50');
+  assert.ok(Math.abs(view.realizedTotal - sumAll) < 1e-9, 'realizedTotal reflects ALL trades, not just the 50-row slice');
+  assert.ok(view.realizedTotal > sumAll * 0.9, 'sanity: not accidentally scoped to the 50-row slice');
+  // dayPnl: all 60 trades just closed "now" (today, local) — plus a fresh
+  // open position's unrealized.
+  const openId = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  const v2 = portfolioView(db, CFG);
+  const posUnreal = unrealized(v2.positions.find((p) => p.id === openId), v2.positions.find((p) => p.id === openId).last_mark);
+  assert.ok(Math.abs(v2.dayPnl - (v2.realizedTotal + posUnreal)) < 1e-6, 'dayPnl = today-closed realized + current unrealized (all trades closed today here)');
+});
+
+test('#163 review: dayPnl compares close_time and now on the SAME (local) basis, not UTC-vs-local', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  closePosition(db, CFG, id, 88, 'bot-close');
+  // Force close_time into a UTC calendar day that differs from today's LOCAL
+  // calendar day, using a fixed-offset (no-DST) zone so the test is
+  // deterministic regardless of the machine's real TZ: 1am local in
+  // UTC+14 is always ~11am UTC on the PREVIOUS calendar day. The old query
+  // (date(close_time) — UTC — vs date('now','localtime')) would drop this
+  // trade from dayRealized under that TZ; the fixed query keeps both sides
+  // on localtime and includes it.
+  const savedTz = process.env.TZ;
+  process.env.TZ = 'Pacific/Kiritimati'; // fixed UTC+14, no DST
+  try {
+    const offsetMs = 14 * 3600 * 1000;
+    const localNowMs = Date.now() + offsetMs;
+    const localMidnightMs = Math.floor(localNowMs / 86400000) * 86400000;
+    const closeUtcMs = (localMidnightMs + 3600 * 1000) - offsetMs; // 1am local
+    withDb(db, (dbc) => dbc.prepare('UPDATE bot_trades SET close_time=? WHERE id=1')
+      .run(new Date(closeUtcMs).toISOString()));
+    const view = portfolioView(db, CFG);
+    assert.ok(Math.abs(view.dayPnl - (view.realizedTotal + view.unrealized)) < 1e-6,
+      'trade closed at 1am local (UTC+14) counts as today even though its UTC date is yesterday');
+  } finally {
+    if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz;
+  }
+});
+
+test('#163: portfolioView exposes one server tz (the client formats every timestamp with it, not a per-row *_local field)', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  closePosition(db, CFG, id, 88, 'bot-close');
+  openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  const v = portfolioView(db, CFG);
+  assert.equal(typeof v.tz, 'string');
+  assert.ok(v.tz.length > 0);
+  assert.equal(v.positions.find((p) => p.entry_time_local), undefined, 'no per-row *_local field on positions');
+  assert.equal(v.trades.find((t) => t.entry_time_local || t.close_time_local), undefined, 'no per-row *_local field on trades');
+});
+
 test('invariant: equity == starting + Σrealized + Σunrealized over random sequences', () => {
   for (let seed = 1; seed <= 5; seed++) {
     const db = fresh();

@@ -353,6 +353,7 @@ async function load() {
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   if (qs.get('ind')) p.set('ind', qs.get('ind'));
   const d = await (await fetch('/api/chart?' + p)).json();
+  if (d.tz) TZ = d.tz;
   applyInfo(!!d.info);
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
@@ -368,17 +369,18 @@ async function portfolio() {
   const r = await (await fetch('/api/portfolio')).json();
   if (!r.ok) return;
   const pf = r.portfolio;
+  if (pf.tz) TZ = pf.tz;
   const el = document.getElementById('pf');
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
   const status = pf.halted ? '<span class="halted" data-info="' + esc(INFO.active) + '">halted</span>' : '<span class="active" data-info="' + esc(INFO.active) + '">active</span>';
-  const realized = pf.trades.reduce((a, t) => a + t.realized, 0);
-  const totalPnl = realized + pf.unrealized;
+  // #163: totalPnl/dayPnl are server-computed (pf.realizedTotal sums ALL
+  // bot_trades, not just the 50-row pf.trades slice this page also renders).
+  const totalPnl = pf.realizedTotal + pf.unrealized;
   mini.innerHTML =
     '<b data-info="' + esc(INFO.equity) + '">' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
-  const today = new Date().toDateString();
-  const dayPnl = pf.trades.filter(t => new Date(t.close_time).toDateString() === today).reduce((a, t) => a + t.realized, 0) + pf.unrealized;
+  const dayPnl = pf.dayPnl;
   document.getElementById('pfChips').innerHTML =
     '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b>' +
     '<span>cash ' + esc(pf.cash.toFixed(2)) + '</span>' +
@@ -396,7 +398,7 @@ async function portfolio() {
     ' <b>' + esc(p.notional.toFixed(2)) + '</b> @ ' + esc(p.entry_price.toFixed(3)) +
     ' · <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' +
     (p.stop != null ? ' · stop ' + esc(p.stop) : '') + (p.target != null ? ' · target ' + esc(p.target) : '') +
-    ' · opened ' + esc(localFull(p.entry_time)) + '</span>').join('');
+    ' · <span title="execution time">opened ' + esc(localFull(p.entry_time)) + '</span></span>').join('');
   sparkline(pf);
   }
   document.getElementById('pfHead').innerHTML =
@@ -410,7 +412,7 @@ async function portfolio() {
     return '<div class="pfcard"><b>' + esc(p.instrument) + '</b> <span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
       ' ' + esc(p.notional.toFixed(2)) + ' notional @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
       ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD +
-      ' · opened ' + esc(localFull(p.entry_time)) + ' (' + age + 'm)' +
+      ' · <span title="execution time">opened ' + esc(localFull(p.entry_time)) + '</span> (' + age + 'm)' +
       (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
       '</div>';
   }).join('') || '<div class="pfcard">' + (hasActivity ? 'no open positions' : 'no bot activity yet — click 🤖 in the header to configure a bot for a view and assign a strategy') + '</div>';
@@ -420,7 +422,7 @@ async function portfolio() {
     const tr = document.createElement('tr');
     tr.style.cursor = 'pointer';
     tr.onclick = () => { location.search = '?' + new URLSearchParams({ instrument: t.instrument, granularity: qs.get('granularity') || 'M5', t: t.entry_time }); };
-    tr.innerHTML = '<td>' + esc(localFull(t.entry_time)) + '</td><td>' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
+    tr.innerHTML = '<td title="execution time">' + esc(localFull(t.entry_time)) + '</td><td title="execution time">' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
       '</td><td class="' + pnlCls(t.realized) + '">' + esc(money(t.realized)) + '</td><td>' + esc(t.close_reason) + '</td>';
     tb.appendChild(tr);
   }
@@ -902,9 +904,14 @@ function selectors(d) {
   };
 }
 
-const localHm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-const localHms = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-const localFull = (iso) => new Date(iso).toLocaleString('en-GB', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/[,\s]+/, ' ');
+// #163: one tz pipeline — the server exposes its trader tz (data.tz /
+// pf.tz, set in load()/portfolio() below); every client-rendered timestamp
+// formats through these three helpers with that tz, instead of a separate
+// server-formatted *_local field per surface.
+let TZ = undefined;
+const localHm = (iso) => new Date(iso).toLocaleTimeString([], { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+const localHms = (ms) => new Date(ms).toLocaleTimeString([], { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+const localFull = (iso) => new Date(iso).toLocaleString('en-GB', { timeZone: TZ, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(/[,\s]+/, ' ');
 function quoteStrip(q) {
   const el = document.getElementById('quote');
   if (!q) { el.hidden = true; return; }
@@ -958,7 +965,7 @@ function verdict(s, botDecision, recheck, view) {
   // for a historical signal — read-only, no new-recheck affordance.
   const recheckBtn = view.isLatestSignal ? ' <button type="button" id="recheckBtn" aria-label="re-check the latest signal" data-info="' + esc(INFO.recheck) + '" title="' + esc(INFO.recheck) + '">🔁</button>' : '';
   el.innerHTML = '<b class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal.toUpperCase()) + '</b> @ ' + esc(s.price) +
-    ' — ' + esc(localFull(s.time)) + ' · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
+    ' — <span title="candle time">' + esc(localFull(s.time)) + '</span> · verdict: <b data-info="' + esc(INFO.verdict) + '">' + esc(s.verdict || 'unfiltered') + '</b>' +
     (s.reason ? ' — ' + esc(s.reason) : '') + ' · 30-min: <b>' + out + '</b> · to reversal: <b>' + adv + '</b>' +
     ' · window win rate at signal: ' + esc(s.win_rate ?? '?') + '%' +
     recheckBtn +
@@ -970,7 +977,10 @@ function verdict(s, botDecision, recheck, view) {
     btn.disabled = true;
     line.innerHTML = '<div class="botnote">🔁 re-checking…</div>';
     try {
-      const r = await (await fetch('/api/recheck', { method: 'POST', body: JSON.stringify({ instrument: view.instrument, granularity: view.granularity }) })).json();
+      // #163: send the DISPLAYED signal's time explicitly rather than relying
+      // on the server's own latest-signal lookup — isLatestSignal above still
+      // gates whether the button renders at all, as a fallback.
+      const r = await (await fetch('/api/recheck?' + new URLSearchParams({ signal: s.time }), { method: 'POST', body: JSON.stringify({ instrument: view.instrument, granularity: view.granularity }) })).json();
       line.innerHTML = renderRecheckLine(r.ok ? r : { error: r.error || 're-check failed' });
     } catch (err) {
       line.innerHTML = renderRecheckLine({ error: String(err && err.message || err) });
@@ -994,7 +1004,7 @@ function histRow(s, botDecisions) {
   const bd = botDecisions && botDecisions[s.time];
   const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(bd.action) + '</span>' : '';
   const overruled = bd && bd.action === 'hold';
-  tr.innerHTML = '<td>' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+  tr.innerHTML = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (overruled ? 'overruled' : s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
     '</td><td>' + esc(s.verdict || '—') + '</td><td>' + esc(s.reason || '') + botNote + '</td><td>' + out + '</td><td>' + adv + '</td>';
   return tr;
 }
