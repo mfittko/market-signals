@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { tradeMetrics, strategyScoreboard, decisionAudit, baselines, botPerformanceSummary } from '../scripts/evaluation.mjs';
+import { tradeMetrics, strategyScoreboard, decisionAudit, baselines, botPerformanceSummary, positionAttribution } from '../scripts/evaluation.mjs';
 import { botConfig, openPosition, closePosition } from '../scripts/portfolio.mjs';
 import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
 import { runBot } from '../scripts/bot.mjs';
@@ -123,6 +123,37 @@ test('decision audit surfaces the EFFECTIVE sized-down notional, not the LLM\'s 
   assert.equal(d.execSizing.requestedNotional, 30000);
   assert.equal(d.execSizing.effectiveNotional, 1000, '1% risk cap (100 margin) at 10x default leverage');
   assert.equal(d.execSizing.bindingCap, 'risk', 'the audit shows what actually happened, not the requested notional');
+});
+
+test('positionAttribution (#162) carries instrument/granularity/combo alongside strategy fields', async () => {
+  const db = fresh();
+  const st = await seededBotTrade(db);
+  const attribution = positionAttribution(db);
+  const [[posId, a]] = [...attribution.entries()];
+  assert.equal(a.strategyId, st.id);
+  assert.equal(a.instrument, WTI);
+  assert.equal(a.granularity, 'M5');
+  assert.equal(a.combo, `${WTI}|M5`);
+  assert.ok(posId > 0);
+});
+
+test('decisionAudit (#162): instrument/granularity filters scope decision rows but never drop halt/reset', async () => {
+  const db = fresh();
+  await seededBotTrade(db); // decisions on WTI/M5
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)')
+    .run(new Date().toISOString(), 'halt', 'kill-switch', JSON.stringify({ peak: 10000, equity: 7000 })));
+
+  const wtiM5 = decisionAudit(db, { instrument: WTI, granularity: 'M5' });
+  assert.ok(wtiM5.some((a) => a.action === 'decision'), 'matching combo decision rows pass');
+  assert.ok(wtiM5.some((a) => a.action === 'halt'), 'halt rows are combo-independent, always pass');
+
+  const wrongInstrument = decisionAudit(db, { instrument: 'SPX500/USD' });
+  assert.equal(wrongInstrument.filter((a) => a.action === 'decision').length, 0, 'foreign instrument excludes decision rows');
+  assert.ok(wrongInstrument.some((a) => a.action === 'halt'), 'halt rows survive an instrument filter too');
+
+  const wrongGranularity = decisionAudit(db, { instrument: WTI, granularity: 'H1' });
+  assert.equal(wrongGranularity.filter((a) => a.action === 'decision').length, 0, 'foreign granularity excludes decision rows');
 });
 
 test('unattributed trades label as "unattributed", never "hash null"', () => {

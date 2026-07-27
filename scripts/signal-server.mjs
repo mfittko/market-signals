@@ -20,14 +20,14 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
-import { botConfig, botTrades, instrumentLeverage, portfolioView } from './portfolio.mjs';
+import { botConfig, botTrades, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -941,28 +941,37 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const cfgB = readSettings(settingsPath);
         const bots = (cfgB.bot && typeof cfgB.bot.bots === 'object' && cfgB.bot.bots) || {};
         const pf = portfolioView(dbPath, botConfig(cfgB));
-        const audit = decisionAudit(dbPath, { limit: 200 });
-        // complete aggregates straight from the tables — attributed PER COMBO via
-        // the decision journal (position → combo); a bot that is the sole bot on
-        // its instrument also absorbs unattributed trades for that instrument
+        // one shared attribution walk (#162) — no LIMIT cap, so lastDecision
+        // below can't miss an older decision the way the old LIMIT 200 audit did
+        const attribution = positionAttribution(dbPath);
+        const decisions = withDb(dbPath, (db) => {
+          const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
+          return safe("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC")
+            .map((j) => { try { return { at: j.at, reason: j.reason, ctx: JSON.parse(j.context) }; } catch { return null; } })
+            .filter(Boolean);
+        });
+        // complete aggregates straight from bot_trades — attributed PER COMBO via
+        // the shared attribution; a bot that is the sole bot on its instrument
+        // also absorbs unattributed trades for that instrument
         const { comboAgg, soloUnattributed } = withDb(dbPath, (db) => {
           const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
-          const posCombo = new Map();
-          for (const jrow of safe("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC LIMIT 5000")) {
-            try {
-              const c = JSON.parse(jrow.context);
-              if (c?.executed?.opened && c.instrument && c.granularity) posCombo.set(c.executed.opened, `${c.instrument}|${c.granularity}`);
-            } catch { /* skip */ }
-          }
           const comboAgg2 = new Map();
           const solo = new Map();
           for (const t of safe('SELECT position_id, instrument, realized FROM bot_trades')) {
-            const combo = posCombo.get(t.position_id);
+            const combo = attribution.get(t.position_id)?.combo ?? null;
             const bump = (map, key) => { const cur = map.get(key) ?? { c: 0, r: 0 }; cur.c += 1; cur.r += t.realized; map.set(key, cur); };
             if (combo) bump(comboAgg2, combo); else bump(solo, t.instrument);
           }
           return { comboAgg: comboAgg2, soloUnattributed: solo };
         });
+        // per-combo openPnl: sum of unrealized for OPEN positions attributed to
+        // that combo; a combo with no attributed open positions gets null (not 0)
+        const comboOpenPnl = new Map();
+        for (const p of pf.positions) {
+          const combo = attribution.get(p.id)?.combo ?? null;
+          if (!combo) continue;
+          comboOpenPnl.set(combo, (comboOpenPnl.get(combo) ?? 0) + p.unrealized);
+        }
         const engineCfg = botConfig(cfgB); // once per request, not per row
         const botsPerInstrument = new Map();
         for (const k of Object.keys(bots)) {
@@ -979,7 +988,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const attributed = comboAgg.get(`${inst}|${gran}`) ?? { c: 0, r: 0 };
           const orphan = botsPerInstrument.get(inst) === 1 ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
-          const lastDecision = audit.find((a) => a.instrument === inst && (a.granularity == null || a.granularity === gran));
+          const lastDecision = decisions.find((d) => d.ctx?.instrument === inst && (d.ctx?.granularity == null || d.ctx?.granularity === gran));
+          const openPnl = comboOpenPnl.has(`${inst}|${gran}`) ? Math.round(comboOpenPnl.get(`${inst}|${gran}`) * 100) / 100 : null;
           return {
             combo: `${inst}|${gran}`, instrument: inst, granularity: gran,
             enabled: b.enabled === true,
@@ -990,11 +1000,24 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             leverage: instrumentLeverage(engineCfg, inst), // the engine's own resolution — no drift
             trades: agg.c,
             realized: Math.round(agg.r * 100) / 100,
+            openPnl,
             lastDecisionAt: lastDecision?.at ?? null,
             lastDecisionReason: lastDecision?.reason ?? null,
           };
         });
         return json(res, 200, { ok: true, bots: rows, halted: pf.halted, equity: pf.equity });
+      }
+      if (url.pathname === '/api/trades' && req.method === 'GET') {
+        // canonical trade timeline (#162, docs/ux-redesign-plan.md §3) — read-only
+        const cfgT = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || null;
+        const granularity = url.searchParams.get('granularity') || null;
+        const stateParam = url.searchParams.get('state');
+        const state = stateParam === 'open' || stateParam === 'closed' ? stateParam : null;
+        const limitParam = Number(url.searchParams.get('limit'));
+        const limit = Number.isInteger(limitParam) && limitParam > 0 ? Math.min(limitParam, 500) : 100;
+        const trades = tradeTimeline(dbPath, botConfig(cfgT), { instrument, granularity, state, limit });
+        return json(res, 200, { ok: true, trades });
       }
       if (url.pathname === '/api/strategies' && req.method === 'GET') {
         ensureSeedStrategy(dbPath);
@@ -1093,7 +1116,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           ok: true,
           scoreboard: transportScoreboard(board),
           baselines: baselines(dbPath, inst, gran, { fromTime }),
-          audit: decisionAudit(dbPath, { strategyId, limit: 50 }),
+          audit: decisionAudit(dbPath, { strategyId, instrument: inst, granularity: gran, limit: 50 }),
           axisExpectancy: axisExpectancy(dbPath, { instrument: inst, granularity: gran }),
         });
       }

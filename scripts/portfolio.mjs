@@ -6,6 +6,7 @@
 // once on entry.
 import { readFileSync } from 'node:fs';
 import { withDb } from './supertrend.mjs';
+import { positionAttribution } from './evaluation.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS portfolio (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -277,4 +278,54 @@ export function portfolioView(dbPath, cfg) {
     trades: db.prepare(TRADES_QUERY).all(50),
     journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
   }));
+}
+
+// The canonical trade timeline (issue #162, docs/ux-redesign-plan.md §3): one
+// shape for a position's whole life, open or closed — open positions first
+// (chronology doesn't matter for a handful of live positions), then closed
+// trades from bot_trades newest-first. Attribution (combo/granularity/
+// strategyName) comes from the single shared positionAttribution() walk —
+// null for anything the journal never attributed.
+export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = null, state = null, limit = 100 } = {}) {
+  return pdb(dbPath, cfg, (db) => {
+    const attribution = positionAttribution(dbPath);
+    const ageMin = (t) => Math.round((Date.now() - Date.parse(t)) / 60000);
+    const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
+
+    const openRows = state === 'closed' ? [] : db.prepare('SELECT * FROM positions ORDER BY id DESC').all()
+      .filter((p) => (!instrument || p.instrument === instrument))
+      .map((p) => {
+        const a = attribution.get(p.id) ?? null;
+        const gran = a?.granularity ?? null;
+        if (granularity && gran !== granularity) return null;
+        const pnl = unrealized(p, p.last_mark);
+        const openReason = db.prepare("SELECT reason FROM bot_journal WHERE position_id=? AND action='open' ORDER BY id LIMIT 1").get(p.id)?.reason ?? null;
+        return {
+          id: p.id, state: 'open', instrument: p.instrument, granularity: gran,
+          ...rowFor(a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
+          margin: p.margin, entryPrice: p.entry_price, entryTime: p.entry_time,
+          mark: p.last_mark, exitTime: null, stop: p.stop, target: p.target,
+          pnl, pnlPct: p.margin > 0 ? Math.round((pnl / p.margin) * 10000) / 100 : null,
+          stale: !!p.stale, closeReason: null, openReason, ageMin: ageMin(p.entry_time),
+        };
+      }).filter(Boolean);
+
+    const closedRows = state === 'open' ? [] : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').all()
+      .filter((t) => (!instrument || t.instrument === instrument))
+      .map((t) => {
+        const a = attribution.get(t.position_id) ?? null;
+        const gran = a?.granularity ?? null;
+        if (granularity && gran !== granularity) return null;
+        return {
+          id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
+          ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
+          margin: null, entryPrice: t.entry_price, entryTime: t.entry_time,
+          mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
+          pnl: t.realized, pnlPct: null, stale: false, closeReason: t.close_reason,
+          openReason: null, ageMin: ageMin(t.entry_time),
+        };
+      }).filter(Boolean);
+
+    return [...openRows, ...closedRows].slice(0, limit);
+  });
 }

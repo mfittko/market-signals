@@ -13,8 +13,11 @@ function rows(dbPath, sql, args = []) {
   });
 }
 
-// position id → {strategyId, strategyName, strategyDbVersion, strategyVersion}
-// via the decision journal (deliberate journals executed.opened).
+// position id → {strategyId, strategyName, strategyDbVersion, strategyVersion,
+// instrument, granularity, combo} via the decision journal (deliberate
+// journals executed.opened). instrument/granularity/combo are the one shared
+// attribution path for /api/bots, /api/trades and /api/chart (issue #162) —
+// null when the decision context didn't carry them (older journal rows).
 export function positionAttribution(dbPath) {
   const map = new Map();
   for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
@@ -22,11 +25,15 @@ export function positionAttribution(dbPath) {
       const ctx = JSON.parse(j.context);
       const opened = ctx?.executed?.opened;
       if (opened) {
+        const instrument = ctx.instrument ?? null;
+        const granularity = ctx.granularity ?? null;
         map.set(opened, {
           strategyId: ctx.strategyId ?? null,
           strategyName: ctx.strategyName ?? null,
           strategyDbVersion: ctx.strategyDbVersion ?? null,
           strategyVersion: ctx.strategyVersion ?? null,
+          instrument, granularity,
+          combo: instrument && granularity ? `${instrument}|${granularity}` : null,
         });
       }
     } catch { /* unparseable journal rows are skipped */ }
@@ -142,15 +149,18 @@ export function baselines(dbPath, instrument, granularity, opts = {}) {
 
 // Decision audit: newest-first journal decisions with parsed context, filterable
 // by strategy id. Read-only; the exact pinned prompt text lives in strategies.
-export function decisionAudit(dbPath, { strategyId = null, limit = 50 } = {}) {
+export function decisionAudit(dbPath, { strategyId = null, instrument = null, granularity = null, limit = 50 } = {}) {
   const out = [];
   const scan = Math.max(500, limit * 10);
   for (const j of rows(dbPath, `SELECT id, at, action, reason, context FROM bot_journal WHERE action IN ('decision','halt','reset') ORDER BY id DESC LIMIT ${scan}`)) {
     let ctx = null;
     try { ctx = JSON.parse(j.context); } catch { /* keep raw-less entry */ }
-    // halt/reset rows carry no strategyId but ARE the 'why did it stop' story —
-    // a strategy filter keeps them
+    // halt/reset rows carry no strategyId/instrument/granularity but ARE the
+    // 'why did it stop' story — filters only apply to decision rows, halt/reset
+    // always pass through
     if (strategyId != null && j.action === 'decision' && ctx?.strategyId !== strategyId) continue;
+    if (instrument != null && j.action === 'decision' && ctx?.instrument !== instrument) continue;
+    if (granularity != null && j.action === 'decision' && ctx?.granularity !== granularity) continue;
     out.push({
       id: j.id, at: j.at, action: j.action, reason: j.reason,
       instrument: ctx?.instrument ?? null, granularity: ctx?.granularity ?? null, event: ctx?.event ?? null,
