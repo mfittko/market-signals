@@ -27,7 +27,10 @@ const VIEWPORTS = {
 // #108: memories/gates are now TABS inside the settings modal (global config).
 // Per-combo bot config is instrument-specific, so it stays its own per-view modal.
 // (Gates/Memories are reached via the settings modal's tabs — no header buttons.)
-const MODALS = [['settings', 'cfgbtn'], ['bot', 'botBtn'], ['portfolio', 'pfBtn']];
+// #165: the header 🤖 moved into the rail's ad-hoc row (adhocBotBtn) — the
+// fresh test server has no bots configured, so ad-hoc mode (and its button) is
+// visible by default.
+const MODALS = [['settings', 'cfgbtn'], ['bot', 'adhocBotBtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
 // fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
 for (const v of selected) {
@@ -56,6 +59,15 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('Gates are a mechanical filter on the signal'), 'plan §4 explainer present');
     assert.ok(html.includes('gatesBotBadge'), 'two-lane badge renderer shipped');
+    // #165: fleet rail nav container ships in the served page
+    assert.ok(html.includes('id="rail"') && html.includes('role="list"'), 'fleet rail container present');
+
+    // seed a second bot combo so the rail has a real row to navigate to
+    const seedBot = await fetch(base + '/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M15': { enabled: true } } } }),
+    });
+    assert.equal(seedBot.status, 200, 'bot combo seed request succeeded');
 
     // seed a filter draft so the gates modal has drafts content
     const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
@@ -129,11 +141,25 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // the redundant header memories/gates buttons are gone (reached via tabs)
           assert.equal(await p.evaluate(() => !!document.getElementById('memBtn') || !!document.getElementById('gateBtn')), false, 'no redundant header gates/memories buttons');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-          // per-view bot modal opens from the header 🤖 and carries its tabs
-          await p.evaluate(() => document.getElementById('botBtn').click());
+          // per-view bot modal opens from the ad-hoc row's 🤖 and carries its tabs
+          await p.evaluate(() => document.getElementById('adhocBotBtn').click());
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+
+          // #165: fleet rail — one row for the seeded bot combo, and navigating
+          // to its hash focuses the chart on that combo (instSel value flips).
+          await p.waitForFunction(() => document.querySelectorAll('#rail .railjump[data-combo]').length > 0, { timeout: 5000 });
+          const railCombos = await p.evaluate(() => [...document.querySelectorAll('#rail .railjump[data-combo]')].map((b) => b.dataset.combo));
+          assert.ok(railCombos.includes('WTICO/USD|M15'), 'rail shows a row for the seeded bot combo');
+          const [chartReq] = await Promise.all([
+            p.waitForResponse((r) => r.url().includes('/api/chart') && r.url().includes('granularity=M15')),
+            p.evaluate(() => { location.hash = '#bot/' + encodeURIComponent('WTICO/USD|M15'); }),
+          ]);
+          assert.equal(chartReq.ok(), true, 'hash navigation triggers a chart fetch for the new combo');
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
+          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).
           const moreShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });
