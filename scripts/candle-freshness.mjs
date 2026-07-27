@@ -30,6 +30,7 @@ export async function sampleFreshness({ instrument, granularity, count = 3, fetc
     forming: forming && { time: forming.time, open: forming.open, high: forming.high, low: forming.low, close: forming.close, volume: forming.volume },
     lastComplete: lastComplete && { time: lastComplete.time, close: lastComplete.close },
     formingLagMs,
+    stepMs,
   };
 }
 
@@ -37,7 +38,10 @@ export async function sampleFreshness({ instrument, granularity, count = 3, fetc
 // bar's close/volume first moving, or a new bar appearing. The interval between
 // changes is the real upstream cadence (the minimum useful poll interval).
 export function initState() {
-  return { lastForming: null, lastChangeAt: null, changeIntervals: [], requestMs: [], samples: 0, changes: 0 };
+  return {
+    lastForming: null, lastChangeAt: null, changeIntervals: [], requestMs: [], samples: 0, changes: 0,
+    lastCompleteTime: null, completionDelays: [],
+  };
 }
 export function foldChange(state, sample) {
   const prev = state.lastForming;
@@ -48,6 +52,19 @@ export function foldChange(state, sample) {
   else if (cur && prev && ['open', 'high', 'low', 'close', 'volume'].some((k) => cur[k] !== prev[k])) changed = true;
   const changeIntervals = state.changeIntervals.slice();
   if (changed && state.lastChangeAt != null) changeIntervals.push(sample.at - state.lastChangeAt);
+  // Completion delay (#145 phase 2): how long AFTER a bar's close boundary the
+  // provider first serves it as complete. This is what the boundary-confirmer's
+  // retry ladder has to cover — sampling resolution bounds it from above, so
+  // treat it as an upper bound, not an exact figure.
+  const completionDelays = state.completionDelays.slice();
+  const seen = sample.lastComplete?.time ?? null;
+  if (seen && seen !== state.lastCompleteTime && state.lastCompleteTime != null) {
+    const d = sample.at - (Date.parse(seen) + sample.stepMs);
+    // Drop non-finite (unparseable upstream time, or a caller that omitted
+    // stepMs) and negative values (clock skew — a bar cannot be served before
+    // it closes). One bad sample would otherwise poison the median.
+    if (Number.isFinite(d) && d >= 0) completionDelays.push(d);
+  }
   return {
     lastForming: cur ?? prev,
     lastChangeAt: changed ? sample.at : state.lastChangeAt,
@@ -55,6 +72,8 @@ export function foldChange(state, sample) {
     requestMs: state.requestMs.concat(sample.requestMs),
     samples: state.samples + 1,
     changes: state.changes + (changed ? 1 : 0),
+    lastCompleteTime: seen ?? state.lastCompleteTime,
+    completionDelays,
   };
 }
 
@@ -73,6 +92,10 @@ export function summarize(state) {
     changeIntervalMsMedian: median(state.changeIntervals),
     // the observed cadence is the floor for a useful poll interval
     observedUpdateCadenceMs: median(state.changeIntervals),
+    // boundary → first served complete; drives the confirmer's retry ladder
+    completionDelayMsMedian: median(state.completionDelays),
+    completionDelayMsMax: state.completionDelays.length ? Math.max(...state.completionDelays) : null,
+    completionSamples: state.completionDelays.length,
   };
 }
 
