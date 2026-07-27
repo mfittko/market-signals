@@ -606,19 +606,6 @@ test('#169: migration + one-time backfill fills only derivable rows, leaves the 
   assert.equal(tradeRows.find((r) => r.position_id === 3).granularity, 'H1', 'backfill reaches bot_trades too');
 });
 
-test('#169: migration + backfill are idempotent — calling twice does not error or overwrite', () => {
-  const db = preIssue169Db();
-  portfolioView(db, CFG);
-  // a second write path call must not re-ALTER (duplicate-column) or clobber
-  // an already-backfilled value; also simulates a second process opening the
-  // same db file (fresh module-level migrated-guard) by re-running the ALTER
-  // + backfill logic directly against the same file.
-  withDb(db, (conn) => conn.prepare('UPDATE positions SET granularity=? WHERE id=1').run('M5'));
-  assert.doesNotThrow(() => portfolioView(db, CFG));
-  const row = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=1').get());
-  assert.equal(row.granularity, 'M5', 'idempotent: value unchanged by a second migration pass');
-});
-
 test('#169: crash-safe backfill — marker absent (even though the columns already exist) still runs backfill on next start', () => {
   const db = preIssue169Db();
   // Simulate a crash AFTER the ALTERs landed but BEFORE the backfill's
@@ -638,14 +625,18 @@ test('#169: crash-safe backfill — marker absent (even though the columns alrea
   assert.equal(rowsByGran.find((r) => r.id === 2).granularity, null, 'non-derivable row still stays NULL');
 });
 
-test('#169: migration + backfill are idempotent across a fresh process (cache-busted re-import) — never overwrites an existing value', async () => {
+test('#169: migration + backfill are idempotent across a fresh process (cache-busted re-import) — refills a nulled derivable row without clobbering an existing value', async () => {
   const db = preIssue169Db();
   portfolioView(db, CFG); // first pass: columns added, backfill runs, marker set
-  // Pre-set row 1 to a DIFFERENT value than the journal would derive (M5),
-  // then drop the marker to simulate the crash-mid-backfill case landing on
-  // an already-migrated column set — the re-run must still never clobber it.
+  // Pre-set row 1 to a DIFFERENT value than the journal would derive (M5) —
+  // the re-run must never clobber it (proves non-clobbering). NULL the
+  // already-backfilled bot_trades row (position 3, derivable as H1) — the
+  // re-run must fill it back in (proves re-entry actually re-backfills,
+  // not just no-ops). Then drop the marker to simulate the crash-mid-backfill
+  // case landing on an already-migrated column set.
   withDb(db, (conn) => {
     conn.prepare('UPDATE positions SET granularity=? WHERE id=1').run('H4');
+    conn.prepare('UPDATE bot_trades SET granularity=NULL WHERE position_id=3');
     conn.prepare("DELETE FROM migrations WHERE key='granularity_backfill_169'");
   });
   // Cache-busted re-import simulates a genuinely fresh process/module
@@ -654,11 +645,13 @@ test('#169: migration + backfill are idempotent across a fresh process (cache-bu
   // pass actually re-enters the migration+backfill block.
   const fresh2 = await import(`${new URL('../scripts/portfolio.mjs', import.meta.url).href}?v=2`);
   assert.doesNotThrow(() => fresh2.portfolioView(db, CFG));
-  const row = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=1').get());
-  assert.equal(row.granularity, 'H4', 'row-idempotent backfill (WHERE granularity IS NULL) never overwrites an existing value, even re-run in a fresh process');
+  const posRow = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=1').get());
+  assert.equal(posRow.granularity, 'H4', 'row-idempotent backfill (WHERE granularity IS NULL) never overwrites an existing value, even re-run in a fresh process');
+  const tradeRow = withDb(db, (conn) => conn.prepare('SELECT granularity FROM bot_trades WHERE position_id=3').get());
+  assert.equal(tradeRow.granularity, 'H1', 'nulled derivable row is refilled by the re-entered backfill');
 });
 
-test('#169: positionAttribution prefers the granularity COLUMN over the journal when both exist', () => {
+test('#169: tradeTimeline prefers a position\'s granularity COLUMN over the journal-derived value when both exist', () => {
   const db = fresh();
   const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
   // simulate the column being corrected out-of-band (e.g. by a future admin

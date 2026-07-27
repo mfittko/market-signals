@@ -27,7 +27,7 @@ import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemor
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -922,18 +922,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // journal rows with no combo attribution, pre-#162).
         const chartCombo = normCombo(`${instrument}|${granularity}`);
         const attributionB = positionAttribution(dbPath);
-        // #169: prefer the position's OWN granularity column (already in
-        // hand on pfB.positions — no extra query) over the journal-derived
-        // value, so a backfilled/legacy position still combo-matches.
-        const comboOf = (pp) => {
-          const gran = pp.granularity ?? attributionB.get(pp.id)?.granularity ?? null;
-          return gran ? normCombo(`${pp.instrument}|${gran}`) : null;
-        };
         const instrumentCombos = new Set(Object.keys((cfg.bot && cfg.bot.bots) || {})
           .map(normCombo).filter((c) => c.startsWith(`${instrument}|`)));
-        const pos = pfB.positions.find((pp) => comboOf(pp) === chartCombo)
+        const pos = pfB.positions.find((pp) => comboOf(pp, attributionB) === chartCombo)
           ?? (instrumentCombos.size === 1
-            ? pfB.positions.find((pp) => pp.instrument === instrument && !comboOf(pp)) ?? null
+            ? pfB.positions.find((pp) => pp.instrument === instrument && !comboOf(pp, attributionB)) ?? null
             : null);
         data.botState = {
           configured: botFor.configured === true,
@@ -1071,16 +1064,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
           const comboAgg2 = new Map();
           const solo = new Map();
-          // #169: read the bot_trades.granularity column directly in this SQL
-          // rather than merging it into the shared attribution map — that map
-          // is reused across every combo in this request, and merging the
-          // full stamped-rows column into it would turn this into an O(all
-          // trades) scan once most rows are backfilled/stamped (it used to,
-          // inside positionAttribution() itself). The row already carries its
-          // own granularity; only fall back to the journal walk when NULL.
+          // #169: the row already carries its own granularity column, so
+          // read it directly and only fall back to the journal walk when NULL.
           for (const t of safe('SELECT position_id, instrument, granularity, realized FROM bot_trades')) {
-            const gran = t.granularity ?? attribution.get(t.position_id)?.granularity ?? null;
-            const combo = gran ? normCombo(`${t.instrument}|${gran}`) : null;
+            const combo = comboOf(t, attribution);
             const bump = (map, key) => { const cur = map.get(key) ?? { c: 0, r: 0 }; cur.c += 1; cur.r += t.realized; map.set(key, cur); };
             if (combo) bump(comboAgg2, combo); else bump(solo, t.instrument);
           }
@@ -1091,10 +1078,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const comboOpenPnl = new Map();
         const soloOpenUnattributed = new Map(); // instrument -> summed unrealized of unattributed OPEN positions
         for (const p of pf.positions) {
-          // #169: same column-first preference as the bot_trades aggregation
-          // above — p already carries its own granularity column.
-          const gran = p.granularity ?? attribution.get(p.id)?.granularity ?? null;
-          const combo = gran ? normCombo(`${p.instrument}|${gran}`) : null;
+          const combo = comboOf(p, attribution);
           if (combo) comboOpenPnl.set(combo, (comboOpenPnl.get(combo) ?? 0) + p.unrealized);
           else soloOpenUnattributed.set(p.instrument, (soloOpenUnattributed.get(p.instrument) ?? 0) + p.unrealized);
         }
