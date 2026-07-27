@@ -198,6 +198,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // columns (reason/gates move behind the row's expand toggle) with no
         // horizontal scroll anywhere in the table.
         if (vname.startsWith('phone')) {
+          // operator decision: indicators stay always-visible (no toggle
+          // button) even on phone widths — so the cost has to be paid by
+          // layout instead: below <900px the panel renders as a static row,
+          // never a corner overlay sitting on top of the candles.
+          const indOverlap = await p.evaluate(() => {
+            const panel = document.getElementById('indpanel').getBoundingClientRect();
+            const canvas = document.getElementById('chart').getBoundingClientRect();
+            return !(panel.right <= canvas.left || panel.left >= canvas.right || panel.bottom <= canvas.top || panel.top >= canvas.bottom);
+          });
+          assert.ok(!indOverlap, `indicator panel does not overlay the chart canvas on ${vname}`);
           const histCols = await p.evaluate(() => {
             const table = document.getElementById('hist');
             const visibleTh = [...table.querySelectorAll('thead th')].filter((th) => getComputedStyle(th).display !== 'none' && th.textContent.trim());
@@ -362,26 +372,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p.evaluate(() => window.safeUrl('javascript:alert(1)')), null, 'safeUrl rejects a non-https scheme');
           assert.equal(await p.evaluate(() => window.safeUrl('https://reuters.example/x')), 'https://reuters.example/x', 'safeUrl passes through an https url');
 
-          // #170: indicators popover — opens from the chart-corner button,
-          // toggling a checkbox persists (reflected in the ?ind= URL + a
-          // fresh load carrying the same selection through /api/settings).
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'indicators popover starts closed');
-          await p.evaluate(() => document.getElementById('indbtn').click());
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), false, 'indicators popover opens on click');
-          assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'popover lists indicator toggles');
-          // #170 review: #indpop (and its #indpanel) live inside #wrap (the chart
-          // corner), not the header — pin that so the popover can't regress back
-          // there.
-          assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpop')), '#indpop lives inside #wrap');
-          // Escape closes the popover and returns focus to #indbtn.
-          await p.evaluate(() => document.getElementById('indbtn').focus());
-          await p.keyboard.press('Escape');
-          await p.waitForTimeout(100);
-          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'Escape closes the indicators popover');
-          assert.equal(await p.evaluate(() => document.activeElement.id), 'indbtn', 'Escape returns focus to #indbtn');
-          await p.evaluate(() => document.getElementById('indbtn').click());
-          await p.waitForTimeout(150);
+          // operator 27/07: the popover toggle was a dead control (author display
+          // beat [hidden]) — checkboxes are now ALWAYS visible, no button.
+          assert.equal(await p.evaluate(() => !!document.getElementById('indbtn')), false, 'dead indicators toggle removed');
+          assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'indicator checkboxes always visible');
+          assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpanel')), '#indpanel lives inside #wrap (no #indpop wrapper)');
           await setInd('ema', true);
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('ind')), 'ema', 'toggling an indicator updates the ?ind= URL');
@@ -394,6 +389,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await setInd('ema', false);
           await p.waitForTimeout(300);
 
+          // NaN-age fix pin: humanAge on a non-finite input renders the
+          // honest unknown marker, never the literal string "NaN" — and a
+          // quoteStrip render with a NUMERIC fetchedAt (the real shape, since
+          // #145) must not leak "NaN" into the DOM either.
+          assert.equal(await p.evaluate(() => window.humanAge(NaN)), '—', 'humanAge(NaN) renders the unknown marker, not NaN text');
+          const quoteHtml = await p.evaluate(() => {
+            window.quoteStrip({ time: new Date().toISOString(), last: 71.2, fetchedAt: Date.now() - 5000 });
+            return document.getElementById('quote').innerHTML;
+          });
+          assert.ok(!quoteHtml.includes('NaN'), 'quoteStrip with a numeric fetchedAt renders no NaN');
+
           // #170 review (item 8): pure page-embedded helpers pinned via
           // page.evaluate — they aren't module-exported, so a synthetic-input
           // assertion in the live page is the only reachable unit check.
@@ -402,16 +408,65 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
             [{ x: 1000, y: 1 }, { x: 2000, y: 2 }, { x: 20000, y: null }],
             'gapBreakData breaks the line at an EXISTING timestamp (no synthetic x added to the shared timeseries index)'
           );
-          const ticks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1, 3, 0), Date.UTC(2026, 0, 3, 3, 0), 240));
+          // roundAxisTicks now takes the actual candle timestamps (not a
+          // continuous min/max range) and snaps every tick to one of them —
+          // a synthetic H4 series with no gaps here.
+          const h4Times = await p.evaluate(
+            ({ start, end, step }) => { const out = []; for (let t = start; t <= end; t += step) out.push(t); return out; },
+            { start: Date.UTC(2026, 0, 1, 3, 0), end: Date.UTC(2026, 0, 3, 3, 0), step: 4 * 3600 * 1000 }
+          );
+          const ticks = await p.evaluate((times) => window.roundAxisTicks(times, 240, 4 * 3600 * 1000), h4Times);
           assert.ok(Array.isArray(ticks) && ticks.length > 0, 'roundAxisTicks returns tick boundaries for an H4 window');
-          assert.ok(ticks.every((v) => typeof v === 'number' && v >= Date.UTC(2026, 0, 1, 3, 0) && v <= Date.UTC(2026, 0, 3, 3, 0)), 'every tick lands inside the requested window');
+          assert.ok(ticks.every((v) => h4Times.includes(v)), 'every tick lands exactly on a real data timestamp, never a value the series lacks');
 
           // narrow-width tick-collision check: roundAxisTicks itself doesn't
           // know about pixel width (autoSkipPadding handles that at render
           // time) — pin that a dense H1/M1 window still yields a bounded,
           // non-per-candle tick count regardless of viewport.
-          const denseTicks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 1) + 6 * 3600 * 1000, 1));
+          const m1Times = await p.evaluate(
+            ({ start, end, step }) => { const out = []; for (let t = start; t <= end; t += step) out.push(t); return out; },
+            { start: Date.UTC(2026, 0, 1), end: Date.UTC(2026, 0, 1) + 6 * 3600 * 1000, step: 60 * 1000 }
+          );
+          const denseTicks = await p.evaluate((times) => window.roundAxisTicks(times, 1, 60 * 1000), m1Times);
           assert.ok(denseTicks.length < 60, `roundAxisTicks (${denseTicks.length}) stays bounded for a dense M1 6h window, not one per candle`);
+
+          // Gapped-chart regression (#170 follow-up): a synthetic two-day M5
+          // series with a multi-day gap in the middle must (a) never emit a
+          // tick inside the gap (every tick sits on a real timestamp, so none
+          // can land in the dead zone and crush together on the rank-based
+          // timeseries scale), and (b) label the first tick of each calendar
+          // day with a date, so the SAME wall-clock time on two different
+          // days never renders as a bare, undated duplicate.
+          const gapMs = 5 * 60 * 1000;
+          const gapTimes = await p.evaluate((step) => {
+            const out = [];
+            const day1Start = Date.UTC(2026, 0, 1, 13, 25);
+            for (let t = day1Start; t <= Date.UTC(2026, 0, 1, 20, 40); t += step) out.push(t);
+            const day3Start = Date.UTC(2026, 0, 3, 15, 10); // >1 day later — a real weekend-style gap
+            for (let t = day3Start; t <= Date.UTC(2026, 0, 3, 19, 35); t += step) out.push(t);
+            return out;
+          }, gapMs);
+          const gapTicks = await p.evaluate(({ times, gm }) => window.roundAxisTicks(times, 5, gm), { times: gapTimes, gm: gapMs });
+          // locate the REAL >3×granularity break by scanning deltas — a
+          // midpoint guess can sit inside the first run and assert nothing
+          let gapStart = null; let gapEnd = null;
+          for (let i = 1; i < gapTimes.length; i++) {
+            if (gapTimes[i] - gapTimes[i - 1] > 3 * gapMs) { gapStart = gapTimes[i - 1]; gapEnd = gapTimes[i]; break; }
+          }
+          assert.ok(gapStart !== null, 'fixture really contains a >3×granularity gap');
+          assert.ok(gapTicks.every((v) => v <= gapStart || v >= gapEnd), 'no tick lands inside the gap between the two runs');
+          const timeSet = new Set(gapTimes);
+          assert.ok(gapTicks.every((v) => timeSet.has(v)), 'every tick is a real timestamp from the input series');
+          // day-boundary labels must survive autoSkip (Chart.js prunes AFTER
+          // tick generation but always keeps `major: true` ticks) — assert the
+          // major flags mark exactly the first tick of each local day, not
+          // neighbour adjacency.
+          const majorTicks = await p.evaluate((vals) => window.markMajorTicks(vals), gapTicks);
+          const localDay = (v) => { const d = new Date(v); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); };
+          let lastDay = null;
+          const expectedMajor = gapTicks.map((v) => { const day = localDay(v); const isNew = day !== lastDay; lastDay = day; return isNew; });
+          assert.deepEqual(majorTicks.map((t) => t.major), expectedMajor, 'major flag marks exactly the first tick of each local calendar day');
+          assert.ok(expectedMajor.filter(Boolean).length > 1, 'the tick set spans multiple local calendar days, so the day-change label logic has a boundary to mark');
 
           // #170 review (item 8, soc seam pin): this fixture's default
           // fetcher:null combo never has candles, so draw() never runs and
