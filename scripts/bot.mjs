@@ -265,6 +265,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
         instrument, side: decision.side, notional: decision.notional, price,
         stop: decision.stop, target: decision.target ?? null,
         reason: decision.reasoning, context: { event, granularity, strategyVersion: version },
+        granularity, // #169: stamped on the row itself, not just the journal context
       });
       // openPosition (#83) already journaled the sizing math on its own 'open'
       // (or, on a no-budget skip, 'skip') row — read that same row back rather

@@ -139,6 +139,36 @@ test('positionAttribution (#162) carries instrument/granularity/combo alongside 
   assert.ok(posId > 0);
 });
 
+// #169 review follow-up: positionAttribution() used to also merge the
+// positions/bot_trades granularity COLUMN into this map on every call — an
+// O(all stamped rows) scan per call that defeated the memoization once most
+// rows were backfilled/stamped. That merge now happens at each consumer
+// (row.granularity ?? attribution.get(id)?.granularity), not here — see
+// test/portfolio.test.mjs's "column value wins over the journal-derived one"
+// (tradeTimeline) and signal-server's /api/bots and /api/chart consumers.
+// This map stays journal-only and must NOT change when the column changes.
+test('#169: positionAttribution stays journal-derived — the row column is a consumer-side preference, not merged in here', async () => {
+  const db = fresh();
+  const st = await seededBotTrade(db);
+  const [[posId]] = [...positionAttribution(db).entries()];
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  // seededBotTrade() closes the position immediately, so it now lives in
+  // bot_trades (not positions) — update the row that's actually there.
+  withDb(db, (conn) => conn.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=?').run('H1', posId));
+  const attribution = positionAttribution(db);
+  const a = attribution.get(posId);
+  assert.equal(a.granularity, 'M5', 'journal-derived value unchanged by the column write — merge moved to consumers');
+  assert.equal(a.combo, `${WTI}|M5`);
+  assert.equal(a.strategyId, st.id);
+});
+
+test('#169: a position with no derivable journal AND no column value stays unattributed (null)', () => {
+  const db = fresh();
+  const id = openPosition(db, botConfig({}), { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  const a = positionAttribution(db).get(id);
+  assert.equal(a, undefined, 'no journal decision row and no column → not present in the attribution map at all');
+});
+
 test('decisionAudit (#162): instrument/granularity filters scope decision rows but never drop halt/reset', async () => {
   const db = fresh();
   await seededBotTrade(db); // decisions on WTI/M5

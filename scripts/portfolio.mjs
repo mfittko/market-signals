@@ -6,7 +6,7 @@
 // once on entry.
 import { readFileSync } from 'node:fs';
 import { withDb, LOCAL_TZ } from './supertrend.mjs';
-import { positionAttribution } from './evaluation.mjs';
+import { positionAttribution, granularityOf } from './evaluation.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS portfolio (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS positions (
   stop REAL,
   target REAL,
   last_mark REAL NOT NULL,
-  stale INTEGER NOT NULL DEFAULT 0
+  stale INTEGER NOT NULL DEFAULT 0,
+  granularity TEXT
 );
 CREATE TABLE IF NOT EXISTS bot_trades (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,8 +44,10 @@ CREATE TABLE IF NOT EXISTS bot_trades (
   close_time TEXT NOT NULL,
   leverage REAL NOT NULL,
   realized REAL NOT NULL,
-  close_reason TEXT NOT NULL
+  close_reason TEXT NOT NULL,
+  granularity TEXT
 );
+
 CREATE TABLE IF NOT EXISTS bot_journal (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL,
@@ -52,6 +55,12 @@ CREATE TABLE IF NOT EXISTS bot_journal (
   position_id INTEGER,
   reason TEXT,
   context TEXT
+);
+-- One row per completed one-time migration, keyed by name. #169-specific for
+-- now; generalize the key scheme if a second migration ever needs one.
+CREATE TABLE IF NOT EXISTS migrations (
+  key TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
 )`;
 
 export const BOT_DEFAULTS = {
@@ -85,18 +94,75 @@ export function instrumentLeverage(cfg, instrument) {
   return Math.min(chosen, cfg.leverageCap);
 }
 
+// #169: the granularity-column migration (ALTER + one-time backfill) is
+// idempotent but not free — same "run once per db file per process" pattern
+// strategies.mjs uses for its scope columns.
+const granularityMigrated = new Set();
+
+function addColumnIfMissing(db, table, col, ddl) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); } catch (err) {
+    if (!/duplicate column/i.test(String(err?.message))) throw err;
+  }
+}
+
+// Upgrade path for pre-#169 db files (fresh files get the column for free
+// from the base DDL). Runs BEFORE pdb() opens its own connection so
+// positionAttribution()'s read and this migration's write never share a
+// connection (#173: no nested connections). Crash-safety invariant: the
+// migrations marker is written only AFTER the backfill returns, never
+// alongside the ALTER, so a crash between the two still re-enters (and
+// safely re-runs, since it only ever touches WHERE granularity IS NULL) the
+// backfill on the next start.
+function ensureGranularityMigration(dbPath, _cfg) {
+  if (granularityMigrated.has(dbPath)) return;
+  const attribution = positionAttribution(dbPath);
+  withDb(dbPath, (db) => {
+    const hasPositions = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='positions'").get();
+    if (!hasPositions) return; // genuinely fresh db: pdb()'s base DDL already includes the column
+    db.exec('CREATE TABLE IF NOT EXISTS migrations (key TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+    addColumnIfMissing(db, 'positions', 'granularity', 'TEXT');
+    addColumnIfMissing(db, 'bot_trades', 'granularity', 'TEXT');
+    if (!db.prepare('SELECT 1 FROM migrations WHERE key=?').get('granularity_backfill_169')) {
+      backfillGranularity(db, attribution);
+      db.prepare('INSERT OR IGNORE INTO migrations (key, applied_at) VALUES (?,?)')
+        .run('granularity_backfill_169', new Date().toISOString());
+    }
+  });
+  granularityMigrated.add(dbPath);
+}
+
+// Derives granularity for pre-#169 rows from an already-computed attribution
+// map (plan item 3), writing only rows that are actually derivable —
+// anything the journal never attributed stays NULL ("unattributed"), same as
+// pre-migration. One transaction: one implicit-txn UPDATE pair per row would
+// be disproportionately slow on a large journal and hold locks longer.
+function backfillGranularity(db, attribution) {
+  const updatePos = db.prepare('UPDATE positions SET granularity=? WHERE id=? AND granularity IS NULL');
+  const updateTrade = db.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=? AND granularity IS NULL');
+  // node:sqlite's DatabaseSync has no db.transaction() helper (that's a
+  // better-sqlite3-ism) — BEGIN/COMMIT explicitly.
+  db.exec('BEGIN');
+  try {
+    for (const [positionId, a] of attribution) {
+      if (!a.granularity) continue;
+      updatePos.run(a.granularity, positionId);
+      updateTrade.run(a.granularity, positionId);
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 function pdb(dbPath, cfg, fn) {
+  ensureGranularityMigration(dbPath, cfg);
   return withDb(dbPath, (db) => {
     db.exec(DDL);
     // #163: additive column for the last markToMarket timestamp, so staleness
     // can be detected even when an instrument is absent from a run's quotes
-    // map (positions previously had no mark-time record at all). Same
-    // try/catch-duplicate-column pattern as chatDb's migration in signal-server.
-    try {
-      db.exec('ALTER TABLE positions ADD COLUMN last_mark_at TEXT');
-    } catch (err) {
-      if (!/duplicate column/i.test(String(err?.message))) throw err;
-    }
+    // map (positions previously had no mark-time record at all).
+    addColumnIfMissing(db, 'positions', 'last_mark_at', 'TEXT');
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
     if (seeded.changes > 0) journal(db, 'init', null, 'portfolio seeded', { startingBalance: cfg.startingBalance });
@@ -120,7 +186,7 @@ export function unrealized(pos, mark) {
 
 // --- mutations (module-internal to the bot; never wire to a POST route) -----
 
-export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null } = {}) {
+export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null, granularity = null } = {}) {
   if (typeof instrument !== 'string' || !instrument.trim()) throw new Error('instrument required');
   if (side !== 'long' && side !== 'short') throw new Error('side must be long|short');
   if (!(notional > 0) || !(price > 0)) throw new Error('notional and price must be > 0');
@@ -186,9 +252,9 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(cash);
     const now = new Date().toISOString();
     const id = db.prepare(`INSERT INTO positions
-      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark, last_mark_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(instrument, side, effectiveNotional, units, entry, now, leverage, margin, stop, target, price, now).lastInsertRowid;
+      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark, last_mark_at, granularity)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(instrument, side, effectiveNotional, units, entry, now, leverage, margin, stop, target, price, now, granularity).lastInsertRowid;
     journal(db, 'open', id, reason, {
       ...context, side, notional: effectiveNotional, requestedNotional, effectiveNotional, bindingCap, price, entry, spread, leverage, margin,
     });
@@ -209,9 +275,9 @@ function closeInDb(db, cfg, positionId, price, closeReason, context) {
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
   db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(p.cash + pos.margin + realized);
   db.prepare(`INSERT INTO bot_trades
-    (position_id, instrument, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(pos.id, pos.instrument, pos.side, pos.notional, pos.units, pos.entry_price, pos.entry_time, price, new Date().toISOString(), pos.leverage, realized, closeReason);
+    (position_id, instrument, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason, granularity)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(pos.id, pos.instrument, pos.side, pos.notional, pos.units, pos.entry_price, pos.entry_time, price, new Date().toISOString(), pos.leverage, realized, closeReason, pos.granularity ?? null);
   db.prepare('DELETE FROM positions WHERE id=?').run(positionId);
   journal(db, 'close', positionId, closeReason, { ...context, price, realized });
   return { positionId, realized, closeReason };
@@ -346,7 +412,12 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
     // closed rows: ageMin is the HOLD duration, not elapsed-since-entry —
     // otherwise it grows forever after close (#162 finding).
     const closedAgeMin = (entry, close) => Math.round((Date.parse(close) - Date.parse(entry)) / 60000);
-    const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
+    // #169: combo is recomputed from granularityOf() rather than trusting
+    // a.combo, which may still reflect the journal's (possibly stale) value.
+    const rowFor = (row, a) => {
+      const gran = granularityOf(row, attribution);
+      return { combo: row.instrument && gran ? `${row.instrument}|${gran}` : null, strategyName: a?.strategyName ?? null };
+    };
 
     // openReason: same per-position subquery pattern as viewInDb() — one query
     // for all positions instead of one bot_journal SELECT per position (N+1).
@@ -356,13 +427,13 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
       .filter((p) => (!instrument || p.instrument === instrument))
       .map((p) => {
         const a = attribution.get(p.id) ?? null;
-        const gran = a?.granularity ?? null;
+        const gran = granularityOf(p, attribution);
         if (granularity && gran !== granularity) return null;
         const pnl = unrealized(p, p.last_mark);
         const { openReason } = p;
         return {
           id: p.id, state: 'open', instrument: p.instrument, granularity: gran,
-          ...rowFor(a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
+          ...rowFor(p, a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
           margin: p.margin, entryPrice: p.entry_price, entryTime: p.entry_time,
           mark: p.last_mark, exitTime: null, stop: p.stop, target: p.target,
           pnl, pnlPct: p.margin > 0 ? Math.round((pnl / p.margin) * 10000) / 100 : null,
@@ -392,14 +463,14 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
         if (closedRows.length >= closedBudget || scanned >= SCAN_CEILING) break;
         scanned++;
         const a = attribution.get(t.position_id) ?? null;
-        const gran = a?.granularity ?? null;
+        const gran = granularityOf(t, attribution);
         if (granularity && gran !== granularity) continue;
         // margin isn't stored on bot_trades but is derivable — keeps pnlPct
         // comparable across open and closed rows (plan §3)
         const margin = t.leverage > 0 ? t.notional / t.leverage : null;
         closedRows.push({
           id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
-          ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
+          ...rowFor(t, a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
           margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
           pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,

@@ -27,7 +27,7 @@ import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemor
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -924,9 +924,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const attributionB = positionAttribution(dbPath);
         const instrumentCombos = new Set(Object.keys((cfg.bot && cfg.bot.bots) || {})
           .map(normCombo).filter((c) => c.startsWith(`${instrument}|`)));
-        const pos = pfB.positions.find((pp) => attributionB.get(pp.id)?.combo === chartCombo)
+        const pos = pfB.positions.find((pp) => comboOf(pp, attributionB) === chartCombo)
           ?? (instrumentCombos.size === 1
-            ? pfB.positions.find((pp) => pp.instrument === instrument && !attributionB.get(pp.id)?.combo) ?? null
+            ? pfB.positions.find((pp) => pp.instrument === instrument && !comboOf(pp, attributionB)) ?? null
             : null);
         data.botState = {
           configured: botFor.configured === true,
@@ -1064,8 +1064,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const safe = (sql) => { try { return db.prepare(sql).all(); } catch (err) { if (/no such table/i.test(String(err.message))) return []; throw err; } };
           const comboAgg2 = new Map();
           const solo = new Map();
-          for (const t of safe('SELECT position_id, instrument, realized FROM bot_trades')) {
-            const combo = attribution.get(t.position_id)?.combo ?? null;
+          // #169: the row already carries its own granularity column, so
+          // read it directly and only fall back to the journal walk when NULL.
+          for (const t of safe('SELECT position_id, instrument, granularity, realized FROM bot_trades')) {
+            const combo = comboOf(t, attribution);
             const bump = (map, key) => { const cur = map.get(key) ?? { c: 0, r: 0 }; cur.c += 1; cur.r += t.realized; map.set(key, cur); };
             if (combo) bump(comboAgg2, combo); else bump(solo, t.instrument);
           }
@@ -1076,7 +1078,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const comboOpenPnl = new Map();
         const soloOpenUnattributed = new Map(); // instrument -> summed unrealized of unattributed OPEN positions
         for (const p of pf.positions) {
-          const combo = attribution.get(p.id)?.combo ?? null;
+          const combo = comboOf(p, attribution);
           if (combo) comboOpenPnl.set(combo, (comboOpenPnl.get(combo) ?? 0) + p.unrealized);
           else soloOpenUnattributed.set(p.instrument, (soloOpenUnattributed.get(p.instrument) ?? 0) + p.unrealized);
         }

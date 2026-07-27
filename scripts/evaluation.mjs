@@ -14,6 +14,21 @@ function rows(dbPath, sql, args = []) {
   });
 }
 
+// #169: the one shared preference — a row's own granularity COLUMN (already
+// in hand, no extra query) wins over the journal-derived attribution, which
+// only exists for rows the decision journal happened to attribute.
+export function granularityOf(row, attribution) {
+  // bot_trades rows carry BOTH their own id and the originating position_id;
+  // the attribution map is keyed by position id, so position_id must win.
+  const a = attribution.get(row.position_id ?? row.id);
+  return row.granularity ?? a?.granularity ?? null;
+}
+
+export function comboOf(row, attribution) {
+  const gran = granularityOf(row, attribution);
+  return row.instrument && gran ? normCombo(`${row.instrument}|${gran}`) : null;
+}
+
 // position id → {strategyId, strategyName, strategyDbVersion, strategyVersion,
 // instrument, granularity, combo} via the decision journal (deliberate
 // journals executed.opened). instrument/granularity/combo are the one shared
@@ -22,6 +37,9 @@ function rows(dbPath, sql, args = []) {
 // Memoized per dbPath + newest decision id: journal rows are append-only, so
 // the map is valid until a new decision is written. Keeps /api/bots and
 // /api/trades from re-parsing the whole journal on every request.
+// This map stays journal-only and cheap; granularityOf()/comboOf() above
+// apply the column-first preference at each consumer instead of merging the
+// column in here (that would be a full-table scan on every call).
 const attributionCache = new Map();
 export function positionAttribution(dbPath) {
   const maxId = rows(dbPath, "SELECT MAX(id) id FROM bot_journal WHERE action='decision'")[0]?.id ?? 0;
