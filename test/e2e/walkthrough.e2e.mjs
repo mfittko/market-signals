@@ -101,6 +101,24 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
 
+        // #168 F10: phone viewports collapse the tape table to <=4 visible
+        // columns (reason/gates move behind the row's expand toggle) with no
+        // horizontal scroll anywhere in the table.
+        if (vname.startsWith('phone')) {
+          const histCols = await p.evaluate(() => {
+            const table = document.getElementById('hist');
+            const visibleTh = [...table.querySelectorAll('thead th')].filter((th) => getComputedStyle(th).display !== 'none' && th.textContent.trim());
+            return { visible: visibleTh.length, scrollWidth: table.scrollWidth, clientWidth: table.clientWidth };
+          });
+          assert.ok(histCols.visible <= 4, `tape table shows <=4 visible columns on ${vname} (got ${histCols.visible})`);
+          assert.ok(histCols.scrollWidth <= histCols.clientWidth + 1, `tape table has no horizontal overflow on ${vname}`);
+          const hasRows = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length > 0);
+          if (hasRows) {
+            const expandBtn = await p.evaluate(() => !!document.querySelector('#hist .rowExpandBtn'));
+            assert.ok(expandBtn, 'collapsed tape rows carry an expand toggle for reason/gates');
+          }
+        }
+
         // collapsible chat (collapsed by default, toggles, persists to markup)
         assert.ok(await p.evaluate(() => document.getElementById('app').classList.contains('chat-collapsed')), 'chat collapsed by default');
         await p.evaluate(() => document.getElementById('chatToggle').click());
@@ -152,6 +170,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // to the focused combo — tape is the default, trades/tuning switch in.
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#wsTabs button')].map((b) => b.dataset.tab)), ['tape', 'trades', 'tuning'], 'workspace tab strip present, tape default');
           assert.ok(await p.evaluate(() => !document.getElementById('ws-tape').hidden && document.getElementById('ws-trades').hidden), 'tape panel visible by default');
+          // #168 (2.7): shared tabStrip helper — ArrowRight moves focus AND
+          // activates the next tab (WAI-ARIA tabs pattern), Home returns to the first.
+          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').focus());
+          await p.keyboard.press('ArrowRight');
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'trades', 'ArrowRight moves focus to the next tab');
+          assert.ok(await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="trades"]').classList.contains('on')), 'ArrowRight also activates the tab it moved to');
+          await p.keyboard.press('Home');
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'tape', 'Home moves focus back to the first tab');
           await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !document.getElementById('ws-trades').hidden), 'trades tab switches in');
