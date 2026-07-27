@@ -263,7 +263,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
@@ -276,10 +276,10 @@
 </details>
 <dialog id="pfdlg" aria-labelledby="pfDlgTitle">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-  <h2 id="pfDlgTitle">ledger <small>(bot-only — view)</small></h2>
+  <h2 id="pfDlgTitle">portfolio <small>(paper trading — view only)</small></h2>
   <div id="pfHead"></div>
   <div id="haltBanner" hidden></div>
-  <div id="pfTabs" role="tablist" aria-label="ledger sections">
+  <div id="pfTabs" role="tablist" aria-label="portfolio sections">
     <button type="button" role="tab" aria-selected="true" data-tab="overview" class="on">equity</button><button type="button" role="tab" aria-selected="false" data-tab="trades">all trades</button><button type="button" role="tab" aria-selected="false" data-tab="performance">scoreboard</button><button type="button" role="tab" aria-selected="false" data-tab="audit">audit</button>
   </div>
   <div id="tab-overview">
@@ -287,7 +287,7 @@
       <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
       <div id="pfSparkLegend" class="sparklegend"></div>
     </div>
-    <p><small>Bots live in the fleet rail (left/top nav).</small></p>
+    <p><button id="pfShowBots" type="button">☰ show bots</button></p>
   </div>
   <div id="tab-trades" hidden>
     <div id="pfTradesHead" class="tradeshead"></div>
@@ -359,7 +359,7 @@ const INFO = {
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
   bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy — won\'t trade (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
-  portfolio: 'Virtual trading portfolio ledger: equity · all trades · scoreboard · audit.',
+  portfolio: 'Virtual trading portfolio (paper money): equity · all trades · scoreboard · audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
   macd: 'MACD: trend and momentum oscillator (fast EMA minus slow EMA, with a signal line).',
@@ -2051,6 +2051,12 @@ document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
     const next = !grid.classList.contains('rail-collapsed');
     localStorage.setItem('railCollapsed', next ? '1' : '0');
     apply(next);
+  });
+  // in-modal shortcut: close the portfolio dialog and make sure the rail shows
+  document.getElementById('pfShowBots')?.addEventListener('click', () => {
+    document.getElementById('pfdlg')?.close();
+    localStorage.setItem('railCollapsed', '0');
+    apply(false);
   });
 })();
 </script></body></html>

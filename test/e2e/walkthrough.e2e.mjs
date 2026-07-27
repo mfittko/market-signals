@@ -204,13 +204,13 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').click());
 
-          // #166: ledger overlay (renamed from "portfolio") — equity/all trades/scoreboard/audit
+          // #166/#168: portfolio overlay — equity/all trades/scoreboard/audit (the "ledger" rename was reverted on operator feedback: plain words win)
           await p.evaluate(() => document.getElementById('pfBtn').click());
           await p.waitForTimeout(300);
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#pfTabs button')].map((b) => b.textContent)), ['equity', 'all trades', 'scoreboard', 'audit'], 'ledger opens with 4 tabs');
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#pfTabs button')].map((b) => b.textContent)), ['equity', 'all trades', 'scoreboard', 'audit'], 'portfolio overlay opens with 4 tabs');
           await p.evaluate(() => document.querySelector('#pfTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
-          assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'ledger all-trades tab rendered content');
+          assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'portfolio all-trades tab rendered content');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
           // #165/#166: fleet rail — one row for the seeded bot combo, and navigating
