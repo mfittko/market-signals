@@ -198,6 +198,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // columns (reason/gates move behind the row's expand toggle) with no
         // horizontal scroll anywhere in the table.
         if (vname.startsWith('phone')) {
+          // operator decision: indicators stay always-visible (no toggle
+          // button) even on phone widths — so the cost has to be paid by
+          // layout instead: below <900px the panel renders as a static row,
+          // never a corner overlay sitting on top of the candles.
+          const indOverlap = await p.evaluate(() => {
+            const panel = document.getElementById('indpanel').getBoundingClientRect();
+            const canvas = document.getElementById('chart').getBoundingClientRect();
+            return !(panel.right <= canvas.left || panel.left >= canvas.right || panel.bottom <= canvas.top || panel.top >= canvas.bottom);
+          });
+          assert.ok(!indOverlap, `indicator panel does not overlay the chart canvas on ${vname}`);
           const histCols = await p.evaluate(() => {
             const table = document.getElementById('hist');
             const visibleTh = [...table.querySelectorAll('thead th')].filter((th) => getComputedStyle(th).display !== 'none' && th.textContent.trim());
@@ -366,7 +376,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // beat [hidden]) — checkboxes are now ALWAYS visible, no button.
           assert.equal(await p.evaluate(() => !!document.getElementById('indbtn')), false, 'dead indicators toggle removed');
           assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'indicator checkboxes always visible');
-          assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpop')), '#indpop lives inside #wrap');
+          assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpanel')), '#indpanel lives inside #wrap (no #indpop wrapper)');
           await setInd('ema', true);
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('ind')), 'ema', 'toggling an indicator updates the ?ind= URL');
@@ -378,6 +388,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // clean up: un-check it so later assertions in this test aren't affected
           await setInd('ema', false);
           await p.waitForTimeout(300);
+
+          // NaN-age fix pin: humanAge on a non-finite input renders the
+          // honest unknown marker, never the literal string "NaN" — and a
+          // quoteStrip render with a NUMERIC fetchedAt (the real shape, since
+          // #145) must not leak "NaN" into the DOM either.
+          assert.equal(await p.evaluate(() => window.humanAge(NaN)), '—', 'humanAge(NaN) renders the unknown marker, not NaN text');
+          const quoteHtml = await p.evaluate(() => {
+            window.quoteStrip({ time: new Date().toISOString(), last: 71.2, fetchedAt: Date.now() - 5000 });
+            return document.getElementById('quote').innerHTML;
+          });
+          assert.ok(!quoteHtml.includes('NaN'), 'quoteStrip with a numeric fetchedAt renders no NaN');
 
           // #170 review (item 8): pure page-embedded helpers pinned via
           // page.evaluate — they aren't module-exported, so a synthetic-input
@@ -436,12 +457,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.ok(gapTicks.every((v) => v <= gapStart || v >= gapEnd), 'no tick lands inside the gap between the two runs');
           const timeSet = new Set(gapTimes);
           assert.ok(gapTicks.every((v) => timeSet.has(v)), 'every tick is a real timestamp from the input series');
-          // the label callback in app.html compares LOCAL date parts — use the
-          // same basis, and require ticks from >1 distinct local day (prevDay
-          // starting null must not count as a boundary)
+          // day-boundary labels must survive autoSkip (Chart.js prunes AFTER
+          // tick generation but always keeps `major: true` ticks) — assert the
+          // major flags mark exactly the first tick of each local day, not
+          // neighbour adjacency.
+          const majorTicks = await p.evaluate((vals) => window.markMajorTicks(vals), gapTicks);
           const localDay = (v) => { const d = new Date(v); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); };
-          const distinctDays = new Set(gapTicks.map(localDay));
-          assert.ok(distinctDays.size > 1, 'the tick set spans multiple local calendar days, so the day-change label logic has a boundary to mark');
+          let lastDay = null;
+          const expectedMajor = gapTicks.map((v) => { const day = localDay(v); const isNew = day !== lastDay; lastDay = day; return isNew; });
+          assert.deepEqual(majorTicks.map((t) => t.major), expectedMajor, 'major flag marks exactly the first tick of each local calendar day');
+          assert.ok(expectedMajor.filter(Boolean).length > 1, 'the tick set spans multiple local calendar days, so the day-change label logic has a boundary to mark');
 
           // #170 review (item 8, soc seam pin): this fixture's default
           // fetcher:null combo never has candles, so draw() never runs and

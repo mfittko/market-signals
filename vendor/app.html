@@ -206,14 +206,21 @@
   #healthStrip .warn { color: #d29922; }
   #watchBtn.on { color: #3fb950; }
   #pfMini b { color: #e6edf3; }
-  /* #170: indicators moved off the header into a corner popover on the chart itself */
-  #indpop { position: absolute; top: 10px; right: 10px; z-index: 3; }
-  #indpanel { position: absolute; top: 100%; right: 0; margin-top: 4px; background: #161b22; border: 1px solid #30363d;
+  /* indicator checkboxes: a corner overlay on the chart on desktop (#wrap is
+     the positioning parent). Operator decision (27/07): always visible, no
+     toggle button. */
+  #indpanel { position: absolute; top: 10px; right: 10px; z-index: 3; background: #161b22; border: 1px solid #30363d;
               border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
               color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
   #indpanel label { cursor: pointer; white-space: normal; }
+  /* narrow/phone: a corner overlay would sit on top of the candles — render
+     it as a static row above the canvas instead */
+  @media (max-width: 900px) {
+    #indpanel { position: static; flex-direction: row; flex-wrap: wrap; box-shadow: none; max-width: none;
+                margin-bottom: 6px; white-space: normal; }
+  }
   #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
-  #wrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
+  #wrap { position: relative; background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
   .verdict { padding: 10px 12px; border: 1px solid #30363d; border-radius: 6px; margin: 10px 0; }
   .buy { color: #3fb950; } .sell { color: #f85149; }
   .botnote { margin-top: 4px; color: #8b949e; font-size: 12px; }
@@ -305,9 +312,7 @@
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
 <div id="wrap">
-  <div id="indpop">
-    <div id="indpanel" role="group" aria-label="indicators"></div>
-  </div>
+  <div id="indpanel" role="group" aria-label="indicators"></div>
   <canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas>
 </div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
@@ -437,19 +442,14 @@ function applyInfo(on) {
   if (cb) cb.checked = on;
 }
 const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWAP'], ['rsi', 'RSI'], ['macd', 'MACD']];
-// #170: header checkbox row → compact "indicators ▾" popover at the chart
-// corner. Persistence unchanged (global setting, ?ind= override) — only the
-// chrome moved.
-// operator, 27/07: the 'indicators ▾' toggle was a dead control — an author
-// display rule beat the hidden attribute so the panel was ALWAYS visible and
-// the button did nothing perceptible. The simpler design is also the honest
-// one: no button, checkboxes always shown.
+// Indicator checkboxes: always visible (operator decision, 27/07), a corner
+// overlay on desktop / a static row above the chart on narrow widths (see
+// #indpanel CSS). Persistence: global setting, ?ind= override.
 const indPanel = document.getElementById('indpanel');
 function indBar(d) {
   const on = new Set(d.activeInd || []);
-  // #170 review: while the panel is open, reconcile checked state in place —
   // rebuilding innerHTML on every 60s load() would blow away focus/keyboard
-  // position mid-interaction. Rebuild only when closed (or first paint).
+  // position mid-interaction — only build once, then just reconcile checked state.
   if (!indPanel.childElementCount) {
     indPanel.innerHTML = INDICATORS.map(([k, label]) =>
       '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
@@ -1048,8 +1048,11 @@ const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 // new x — this sacrifices rendering that one point's value (acceptable; it's
 // the point immediately after a real gap) but never adds an x the candle
 // series doesn't already have.
+// shared by gapBreakData, contiguousRuns and draw()'s hasGap probe — one
+// definition of "these two adjacent timestamps straddle a feed gap"
+function isGap(a, b, granMs) { return !!granMs && b - a > 3 * granMs; }
 function gapBreakData(times, ys, granMs) {
-  return times.map((x, i) => ({ x, y: (i > 0 && granMs && x - times[i - 1] > 3 * granMs) ? null : ys[i] }));
+  return times.map((x, i) => ({ x, y: (i > 0 && isGap(times[i - 1], x, granMs)) ? null : ys[i] }));
 }
 // #170 (F28): round-boundary x-axis ticks, granularity-aware — a plain
 // autoSkip pass doesn't line labels up on clean boundaries (:00/:30 for M5,
@@ -1077,7 +1080,7 @@ function contiguousRuns(times, granMs) {
   const runs = [];
   let start = 0;
   for (let i = 1; i <= times.length; i++) {
-    if (i === times.length || times[i] - times[i - 1] > 3 * granMs) { runs.push([start, i - 1]); start = i; }
+    if (i === times.length || isGap(times[i - 1], times[i], granMs)) { runs.push([start, i - 1]); start = i; }
   }
   return runs;
 }
@@ -1087,18 +1090,44 @@ function nearestTime(times, lo, hi, target) {
   const best = a > lo && Math.abs(times[a - 1] - target) <= Math.abs(times[a] - target) ? a - 1 : a;
   return times[best];
 }
+// Chart.js autoSkip prunes ticks AFTER afterBuildTicks runs but always
+// preserves ticks flagged `major: true` — mark the first tick of each LOCAL
+// calendar day so the date label survives narrow/mobile autoSkip instead of
+// relying on which neighbour ticks happened to remain (that adjacency breaks
+// once autoSkip removes the actual day-boundary tick).
+function markMajorTicks(values) {
+  let lastDay = null;
+  return values.map((value) => {
+    const dd = new Date(value);
+    const dayKey = dd.getFullYear() + '-' + dd.getMonth() + '-' + dd.getDate();
+    const major = dayKey !== lastDay;
+    lastDay = dayKey;
+    return { value, major };
+  });
+}
 function roundAxisTicks(times, granMinutes, granMs) {
   if (times.length < 2) return [];
   const stepMinutes = (TICK_STEP_TABLE.find(([g]) => granMinutes >= g) || TICK_STEP_TABLE[TICK_STEP_TABLE.length - 1])[1];
+  const stepMs = stepMinutes * 60 * 1000;
   const out = new Set();
+  let prevAdded = null; // last tick added, so a short adjacent run can't snap a duplicate onto the same seam
   for (const [lo, hi] of contiguousRuns(times, granMs)) {
     const segStart = times[lo], segEnd = times[hi];
     const cursor = new Date(segStart);
     cursor.setHours(0, 0, 0, 0); // local midnight of the day containing this run's start
+    const candidates = [];
     while (cursor.getTime() <= segEnd) {
       const t = cursor.getTime();
-      if (t >= segStart) out.add(nearestTime(times, lo, hi, t));
+      if (t >= segStart) candidates.push(nearestTime(times, lo, hi, t));
       cursor.setMinutes(cursor.getMinutes() + stepMinutes);
+    }
+    // a run too short to contain a round-boundary candidate still needs a
+    // tick — fall back to its own first timestamp
+    if (!candidates.length) candidates.push(segStart);
+    for (const c of candidates) {
+      if (prevAdded !== null && Math.abs(c - prevAdded) < stepMs) continue; // snapped onto the previous run's boundary
+      out.add(c);
+      prevAdded = c;
     }
   }
   return [...out].sort((a, b) => a - b);
@@ -1183,7 +1212,7 @@ function draw(d) {
   // the granularity inside the visible window (market closed, provider pause).
   const gapNote = document.getElementById('gapNote');
   if (gapNote) {
-    const hasGap = times.some((tm, i) => i > 0 && tm - times[i - 1] > 3 * granMs);
+    const hasGap = contiguousRuns(times, granMs).length > 1;
     gapNote.hidden = !hasGap;
     gapNote.textContent = hasGap ? 'feed gap in window (market closed or provider pause)' : '';
   }
@@ -1242,16 +1271,15 @@ function draw(d) {
              // drops collisions on narrow/mobile widths.
              afterBuildTicks(axis) {
                const built = roundAxisTicks(times, granMinutes, granMs);
-               if (built.length) axis.ticks = built.map((value) => ({ value }));
+               if (built.length) axis.ticks = markMajorTicks(built);
              },
              ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
-               // show the date on the first visible tick of each day (time-only labels
-               // repeat across days otherwise), the time on the rest
+               // the date on the first tick of each local day (flagged `major` in
+               // afterBuildTicks above — a pure formatting read, not neighbour
+               // adjacency), the time on the rest
                callback(value, index, ticks) {
                  const d = new Date(ticks[index].value);
-                 const prev = index > 0 ? new Date(ticks[index - 1].value) : null;
-                 const newDay = !prev || prev.getDate() !== d.getDate() || prev.getMonth() !== d.getMonth();
-                 return newDay ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+                 return ticks[index].major ? d.toLocaleDateString([], { month: 'short', day: 'numeric' })
                    : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
                } } },
         y: { position: 'right', ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
@@ -1434,8 +1462,6 @@ function botRailStatus(b) {
 // shared by the rail row age, the quote strip's "updated" line, and the
 // trade rows' held-duration (suffix '' there, ' ago' elsewhere)
 function humanAge(m, suffix = ' ago') { if (!Number.isFinite(m)) return '—'; return m < 90 ? Math.round(m) + 'm' + suffix : m < 1440 ? Math.floor(m / 60) + 'h' + suffix : Math.floor(m / 1440) + 'd' + suffix; }
-// fetchedAt is an epoch NUMBER (Date.now() server-side) while candle times are ISO — Date.parse(number) is NaN
-const epochOf = (t) => typeof t === 'number' ? t : Date.parse(t);
 const humanDuration = (m) => humanAge(m, '');
 // #166: real health signal — a feed entry more than 3x its own granularity
 // behind is a data problem, not a decision-recency one.
@@ -1614,7 +1640,7 @@ function quoteStrip(q) {
     // #172 wfn: one phrasing for both states — absolute time + relative age —
     // "live" only adds the forming-candle prefix, it never drops the age.
     box('updated', q.partial
-      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) + ' (' + humanAge(Math.max(0, Math.round((Date.now() - epochOf(q.fetchedAt)) / 60000))) + ')' : 'no live update')
+      ? '<span class="buy">live</span> · ' + (q.fetchedAt ? esc(localHms(q.fetchedAt)) + ' (' + humanAge(Math.max(0, Math.round((Date.now() - q.fetchedAt) / 60000))) + ')' : 'no live update')
       : esc(localHm(q.time)) + ' (' + humanAge(ageMin) + ')', q.partial ? 'forming' : null);
 }
 
