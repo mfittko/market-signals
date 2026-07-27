@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { tradeMetrics, strategyScoreboard, decisionAudit, gateDisagreement, baselines, botPerformanceSummary, positionAttribution, lastDecisionByCombo } from '../scripts/evaluation.mjs';
+import { tradeMetrics, strategyScoreboard, decisionAudit, gateDisagreement, disagrees, decisionRailByCombo, baselines, botPerformanceSummary, positionAttribution, lastDecisionByCombo } from '../scripts/evaluation.mjs';
 import { botConfig, openPosition, closePosition } from '../scripts/portfolio.mjs';
 import { saveStrategy, activateStrategy } from '../scripts/strategies.mjs';
 import { runBot } from '../scripts/bot.mjs';
@@ -323,4 +323,66 @@ test('gateDisagreement: fewer than 10 gate-bearing decisions yields null (no noi
       .run('2026-07-27T00:00:00.000Z', 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action: 'open' }, instrumentContext: { flip: { time: '2026-07-27T00:00:00.000Z' } } }));
   });
   assert.equal(gateDisagreement(db, { instrument: WTI, granularity: 'M5' }), null);
+});
+
+test('disagrees() classifier (#171 review item 2): forced holds and closes are excluded, not counted as agreement', () => {
+  // suppress+open / alert+hold: real disagreement
+  assert.equal(disagrees('suppress', { decision: { action: 'open' } }), true);
+  assert.equal(disagrees('alert', { decision: { action: 'hold' } }), true);
+  // suppress+hold / alert+open: real agreement
+  assert.equal(disagrees('suppress', { decision: { action: 'hold' } }), false);
+  assert.equal(disagrees('alert', { decision: { action: 'open' } }), false);
+  // no live gate verdict: excluded, not a "gate call" at all
+  assert.equal(disagrees('unfiltered', { decision: { action: 'hold' } }), null);
+  assert.equal(disagrees(undefined, { decision: { action: 'hold' } }), null);
+  // a close is never gated
+  assert.equal(disagrees('alert', { decision: { action: 'close' } }), null);
+  // forced holds (bot.mjs ~254/288/302 markers) must not count as an
+  // "alert+hold agreement" or a "suppress+hold agreement" — they never made
+  // a gate-aware choice at all
+  assert.equal(disagrees('alert', { decision: { action: 'hold', reasoning: 'fail-safe hold: timeout' }, error: 'timeout' }), null, 'ctx.error forced hold excluded');
+  assert.equal(disagrees('alert', { decision: { action: 'hold', reasoning: 'no budget (risk cap exhausted)' } }), null, 'no-budget forced hold excluded');
+  assert.equal(disagrees('alert', { decision: { action: 'hold', reasoning: 'fail-safe hold: execution rejected: x' } }), null, 'fail-safe reasoning marker excluded');
+});
+
+test('decisionRailByCombo (#171 review item 3): one bucketing scan replaces lastDecisionByCombo + a gateDisagreement scan per combo', async () => {
+  const db = fresh();
+  const cfg = botConfig({ bot: { riskPct: 100 } });
+  openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 100, price: 87 }); // seeds bot_journal schema
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  withDb(db, (dbh) => {
+    dbh.exec("CREATE TABLE IF NOT EXISTS signals (instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL, signal TEXT NOT NULL, price REAL, win_rate REAL, verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0, PRIMARY KEY (instrument, granularity, time))");
+    const sig = dbh.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict) VALUES (?,?,?,?,?)');
+    const dec = dbh.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)');
+    // 10 gate-bearing flips: 3 real disagreements, 1 forced hold on an alert
+    // flip that must NOT count toward either checked or disagreements, plus a
+    // close row that must not dilute `checked` either.
+    const rows = [
+      ['suppress', 'open'], ['suppress', 'open'], ['alert', 'hold'],
+      ['suppress', 'hold'], ['alert', 'open'], ['alert', 'open'], ['alert', 'open'],
+      ['suppress', 'hold'], ['alert', 'open'], ['suppress', 'hold'],
+    ];
+    rows.forEach(([verdict, action], i) => {
+      const t = `2026-07-28T00:${String(i).padStart(2, '0')}:00.000Z`;
+      sig.run(WTI, 'M5', t, 'buy', verdict);
+      dec.run(t, 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action }, instrumentContext: { flip: { time: t } } }));
+    });
+    // forced hold on an alert flip — would look like an "alert+hold disagreement"
+    // if not excluded; must not move either counter.
+    const forcedT = '2026-07-28T00:10:00.000Z';
+    sig.run(WTI, 'M5', forcedT, 'buy', 'alert');
+    dec.run(forcedT, 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action: 'hold', reasoning: 'fail-safe hold: timeout' }, error: 'timeout', instrumentContext: { flip: { time: forcedT } } }));
+    // a close row on a flip event — closes aren't gated, must not count as checked
+    const closeT = '2026-07-28T00:11:00.000Z';
+    sig.run(WTI, 'M5', closeT, 'buy', 'alert');
+    dec.run(closeT, 'decision', 'x', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'flip', decision: { action: 'close' }, instrumentContext: { flip: { time: closeT } } }));
+    // the newest decision overall, so lastDecision reflects it
+    dec.run('2026-07-28T00:12:00.000Z', 'decision', 'latest reason', JSON.stringify({ instrument: WTI, granularity: 'M5', event: 'review', decision: { action: 'hold' } }));
+  });
+  const rail = decisionRailByCombo(db, [`${WTI}|M5`]);
+  const combo = rail.get('WTICO/USD|M5');
+  assert.ok(combo, 'combo present in the map');
+  assert.equal(combo.lastDecision.reason, 'latest reason', 'lastDecision is the newest journaled decision, id-order');
+  assert.equal(combo.checked, 10, 'forced hold and close rows are excluded from checked');
+  assert.equal(combo.disagreements, 3, 'forced hold on an alert does not count as a disagreement');
 });

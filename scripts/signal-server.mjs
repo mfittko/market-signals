@@ -27,7 +27,7 @@ import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemor
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, gateDisagreementInDb, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailByComboInDb, earliestAttributedEntry, GATE_DISAGREEMENT_NEED, GATE_DISAGREEMENT_NOTE_THRESHOLD, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -450,7 +450,14 @@ function recentBotDecisions(dbPath, instrument, granularity) {
     // exact-match BOTH keys — the LIKE prefilter is an index hint, not the contract
     if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || !ctx?.decision?.action) continue;
     // full reasoning travels (it backs the hover title); the client truncates the inline fragment
-    out.push({ at: r.at, action: ctx.decision.action, reasoning: String(ctx.decision.reasoning ?? '') });
+    // #171 AC1: carry the same recorded-news block decisionAudit ships (the
+    // sentinel context, real headlines/source/url as of decision time) plus
+    // toolTrace, so the tape/verdict-banner can render the same shared
+    // newsHtml() the audit tab already uses — one render helper, two surfaces.
+    out.push({
+      at: r.at, action: ctx.decision.action, reasoning: String(ctx.decision.reasoning ?? ''),
+      news: ctx?.instrumentContext?.sentinel ?? null, toolTrace: ctx?.toolTrace ?? [],
+    });
   }
   return out;
 }
@@ -460,7 +467,7 @@ function recentBotDecisions(dbPath, instrument, granularity) {
 function matchBotDecision(decisions, signalTime, candleMs) {
   const sigMs = Date.parse(signalTime);
   const d = decisions.find((x) => { const at = Date.parse(x.at); return at >= sigMs && at <= sigMs + 2 * candleMs; });
-  return d ? { action: d.action, reasoning: d.reasoning, at: d.at } : null;
+  return d ? { action: d.action, reasoning: d.reasoning, at: d.at, news: d.news, toolTrace: d.toolTrace } : null;
 }
 
 const CHAT_DDL = `CREATE TABLE IF NOT EXISTS chat_threads (
@@ -1052,21 +1059,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // one shared attribution walk (#162) — no LIMIT cap, so lastDecision
         // below can't miss an older decision the way the old LIMIT 200 audit did
         const attribution = positionAttribution(dbPath);
-        // Bounded by early exit, not by row count: stream newest-first and stop
-        // as soon as every combo has its lastDecision, so a combo whose only
-        // decision is ancient still gets found (the old LIMIT 200 "shows never"
-        // bug) while a normal request only touches a handful of rows.
-        const lastDecisions = lastDecisionByCombo(dbPath, Object.keys(bots));
-        // #171 3.6 + review: ONE connection + prepared-once statements for all
-        // combos' disagreement scans instead of a withDb per rail row.
-        const gateNotes = withDb(dbPath, (db) => {
-          const m = new Map();
-          for (const key of Object.keys(bots)) {
-            const [i, g] = normCombo(key).split('|');
-            m.set(normCombo(key), gateDisagreementInDb(db, { instrument: i, granularity: g }));
-          }
-          return m;
-        });
+        // Bounded by early exit, not by row count: ONE bucketing scan
+        // (newest-first) fills both lastDecision and the gate-disagreement
+        // counters for every combo — replaces a separate lastDecisionByCombo
+        // scan plus a per-combo gateDisagreementInDb scan (#171 review item 3).
+        const rail = withDb(dbPath, (db) => decisionRailByComboInDb(db, Object.keys(bots)));
         // complete aggregates straight from bot_trades — attributed PER COMBO via
         // the shared attribution; a bot that is the sole bot on its instrument
         // also absorbs unattributed trades for that instrument
@@ -1110,11 +1107,17 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const solo = botsPerInstrument.get(inst) === 1;
           const orphan = solo ? (soloUnattributed.get(inst) ?? { c: 0, r: 0 }) : { c: 0, r: 0 };
           const agg = { c: attributed.c + orphan.c, r: attributed.r + orphan.r };
-          const lastDecision = lastDecisions.get(combo) ?? null;
-          // #171 3.6: gray tuning-signal rail note, not a health warning —
-          // null until 10 gate-bearing flip decisions exist for this combo.
-          const gd = gateNotes.get(combo) ?? null;
-          const gateNote = gd && gd.disagreements >= 3 ? `disagreed with gates ${gd.disagreements} of last ${gd.checked}` : null;
+          const railState = rail.get(combo) ?? null;
+          const lastDecision = railState?.lastDecision ?? null;
+          // #171 3.6 + review item 4: ship the raw {checked, disagreements}
+          // data, not a composed sentence — renderRail on the client decides
+          // how to word it. Still null below the note threshold (not enough
+          // gate-bearing history, or too few disagreements to be worth a
+          // gray tuning-signal note — never a health warning, the #151
+          // STALE lesson).
+          const gateDisagreement = railState && railState.checked >= GATE_DISAGREEMENT_NEED && railState.disagreements >= GATE_DISAGREEMENT_NOTE_THRESHOLD
+            ? { checked: railState.checked, disagreements: railState.disagreements }
+            : null;
           // unattributed OPEN positions on this instrument absorb into the sole
           // configured combo's openPnl (mirrors the closed-trade orphan absorption
           // above) rather than vanishing from every combo's view.
@@ -1134,7 +1137,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             openPnl,
             lastDecisionAt: lastDecision?.at ?? null,
             lastDecisionReason: lastDecision?.reason ?? null,
-            gateNote,
+            gateDisagreement,
           };
         });
         return json(res, 200, { ok: true, bots: rows, halted: pf.halted, equity: pf.equity });

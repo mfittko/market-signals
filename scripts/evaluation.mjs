@@ -265,21 +265,58 @@ export function decisionAudit(dbPath, { strategyId = null, instrument = null, gr
   });
 }
 
+// module consts for the disagreement window (#171 review): the sample size a
+// combo needs before the rail note is trustworthy, and the row-scan ceiling
+// that keeps a sparse-history combo from turning this into a table scan.
+export const GATE_DISAGREEMENT_NEED = 10;
+export const GATE_DISAGREEMENT_SCAN_CAP = 2000;
+// #171 review item 4: the "worth mentioning" threshold is a property of the
+// metric, not UI copy — the API only ships a non-null gateDisagreement once
+// disagreements reach this; renderRail composes the sentence from the data.
+export const GATE_DISAGREEMENT_NOTE_THRESHOLD = 3;
+
+// Pure classifier: does this journaled decision DISAGREE with the live gate
+// verdict on the flip it fired for? Returns true (disagreement), false
+// (agreement), or null (excluded — not a comparable gate call at all).
+// Agreement matrix (verdict × action):
+//   action 'close'                        → null, excluded — a close was never
+//                                            gated; it dilutes neither count.
+//   forced hold (ctx.error set, i.e. a
+//   fail-safe/malformed-decision/execution-
+//   rejected hold — bot.mjs ~254/305 —, or
+//   reasoning 'no budget...'/'fail-safe
+//   hold: ...' — bot.mjs ~289/305)         → null, excluded — the bot never
+//                                            made a gate-aware choice here.
+//   verdict not 'alert'/'suppress'
+//   (unfiltered/backfill/no verdict row)   → null, excluded — no live gate
+//                                            stance to agree or disagree with.
+//   suppress + open                        → true  (disagreement)
+//   alert    + hold                        → true  (disagreement)
+//   suppress + hold, alert + open           → false (agreement)
+export function disagrees(verdict, ctx) {
+  const action = ctx?.decision?.action;
+  if (action === 'close') return null;
+  const reasoning = ctx?.decision?.reasoning ?? '';
+  if (ctx?.error != null || /^no budget/.test(reasoning) || /^fail-safe hold:/.test(reasoning)) return null;
+  if (verdict !== 'alert' && verdict !== 'suppress') return null;
+  return (verdict === 'suppress' && action === 'open') || (verdict === 'alert' && action === 'hold');
+}
+
 // Gate-disagreement rail note (#171 3.6): over a combo's last `need` FLIP-event
-// decisions that had a live gate verdict (alert/suppress — 'unfiltered' isn't a
-// gate call, so it doesn't count toward the window), count how often the bot's
-// action contradicted the gate (suppress+open / alert+hold). The caller renders
-// a note once disagreements>=3 — informational GRAY, never amber: this is a
-// tuning signal (bot vs. gate divergence), not a health warning (the #151
-// STALE lesson). Bounded scan (scanCap) so a combo with sparse flip history
-// can't turn this into an unbounded table scan.
+// decisions that had a live gate verdict AND weren't a forced hold or a close
+// (see disagrees() above), count how often the bot's action contradicted the
+// gate. The caller renders a note once disagreements>=3 — informational GRAY,
+// never amber: this is a tuning signal (bot vs. gate divergence), not a
+// health warning (the #151 STALE lesson).
 export function gateDisagreement(dbPath, opts = {}) {
   return withDb(dbPath, (db) => gateDisagreementInDb(db, opts));
 }
 
-// db-handle variant so per-combo callers (e.g. /api/bots) share ONE connection
-// and both statements are prepared once, not per scanned row.
-export function gateDisagreementInDb(db, { instrument, granularity, need = 10, scanCap = 2000 } = {}) {
+// db-handle variant so per-combo callers share ONE connection and both
+// statements are prepared once, not per scanned row. Kept for back-compat
+// (tests, single-combo callers); /api/bots uses the bucketed
+// decisionRailByComboInDb below instead of calling this once per combo.
+export function gateDisagreementInDb(db, { instrument, granularity, need = GATE_DISAGREEMENT_NEED, scanCap = GATE_DISAGREEMENT_SCAN_CAP } = {}) {
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
@@ -297,13 +334,65 @@ export function gateDisagreementInDb(db, { instrument, granularity, need = 10, s
     const flipTime = ctx?.instrumentContext?.flip?.time;
     if (!flipTime) continue;
     const verdict = sigStmt.get(instrument, granularity, flipTime)?.verdict;
-    if (verdict !== 'alert' && verdict !== 'suppress') continue; // no live gate verdict on this flip
+    const d = disagrees(verdict, ctx);
+    if (d === null) continue; // not a comparable gate call — see disagrees()
     checked++;
-    const action = ctx?.decision?.action;
-    if ((verdict === 'suppress' && action === 'open') || (verdict === 'alert' && action === 'hold')) disagreements++;
+    if (d) disagreements++;
   }
   if (checked < need) return null; // not enough gate-bearing history yet — say nothing rather than a noisy small-sample note
   return { checked, disagreements };
+}
+
+// #171 review (item 3): ONE bucketing pass over bot_journal (newest-first)
+// fills BOTH per-combo lastDecision and per-combo gate-disagreement counters —
+// replaces a lastDecisionByCombo scan + one gateDisagreementInDb scan PER
+// combo with a single shared scan. A single global scanCap still bounds each
+// combo's own row count by construction (a combo can never see more rows
+// than the total scanned), so the per-combo `need` window guarantee holds.
+export function decisionRailByCombo(dbPath, combos, opts = {}) {
+  return withDb(dbPath, (db) => decisionRailByComboInDb(db, combos, opts));
+}
+
+export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_NEED, scanCap = GATE_DISAGREEMENT_SCAN_CAP } = {}) {
+  const wanted = new Set(combos.map(normCombo));
+  const state = new Map([...wanted].map((c) => [c, { lastDecision: null, checked: 0, disagreements: 0 }]));
+  let stmt; let sigStmt;
+  try {
+    stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
+    sigStmt = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?');
+  } catch (err) {
+    if (/no such table/i.test(String(err.message))) return state; // pre-schema db: nothing recorded yet
+    throw err;
+  }
+  let scanned = 0;
+  for (const j of stmt.iterate()) {
+    if (++scanned > scanCap) break;
+    let ctx;
+    try { ctx = JSON.parse(j.context); } catch { continue; }
+    let combo = `${ctx?.instrument}|${ctx?.granularity}`;
+    if (!wanted.has(combo) && ctx?.instrument && !ctx?.granularity) {
+      // legacy decision rows carry no granularity — attribute unambiguously
+      // (mirrors lastDecisionByCombo's fallback above)
+      const candidates = [...wanted].filter((c) => c.startsWith(`${ctx.instrument}|`));
+      if (candidates.length === 1) combo = candidates[0];
+    }
+    const s = wanted.has(combo) ? state.get(combo) : null;
+    if (!s) continue;
+    if (s.lastDecision === null) s.lastDecision = { at: j.at, reason: j.reason };
+    if (ctx?.event === 'flip' && s.checked < need) {
+      const flipTime = ctx?.instrumentContext?.flip?.time;
+      if (flipTime) {
+        const [instrument, granularity] = combo.split('|');
+        const verdict = sigStmt.get(instrument, granularity, flipTime)?.verdict;
+        const d = disagrees(verdict, ctx);
+        if (d !== null) { s.checked++; if (d) s.disagreements++; }
+      }
+    }
+    let allDone = true;
+    for (const st of state.values()) { if (st.lastDecision === null || st.checked < need) { allDone = false; break; } }
+    if (allDone) break;
+  }
+  return state;
 }
 
 // Transport-safe scoreboard: JSON has no Infinity, so a flawless strategy's

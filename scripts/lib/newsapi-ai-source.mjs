@@ -25,11 +25,13 @@ export function isSettingOn(v) {
   return v === '1' || v === true || v === 1;
 }
 
-// sentinelSourceFootnotes (#171): default flips to ON — an operator who has
-// never touched the toggle should see provider footnotes by default. Explicit
-// user settings still win: '0' (the UI's off option, chosen over '' so the
-// generic settings-merge "'' deletes the key" rule can't collapse an explicit
-// off back to unset) or any other non-'1' string turns it off.
+// sentinelSourceFootnotes (#171): default flips to ON. A user who explicitly
+// turned it off before this change stored '0' (chosen over '' so the generic
+// settings-merge "'' deletes the key" rule can't collapse an explicit off
+// back to unset) and stays off; anyone who never touched the toggle — the
+// overwhelming majority — gets footnotes on by default. Accepted: a legacy
+// deployment that relied on the old off-by-default behavior without ever
+// setting '0' migrates to ON, a trivial blast radius (extra footnote text).
 export function isSentinelFootnotesOn(v) {
   return v === undefined ? true : isSettingOn(v);
 }

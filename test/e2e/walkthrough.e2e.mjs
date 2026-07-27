@@ -347,6 +347,21 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.ok(/href="https:\/\/reuters\.example\/e2e"[^>]*target="_blank"[^>]*rel="noopener"/.test(auditHtml), 'headline link opens in a new tab with rel=noopener');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
+          // #171 review item 1/6: the SAME newsHtml() render helper the audit
+          // tab uses is shared by the tape row detail + verdict banner's bot
+          // lane — pinned via synthetic input (a full tape-row round trip
+          // would need a decision timestamp inside a real signal's candle
+          // window, which the "now"-stamped seed above can't guarantee).
+          const newsHeadlineHtml = await p.evaluate(() => window.newsHtml({
+            news: { headlines: [{ title: 'synthetic tape headline', source: 'reuters', time: '2026-01-01T00:00:00Z', url: 'https://reuters.example/x' }] },
+          }));
+          assert.ok(newsHeadlineHtml.includes('news used:') && newsHeadlineHtml.includes('synthetic tape headline'), 'newsHtml renders recorded headlines for the tape/verdict-banner surfaces too');
+          const newsFallbackHtml = await p.evaluate(() => window.newsHtml({ news: null, toolTrace: [{ name: 'sentinel_news', ok: true }] }));
+          assert.ok(newsFallbackHtml.includes('news consulted (1) — headlines not recorded'), 'newsHtml falls back to the honest "consulted, not recorded" line');
+          // #171 review item 5: https-only guard on headline hrefs.
+          assert.equal(await p.evaluate(() => window.safeUrl('javascript:alert(1)')), null, 'safeUrl rejects a non-https scheme');
+          assert.equal(await p.evaluate(() => window.safeUrl('https://reuters.example/x')), 'https://reuters.example/x', 'safeUrl passes through an https url');
+
           // #170: indicators popover — opens from the chart-corner button,
           // toggling a checkbox persists (reflected in the ?ind= URL + a
           // fresh load carrying the same selection through /api/settings).
@@ -420,8 +435,12 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // #171 3.6: the seeded WTICO/USD|M15 combo has 3/10 gate-bearing flip
           // decisions disagreeing with the gate — a gray (never amber) tuning
           // note renders on its rail row.
+          // #171 review item 4: .railnote is a SIBLING of the .railjump button
+          // inside .railrow, not nested inside it (nesting would pollute the
+          // button's accessible name) — look it up via the row, not the button.
           const gateNoteRow = await p.evaluate(() => {
-            const row = [...document.querySelectorAll('#rail .railjump[data-combo="WTICO/USD|M15"]')][0];
+            const jump = [...document.querySelectorAll('#rail .railjump[data-combo="WTICO/USD|M15"]')][0];
+            const row = jump ? jump.closest('.railrow') : null;
             return row ? row.querySelector('.railnote')?.textContent ?? null : null;
           });
           assert.equal(gateNoteRow, 'disagreed with gates 3 of last 10', 'rail note renders for a seeded ≥3-of-10 disagreement combo');

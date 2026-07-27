@@ -1711,6 +1711,46 @@ test('/api/bots exposes per-combo openPnl (sum of unrealized for attributed open
   });
 });
 
+test('/api/bots (#171 review): gateDisagreement ships raw {checked, disagreements} data once disagreements reach the note threshold, excluding forced holds', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [`${INSTRUMENT}|M5`]: { enabled: true }, [`${INSTRUMENT}|M1`]: { enabled: true } } } }) });
+    withDb(dbPath, (db) => {
+      db.exec("CREATE TABLE IF NOT EXISTS bot_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, action TEXT NOT NULL, position_id INTEGER, reason TEXT, context TEXT)");
+      db.exec("CREATE TABLE IF NOT EXISTS signals (instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL, signal TEXT NOT NULL, price REAL, win_rate REAL, verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0, PRIMARY KEY (instrument, granularity, time))");
+      const sig = db.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict) VALUES (?,?,?,?,?)');
+      const dec = db.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)');
+      // M5 combo: 10 gate-bearing flips, 3 real disagreements, PLUS a forced
+      // hold on an alert flip that must NOT count as a disagreement or dilute
+      // `checked` — this is the exact seeded shape a naive alert+hold check
+      // would over-count.
+      const rows = [
+        ['suppress', 'open'], ['suppress', 'open'], ['alert', 'hold'],
+        ['suppress', 'hold'], ['alert', 'open'], ['alert', 'open'], ['alert', 'open'],
+        ['suppress', 'hold'], ['alert', 'open'], ['suppress', 'hold'],
+      ];
+      rows.forEach(([verdict, action], i) => {
+        const t = `2026-07-25T00:${String(i).padStart(2, '0')}:00.000Z`;
+        sig.run(INSTRUMENT, 'M5', t, 'buy', verdict);
+        dec.run(t, 'decision', 'x', JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5', event: 'flip', decision: { action }, instrumentContext: { flip: { time: t } } }));
+      });
+      const forcedT = '2026-07-25T00:10:00.000Z';
+      sig.run(INSTRUMENT, 'M5', forcedT, 'buy', 'alert');
+      dec.run(forcedT, 'decision', 'x', JSON.stringify({ instrument: INSTRUMENT, granularity: 'M5', event: 'flip', decision: { action: 'hold', reasoning: 'fail-safe hold: timeout' }, error: 'timeout', instrumentContext: { flip: { time: forcedT } } }));
+      // M1 combo: only 1 gate-bearing flip decision — below the need=10
+      // window, so gateDisagreement must stay null regardless of outcome.
+      const t1 = '2026-07-25T01:00:00.000Z';
+      sig.run(INSTRUMENT, 'M1', t1, 'buy', 'suppress');
+      dec.run(t1, 'decision', 'x', JSON.stringify({ instrument: INSTRUMENT, granularity: 'M1', event: 'flip', decision: { action: 'open' }, instrumentContext: { flip: { time: t1 } } }));
+    });
+    const r = await (await fetch(base + '/api/bots')).json();
+    const m5 = r.bots.find((b) => b.combo === `${INSTRUMENT}|M5`);
+    assert.deepEqual(m5.gateDisagreement, { checked: 10, disagreements: 3 }, 'forced hold on an alert is excluded from both checked and disagreements');
+    const m1 = r.bots.find((b) => b.combo === `${INSTRUMENT}|M1`);
+    assert.equal(m1.gateDisagreement, null, 'a combo below the need=10 window ships null, not a noisy small-sample note');
+  });
+});
+
 test('/api/bots (#162): unattributed OPEN positions on an instrument with exactly one configured combo absorb into that combo\'s openPnl', async () => {
   const { botConfig, openPosition } = await import('../scripts/portfolio.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
