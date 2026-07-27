@@ -205,11 +205,20 @@ test('stale data triggers a live refresh through the injected fetcher; fetch fai
   assert.equal(calls, 1, 'gate window prevents a second upstream fetch');
   assert.equal(d2b.quote.last, 201, 'cached forming candle still drives the quote while the gate is closed');
   assert.equal(d2b.quote.partial, true);
+  // #154: the freshness stamp is the UPSTREAM retrieval time. A gate-closed
+  // response re-serves a cached tail, so it must keep the ORIGINAL fetch time —
+  // restamping it would let the UI claim data is fresher than it is.
+  assert.equal(typeof d.quote.fetchedAt, 'number', 'live fetch stamps a retrieval time');
+  assert.equal(d2b.quote.fetchedAt, d.quote.fetchedAt, 'gate-closed re-serve keeps the original fetch time');
   // Failure path: stale again with a throwing fetcher still serves stored data.
   const dir2 = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath: db2 } = fixtureDb(dir2);
   const d2 = await chartData(db2, INSTRUMENT, { fetcher: async () => { throw new Error('offline'); } });
   assert.equal(d2.quote.last, 71, 'stale view beats none');
+  // …but it must not be dressed up as live: no partial flag, no freshness stamp
+  // that the UI would render as a recent update (#154).
+  assert.ok(!d2.quote.partial, 'failed fetch is not presented as a live forming candle');
+  assert.equal(d2.quote.fetchedAt, undefined, 'failed fetch carries no freshness stamp');
 });
 
 test('writeSettings validates directly (unit)', () => {
