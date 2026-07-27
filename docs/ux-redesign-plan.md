@@ -120,11 +120,14 @@ links/back button and a system-health row fed by a small `/api/health`.
   status — 5 restatements → 1 (F17). Health segment from `/api/health` (feed age per instrument,
   last LLM call, news poller, halted, per-bot decision age) — fixes F11; the alerts on/muted state
   becomes an explicit labelled toggle here (F9, F30).
-- **Fleet rail** (C2): one row per bot — glyph AND word (`● armed`, `⚠ no strategy — won't trade`,
-  `○ off`), strategy name, live open P&L for **this combo only**, decision age; staleness badge
-  `⚠ STALE 25m` when no decision within ~2× granularity. Replaces `instSel`/`granSel`/`botBtn`/
-  `#botList`. "Is anything wrong?" is answered by scanning the rail. `⌕ chart without a bot` keeps
-  ad-hoc charting.
+- **Fleet rail** (C2, operator-corrected): one row per bot — glyph AND word (`● armed`,
+  `⚠ no strategy — won't trade`, `○ off`), strategy name, live open P&L for **this combo only**,
+  decision age humanized once (`last decision 25m ago`) — decision recency is informational, not a
+  health warning, so there is no STALE badge. The only amber health warning is the feed itself
+  falling behind (`⚠ feed 12m behind`, or one aggregate note when every combo is behind at once —
+  a market-closed signal, not N independent feed problems). The `instSel`/`granSel` selects stay
+  always visible (chart-without-a-bot charting is just "pick a combo with no bot configured", no
+  separate ad-hoc mode/button); a `☰` toggle collapses/expands the rail sidebar itself.
 - **Workspace › Tape** (C3, default): chart (with **position entry/stop/target lines and
   trade/signal markers** — F8; indicator toggles in a chart-corner popover, RSI/MACD opt-in — F27,
   F30) above a combo-scoped two-lane event tape (§4). The signal-history table is deleted *as a
@@ -138,10 +141,11 @@ links/back button and a system-health row fed by a small `/api/health`.
   every granularity` (with blast-radius note `ⓘ also applies to XAG/USD·H1`) / `global` — merging
   bot-modal setup + strategy, settings→gates, settings→memories (F18, F12 config side). Existing
   write endpoints only; no new write routes.
-- **Ledger overlay** (C6): equity curve (marked at opens AND closes — kills the "realized only"
-  caveat), all-bot trades, scoreboard grouped by strategy (open rows counted separately, excluded
-  from win rate), global audit. Statistical honesty: `PF ∞` → `—`; win rate as a record `2W-1L`
-  below n=20; `⚠ n<5 — descriptive only` (F19).
+- **Ledger overlay** (C6): equity curve, all-bot trades, scoreboard grouped by strategy (open rows
+  counted separately, excluded from win rate), global audit. Statistical honesty: `PF ∞` → `—`;
+  win rate as a record `2W-1L` below n=20; `⚠ n<5 — descriptive only` (F19). Marking the curve at
+  opens AND closes (killing the "realized only" caveat) is **deferred to #170** — the shipped
+  sparkline still plots realized equity after each closed trade only.
 - **Settings modal survives** with 3 tabs (LLM / news / advanced) + per-field one-line help text,
   placeholders, danger flags on `port` etc. (F31). Chat stays as the slide-over, gains an
   empty-state hint, empty-Ask feedback, and mic feedback incl. missing-STT-key message (F32).

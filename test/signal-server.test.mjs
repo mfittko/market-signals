@@ -94,8 +94,9 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="pfMini"') < hdr.indexOf('id="pfBtn"'), 'insights precede the portfolio button on row 1');
     assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
-    // #165: the bot button moved into the ad-hoc rail row's expanded state (hdr2's adhocSel span)
-    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="adhocBotBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
+    // #166: the ad-hoc bot button is gone — selects (+ watch bell) stay permanently
+    // in hdr2, indicators follow them.
+    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="instSel"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the selects');
     const auto = /margin-left:\s*auto/;
     assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
@@ -596,8 +597,8 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     // icon-only header buttons carry an accessible name (aria-label), not just title
-    // #165: the header 🤖 moved into the rail's ad-hoc row (adhocBotBtn)
-    for (const [id, label] of [['cfgbtn', 'settings'], ['adhocBotBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
+    // #166: the ad-hoc bot button is gone — the rail toggle takes its place in the a11y sweep
+    for (const [id, label] of [['cfgbtn', 'settings'], ['railToggle', 'show or hide the bot rail'], ['watchBtn', 'toggle alerts']])
       assert.ok(new RegExp('id="' + id + '"[^>]*aria-label="' + label).test(html), id + ' has an aria-label');
     // canvas charts expose a text alternative
     assert.ok(/id="chart"[^>]*role="img"[^>]*aria-label=/.test(html), 'price chart canvas has role=img + aria-label');
@@ -613,8 +614,10 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
     assert.ok(html.includes('chat-collapsed'), 'collapse class wired');
     assert.ok(/<div id="app" class="chat-collapsed"/.test(html), 'app ships collapsed in markup (no first-paint flash of the empty column)');
     assert.ok(html.includes("localStorage.getItem('chatOpen') === '1'"), 'chat collapsed by default (open is opt-in)');
-    // staleness humanized past ~90 min
-    assert.ok(html.includes("'h ago'") && html.includes("'d ago'"), 'staleness humanized to hours/days');
+    // staleness humanized past ~90 min (shared humanAge helper, #166: h/d units
+    // are now built from a suffix param rather than literal 'h ago'/'d ago')
+    assert.ok(/function humanAge\(m, suffix/.test(html), 'shared humanAge helper present');
+    assert.ok(html.includes("m < 1440 ? Math.floor(m / 60) + 'h' + suffix"), 'staleness humanized to hours/days');
   });
 });
 
@@ -901,9 +904,9 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
-    // #165: the contextual per-view bot control now lives in the rail's ad-hoc row
-    assert.ok(html.includes('id="adhocBotBtn"'), 'contextual bot icon (ad-hoc row)');
+    // #166: per-view bot config is reached via a rail row's ⚙ (railcfg) now — no header bot button
     assert.ok(html.includes('id="rail"'), 'fleet rail nav present');
+    assert.ok(html.includes('railcfg'), 'rail rows carry a configure control');
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     // #165 review: the read-only activated-bots list is gone — the rail is authoritative
     assert.ok(html.includes('data-tab="overview"') && !html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview drops the redundant bot list (rail is authoritative) but keeps the halt banner');
@@ -1004,12 +1007,16 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
-    assert.ok(html.includes('id="bm-setup"') && html.includes('id="bm-strategy"'), 'both tab bodies present');
-    assert.match(html, /bmStratSel/, 'scope-filtered strategy assignment select present');
-    assert.match(html, /bmShowAll/, '"show all" scope-escape checkbox present');
+    // #166: setup/strategy bodies + control ids are now namespaced (bid(p, ...))
+    // so the modal and the [tuning] workspace tab can mount the same render
+    // functions without id collisions — check for the id-composing calls.
+    assert.match(html, /bid\(p, '-setup'\)/, 'setup tab body id present');
+    assert.match(html, /bid\(p, '-strategy'\)/, 'strategy tab body id present');
+    assert.match(html, /bid\(p, 'StratSel'\)/, 'scope-filtered strategy assignment select present');
+    assert.match(html, /bid\(p, 'ShowAll'\)/, '"show all" scope-escape checkbox present');
     assert.match(html, /assigning to /, 'scope mismatch warning copy present');
     assert.match(html, /bmActivate/, 'per-version activate control present');
-    assert.match(html, /bmSaveVersion/, 'inline edit → new version control present');
+    assert.match(html, /bid\(p, 'SaveVersion'\)/, 'inline edit → new version control present');
   });
 });
 
@@ -1034,17 +1041,17 @@ test('bmWarn (UI review finding 1) is driven by the RESOLVED botState.strategyNa
 test('strategy select (UI review finding 2) only previews on change — no write — and assignment is a separate explicit action', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    const onchangeBlock = html.match(/document\.getElementById\('bmStratSel'\)\.onchange = \(e\) => \{[\s\S]*?\};/);
+    const onchangeBlock = html.match(/document\.getElementById\(bid\(p, 'StratSel'\)\)\.onchange = \(e\) => \{[\s\S]*?\};/);
     assert.ok(onchangeBlock, 'bmStratSel onchange handler found');
     assert.doesNotMatch(onchangeBlock[0], /save\(/, 'selecting a strategy name must never call save() directly — browsing must not rebind a live bot');
     assert.match(onchangeBlock[0], /el\.dataset\.editing = e\.target\.value/, 'selecting still previews (updates editing state + rerenders)');
     // the explicit, reachable single write path for select-driven assignment
-    assert.match(html, /id="bmAssignBtn"/, 'explicit assign button present');
-    assert.match(html, /getElementById\('bmAssignBtn'\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
+    assert.match(html, /bid\(p, 'AssignBtn'\)/, 'explicit assign button present');
+    assert.match(html, /getElementById\(bid\(p, 'AssignBtn'\)\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
     assert.match(html, /n === editing \? ' selected' : ''/, 'the select shows the PREVIEWED name, i.e. exactly what + assign would write');
     assert.match(html, /'editing' in el\.dataset \? el\.dataset\.editing : current/, "an explicit '— none —' preview stays representable so a strategy can be detached");
     assert.equal((html.match(/activation failed/g) || []).length, 2, 'both activation call sites surface a failed activation instead of assigning anyway');
-    assert.match(html, /if \(!r\.ok\) \{ document\.getElementById\('bmEditErr'\)\.textContent = r\.error \|\| 'activation failed'; return; \}/, 'per-version activate checks the response before assigning');
+    assert.match(html, /if \(!r\.ok\) \{ document\.getElementById\(bid\(p, 'EditErr'\)\)\.textContent = r\.error \|\| 'activation failed'; return; \}/, 'per-version activate checks the response before assigning');
   });
 });
 
@@ -1543,7 +1550,7 @@ test('gates modal is tabbed, one tab per gate (#117)', async () => {
     const page = await (await fetch(base + '/')).text();
     // a dedicated gates tab bar exists and shares the modal tab-bar styling
     assert.ok(page.includes('id="gatesTabs"'), 'gates tab bar element present');
-    assert.ok(page.includes('#pfTabs, #bmTabs, #cfgTabs, #gatesTabs'), 'gates tabs reuse the shared tab styling');
+    assert.ok(page.includes('#pfTabs, .bmtabs, #cfgTabs, #gatesTabs'), 'gates tabs reuse the shared tab styling');
     // one tab per gate, last tab remembered, rendered as .gatepanel tab panels
     assert.match(page, /GATE_ORDER = \['filter', 'recheck', 'bot', 'chat'\]/, 'one tab per gate in fixed order');
     assert.ok(page.includes("localStorage.getItem('gatesTab')") && page.includes("localStorage.setItem('gatesTab'"), 'last gates tab remembered');

@@ -481,12 +481,16 @@ test('tradeTimeline (#162): canonical shape, open-first-then-closed-newest-first
   assert.equal(closedAttr.stop, null, 'closed rows carry no stop/target');
   assert.equal(closedAttr.target, null);
   assert.equal(closedAttr.closeReason, 'target');
-  assert.equal(closedAttr.openReason, null, 'closed rows do not carry an open reason');
+  // #166: closed rows now carry openReason too (same why? affordance as open rows)
+  assert.equal(closedAttr.openReason, 'tt fixture', 'closed rows also surface the journal open reason');
   assert.equal(closedAttr.exitTime !== null, true);
 
   const closedUnattr = closeds.find((r) => r.id === unattrClosedId);
   assert.equal(closedUnattr.combo, null);
   assert.equal(closedUnattr.closeReason, 'bot-close');
+  // manual (non-attributedOpen) closePosition() calls have no bot_journal
+  // 'open' row at all — openReason falls back to null, not a query error.
+  assert.equal(closedUnattr.openReason, null, 'a manually-opened closed row has no journaled open reason');
 
   // newest-first among closed: the trade closed LAST should sort first
   assert.equal(closeds[0].id, unattrClosedId, 'closed rows are newest-first');
