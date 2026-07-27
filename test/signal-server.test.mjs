@@ -842,13 +842,9 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(Math.abs(pf.equity - (pf.cash + pf.marginLocked + pf.unrealized)) < 1e-9, 'equity identity holds in the API payload');
 
     assert.equal(pf.positions[0].reason, 'rejection at **resistance**', 'open position exposes its journaled opening reasoning');
-    const tr = await (await fetch(base + '/api/bot-trades?limit=1')).json();
-    assert.equal(tr.trades.length, 1);
-    assert.equal(tr.trades[0].close_reason, 'target');
-    const zero = await fetch(base + '/api/bot-trades?limit=0');
-    assert.equal((await zero.json()).trades.length, 1, 'limit=0 falls back to default, not zero rows');
+    assert.equal(pf.trades[0].close_reason, 'target');
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-      assert.equal((await fetch(base + '/api/bot-trades', { method, body: '{}' })).status, 405, method + ' rejected');
+      assert.equal((await fetch(base + '/api/portfolio', { method, body: '{}' })).status, 405, method + ' rejected');
     }
 
     const html = await (await fetch(base + '/')).text();
@@ -856,7 +852,8 @@ test('portfolio UI (#24): endpoints GET-only, page ships read-only views, P&L ag
     assert.ok(html.includes('<dialog id="pfdlg"'), 'portfolio modal present');
     assert.ok(html.includes('id="pfSpark"'), 'equity sparkline canvas present');
     const script = html.slice(html.indexOf('<script>'));
-    assert.ok(!/fetch\((['"])\/api\/(?:portfolio|bot-trades)\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio routes (either quote style)');
+    assert.ok(!/fetch\((['"])\/api\/portfolio\1[^)]*method/.test(script), 'no mutating fetch wired to portfolio route (either quote style)');
+    assert.equal((await fetch(base + '/api/bot-trades')).status, 404, '/api/bot-trades retired (#172)');
   });
 });
 
