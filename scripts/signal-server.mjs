@@ -27,7 +27,7 @@ import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemor
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
 import { latestRecheck } from './signal-rechecks.mjs';
 import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
-import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, gateDisagreement, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
+import { baselines, botPerformanceSummary, comboOf, decisionAudit, earliestAttributedEntry, gateDisagreementInDb, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 export { resolveProvider };
@@ -1057,6 +1057,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // decision is ancient still gets found (the old LIMIT 200 "shows never"
         // bug) while a normal request only touches a handful of rows.
         const lastDecisions = lastDecisionByCombo(dbPath, Object.keys(bots));
+        // #171 3.6 + review: ONE connection + prepared-once statements for all
+        // combos' disagreement scans instead of a withDb per rail row.
+        const gateNotes = withDb(dbPath, (db) => {
+          const m = new Map();
+          for (const key of Object.keys(bots)) {
+            const [i, g] = normCombo(key).split('|');
+            m.set(normCombo(key), gateDisagreementInDb(db, { instrument: i, granularity: g }));
+          }
+          return m;
+        });
         // complete aggregates straight from bot_trades — attributed PER COMBO via
         // the shared attribution; a bot that is the sole bot on its instrument
         // also absorbs unattributed trades for that instrument
@@ -1103,7 +1113,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const lastDecision = lastDecisions.get(combo) ?? null;
           // #171 3.6: gray tuning-signal rail note, not a health warning —
           // null until 10 gate-bearing flip decisions exist for this combo.
-          const gd = gateDisagreement(dbPath, { instrument: inst, granularity: gran });
+          const gd = gateNotes.get(combo) ?? null;
           const gateNote = gd && gd.disagreements >= 3 ? `disagreed with gates ${gd.disagreements} of last ${gd.checked}` : null;
           // unattributed OPEN positions on this instrument absorb into the sole
           // configured combo's openPnl (mirrors the closed-trade orphan absorption

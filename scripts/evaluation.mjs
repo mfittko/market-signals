@@ -273,34 +273,37 @@ export function decisionAudit(dbPath, { strategyId = null, instrument = null, gr
 // tuning signal (bot vs. gate divergence), not a health warning (the #151
 // STALE lesson). Bounded scan (scanCap) so a combo with sparse flip history
 // can't turn this into an unbounded table scan.
-export function gateDisagreement(dbPath, { instrument, granularity, need = 10, scanCap = 2000 } = {}) {
-  return withDb(dbPath, (db) => {
-    let stmt;
-    try {
-      stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC").iterate();
-    } catch (err) {
-      if (/no such table/i.test(String(err.message))) return null; // pre-schema db: nothing recorded yet
-      throw err;
-    }
-    let checked = 0; let disagreements = 0; let scanned = 0;
-    for (const j of stmt) {
-      if (checked >= need || ++scanned > scanCap) break;
-      let ctx;
-      try { ctx = JSON.parse(j.context); } catch { continue; }
-      if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || ctx?.event !== 'flip') continue;
-      const flipTime = ctx?.instrumentContext?.flip?.time;
-      if (!flipTime) continue;
-      let sig;
-      try { sig = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?').get(instrument, granularity, flipTime); } catch { continue; }
-      const verdict = sig?.verdict;
-      if (verdict !== 'alert' && verdict !== 'suppress') continue; // no live gate verdict on this flip
-      checked++;
-      const action = ctx?.decision?.action;
-      if ((verdict === 'suppress' && action === 'open') || (verdict === 'alert' && action === 'hold')) disagreements++;
-    }
-    if (checked < need) return null; // not enough gate-bearing history yet — say nothing rather than a noisy small-sample note
-    return { checked, disagreements };
-  });
+export function gateDisagreement(dbPath, opts = {}) {
+  return withDb(dbPath, (db) => gateDisagreementInDb(db, opts));
+}
+
+// db-handle variant so per-combo callers (e.g. /api/bots) share ONE connection
+// and both statements are prepared once, not per scanned row.
+export function gateDisagreementInDb(db, { instrument, granularity, need = 10, scanCap = 2000 } = {}) {
+  let stmt; let sigStmt;
+  try {
+    stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
+    sigStmt = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?');
+  } catch (err) {
+    if (/no such table/i.test(String(err.message))) return null; // pre-schema db: nothing recorded yet
+    throw err;
+  }
+  let checked = 0; let disagreements = 0; let scanned = 0;
+  for (const j of stmt.iterate()) {
+    if (checked >= need || ++scanned > scanCap) break;
+    let ctx;
+    try { ctx = JSON.parse(j.context); } catch { continue; }
+    if (ctx?.instrument !== instrument || ctx?.granularity !== granularity || ctx?.event !== 'flip') continue;
+    const flipTime = ctx?.instrumentContext?.flip?.time;
+    if (!flipTime) continue;
+    const verdict = sigStmt.get(instrument, granularity, flipTime)?.verdict;
+    if (verdict !== 'alert' && verdict !== 'suppress') continue; // no live gate verdict on this flip
+    checked++;
+    const action = ctx?.decision?.action;
+    if ((verdict === 'suppress' && action === 'open') || (verdict === 'alert' && action === 'hold')) disagreements++;
+  }
+  if (checked < need) return null; // not enough gate-bearing history yet — say nothing rather than a noisy small-sample note
+  return { checked, disagreements };
 }
 
 // Transport-safe scoreboard: JSON has no Infinity, so a flawless strategy's
