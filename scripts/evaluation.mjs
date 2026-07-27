@@ -18,7 +18,14 @@ function rows(dbPath, sql, args = []) {
 // journals executed.opened). instrument/granularity/combo are the one shared
 // attribution path for /api/bots, /api/trades and /api/chart (issue #162) —
 // null when the decision context didn't carry them (older journal rows).
+// Memoized per dbPath + newest decision id: journal rows are append-only, so
+// the map is valid until a new decision is written. Keeps /api/bots and
+// /api/trades from re-parsing the whole journal on every request.
+const attributionCache = new Map();
 export function positionAttribution(dbPath) {
+  const maxId = rows(dbPath, "SELECT MAX(id) id FROM bot_journal WHERE action='decision'")[0]?.id ?? 0;
+  const cached = attributionCache.get(dbPath);
+  if (cached && cached.maxId === maxId) return cached.map;
   const map = new Map();
   for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
     try {
@@ -38,6 +45,7 @@ export function positionAttribution(dbPath) {
       }
     } catch { /* unparseable journal rows are skipped */ }
   }
+  attributionCache.set(dbPath, { maxId, map });
   return map;
 }
 
