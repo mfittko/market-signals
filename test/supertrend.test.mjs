@@ -867,7 +867,7 @@ test('processSignal (#98): a reasoning-model null-content openai filter fails OP
   } finally { await new Promise((r) => srv.close(r)); }
 });
 
-test('processSignal / recheckSignal (#164): non-pi filter+recheck llmRequest calls use a 90s timeout, not 30s (Makora/GLM generations routinely exceed 30s)', async () => {
+test('processSignal (#164): non-pi filter llmRequest uses a 90s timeout, not 30s (Makora/GLM generations routinely exceed 30s)', async () => {
   const realTimeout = AbortSignal.timeout;
   const seen = [];
   AbortSignal.timeout = (ms) => { seen.push(ms); return realTimeout(ms); };
@@ -883,7 +883,7 @@ test('processSignal / recheckSignal (#164): non-pi filter+recheck llmRequest cal
     const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm' } });
     await processSignal(opts, result, c);
     assert.ok(seen.length > 0, 'the filter call went through fetch/AbortSignal.timeout');
-    assert.ok(seen.every((ms) => ms === 90000), `expected every non-pi filter timeout to be 90000, saw ${seen}`);
+    assert.ok(seen.every((ms) => ms === 90000), `expected every AbortSignal.timeout during this processSignal run to be 90000, saw ${seen}`);
   } finally {
     AbortSignal.timeout = realTimeout;
     await new Promise((r) => srv.close(r));
