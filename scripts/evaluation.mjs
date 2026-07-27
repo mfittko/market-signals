@@ -356,6 +356,7 @@ export function decisionRailByCombo(dbPath, combos, opts = {}) {
 export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_NEED, scanCap = GATE_DISAGREEMENT_SCAN_CAP } = {}) {
   const wanted = new Set(combos.map(normCombo));
   const state = new Map([...wanted].map((c) => [c, { lastDecision: null, checked: 0, disagreements: 0 }]));
+  let pending = state.size; // combos not yet fully resolved (lastDecision + need window)
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
@@ -378,6 +379,7 @@ export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_N
     }
     const s = wanted.has(combo) ? state.get(combo) : null;
     if (!s) continue;
+    const wasDone = s.lastDecision !== null && s.checked >= need;
     if (s.lastDecision === null) s.lastDecision = { at: j.at, reason: j.reason };
     if (ctx?.event === 'flip' && s.checked < need) {
       const flipTime = ctx?.instrumentContext?.flip?.time;
@@ -388,9 +390,9 @@ export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_N
         if (d !== null) { s.checked++; if (d) s.disagreements++; }
       }
     }
-    let allDone = true;
-    for (const st of state.values()) { if (st.lastDecision === null || st.checked < need) { allDone = false; break; } }
-    if (allDone) break;
+    // O(1) early-exit bookkeeping: count combos as they finish instead of
+    // rescanning every combo's state per journal row
+    if (!wasDone && s.lastDecision !== null && s.checked >= need && --pending === 0) break;
   }
   return state;
 }
