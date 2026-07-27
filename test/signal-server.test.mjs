@@ -94,8 +94,9 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="pfMini"') < hdr.indexOf('id="pfBtn"'), 'insights precede the portfolio button on row 1');
     assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
-    // #165: the bot button moved into the ad-hoc rail row's expanded state (hdr2's adhocSel span)
-    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="adhocBotBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
+    // #166: the ad-hoc bot button is gone — selects (+ watch bell) stay permanently
+    // in hdr2, indicators follow them.
+    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="instSel"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the selects');
     const auto = /margin-left:\s*auto/;
     assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
@@ -596,8 +597,8 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     // icon-only header buttons carry an accessible name (aria-label), not just title
-    // #165: the header 🤖 moved into the rail's ad-hoc row (adhocBotBtn)
-    for (const [id, label] of [['cfgbtn', 'settings'], ['adhocBotBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
+    // #166: the ad-hoc bot button is gone — the rail toggle takes its place in the a11y sweep
+    for (const [id, label] of [['cfgbtn', 'settings'], ['railToggle', 'show or hide the bot rail'], ['watchBtn', 'toggle alerts']])
       assert.ok(new RegExp('id="' + id + '"[^>]*aria-label="' + label).test(html), id + ' has an aria-label');
     // canvas charts expose a text alternative
     assert.ok(/id="chart"[^>]*role="img"[^>]*aria-label=/.test(html), 'price chart canvas has role=img + aria-label');
@@ -901,9 +902,9 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
-    // #165: the contextual per-view bot control now lives in the rail's ad-hoc row
-    assert.ok(html.includes('id="adhocBotBtn"'), 'contextual bot icon (ad-hoc row)');
+    // #166: per-view bot config is reached via a rail row's ⚙ (railcfg) now — no header bot button
     assert.ok(html.includes('id="rail"'), 'fleet rail nav present');
+    assert.ok(html.includes('railcfg'), 'rail rows carry a configure control');
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     // #165 review: the read-only activated-bots list is gone — the rail is authoritative
     assert.ok(html.includes('data-tab="overview"') && !html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview drops the redundant bot list (rail is authoritative) but keeps the halt banner');

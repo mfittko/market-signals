@@ -27,10 +27,10 @@ const VIEWPORTS = {
 // #108: memories/gates are now TABS inside the settings modal (global config).
 // Per-combo bot config is instrument-specific, so it stays its own per-view modal.
 // (Gates/Memories are reached via the settings modal's tabs — no header buttons.)
-// #165: the header 🤖 moved into the rail's ad-hoc row (adhocBotBtn) — the
-// fresh test server has no bots configured, so ad-hoc mode (and its button) is
-// visible by default.
-const MODALS = [['settings', 'cfgbtn'], ['bot', 'adhocBotBtn'], ['portfolio', 'pfBtn']];
+// #166: the ad-hoc bot button is gone — per-view bot config now opens from a
+// rail row's ⚙ (railcfg), so the bot modal needs a seeded combo (below) to
+// reach through the rail rather than a header button.
+const MODALS = [['settings', 'cfgbtn'], ['portfolio', 'pfBtn']];
 const selected = process.env.E2E_VIEWPORT ? [process.env.E2E_VIEWPORT] : Object.keys(VIEWPORTS);
 // fail fast on a bad E2E_VIEWPORT rather than a later TypeError on destructure
 for (const v of selected) {
@@ -80,7 +80,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         const errs = [];
         p.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
         p.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
-        await p.goto(base + '/', { waitUntil: 'networkidle' });
+        // #166: selects must not depend on rail data — stall /api/bots so the
+        // rail hasn't loaded yet when the DOM first settles, and confirm the
+        // selects render visible anyway (no render-then-hide flicker).
+        let releaseBots;
+        const botsGate = new Promise((r) => { releaseBots = r; });
+        await p.route('**/api/bots', async (route) => { await botsGate; await route.continue(); });
+        await p.goto(base + '/', { waitUntil: 'domcontentloaded' });
+        assert.equal(await p.evaluate(() => getComputedStyle(document.getElementById('instSel')).display !== 'none' && getComputedStyle(document.getElementById('granSel')).display !== 'none'), true, 'instrument/granularity selects visible before rail data arrives');
+        releaseBots();
+        await p.unroute('**/api/bots');
+        await p.waitForLoadState('networkidle');
         await p.waitForTimeout(400);
 
         // base page invariants
@@ -141,8 +151,9 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // the redundant header memories/gates buttons are gone (reached via tabs)
           assert.equal(await p.evaluate(() => !!document.getElementById('memBtn') || !!document.getElementById('gateBtn')), false, 'no redundant header gates/memories buttons');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
-          // per-view bot modal opens from the ad-hoc row's 🤖 and carries its tabs
-          await p.evaluate(() => document.getElementById('adhocBotBtn').click());
+          // per-view bot modal opens from a rail row's ⚙ (railcfg) and carries its tabs
+          await p.waitForFunction(() => document.querySelectorAll('#rail .railcfg').length > 0, { timeout: 5000 });
+          await p.evaluate(() => document.querySelector('#rail .railcfg').click());
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
@@ -169,7 +180,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'ledger all-trades tab rendered content');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
-          // #165: fleet rail — one row for the seeded bot combo, and navigating
+          // #165/#166: fleet rail — one row for the seeded bot combo, and navigating
           // to its hash focuses the chart on that combo (instSel value flips).
           await p.waitForFunction(() => document.querySelectorAll('#rail .railjump[data-combo]').length > 0, { timeout: 5000 });
           const railCombos = await p.evaluate(() => [...document.querySelectorAll('#rail .railjump[data-combo]')].map((b) => b.dataset.combo));
@@ -182,31 +193,30 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
-          // ad-hoc route with '/' in the instrument: %2F must not act as a path separator
-          const [adhocReq] = await Promise.all([
-            p.waitForResponse((r) => r.url().includes('/api/chart') && r.url().includes('granularity=M5')),
-            p.evaluate(() => { location.hash = '#chart/' + encodeURIComponent('WTICO/USD') + '/M5'; }),
-          ]);
-          assert.equal(adhocReq.ok(), true, '#chart hash navigation triggers a chart fetch');
+          // #165 review: a hash missing the '|' separator (no granularity) must not
+          // crash or navigate — the route is ignored (state stays on the prior combo).
+          await p.evaluate(() => { location.hash = '#bot/' + encodeURIComponent('WTICO/USD'); });
           await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#chart/<inst>/<gran> parsed the encoded instrument whole');
-          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', '#chart/<inst>/<gran> parsed the granularity');
-          // #165 review: an unencoded slash in the instrument ('#chart/WTICO/USD/M5')
-          // must not be mistaken for the granularity separator — gran='USD' is not a
-          // valid granularity, so the route is ignored (state stays on the prior combo).
-          await p.evaluate(() => { location.hash = '#chart/WTICO/USD/M5'; });
-          await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', 'invalid hash route (bad granularity) is ignored, chart state unchanged');
-          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', 'invalid hash route (bad granularity) is ignored, chart state unchanged');
-          // #165 review: adhocSelVisible is a small pure function driving the rail's
-          // ad-hoc select visibility — smoke-assert its branches directly.
-          const adhocSelBranches = await p.evaluate(() => [
-            adhocSelVisible(true, true),
-            adhocSelVisible(true, false),
-            adhocSelVisible(false, true),
-            adhocSelVisible(false, false),
+          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', 'invalid hash route (missing granularity) is ignored, chart state unchanged');
+          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', 'invalid hash route (missing granularity) is ignored, chart state unchanged');
+          // #166: selects always drive the chart directly (location.search reload),
+          // no hash, no bot row required.
+          await Promise.all([
+            p.waitForNavigation(),
+            p.evaluate(() => { document.getElementById('granSel').value = 'M5'; document.getElementById('granSel').dispatchEvent(new Event('change')); }),
           ]);
-          assert.deepEqual(adhocSelBranches, [true, false, true, true], 'adhocSelVisible: visible unless a successful render focused a configured combo');
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', 'select change updated the chart granularity');
+          assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('granularity')), 'M5', 'select change updated the URL search params');
+          // #166: the rail toggle collapses/expands the sidebar and persists
+          assert.equal(await p.evaluate(() => document.getElementById('railToggle').getAttribute('aria-expanded')), 'true', 'rail toggle starts expanded');
+          assert.ok(await p.evaluate(() => getComputedStyle(document.getElementById('rail')).display !== 'none'), 'rail visible before toggling');
+          await p.evaluate(() => document.getElementById('railToggle').click());
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.getElementById('railToggle').getAttribute('aria-expanded')), 'false', 'rail toggle collapses (aria-expanded flips)');
+          assert.equal(await p.evaluate(() => getComputedStyle(document.getElementById('rail')).display), 'none', 'rail hidden after collapsing');
+          await p.evaluate(() => document.getElementById('railToggle').click()); // restore expanded for the rest of the run
+          await p.waitForTimeout(150);
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).
           const moreShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });

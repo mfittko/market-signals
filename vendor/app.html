@@ -107,8 +107,14 @@
      word+glyph now lives on the rail row itself. */
   #mainGrid { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
   #mainCol { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  /* #166: min-height placeholder so the async /api/bots row list arriving
+     doesn't shift the chart column (the rail's width was already reserved
+     via the grid/flex column — height was the remaining jump). */
   #rail { flex: 0 0 220px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; border: 1px solid #30363d;
-          border-radius: 6px; padding: 8px; background: #161b22; max-height: 80vh; overflow-y: auto; }
+          border-radius: 6px; padding: 8px; background: #161b22; max-height: 80vh; min-height: 60px; overflow-y: auto; }
+  /* #166: rail toggle collapses the sidebar entirely (width reclaimed) */
+  #mainGrid.rail-collapsed #rail { display: none; }
+  #railToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
   .railrow { display: flex; align-items: stretch; gap: 4px; }
   .railjump { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
               text-align: left; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
@@ -246,7 +252,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
@@ -341,7 +347,7 @@ const INFO = {
   pnl: 'Total P&L: realized plus unrealized.',
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
-  bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy / STALE (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
+  bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy — won\'t trade (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
   portfolio: 'Virtual trading portfolio: positions, trades, performance, and audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
@@ -363,7 +369,7 @@ const INFO = {
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
-const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', adhocBotBtn: 'bot', pfDlgTitle: 'portfolio' };
+const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
@@ -759,7 +765,6 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
     }
   }
 }
-document.getElementById('adhocBotBtn').addEventListener('click', () => openBotModal());
 // Halt banner in the portfolio overview — the activated-bots list itself
 // lives in the fleet rail now (#165); this dialog no longer duplicates it.
 async function renderOverviewBots() {
@@ -1005,12 +1010,9 @@ function selectors(d) {
   inst.innerHTML = d.instruments.map(i => '<option' + (i === d.instrument ? ' selected' : '') + '>' + esc(i) + '</option>').join('');
   const grans = GRANULARITIES.includes(d.granularity) ? GRANULARITIES : [d.granularity, ...GRANULARITIES];
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
-  // #165: ad-hoc select changes are hash-driven too (chart-without-a-bot mode)
-  // — location.hash first so back/forward and bookmarking capture the combo.
-  // #165 review: one navigation (navigateToCombo owns hash+search as a single
-  // assignment) — setting hash then search separately created two history
-  // entries and a Back trap.
-  const go = () => navigateToCombo(inst.value, gran.value, true);
+  // #166: selects always drive the chart directly (no hash, no visibility
+  // gating) — same location.search pattern as every other state change here.
+  const go = () => { qs.set('instrument', inst.value); qs.set('granularity', gran.value); location.search = '?' + qs.toString(); };
   inst.onchange = go; gran.onchange = go;
   const btn = document.getElementById('watchBtn');
   btn.textContent = d.watched ? '🔔' : '🔕';
@@ -1022,31 +1024,36 @@ function selectors(d) {
   };
 }
 
-// #165: fleet rail — primary nav. One row per configured bot combo (from
-// /api/bots), hash-focused (#bot/<combo> / #chart/<inst>/<gran> for ad-hoc).
-// instSel/granSel stay the underlying state store (smallest diff, no chart
-// state rewrite) — the rail just sets them (via navigateToCombo → reload,
-// matching every other state change in this page) and syncs the hash.
+// #165/#166: fleet rail — primary nav. One row per configured bot combo (from
+// /api/bots), hash-focused (#bot/<combo>). Selects always drive the chart
+// directly (see selectors() above) — the rail hash route is only for rail
+// row jumps, never gated behind rail data (no render-then-hide flicker).
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 let railBots = [];
+let railFeed = [];
 const currentCombo = () => (qs.get('instrument') || '') + '|' + (qs.get('granularity') || 'M5');
+// #166: STALE badge removed — bot decisions are event-driven, so decision
+// age alone is not a health warning. Recency renders once per row (see
+// humanAge below), not as a status word.
 function botRailStatus(b) {
   if (!b.enabled) return { glyph: '○', word: 'off', cls: 'off' };
   if (!b.strategyName) return { glyph: '⚠', word: "no strategy — won't trade", cls: 'warn' };
-  const granMin = GRAN_MINUTES[b.granularity] || 5;
-  // review fix: no decisions yet (lastDecisionAt null) is NOT stale — it just
-  // hasn't run. STALE only applies once there's a finite age to compare.
-  const ageMin = b.lastDecisionAt ? (Date.now() - Date.parse(b.lastDecisionAt)) / 60000 : null;
-  if (ageMin != null && ageMin > granMin * 2) return { glyph: '⚠', word: 'STALE ' + Math.round(ageMin) + 'm', cls: 'warn' };
   if (b.openPnl != null) return { glyph: '●', word: 'in position', cls: 'pos' };
   return { glyph: '●', word: 'armed', cls: 'armed' };
 }
+// shared by the rail row age and the quote strip's "updated" line
+function humanAge(m) { return m < 90 ? Math.round(m) + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago'; }
+// #166: real health signal — a feed entry more than 3x its own granularity
+// behind is a data problem, not a decision-recency one.
+function feedWarnSec(b) {
+  const f = railFeed.find((x) => x.instrument === b.instrument && x.granularity === b.granularity);
+  if (!f || f.ageSec == null) return null;
+  const granSec = (GRAN_MINUTES[b.granularity] || 5) * 60;
+  return f.ageSec > granSec * 3 ? f.ageSec : null;
+}
 const RAIL_SORT = { pos: 0, armed: 1, warn: 2, off: 3 };
-function railIsAdhoc(cur) { return !railBots.some((b) => b.combo === cur); }
-// hash change alone must not reload — only a real combo switch does (matches
-// every other state change on this page, which navigates via location.search).
-function navigateToCombo(inst, gran, adhoc) {
-  const hash = adhoc ? '#chart/' + encodeURIComponent(inst) + '/' + encodeURIComponent(gran) : '#bot/' + encodeURIComponent(inst + '|' + gran);
+function navigateToCombo(inst, gran) {
+  const hash = '#bot/' + encodeURIComponent(inst + '|' + gran);
   if (qs.get('instrument') === inst && (qs.get('granularity') || 'M5') === gran) {
     if (location.hash !== hash) location.hash = hash; // same combo — only the hash needs to move
     return;
@@ -1060,72 +1067,68 @@ function navigateToCombo(inst, gran, adhoc) {
 }
 // review fix: a granularity must be one of GRANULARITIES (and instrument
 // non-empty) or the route is ignored — e.g. an unencoded slash in
-// '#chart/WTICO/USD/M5' would otherwise split into gran='USD'.
+// '#bot/WTICO/USD|M5' would otherwise split into gran='USD'.
 const validCombo = (i, g) => !!i && GRANULARITIES.includes(g);
 function comboFromHash() {
   const h = location.hash;
-  if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return validCombo(i, g) ? { inst: i, gran: g, adhoc: false } : null; }
-  // split BEFORE decoding: encoded instruments contain %2F which must not act as a separator
-  if (h.startsWith('#chart/')) { const [i, g] = h.slice(7).split('/').map((x) => decodeURIComponent(x)); return validCombo(i, g) ? { inst: i, gran: g, adhoc: true } : null; }
+  if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return validCombo(i, g) ? { inst: i, gran: g } : null; }
   return null;
 }
 window.addEventListener('hashchange', () => {
   const c = comboFromHash();
-  if (c) navigateToCombo(c.inst, c.gran, c.adhoc);
+  if (c) navigateToCombo(c.inst, c.gran);
 });
-// review fix: rail load failure must not strand navigation — the ad-hoc
-// inst/gran selects default to visible in the HTML and are hidden ONLY after
-// a successful rail render whose current combo IS a configured bot. Kept as
-// a small pure function so its branches are unit-testable without needing to
-// actually break /api/bots.
-function adhocSelVisible(ok, adhoc) { return ok === false ? true : adhoc; }
 let railHalted = false;
 function renderRail(ok) {
   const el = document.getElementById('rail');
   if (ok === false) {
     el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>';
-    document.getElementById('adhocSel').hidden = !adhocSelVisible(false, true);
     return;
   }
   const cur = currentCombo();
   // status computed once per row before sorting (stable order, no re-derive on read)
-  const withStatus = railBots.map((b) => ({ b, s: botRailStatus(b) }));
+  const withStatus = railBots.map((b) => ({ b, s: botRailStatus(b), warnSec: feedWarnSec(b) }));
   withStatus.sort((x, y) => RAIL_SORT[x.s.cls] - RAIL_SORT[y.s.cls]);
-  const rows = withStatus.map(({ b, s }) => {
+  // weekend/closed-market caveat: every combo warning simultaneously is a
+  // market-closed signal, not N independent feed problems — one aggregate note.
+  const allWarn = withStatus.length > 0 && withStatus.every((x) => x.warnSec != null);
+  const rows = withStatus.map(({ b, s, warnSec }) => {
     const active = b.combo === cur;
-    const age = b.lastDecisionAt ? Math.round((Date.now() - Date.parse(b.lastDecisionAt)) / 60000) + 'm ago' : '—';
+    const ageMin = b.lastDecisionAt ? (Date.now() - Date.parse(b.lastDecisionAt)) / 60000 : null;
+    const age = ageMin != null ? 'last decision ' + humanAge(ageMin) : '—';
+    const feedNote = !allWarn && warnSec != null ? '<span class="railstat warn">⚠ feed ' + Math.round(warnSec / 60) + 'm behind</span>' : '';
     return '<div class="railrow ' + s.cls + '" role="listitem">' +
       '<button type="button" class="railjump" data-combo="' + esc(b.combo) + '"' + (active ? ' aria-current="true"' : '') + '>' +
-      '<span class="railstat">' + s.glyph + ' ' + esc(s.word) + '</span>' +
+      '<span class="railstat">' + s.glyph + ' ' + esc(s.word) + '</span>' + feedNote +
       '<span class="railcombo">' + esc(b.combo.replace('|', ' · ')) + '</span>' +
       (b.strategyName ? '<span class="railstrat">' + esc(b.strategyName) + '</span>' : '') +
       (b.openPnl != null ? '<span class="' + pnlCls(b.openPnl) + '">' + esc(money(b.openPnl)) + '</span>' : '') +
       '<span class="railage">' + esc(age) + '</span></button>' +
       '<button type="button" class="railcfg" data-combo="' + esc(b.combo) + '" aria-label="configure ' + esc(b.combo) + '" title="configure bot">⚙</button></div>';
   }).join('');
-  const adhoc = railIsAdhoc(cur);
   const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
-  el.innerHTML = haltChip + rows +
-    '<div class="railrow" role="listitem"><button type="button" id="railAdhocBtn" class="railjump"' + (adhoc ? ' aria-current="true"' : '') + '>⌕ chart without a bot</button></div>';
-  document.getElementById('adhocSel').hidden = !adhocSelVisible(true, adhoc);
+  const aggWarn = allWarn ? '<div class="railrow" role="listitem"><span class="railstat warn">⚠ feed behind (market closed?)</span></div>' : '';
+  el.innerHTML = haltChip + aggWarn + rows;
   el.onclick = (e) => {
     const cfg = e.target.closest('.railcfg');
     if (cfg) { const [i, g] = cfg.dataset.combo.split('|'); openBotModal(i, g); return; }
-    const adhocBtn = e.target.closest('#railAdhocBtn');
-    if (adhocBtn) { document.getElementById('adhocSel').hidden = false; document.getElementById('instSel').focus(); return; }
     const jump = e.target.closest('.railjump');
-    if (jump && jump.dataset.combo) { const [i, g] = jump.dataset.combo.split('|'); navigateToCombo(i, g, false); }
+    if (jump && jump.dataset.combo) { const [i, g] = jump.dataset.combo.split('|'); navigateToCombo(i, g); }
   };
 }
 async function loadRail() {
-  // review fix: a failed/unreachable /api/bots must not strand navigation
-  // behind a rail that never rendered — render an explicit failure state and
-  // keep the ad-hoc inst/gran selects reachable (see adhocSelVisible/renderRail(false)).
+  // review fix: a failed/unreachable /api/bots must not strand navigation —
+  // render an explicit failure state instead (selects stay reachable
+  // regardless, they no longer depend on rail data at all).
   try {
-    const r = await (await fetch('/api/bots')).json();
-    if (!r.ok) { renderRail(false); return; }
-    railBots = r.bots;
-    railHalted = !!r.halted;
+    const [botsR, healthR] = await Promise.all([
+      fetch('/api/bots').then((r) => r.json()),
+      fetch('/api/health').then((r) => r.json()).catch(() => ({ ok: false })),
+    ]);
+    if (!botsR.ok) { renderRail(false); return; }
+    railBots = botsR.bots;
+    railFeed = healthR.ok && Array.isArray(healthR.feed) ? healthR.feed : [];
+    railHalted = !!botsR.halted;
     renderRail(true);
   } catch {
     renderRail(false);
@@ -1833,6 +1836,25 @@ document.getElementById('cfgbtn').addEventListener('click', () => openCfg());
   btn.addEventListener('click', () => {
     const next = app.classList.contains('chat-collapsed');
     localStorage.setItem('chatOpen', next ? '1' : '0');
+    apply(next);
+  });
+})();
+// #166: rail toggle — collapses/expands the bot rail sidebar (mobile chip
+// strip included, same #rail element). State persists, no dependency on
+// rail data (visibility is instant, no flicker).
+(function initRailToggle() {
+  const grid = document.getElementById('mainGrid');
+  const btn = document.getElementById('railToggle');
+  const collapsed = localStorage.getItem('railCollapsed') === '1';
+  const apply = (isCollapsed) => {
+    grid.classList.toggle('rail-collapsed', isCollapsed);
+    btn.setAttribute('aria-expanded', String(!isCollapsed));
+    btn.title = isCollapsed ? 'show the bot rail' : 'hide the bot rail';
+  };
+  apply(collapsed);
+  btn.addEventListener('click', () => {
+    const next = !grid.classList.contains('rail-collapsed');
+    localStorage.setItem('railCollapsed', next ? '1' : '0');
     apply(next);
   });
 })();
