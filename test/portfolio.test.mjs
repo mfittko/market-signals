@@ -619,6 +619,45 @@ test('#169: migration + backfill are idempotent — calling twice does not error
   assert.equal(row.granularity, 'M5', 'idempotent: value unchanged by a second migration pass');
 });
 
+test('#169: crash-safe backfill — marker absent (even though the columns already exist) still runs backfill on next start', () => {
+  const db = preIssue169Db();
+  // Simulate a crash AFTER the ALTERs landed but BEFORE the backfill's
+  // migrations marker was written: columns exist, rows are still NULL, and
+  // there is no 'granularity_backfill_169' row yet. Keying the backfill on
+  // "did the ALTER just add a column" (the old behavior) would make both
+  // ALTERs below hit duplicate-column on the next start and skip backfill
+  // forever, leaving row 1 permanently NULL.
+  withDb(db, (conn) => {
+    conn.exec('ALTER TABLE positions ADD COLUMN granularity TEXT');
+    conn.exec('ALTER TABLE bot_trades ADD COLUMN granularity TEXT');
+  });
+  const view = portfolioView(db, CFG); // "next start": pdb() sees the marker absent and backfills
+  assert.equal(view.positions.length, 2);
+  const rowsByGran = withDb(db, (conn) => conn.prepare('SELECT id, granularity FROM positions ORDER BY id').all());
+  assert.equal(rowsByGran.find((r) => r.id === 1).granularity, 'M5', 'crash-safe: backfill still runs when columns pre-existed but the marker did not');
+  assert.equal(rowsByGran.find((r) => r.id === 2).granularity, null, 'non-derivable row still stays NULL');
+});
+
+test('#169: migration + backfill are idempotent across a fresh process (cache-busted re-import) — never overwrites an existing value', async () => {
+  const db = preIssue169Db();
+  portfolioView(db, CFG); // first pass: columns added, backfill runs, marker set
+  // Pre-set row 1 to a DIFFERENT value than the journal would derive (M5),
+  // then drop the marker to simulate the crash-mid-backfill case landing on
+  // an already-migrated column set — the re-run must still never clobber it.
+  withDb(db, (conn) => {
+    conn.prepare('UPDATE positions SET granularity=? WHERE id=1').run('H4');
+    conn.prepare("DELETE FROM migrations WHERE key='granularity_backfill_169'");
+  });
+  // Cache-busted re-import simulates a genuinely fresh process/module
+  // instance (a fresh in-process granularityMigrated Set) rather than
+  // reusing this test file's already-migrated module state, so the second
+  // pass actually re-enters the migration+backfill block.
+  const fresh2 = await import(`${new URL('../scripts/portfolio.mjs', import.meta.url).href}?v=2`);
+  assert.doesNotThrow(() => fresh2.portfolioView(db, CFG));
+  const row = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=1').get());
+  assert.equal(row.granularity, 'H4', 'row-idempotent backfill (WHERE granularity IS NULL) never overwrites an existing value, even re-run in a fresh process');
+});
+
 test('#169: positionAttribution prefers the granularity COLUMN over the journal when both exist', () => {
   const db = fresh();
   const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });

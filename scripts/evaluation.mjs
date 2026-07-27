@@ -23,53 +23,39 @@ function rows(dbPath, sql, args = []) {
 // Memoized per dbPath + newest decision id: journal rows are append-only, so
 // the map is valid until a new decision is written. Keeps /api/bots and
 // /api/trades from re-parsing the whole journal on every request.
+//
+// #169: this used to also merge in the positions/bot_trades granularity
+// COLUMN on every call (a full-table scan of every non-NULL-granularity row,
+// growing unbounded with trade count and defeating the memoization once most
+// rows are stamped). That column is per-row and each consumer already holds
+// the row it cares about, so the column preference now happens at the
+// consumer (row.granularity ?? attribution) instead of here — this map stays
+// journal-only and cheap.
 const attributionCache = new Map();
 export function positionAttribution(dbPath) {
   const maxId = rows(dbPath, "SELECT MAX(id) id FROM bot_journal WHERE action='decision'")[0]?.id ?? 0;
   const cached = attributionCache.get(dbPath);
-  let map;
-  if (cached && cached.maxId === maxId) {
-    map = new Map(cached.map); // shallow copy: column merge below must not mutate the cached journal-only map
-  } else {
-    map = new Map();
-    for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
-      try {
-        const ctx = JSON.parse(j.context);
-        const opened = ctx?.executed?.opened;
-        if (opened) {
-          const instrument = ctx.instrument ?? null;
-          const granularity = ctx.granularity ?? null;
-          map.set(opened, {
-            strategyId: ctx.strategyId ?? null,
-            strategyName: ctx.strategyName ?? null,
-            strategyDbVersion: ctx.strategyDbVersion ?? null,
-            strategyVersion: ctx.strategyVersion ?? null,
-            instrument, granularity,
-            combo: instrument && granularity ? `${instrument}|${granularity}` : null,
-          });
-        }
-      } catch { /* unparseable journal rows are skipped */ }
-    }
-    attributionCache.set(dbPath, { maxId, map });
-    map = new Map(map);
+  if (cached && cached.maxId === maxId) return cached.map;
+  const map = new Map();
+  for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
+    try {
+      const ctx = JSON.parse(j.context);
+      const opened = ctx?.executed?.opened;
+      if (opened) {
+        const instrument = ctx.instrument ?? null;
+        const granularity = ctx.granularity ?? null;
+        map.set(opened, {
+          strategyId: ctx.strategyId ?? null,
+          strategyName: ctx.strategyName ?? null,
+          strategyDbVersion: ctx.strategyDbVersion ?? null,
+          strategyVersion: ctx.strategyVersion ?? null,
+          instrument, granularity,
+          combo: instrument && granularity ? `${instrument}|${granularity}` : null,
+        });
+      }
+    } catch { /* unparseable journal rows are skipped */ }
   }
-  // #169: the granularity COLUMN (stamped at open, copied at close, backfilled
-  // once from this same journal walk for pre-#169 rows) is preferred over the
-  // journal-derived value when present — it survives even when the decision
-  // journal context never carried granularity (legacy rows). Queried fresh
-  // every call (cheap, indexed by rowid) rather than cached, since the column
-  // can change independently of the decision journal (open/close/backfill).
-  const columnRows = [
-    ...rows(dbPath, "SELECT id, instrument, granularity FROM positions WHERE granularity IS NOT NULL"),
-    ...rows(dbPath, "SELECT position_id AS id, instrument, granularity FROM bot_trades WHERE granularity IS NOT NULL"),
-  ];
-  for (const r of columnRows) {
-    const existing = map.get(r.id) ?? {};
-    map.set(r.id, {
-      ...existing, instrument: r.instrument, granularity: r.granularity,
-      combo: `${r.instrument}|${r.granularity}`,
-    });
-  }
+  attributionCache.set(dbPath, { maxId, map });
   return map;
 }
 

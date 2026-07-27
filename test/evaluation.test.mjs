@@ -139,7 +139,15 @@ test('positionAttribution (#162) carries instrument/granularity/combo alongside 
   assert.ok(posId > 0);
 });
 
-test('#169: positionAttribution prefers the granularity COLUMN over the journal-derived value', async () => {
+// #169 review follow-up: positionAttribution() used to also merge the
+// positions/bot_trades granularity COLUMN into this map on every call — an
+// O(all stamped rows) scan per call that defeated the memoization once most
+// rows were backfilled/stamped. That merge now happens at each consumer
+// (row.granularity ?? attribution.get(id)?.granularity), not here — see
+// test/portfolio.test.mjs's "column value wins over the journal-derived one"
+// (tradeTimeline) and signal-server's /api/bots and /api/chart consumers.
+// This map stays journal-only and must NOT change when the column changes.
+test('#169: positionAttribution stays journal-derived — the row column is a consumer-side preference, not merged in here', async () => {
   const db = fresh();
   const st = await seededBotTrade(db);
   const [[posId]] = [...positionAttribution(db).entries()];
@@ -149,9 +157,9 @@ test('#169: positionAttribution prefers the granularity COLUMN over the journal-
   withDb(db, (conn) => conn.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=?').run('H1', posId));
   const attribution = positionAttribution(db);
   const a = attribution.get(posId);
-  assert.equal(a.granularity, 'H1', 'column wins over the journal context (still M5 there)');
-  assert.equal(a.combo, `${WTI}|H1`);
-  assert.equal(a.strategyId, st.id, 'strategy fields still come from the journal — column is granularity-only');
+  assert.equal(a.granularity, 'M5', 'journal-derived value unchanged by the column write — merge moved to consumers');
+  assert.equal(a.combo, `${WTI}|M5`);
+  assert.equal(a.strategyId, st.id);
 });
 
 test('#169: a position with no derivable journal AND no column value stays unattributed (null)', () => {

@@ -53,6 +53,15 @@ CREATE TABLE IF NOT EXISTS bot_journal (
   position_id INTEGER,
   reason TEXT,
   context TEXT
+);
+-- One row per completed one-time migration, keyed by name. Crash-safety
+-- anchor for #169's backfill: "did I ALTER a column" is not the same fact
+-- as "did the backfill finish" (a crash between the two would otherwise
+-- leave derivable rows permanently NULL), so the marker is only written
+-- AFTER the backfill returns, not alongside the ALTER.
+CREATE TABLE IF NOT EXISTS migrations (
+  key TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
 )`;
 
 export const BOT_DEFAULTS = {
@@ -113,9 +122,20 @@ function pdb(dbPath, cfg, fn) {
     if (!granularityMigrated.has(dbPath)) {
       // #169: durable per-position granularity, additive on both tables so
       // old rows stay NULL ("unattributed") until backfilled below.
-      const addedPositions = addColumnIfMissing(db, 'positions', 'granularity', 'TEXT');
-      const addedTrades = addColumnIfMissing(db, 'bot_trades', 'granularity', 'TEXT');
-      if (addedPositions || addedTrades) backfillGranularity(dbPath, db);
+      addColumnIfMissing(db, 'positions', 'granularity', 'TEXT');
+      addColumnIfMissing(db, 'bot_trades', 'granularity', 'TEXT');
+      // Crash-safe: keyed on the migrations MARKER, not on whether the ALTER
+      // just added a column. A crash after the columns land but before this
+      // marker is set would otherwise make the next start's ALTERs both hit
+      // duplicate-column and skip backfill forever, leaving derivable rows
+      // NULL permanently. backfillGranularity() only ever touches rows WHERE
+      // granularity IS NULL, so re-running it (crash-recovery or otherwise)
+      // is always safe.
+      if (!db.prepare('SELECT 1 FROM migrations WHERE key=?').get('granularity_backfill_169')) {
+        backfillGranularity(dbPath, db);
+        db.prepare('INSERT OR IGNORE INTO migrations (key, applied_at) VALUES (?,?)')
+          .run('granularity_backfill_169', new Date().toISOString());
+      }
       granularityMigrated.add(dbPath);
     }
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
@@ -385,7 +405,16 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
     // closed rows: ageMin is the HOLD duration, not elapsed-since-entry —
     // otherwise it grows forever after close (#162 finding).
     const closedAgeMin = (entry, close) => Math.round((Date.parse(close) - Date.parse(entry)) / 60000);
-    const rowFor = (a) => ({ combo: a?.combo ?? null, strategyName: a?.strategyName ?? null });
+    // #169: prefer the row's OWN granularity column over the journal-derived
+    // value — it's already in hand (no extra query) and survives even when
+    // the decision journal never carried granularity (legacy/backfilled
+    // rows). combo is recomputed from it rather than trusting a.combo, which
+    // may still reflect the journal's (possibly stale) granularity.
+    const granFor = (row, a) => row.granularity ?? a?.granularity ?? null;
+    const rowFor = (row, a, gran) => ({
+      combo: row.instrument && gran ? `${row.instrument}|${gran}` : null,
+      strategyName: a?.strategyName ?? null,
+    });
 
     // openReason: same per-position subquery pattern as viewInDb() — one query
     // for all positions instead of one bot_journal SELECT per position (N+1).
@@ -395,13 +424,13 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
       .filter((p) => (!instrument || p.instrument === instrument))
       .map((p) => {
         const a = attribution.get(p.id) ?? null;
-        const gran = a?.granularity ?? null;
+        const gran = granFor(p, a);
         if (granularity && gran !== granularity) return null;
         const pnl = unrealized(p, p.last_mark);
         const { openReason } = p;
         return {
           id: p.id, state: 'open', instrument: p.instrument, granularity: gran,
-          ...rowFor(a), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
+          ...rowFor(p, a, gran), side: p.side, notional: p.notional, units: p.units, leverage: p.leverage,
           margin: p.margin, entryPrice: p.entry_price, entryTime: p.entry_time,
           mark: p.last_mark, exitTime: null, stop: p.stop, target: p.target,
           pnl, pnlPct: p.margin > 0 ? Math.round((pnl / p.margin) * 10000) / 100 : null,
@@ -431,14 +460,14 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
         if (closedRows.length >= closedBudget || scanned >= SCAN_CEILING) break;
         scanned++;
         const a = attribution.get(t.position_id) ?? null;
-        const gran = a?.granularity ?? null;
+        const gran = granFor(t, a);
         if (granularity && gran !== granularity) continue;
         // margin isn't stored on bot_trades but is derivable — keeps pnlPct
         // comparable across open and closed rows (plan §3)
         const margin = t.leverage > 0 ? t.notional / t.leverage : null;
         closedRows.push({
           id: t.position_id, state: 'closed', instrument: t.instrument, granularity: gran,
-          ...rowFor(a), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
+          ...rowFor(t, a, gran), side: t.side, notional: t.notional, units: t.units, leverage: t.leverage,
           margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
           pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
