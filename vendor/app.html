@@ -164,6 +164,12 @@
   #topbar h1 { margin: 0; }
   #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: center; flex-wrap: wrap; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; margin-left: auto; }
+  /* #167: scope-explicit tuning fieldsets (this bot / instrument / global) */
+  #ws-tuning fieldset, #botBody fieldset { border: 1px solid #30363d; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+  #ws-tuning legend, #botBody legend { color: #8b949e; font-size: 12px; padding: 0 4px; }
+  #healthStrip { font-size: 12px; color: #8b949e; margin-left: 8px; }
+  #healthStrip .warn { color: #d29922; }
+  #watchBtn.on { color: #3fb950; }
   #pfMini b { color: #e6edf3; }
   #indbar { display: inline-flex; gap: 12px; font-size: 12px; font-weight: 400; color: #8b949e; flex-wrap: wrap; margin-left: auto; }
   #indbar label { cursor: pointer; }
@@ -250,7 +256,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="railToggle" type="button" title="show/hide the bot rail" aria-label="show or hide the bot rail" aria-expanded="true">☰ bots</button> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕 alerts: muted</button> <span id="watchToast" role="status" aria-live="polite" hidden></span> <span id="healthStrip" aria-live="polite"></span> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
@@ -454,6 +460,9 @@ document.getElementById('wsTabs').addEventListener('click', (e) => {
 });
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
+// #167: latest polled equity, reused by the tuning tab's effective-values note
+// (alloc % → $ max margin) instead of a second /api/portfolio fetch.
+let lastEquity = null;
 async function portfolio() {
   // cleared up front so a failed refresh never leaves stale equity/P&L in the header
   const mini = document.getElementById('pfMini');
@@ -462,6 +471,7 @@ async function portfolio() {
   if (!r.ok) return;
   const pf = r.portfolio;
   if (pf.tz) TZ = pf.tz;
+  lastEquity = pf.equity;
   const el = document.getElementById('pf');
   const hasActivity = pf.positions.length || pf.trades.length || pf.equity !== pf.startingBalance;
   el.hidden = !hasActivity; // chips are noise on a fresh portfolio; the MODAL is always reachable via the header button
@@ -587,7 +597,7 @@ let botStateCache = null;
 // for one combo and the tuning tab for another can coexist in the DOM
 // without id collisions (review finding on #166).
 const bid = (p, s) => p + s;
-async function mountBotConfig(containerId, inst, gran, prefix) {
+async function mountBotConfig(containerId, inst, gran, prefix, isTuning = false) {
   const combo = inst + '|' + gran;
   const container = document.getElementById(containerId);
   // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
@@ -616,7 +626,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
   const paint = async (savedMsg) => {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
-    renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
+    renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState, isTuning);
     if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
   };
   document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
@@ -645,23 +655,53 @@ async function openBotModal(instArg, granArg) {
 // wsView is the single source of truth for the focused combo — no re-reading
 // qs/selects here (they can be stale mid-navigation).
 async function renderTuningTab(inst, gran) {
-  await mountBotConfig('ws-tuning', inst, gran, 'wsbm');
+  await mountBotConfig('ws-tuning', inst, gran, 'wsbm', true);
 }
-function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
+// #167: F18 scope-explicit fieldsets. riskPct/enabled/kill-switch are genuinely
+// per-combo storage (bot.bots[combo] — resolveBotFor in scripts/bot.mjs), so
+// they're "this bot". allocationPct is ALSO stored per-combo, but portfolio.mjs's
+// allocCap enforces it against margin locked across the WHOLE instrument
+// (lockedHere sums positions by instrument, not combo) — same real-world scope
+// as leverage (settings.bot.leverage[inst]), hence both live in the instrument
+// fieldset (pre-existing label already said so; this just makes the grouping
+// visual). Gates/memories are genuinely global (one settings.gates/memories
+// store, no per-combo or per-instrument scoping) — moved here from the old
+// settings modal tabs (#167), reusing renderGates/renderMemories verbatim.
+function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState, isTuning) {
   const body = document.getElementById(bid(p, '-setup'));
+  // blast-radius: other combos already configured on this instrument share the
+  // allocation/leverage fields below (from the rail's /api/bots data — no extra fetch).
+  const siblings = [...new Set(railBots.filter((b) => b.instrument === inst && b.granularity !== gran).map((b) => b.granularity))];
+  const blastNote = siblings.length ? '<p class="botwarn">ⓘ also applies to ' + siblings.map((g) => esc(inst + '/' + g)).join(', ') + '</p>' : '';
+  const lev = (settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? null;
+  const effLev = lev ? '<p><small>leverage ' + esc(lev) + '× → $' + (lev * 100).toFixed(0) + ' notional per $100 margin</small></p>' : '';
+  const effAlloc = entry.allocationPct && lastEquity != null
+    ? '<p><small>alloc ' + esc(entry.allocationPct) + '% ≈ $' + ((entry.allocationPct / 100) * lastEquity).toFixed(2) + ' max margin at current equity</small></p>'
+    : '';
   body.innerHTML =
+    '<fieldset><legend>this bot (' + esc(inst) + ' · ' + esc(gran) + ')</legend>' +
     '<label for="' + bid(p, 'Enabled') + '">enabled</label><input type="checkbox" id="' + bid(p, 'Enabled') + '"' + (entry.enabled ? ' checked' : '') + '>' +
     // review fix: gate on the RESOLVED active-version name (modalState, scoped
     // to THIS combo — same value /api/bots + runBot see), not entry.strategyName
     // — a name whose versions are all inactive must still show the warning.
     '<span id="' + bid(p, 'Warn') + '" class="botwarn"' + (entry.enabled && !modalState?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
     '<label for="' + bid(p, 'Risk') + '" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="' + bid(p, 'Risk') + '" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
-    '<label for="' + bid(p, 'Alloc') + '" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="' + bid(p, 'Alloc') + '" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
-    '<label for="' + bid(p, 'Lev') + '" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="' + bid(p, 'Lev') + '" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
     '<details><summary>advanced</summary><label for="' + bid(p, 'Kill') + '" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="' + bid(p, 'Kill') + '" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="' + bid(p, 'Status') + '"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
-    '<p><button type="button" id="' + bid(p, 'ToPf') + '">View in portfolio →</button> <span id="' + bid(p, 'Saved') + '">' + esc(savedMsg || '') + '</span> <button type="button" id="' + bid(p, 'Remove') + '" class="bmremove">remove bot</button></p>';
+    '<p><button type="button" id="' + bid(p, 'ToPf') + '">View in portfolio →</button> <span id="' + bid(p, 'Saved') + '">' + esc(savedMsg || '') + '</span> <button type="button" id="' + bid(p, 'Remove') + '" class="bmremove">remove bot</button></p>' +
+    '</fieldset>' +
+    '<fieldset><legend>' + esc(inst) + ' — shared by every granularity</legend>' +
+    '<label for="' + bid(p, 'Alloc') + '" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="' + bid(p, 'Alloc') + '" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
+    effAlloc +
+    '<label for="' + bid(p, 'Lev') + '" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="' + bid(p, 'Lev') + '" value="' + esc(lev ?? '') + '" placeholder="default 10×, cap 20×">' +
+    effLev + blastNote +
+    '</fieldset>' +
+    (isTuning ? '<fieldset><legend>global — affects every bot</legend>' +
+      '<div id="' + bid(p, 'GatesTabs') + '" class="gates-wrap"><div id="gatesTabs"></div><div id="gatesList"></div></div>' +
+      '<div id="' + bid(p, 'MemWrap') + '"><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
+      '</fieldset>' : '');
+  if (isTuning) { renderGates(); renderMemories(); }
   document.getElementById(bid(p, 'Enabled')).onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById(bid(p, 'Risk')).onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById(bid(p, 'Alloc')).onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -1034,12 +1074,21 @@ function selectors(d) {
   // gating) — same location.search pattern as every other state change here.
   const go = () => { qs.set('instrument', inst.value); qs.set('granularity', gran.value); location.search = '?' + qs.toString(); };
   inst.onchange = go; gran.onchange = go;
+  // #167 (F9/F30): a labelled state word, not just a silent glyph swap, plus a
+  // visible confirmation flash on change (the toggle otherwise gives no feedback
+  // beyond the icon itself).
   const btn = document.getElementById('watchBtn');
-  btn.textContent = d.watched ? '🔔' : '🔕';
+  btn.textContent = (d.watched ? '🔔 alerts: on' : '🔕 alerts: muted');
+  btn.classList.toggle('on', d.watched);
   btn.onclick = async () => {
     const combo = d.instrument + '|' + d.granularity;
+    const willWatch = !d.watched;
     const next = d.watched ? d.watchers.filter(w => w !== combo) : [...d.watchers, combo];
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ watchers: next.join(', ') }) });
+    const toast = document.getElementById('watchToast');
+    toast.textContent = willWatch ? 'alerts on for ' + combo : 'alerts muted for ' + combo;
+    toast.hidden = false;
+    setTimeout(() => { toast.hidden = true; }, 2500);
     load();
   };
 }
@@ -1101,6 +1150,24 @@ window.addEventListener('hashchange', () => {
   if (c) navigateToCombo(c.inst, c.gran);
 });
 let railHalted = false;
+let railHealth = null; // #167: raw /api/health payload, shared with the header strip (no second fetch)
+// #167 (F11 render side): the aggregate "● feed live · LLM ok · news auto" strip
+// — degraded segments render in amber words, same source /api/health already
+// polled by loadRail (HALTED keeps rendering via the existing rail chip, not here).
+function renderHealthStrip() {
+  const el = document.getElementById('healthStrip');
+  if (!el) return;
+  if (!railHealth || !railHealth.ok) { el.textContent = ''; return; }
+  const worstFeedSec = railHealth.feed.reduce((m, f) => f.ageSec != null ? Math.max(m, f.ageSec) : m, 0);
+  const feedGranSec = 5 * 60; // conservative floor (M5); rail rows carry the per-combo threshold
+  const feedSeg = worstFeedSec > feedGranSec * 3
+    ? '<span class="warn">⚠ feed ' + Math.round(worstFeedSec / 60) + 'm behind</span>'
+    : '● feed live';
+  const llmAgeMin = railHealth.llm?.lastOkAt ? (Date.now() - Date.parse(railHealth.llm.lastOkAt)) / 60000 : null;
+  const llmSeg = llmAgeMin == null ? 'LLM —' : llmAgeMin > 60 ? '<span class="warn">⚠ LLM ' + humanAge(llmAgeMin) + ' since last decision</span>' : 'LLM ok';
+  const newsSeg = 'news ' + esc(railHealth.news?.mode || '—');
+  el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg;
+}
 function renderRail(ok) {
   const el = document.getElementById('rail');
   if (ok === false) {
@@ -1151,7 +1218,9 @@ async function loadRail() {
     railBots = botsR.bots;
     railFeed = healthR.ok && Array.isArray(healthR.feed) ? healthR.feed : [];
     railHalted = !!botsR.halted;
+    railHealth = healthR;
     renderRail(true);
+    renderHealthStrip();
   } catch {
     renderRail(false);
   }
@@ -1340,14 +1409,15 @@ const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-// #108: one modal for GLOBAL config — five tabs. LLM/News/Advanced use the
-// batched Save (dirty dots); Gates/Memories are embedded management panels that
-// auto-save each edit. Per-combo bot config is instrument-specific, so it stays
-// in its own per-view modal (🤖), NOT a global settings tab.
-const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['gates', 'Gates'], ['mem', 'Memories'], ['adv', 'Advanced']];
+// #108/#167: one modal for GLOBAL provider config — three tabs, all batched-Save.
+// Gates/Memories moved into the workspace tuning tab's "global" fieldset (#167 —
+// they're bot-wide config, same as this modal used to embed them as management
+// panels, just reached from the combo-scoped tuning surface now). Per-combo bot
+// config is instrument-specific, so it stays in its own per-view modal (🤖), NOT
+// a global settings tab.
+const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['adv', 'Advanced']];
 const CFG_TAB_IDS = CFG_TABS.map(([id]) => id);
-const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // batched-Save tabs; mgmt tabs excluded
-const CFG_MGMT_TABS = ['gates', 'mem'];
+const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // all batched-Save now (no mgmt tabs left here)
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
@@ -1397,17 +1467,11 @@ async function cfg() {
       fields.map(field).join('') +
       (id === 'adv' ? '<label for="f-infoToggle" data-info="' + esc(INFO.info) + '" title="' + esc(INFO.info) + '">info overlays</label><input type="checkbox" id="f-infoToggle"' + (s.info ? ' checked' : '') + '>' : '') +
     '</div>';
-  // management panel (gates/mem/bot): full-width, single-column, auto-saving
-  const mgmtPanel = (id, inner) =>
-    '<div class="cfgpanel mgmt" data-panel="' + id + '"' + (id === active ? '' : ' hidden') + '>' + inner + '</div>';
-  const memAddRow = '<div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div>';
   f.innerHTML =
     '<div class="cfgpanel" data-panel="llm"' + (active === 'llm' ? '' : ' hidden') + '>' +
       providerSelect + '<div id="llmDyn" style="display:contents">' + renderLlmDyn(curProvider) + '</div>' +
     '</div>' +
     flatPanel('news', NEWS_FIELDS) +
-    mgmtPanel('gates', '<div id="gatesTabs"></div><div id="gatesList"></div>') +
-    mgmtPanel('mem', memAddRow + '<div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details>') +
     flatPanel('adv', ADV_FIELDS) +
     '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
   // swap the LLM panel's fields when the provider changes (client-side, from s)
@@ -1415,18 +1479,15 @@ async function cfg() {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
   };
   const foot = f.querySelector('.cfgfoot');
-  // lazily populate whichever management tab is shown (each auto-saves internally)
-  const renderMgmt = (tab) => { if (tab === 'gates') renderGates(); else if (tab === 'mem') renderMemories(); };
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
     for (const b of document.querySelectorAll('#cfgTabs button')) b.classList.toggle('on', b.dataset.tab === tab);
     for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
     foot.hidden = !CFG_DIRTY_TABS.includes(tab); // Save applies only to field tabs
-    if (CFG_MGMT_TABS.includes(tab)) renderMgmt(tab);
   };
-  // dirty dot on the owning tab whenever a saved field changes (cleared on save
-  // re-render). Excluded: the info-overlay toggle (own POST) and mgmt tabs (no dot).
+  // dirty dot on the owning tab whenever a saved field changes (cleared on save re-render).
+  // Excluded: the info-overlay toggle (own POST).
   f.oninput = f.onchange = (e) => {
     if (e.target.id === 'f-infoToggle') return;
     const panel = e.target.closest('.cfgpanel'); if (!panel) return;
@@ -1437,7 +1498,6 @@ async function cfg() {
     applyInfo(e.target.checked);
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ info: e.target.checked || null }) });
   };
-  if (CFG_MGMT_TABS.includes(active)) renderMgmt(active); // populate an on-open mgmt tab
   // one global Save persists every tab in a single POST
   f.onsubmit = async (e) => {
     e.preventDefault();

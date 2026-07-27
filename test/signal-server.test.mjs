@@ -73,7 +73,10 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
     assert.ok(page.includes('<dialog id="botdlg"'), 'per-view bot modal stays (instrument-specific, not a global tab)');
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
     assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
-    assert.ok(page.includes("['gates', 'Gates']") && page.includes("['mem', 'Memories']"), 'gates/memories are consolidated global tabs (#108)');
+    // #167: gates/memories moved OUT of the settings modal into the workspace
+    // tuning tab's "global" fieldset (reusing renderGates/renderMemories verbatim).
+    assert.ok(!page.includes("['gates', 'Gates']") && !page.includes("['mem', 'Memories']"), 'gates/memories are no longer settings tabs (#167)');
+    assert.ok(page.includes('id="gatesTabs"') && page.includes('id="memAddBtn"'), 'gates/memories render inside the tuning global fieldset (#167)');
     assert.ok(!page.includes("['bot', 'Bot']"), 'bot is NOT a global settings tab (per-view modal)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
     assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
@@ -1194,8 +1197,9 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.ok(!html.includes('<dialog id="memdlg"'), 'standalone memories dialog removed');
     assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'memories tab ships list + archived count');
     assert.ok(html.includes('id="memNewContent"') && html.includes('id="memAddBtn"'), 'memories tab ships an add affordance (new memory input + button)');
-    assert.ok(html.includes("['mem', 'Memories']"), 'memories is a consolidated settings tab (#108)');
-    assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the settings tab');
+    // #167: memories moved OUT of settings into the tuning tab's global fieldset
+    assert.ok(!html.includes("['mem', 'Memories']"), 'memories is no longer a settings tab (#167)');
+    assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the tuning tab');
   });
 });
 
@@ -1250,8 +1254,9 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('<dialog id="gatedlg"'), 'standalone gates dialog removed');
     assert.ok(html.includes('id="gatesTabs"') && html.includes('id="gatesList"'), 'gates tab ships the gates transparency section');
-    assert.ok(html.includes("['gates', 'Gates']"), 'gates is a consolidated settings tab (#108)');
-    assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the settings tab');
+    // #167: gates moved OUT of settings into the tuning tab's global fieldset
+    assert.ok(!html.includes("['gates', 'Gates']"), 'gates is no longer a settings tab (#167)');
+    assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the tuning tab');
   });
 });
 
