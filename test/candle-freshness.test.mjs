@@ -71,3 +71,24 @@ test('foldChange: counts a moved forming bar and a new bar as changes, records i
   assert.equal(sum.requestMsMedian, 10.5);
   assert.equal(sum.requestMsMax, 12);
 });
+
+// #145 phase 2: the boundary confirmer's retry ladder has to cover the delay
+// between a bar's close boundary and the provider first serving it complete.
+test('foldChange: records completion delay when a newly completed bar appears', () => {
+  const step = 60000;
+  let st = initState();
+  // first sighting only baselines lastCompleteTime — no delay recorded, since we
+  // did not observe the transition (the bar may have completed long before).
+  st = foldChange(st, { at: T0 + 5 * step + 1000, requestMs: 5, stepMs: step, lastComplete: { time: bar(4).time }, forming: { time: bar(5).time, close: 1 } });
+  assert.equal(st.completionDelays.length, 0, 'first sighting is a baseline, not a measurement');
+  // bar 5 closes at T0+6min; served complete 2.4s after that boundary
+  st = foldChange(st, { at: T0 + 6 * step + 2400, requestMs: 5, stepMs: step, lastComplete: { time: bar(5).time }, forming: { time: bar(6).time, close: 2 } });
+  assert.deepEqual(st.completionDelays, [2400], 'delay = observedAt − (barOpen + granularity)');
+  // an unchanged lastComplete records nothing
+  st = foldChange(st, { at: T0 + 6 * step + 9000, requestMs: 5, stepMs: step, lastComplete: { time: bar(5).time }, forming: { time: bar(6).time, close: 3 } });
+  assert.equal(st.completionDelays.length, 1, 'same completed bar is not re-counted');
+  const sum = summarize(st);
+  assert.equal(sum.completionDelayMsMedian, 2400);
+  assert.equal(sum.completionDelayMsMax, 2400);
+  assert.equal(sum.completionSamples, 1);
+});
