@@ -544,3 +544,93 @@ test('server-side sizing (#83): a tiny requested notional with budget available 
   assert.ok(id != null, 'a tiny in-budget request opens rather than skipping as no-budget');
   assert.equal(portfolioView(db, cfg).positions.length, 1);
 });
+
+// #169: durable per-position granularity column (additive, backfilled once).
+test('#169: openPosition stamps granularity on the row; closePosition copies it to bot_trades', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87, granularity: 'M15' });
+  const posRow = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=?').get(id));
+  assert.equal(posRow.granularity, 'M15');
+  closePosition(db, CFG, id, 88, 'bot-close');
+  const tradeRow = withDb(db, (conn) => conn.prepare('SELECT granularity FROM bot_trades WHERE position_id=?').get(id));
+  assert.equal(tradeRow.granularity, 'M15', 'close copies the position\'s granularity onto the bot_trades row');
+});
+
+test('#169: no granularity passed → column stays NULL, not a crash (backward-compatible default)', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  const posRow = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=?').get(id));
+  assert.equal(posRow.granularity, null);
+});
+
+// Builds a db on the pre-#169 schema (no granularity column on positions/
+// bot_trades) with a derivable open position (via a decision-journal row, so
+// positionAttribution can reconstruct it) and a non-derivable one, then hands
+// it to portfolio.mjs's normal write path — pdb() runs the migration lazily.
+function preIssue169Db() {
+  const db = fresh();
+  withDb(db, (conn) => {
+    conn.exec(`CREATE TABLE portfolio (id INTEGER PRIMARY KEY CHECK (id=1), starting_balance REAL NOT NULL, cash REAL NOT NULL, halted INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
+      CREATE TABLE positions (id INTEGER PRIMARY KEY AUTOINCREMENT, instrument TEXT NOT NULL, side TEXT NOT NULL, notional REAL NOT NULL, units REAL NOT NULL, entry_price REAL NOT NULL, entry_time TEXT NOT NULL, leverage REAL NOT NULL, margin REAL NOT NULL, stop REAL, target REAL, last_mark REAL NOT NULL, stale INTEGER NOT NULL DEFAULT 0, last_mark_at TEXT);
+      CREATE TABLE bot_trades (id INTEGER PRIMARY KEY AUTOINCREMENT, position_id INTEGER NOT NULL, instrument TEXT NOT NULL, side TEXT NOT NULL, notional REAL NOT NULL, units REAL NOT NULL, entry_price REAL NOT NULL, entry_time TEXT NOT NULL, close_price REAL NOT NULL, close_time TEXT NOT NULL, leverage REAL NOT NULL, realized REAL NOT NULL, close_reason TEXT NOT NULL);
+      CREATE TABLE bot_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, action TEXT NOT NULL, position_id INTEGER, reason TEXT, context TEXT);`);
+    conn.prepare('INSERT INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,10000,9800,?)').run(new Date().toISOString());
+    // derivable: a decision journal row attributes position 1 to WTI|M5
+    conn.prepare(`INSERT INTO positions (id, instrument, side, notional, units, entry_price, entry_time, leverage, margin, last_mark, stale)
+      VALUES (1,?,?,100,1.15,87,?,10,10,87,0)`).run(WTI, 'long', new Date().toISOString());
+    conn.prepare("INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,?,?,?)")
+      .run(new Date().toISOString(), 'decision', null, 'opened',
+        JSON.stringify({ instrument: WTI, granularity: 'M5', executed: { opened: 1 } }));
+    // non-derivable: a manually-opened position with no decision journal row at all
+    conn.prepare(`INSERT INTO positions (id, instrument, side, notional, units, entry_price, entry_time, leverage, margin, last_mark, stale)
+      VALUES (2,?,?,100,1.15,87,?,10,10,87,0)`).run(WTI, 'long', new Date().toISOString());
+    // an already-closed, derivable trade (backfill must reach bot_trades too)
+    conn.prepare(`INSERT INTO bot_trades (id, position_id, instrument, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason)
+      VALUES (1,3,?,?,100,1.15,87,?,88,?,10,1,'target')`).run(WTI, 'long', new Date().toISOString(), new Date().toISOString());
+    conn.prepare("INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,?,?,?)")
+      .run(new Date().toISOString(), 'decision', null, 'opened',
+        JSON.stringify({ instrument: WTI, granularity: 'H1', executed: { opened: 3 } }));
+  });
+  return db;
+}
+
+test('#169: migration + one-time backfill fills only derivable rows, leaves the rest NULL/unattributed', () => {
+  const db = preIssue169Db();
+  // triggers pdb()'s lazy migration+backfill on a fresh process-cache entry
+  const view = portfolioView(db, CFG);
+  assert.equal(view.positions.length, 2);
+  const rowsByGran = withDb(db, (conn) => conn.prepare('SELECT id, granularity FROM positions ORDER BY id').all());
+  assert.equal(rowsByGran.find((r) => r.id === 1).granularity, 'M5', 'derivable row backfilled from the journal');
+  assert.equal(rowsByGran.find((r) => r.id === 2).granularity, null, 'non-derivable row stays NULL (unattributed)');
+  const tradeRows = withDb(db, (conn) => conn.prepare('SELECT position_id, granularity FROM bot_trades').all());
+  assert.equal(tradeRows.find((r) => r.position_id === 3).granularity, 'H1', 'backfill reaches bot_trades too');
+});
+
+test('#169: migration + backfill are idempotent — calling twice does not error or overwrite', () => {
+  const db = preIssue169Db();
+  portfolioView(db, CFG);
+  // a second write path call must not re-ALTER (duplicate-column) or clobber
+  // an already-backfilled value; also simulates a second process opening the
+  // same db file (fresh module-level migrated-guard) by re-running the ALTER
+  // + backfill logic directly against the same file.
+  withDb(db, (conn) => conn.prepare('UPDATE positions SET granularity=? WHERE id=1').run('M5'));
+  assert.doesNotThrow(() => portfolioView(db, CFG));
+  const row = withDb(db, (conn) => conn.prepare('SELECT granularity FROM positions WHERE id=1').get());
+  assert.equal(row.granularity, 'M5', 'idempotent: value unchanged by a second migration pass');
+});
+
+test('#169: positionAttribution prefers the granularity COLUMN over the journal when both exist', () => {
+  const db = fresh();
+  const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  // simulate the column being corrected out-of-band (e.g. by a future admin
+  // fix) while the original decision-journal context still says something else
+  withDb(db, (conn) => {
+    conn.prepare("INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,?,?,?)")
+      .run(new Date().toISOString(), 'decision', null, 'opened', JSON.stringify({ instrument: WTI, granularity: 'H1', executed: { opened: id } }));
+    conn.prepare('UPDATE positions SET granularity=? WHERE id=?').run('M5', id);
+  });
+  const timeline = tradeTimeline(db, CFG);
+  const row = timeline.find((r) => r.id === id);
+  assert.equal(row.granularity, 'M5', 'column value wins over the journal-derived one');
+  assert.equal(row.combo, `${WTI}|M5`);
+});

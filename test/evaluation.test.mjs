@@ -139,6 +139,28 @@ test('positionAttribution (#162) carries instrument/granularity/combo alongside 
   assert.ok(posId > 0);
 });
 
+test('#169: positionAttribution prefers the granularity COLUMN over the journal-derived value', async () => {
+  const db = fresh();
+  const st = await seededBotTrade(db);
+  const [[posId]] = [...positionAttribution(db).entries()];
+  const { withDb } = await import('../scripts/supertrend.mjs');
+  // seededBotTrade() closes the position immediately, so it now lives in
+  // bot_trades (not positions) — update the row that's actually there.
+  withDb(db, (conn) => conn.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=?').run('H1', posId));
+  const attribution = positionAttribution(db);
+  const a = attribution.get(posId);
+  assert.equal(a.granularity, 'H1', 'column wins over the journal context (still M5 there)');
+  assert.equal(a.combo, `${WTI}|H1`);
+  assert.equal(a.strategyId, st.id, 'strategy fields still come from the journal — column is granularity-only');
+});
+
+test('#169: a position with no derivable journal AND no column value stays unattributed (null)', () => {
+  const db = fresh();
+  const id = openPosition(db, botConfig({}), { instrument: WTI, side: 'long', notional: 100, price: 87 });
+  const a = positionAttribution(db).get(id);
+  assert.equal(a, undefined, 'no journal decision row and no column → not present in the attribution map at all');
+});
+
 test('decisionAudit (#162): instrument/granularity filters scope decision rows but never drop halt/reset', async () => {
   const db = fresh();
   await seededBotTrade(db); // decisions on WTI/M5

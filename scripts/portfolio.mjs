@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS bot_trades (
   realized REAL NOT NULL,
   close_reason TEXT NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS bot_journal (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL,
@@ -85,6 +86,18 @@ export function instrumentLeverage(cfg, instrument) {
   return Math.min(chosen, cfg.leverageCap);
 }
 
+// #169: the granularity-column migration (ALTER + one-time backfill) is
+// idempotent but not free — same "run once per db file per process" pattern
+// strategies.mjs uses for its scope columns.
+const granularityMigrated = new Set();
+
+function addColumnIfMissing(db, table, col, ddl) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`); return true; } catch (err) {
+    if (/duplicate column/i.test(String(err?.message))) return false;
+    throw err;
+  }
+}
+
 function pdb(dbPath, cfg, fn) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
@@ -97,11 +110,37 @@ function pdb(dbPath, cfg, fn) {
     } catch (err) {
       if (!/duplicate column/i.test(String(err?.message))) throw err;
     }
+    if (!granularityMigrated.has(dbPath)) {
+      // #169: durable per-position granularity, additive on both tables so
+      // old rows stay NULL ("unattributed") until backfilled below.
+      const addedPositions = addColumnIfMissing(db, 'positions', 'granularity', 'TEXT');
+      const addedTrades = addColumnIfMissing(db, 'bot_trades', 'granularity', 'TEXT');
+      if (addedPositions || addedTrades) backfillGranularity(dbPath, db);
+      granularityMigrated.add(dbPath);
+    }
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
     if (seeded.changes > 0) journal(db, 'init', null, 'portfolio seeded', { startingBalance: cfg.startingBalance });
     return fn(db);
   });
+}
+
+// One-time backfill (plan item 3): derive granularity for pre-#169 rows from
+// the same journal walk positionAttribution() already does, writing only
+// rows that are actually derivable — anything the journal never attributed
+// stays NULL ("unattributed"), same as it was pre-migration. Only ever
+// touches rows WHERE granularity IS NULL, so it is safe to call again (it
+// won't be, given the migrated-once guard above, but crash-safety requires
+// this to be idempotent regardless).
+function backfillGranularity(dbPath, db) {
+  const attribution = positionAttribution(dbPath);
+  const updatePos = db.prepare('UPDATE positions SET granularity=? WHERE id=? AND granularity IS NULL');
+  const updateTrade = db.prepare('UPDATE bot_trades SET granularity=? WHERE position_id=? AND granularity IS NULL');
+  for (const [positionId, a] of attribution) {
+    if (!a.granularity) continue;
+    updatePos.run(a.granularity, positionId);
+    updateTrade.run(a.granularity, positionId);
+  }
 }
 
 function journal(db, action, positionId, reason, context) {
@@ -120,7 +159,7 @@ export function unrealized(pos, mark) {
 
 // --- mutations (module-internal to the bot; never wire to a POST route) -----
 
-export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null } = {}) {
+export function openPosition(dbPath, cfg, { instrument, side, notional, price, stop = null, target = null, reason = null, context = null, granularity = null } = {}) {
   if (typeof instrument !== 'string' || !instrument.trim()) throw new Error('instrument required');
   if (side !== 'long' && side !== 'short') throw new Error('side must be long|short');
   if (!(notional > 0) || !(price > 0)) throw new Error('notional and price must be > 0');
@@ -186,9 +225,9 @@ export function openPosition(dbPath, cfg, { instrument, side, notional, price, s
     db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(cash);
     const now = new Date().toISOString();
     const id = db.prepare(`INSERT INTO positions
-      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark, last_mark_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(instrument, side, effectiveNotional, units, entry, now, leverage, margin, stop, target, price, now).lastInsertRowid;
+      (instrument, side, notional, units, entry_price, entry_time, leverage, margin, stop, target, last_mark, last_mark_at, granularity)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(instrument, side, effectiveNotional, units, entry, now, leverage, margin, stop, target, price, now, granularity).lastInsertRowid;
     journal(db, 'open', id, reason, {
       ...context, side, notional: effectiveNotional, requestedNotional, effectiveNotional, bindingCap, price, entry, spread, leverage, margin,
     });
@@ -209,9 +248,9 @@ function closeInDb(db, cfg, positionId, price, closeReason, context) {
   const p = db.prepare('SELECT * FROM portfolio WHERE id=1').get();
   db.prepare('UPDATE portfolio SET cash=? WHERE id=1').run(p.cash + pos.margin + realized);
   db.prepare(`INSERT INTO bot_trades
-    (position_id, instrument, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(pos.id, pos.instrument, pos.side, pos.notional, pos.units, pos.entry_price, pos.entry_time, price, new Date().toISOString(), pos.leverage, realized, closeReason);
+    (position_id, instrument, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason, granularity)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(pos.id, pos.instrument, pos.side, pos.notional, pos.units, pos.entry_price, pos.entry_time, price, new Date().toISOString(), pos.leverage, realized, closeReason, pos.granularity ?? null);
   db.prepare('DELETE FROM positions WHERE id=?').run(positionId);
   journal(db, 'close', positionId, closeReason, { ...context, price, realized });
   return { positionId, realized, closeReason };

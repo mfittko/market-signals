@@ -8,7 +8,8 @@ import { normCombo } from './bot.mjs';
 function rows(dbPath, sql, args = []) {
   return withDb(dbPath, (db) => {
     try { return db.prepare(sql).all(...args); } catch (err) {
-      if (/no such table/i.test(String(err.message))) return []; // pre-schema db: nothing recorded yet
+      // pre-schema/pre-migration db: table or #169 granularity column absent yet
+      if (/no such (table|column)/i.test(String(err.message))) return [];
       throw err;
     }
   });
@@ -26,27 +27,49 @@ const attributionCache = new Map();
 export function positionAttribution(dbPath) {
   const maxId = rows(dbPath, "SELECT MAX(id) id FROM bot_journal WHERE action='decision'")[0]?.id ?? 0;
   const cached = attributionCache.get(dbPath);
-  if (cached && cached.maxId === maxId) return cached.map;
-  const map = new Map();
-  for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
-    try {
-      const ctx = JSON.parse(j.context);
-      const opened = ctx?.executed?.opened;
-      if (opened) {
-        const instrument = ctx.instrument ?? null;
-        const granularity = ctx.granularity ?? null;
-        map.set(opened, {
-          strategyId: ctx.strategyId ?? null,
-          strategyName: ctx.strategyName ?? null,
-          strategyDbVersion: ctx.strategyDbVersion ?? null,
-          strategyVersion: ctx.strategyVersion ?? null,
-          instrument, granularity,
-          combo: instrument && granularity ? `${instrument}|${granularity}` : null,
-        });
-      }
-    } catch { /* unparseable journal rows are skipped */ }
+  let map;
+  if (cached && cached.maxId === maxId) {
+    map = new Map(cached.map); // shallow copy: column merge below must not mutate the cached journal-only map
+  } else {
+    map = new Map();
+    for (const j of rows(dbPath, "SELECT context FROM bot_journal WHERE action='decision'")) {
+      try {
+        const ctx = JSON.parse(j.context);
+        const opened = ctx?.executed?.opened;
+        if (opened) {
+          const instrument = ctx.instrument ?? null;
+          const granularity = ctx.granularity ?? null;
+          map.set(opened, {
+            strategyId: ctx.strategyId ?? null,
+            strategyName: ctx.strategyName ?? null,
+            strategyDbVersion: ctx.strategyDbVersion ?? null,
+            strategyVersion: ctx.strategyVersion ?? null,
+            instrument, granularity,
+            combo: instrument && granularity ? `${instrument}|${granularity}` : null,
+          });
+        }
+      } catch { /* unparseable journal rows are skipped */ }
+    }
+    attributionCache.set(dbPath, { maxId, map });
+    map = new Map(map);
   }
-  attributionCache.set(dbPath, { maxId, map });
+  // #169: the granularity COLUMN (stamped at open, copied at close, backfilled
+  // once from this same journal walk for pre-#169 rows) is preferred over the
+  // journal-derived value when present — it survives even when the decision
+  // journal context never carried granularity (legacy rows). Queried fresh
+  // every call (cheap, indexed by rowid) rather than cached, since the column
+  // can change independently of the decision journal (open/close/backfill).
+  const columnRows = [
+    ...rows(dbPath, "SELECT id, instrument, granularity FROM positions WHERE granularity IS NOT NULL"),
+    ...rows(dbPath, "SELECT position_id AS id, instrument, granularity FROM bot_trades WHERE granularity IS NOT NULL"),
+  ];
+  for (const r of columnRows) {
+    const existing = map.get(r.id) ?? {};
+    map.set(r.id, {
+      ...existing, instrument: r.instrument, granularity: r.granularity,
+      combo: `${r.instrument}|${r.granularity}`,
+    });
+  }
   return map;
 }
 
