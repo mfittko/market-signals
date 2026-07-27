@@ -153,9 +153,10 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
             // display:none at every width regardless of the click.
             const before = await p.evaluate(() => {
               const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
-              return { hidden: detail.hidden, visible: getComputedStyle(detail).display !== 'none', text: detail.textContent.trim() };
+              return { hidden: detail.hidden, rects: detail.getClientRects().length, text: detail.textContent.trim() };
             });
             assert.equal(before.hidden, true, 'detail row starts hidden');
+            assert.equal(before.rects, 0, 'collapsed detail row is truly not rendered (no client rects)');
             await p.evaluate(() => document.querySelector('#hist .rowExpandBtn').click());
             await p.waitForTimeout(100);
             const after = await p.evaluate(() => {
