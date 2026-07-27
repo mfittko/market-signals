@@ -197,19 +197,18 @@ test('#163: an absent instrument goes stale once its own last mark ages past the
   assert.equal(r2.positions[0].stale, false, 'a real quote clears the age-based flag too');
 });
 
-test('#163 review: legacy NULL last_mark_at is backfilled (to now), not left as instant-stale Infinity age', () => {
+test('#163 review: legacy NULL last_mark_at reads as fresh (age 0), not instant-stale Infinity age', () => {
   const db = fresh();
   const cfg = botConfig({ bot: { riskPct: 10, leverage: { [WTI]: 10 }, staleAfterMs: 50 } });
   const id = openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
   // Simulate a pre-#163 row: last_mark_at was never set.
   withDb(db, (dbc) => dbc.prepare('UPDATE positions SET last_mark_at=NULL WHERE id=?').run(id));
-  // Any subsequent access through pdb() (markToMarket here) re-runs the
-  // migration path, which backfills NULL last_mark_at rows to "now" instead
-  // of leaving them to read as Infinity age.
-  const r = markToMarket(db, cfg, {}); // absent-instrument path, would have gone stale on Infinity age
-  assert.equal(r.positions[0].stale, false, 'legacy NULL row is backfilled to now, not instantly stale');
+  // The absent-instrument path in markToMarket() treats a NULL last_mark_at
+  // as age 0 (not Infinity) — it gets stamped on the next successful mark.
+  const r = markToMarket(db, cfg, {}); // absent-instrument path
+  assert.equal(r.positions[0].stale, false, 'legacy NULL row reads as fresh, not instantly stale');
   const row = withDb(db, (dbc) => dbc.prepare('SELECT last_mark_at FROM positions WHERE id=?').get(id));
-  assert.ok(row.last_mark_at, 'last_mark_at backfilled to a real timestamp');
+  assert.equal(row.last_mark_at, null, 'last_mark_at stays NULL until a real quote marks it');
 });
 
 test('#163: realizedTotal sums ALL bot_trades (beyond the 50-row trades slice); dayPnl = today-closed realized + current unrealized', () => {
@@ -260,17 +259,16 @@ test('#163 review: dayPnl compares close_time and now on the SAME (local) basis,
   }
 });
 
-test('#163: portfolioView carries entry_time_local on positions and opened/closed local strings on trades', () => {
+test('#163: portfolioView exposes one server tz (the client formats every timestamp with it, not a per-row *_local field)', () => {
   const db = fresh();
   const id = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
   closePosition(db, CFG, id, 88, 'bot-close');
-  const openId = openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
+  openPosition(db, CFG, { instrument: WTI, side: 'long', notional: 1000, price: 87 });
   const v = portfolioView(db, CFG);
-  const pos = v.positions.find((p) => p.id === openId);
-  assert.equal(typeof pos.entry_time_local, 'string');
-  assert.ok(pos.entry_time_local.length > 0);
-  assert.equal(typeof v.trades[0].entry_time_local, 'string');
-  assert.equal(typeof v.trades[0].close_time_local, 'string');
+  assert.equal(typeof v.tz, 'string');
+  assert.ok(v.tz.length > 0);
+  assert.equal(v.positions.find((p) => p.entry_time_local), undefined, 'no per-row *_local field on positions');
+  assert.equal(v.trades.find((t) => t.entry_time_local || t.close_time_local), undefined, 'no per-row *_local field on trades');
 });
 
 test('invariant: equity == starting + Σrealized + Σunrealized over random sequences', () => {

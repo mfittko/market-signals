@@ -573,7 +573,7 @@ export async function llmChat(settings, system, user, { onDelta = null, toolDefs
 
 // Watcher runs on the trader's machine: state times in the machine's local
 // zone so filter reasons and notifications match the chart axis (#34).
-const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+export const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 // The one encoding of "trader-local time" for LLM transmission (#34): HH:MM for
 // candles, DD/MM HH:MM for signals. Server passes the browser tz; watcher the
 // machine tz. Invalid tz falls back to UTC.

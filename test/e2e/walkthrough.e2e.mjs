@@ -43,6 +43,15 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
   const base = `http://127.0.0.1:${server.address().port}`;
   let browser;
   try {
+    // #163: DoD — the two read-only server-truth surfaces respond over HTTP.
+    const health = await (await fetch(base + '/api/health')).json();
+    assert.equal(health.ok, true);
+    assert.equal(health.halted, false);
+    assert.ok(Array.isArray(health.feed));
+    const trades = await (await fetch(base + '/api/trades')).json();
+    assert.equal(trades.ok, true);
+    assert.ok(Array.isArray(trades.trades));
+
     // seed a filter draft so the gates modal has drafts content
     const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
     assert.equal(seed.status, 200, 'gate-draft seed request succeeded');

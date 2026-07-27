@@ -5,7 +5,7 @@
 // notional; margin = notional / leverage; fixed per-instrument spread is paid
 // once on entry.
 import { readFileSync } from 'node:fs';
-import { withDb, localFull } from './supertrend.mjs';
+import { withDb, LOCAL_TZ } from './supertrend.mjs';
 import { positionAttribution } from './evaluation.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS portfolio (
@@ -94,18 +94,8 @@ function pdb(dbPath, cfg, fn) {
     // try/catch-duplicate-column pattern as chatDb's migration in signal-server.
     try {
       db.exec('ALTER TABLE positions ADD COLUMN last_mark_at TEXT');
-      // Fresh column: nothing has ever been marked, so there is no legacy row
-      // to backfill (new/existing positions all pick up last_mark_at on their
-      // next markToMarket).
     } catch (err) {
       if (!/duplicate column/i.test(String(err?.message))) throw err;
-      // Column already existed — this may be a pre-#163 DB with legacy
-      // positions whose last_mark_at was never set. Backfilling NULLs to now
-      // (once) avoids the absent-instrument path treating their age as
-      // Infinity and instantly flagging them stale; age-based staleness then
-      // starts counting from this migration/first-run point going forward.
-      db.prepare("UPDATE positions SET last_mark_at=? WHERE last_mark_at IS NULL")
-        .run(new Date().toISOString());
     }
     const seeded = db.prepare('INSERT OR IGNORE INTO portfolio (id, starting_balance, cash, created_at) VALUES (1,?,?,?)')
       .run(cfg.startingBalance, cfg.startingBalance, new Date().toISOString());
@@ -236,7 +226,9 @@ function closeInDb(db, cfg, positionId, price, closeReason, context) {
 // once its last mark is older than the threshold — an instrument that stops
 // being watched entirely must not look perpetually fresh (#163).
 export function markToMarket(dbPath, cfg, quotes = {}) {
-  const staleAfterMs = Number.isFinite(cfg.staleAfterMs) && cfg.staleAfterMs > 0 ? cfg.staleAfterMs : BOT_DEFAULTS.staleAfterMs;
+  // botConfig() already filters/validates against BOT_DEFAULTS, so cfg.staleAfterMs
+  // is always a valid positive number here — no need to re-validate.
+  const { staleAfterMs } = cfg;
   return pdb(dbPath, cfg, (db) => {
     const closed = [];
     const now = new Date().toISOString();
@@ -248,7 +240,10 @@ export function markToMarket(dbPath, cfg, quotes = {}) {
         // usable path below; an absent instrument stays untouched unless its
         // mark has aged past the threshold (#163), same "leave it alone"
         // contract #151 relies on for the common per-combo-run case.
-        const ageMs = pos.last_mark_at ? Date.now() - Date.parse(pos.last_mark_at) : Infinity;
+        // No last_mark_at yet (legacy row, or never marked) → treat as fresh
+        // (age 0): it gets stamped on the next successful mark rather than
+        // being instantly flagged stale.
+        const ageMs = pos.last_mark_at ? Date.now() - Date.parse(pos.last_mark_at) : 0;
         if (ageMs > staleAfterMs && !pos.stale) {
           db.prepare('UPDATE positions SET stale=1 WHERE id=?').run(pos.id);
         }
@@ -294,9 +289,6 @@ function viewInDb(db) {
       (SELECT reason FROM bot_journal j WHERE j.position_id = p.id AND j.action = 'open' ORDER BY j.id LIMIT 1) AS reason
     FROM positions p ORDER BY p.id`).all().map((pos) => ({
     ...pos, unrealized: unrealized(pos, pos.last_mark), stale: !!pos.stale,
-    // #163: server-formatted trader-local execution time alongside the ISO
-    // entry_time — one timestamp pipeline instead of app.html reformatting.
-    entry_time_local: localFull(pos.entry_time),
   }));
   const marginLocked = positions.reduce((s, x) => s + x.margin, 0);
   const unreal = positions.reduce((s, x) => s + x.unrealized, 0);
@@ -314,9 +306,7 @@ function viewInDb(db) {
 export function portfolioView(dbPath, cfg) {
   return pdb(dbPath, cfg, (db) => {
     const view = viewInDb(db);
-    const trades = db.prepare(TRADES_QUERY).all(50).map((t) => ({
-      ...t, entry_time_local: localFull(t.entry_time), close_time_local: localFull(t.close_time),
-    }));
+    const trades = db.prepare(TRADES_QUERY).all(50);
     // #163: realizedTotal is SUM(realized) over ALL bot_trades — the 50-row
     // TRADES_QUERY slice above is display-only and would silently undercount
     // once a bot has traded more than 50 times.
@@ -334,6 +324,10 @@ export function portfolioView(dbPath, cfg) {
       realizedTotal,
       dayPnl,
       journal: db.prepare('SELECT * FROM bot_journal ORDER BY id DESC LIMIT 50').all(),
+      // #163: the one tz pipeline — server exposes its trader timezone once;
+      // every client-rendered timestamp formats with `timeZone: tz` instead
+      // of a server-formatted *_local field per row.
+      tz: LOCAL_TZ,
     };
   });
 }

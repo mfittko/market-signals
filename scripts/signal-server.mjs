@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, botTrades, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSettingOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
@@ -54,7 +54,7 @@ const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'not
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
-const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots', 'staleAfterMs'];
+const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
 const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'sttOpenaiKey'];
 const MASK = '•••';
@@ -252,18 +252,16 @@ export const LIVE_TAIL_GATE_MS = 8000;
 
 // #163: GET /api/chart must be side-effect-free — the DB writes that used to
 // run synchronously inside the GET (persisting newly-completed live candles,
-// backfilling historical flips into `signals`) now run via this debounced
-// fire-and-forget task instead, guarded by an in-flight set so two requests
-// for the same combo can never race a duplicate write. The forming-candle
-// READ path (fetcher() + the in-memory lastLiveFetch cache) is untouched —
-// that's an upstream HTTP read, not a local mutation, so chart freshness is
-// unaffected; only the persistence of what it read is deferred.
-const acquisitionInFlight = new Set();
+// backfilling historical flips into `signals`) now run via this deferred
+// fire-and-forget task instead. The setImmediate body is fully synchronous
+// (no awaits inside), so two requests for the same combo can never interleave
+// mid-write — no in-flight tracking needed. The forming-candle READ path
+// (fetcher() + the in-memory lastLiveFetch cache) is untouched — that's an
+// upstream HTTP read, not a local mutation, so chart freshness is unaffected;
+// only the persistence of what it read is deferred.
 function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
   if (!complete.length && !flips.length) return;
   const key = `${dbPath}|${instrument}|${granularity}`;
-  if (acquisitionInFlight.has(key)) return;
-  acquisitionInFlight.add(key);
   setImmediate(() => {
     try {
       if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
@@ -286,8 +284,6 @@ function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
       // (storeCandles/recordSignal/SQL) must never surface as an unhandled
       // rejection/exception that would crash the process. Log and move on.
       console.error(`[chart] deferred acquisition failed for ${key}:`, err?.message || err);
-    } finally {
-      acquisitionInFlight.delete(key);
     }
   });
 }
@@ -323,7 +319,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
     tailFetchedAt = gate.tail ? gate.at : null;
   }
-  const { candles, recent } = withDb(dbPath, (db) => {
+  let { candles, recent } = withDb(dbPath, (db) => {
     let windowed;
     if (t) {
       // Deep-link window: context before the signal, then everything through
@@ -343,6 +339,18 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
       .all(instrument, granularity, dayBars).reverse();
     return { candles: windowed, recent };
   });
+  // #163: candles fetched this call (pendingComplete) persist asynchronously
+  // below, so the DB read above can miss them on a first request after
+  // downtime (gappy chart). Merge them into the in-memory response now —
+  // dedupe by time, freshly-fetched wins — while persistence stays deferred.
+  const mergeFetched = (rows) => {
+    if (!pendingComplete.length) return rows;
+    const byTime = new Map(rows.map((c) => [c.time, c]));
+    for (const c of pendingComplete) byTime.set(c.time, c);
+    return [...byTime.values()].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  };
+  candles = mergeFetched(candles);
+  recent = mergeFetched(recent);
   let supertrend = [];
   let flips = [];
   if (candles.length >= 15) {
@@ -385,10 +393,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   const quote = buildQuote(recent);
   if (quote) {
-    // #163: overwrite the granularity-scoped 24h% with the fixed-resolution
-    // one; only when the fixed-res series has enough data (fresh db / new
-    // instrument) does it fall back to the granularity-scoped value above.
-    const fixed = fixedResChange24hPct(dbPath, instrument);
+    const fixed = change24hPct(dbPath, instrument, liveTail);
     if (fixed != null) quote.change24hPct = fixed;
   }
   if (quote && liveTail) { quote.partial = true; quote.fetchedAt = tailFetchedAt; }
@@ -718,12 +723,16 @@ async function gatesInfo(dbPath) {
 
 // Current course info from the latest stored candles (at most one candle stale).
 // #163: the header's "24h" stat must read the same regardless of which
-// granularity the chart happens to be displaying — computed from a fixed
-// resolution (M5) candle series for the instrument rather than `recent`
-// (which is scoped to the VIEWED granularity and so shifted the number when
-// the trader switched granularity). Falls back to whatever granularity is
-// actually stored for this instrument when M5 isn't.
-function fixedResChange24hPct(dbPath, instrument) {
+// granularity the chart happens to be displaying — base is the stored fixed
+// resolution (M5-preferred) close nearest to (now - 24h), bounded so a stale/
+// gappy series can't silently report a wildly-off window; numerator is the
+// live tail's close when this call fetched one (else the fixed-res series'
+// own latest close) — never the viewed granularity's `recent` window, which
+// is what caused the old mismatch. One definition, no dead granularity-scoped
+// path (buildQuote's own naive change24hPct is a stale-db fallback only).
+// Falls back to whatever granularity is actually stored when M5 isn't.
+const CHANGE_24H_SANITY_MS = 26 * 3600000; // base candle must be within ~26h of now
+function change24hPct(dbPath, instrument, liveTail) {
   return withDb(dbPath, (db) => {
     const hasM5 = db.prepare('SELECT 1 FROM candles WHERE instrument=? AND granularity=? LIMIT 1').get(instrument, 'M5');
     let gran = 'M5';
@@ -732,11 +741,20 @@ function fixedResChange24hPct(dbPath, instrument) {
       if (!row) return null;
       gran = row.granularity;
     }
-    const dayBars = Math.ceil(86400000 / granularityMs(gran));
-    const rows = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
-      .all(instrument, gran, dayBars).reverse();
-    if (rows.length < 2 || !(rows[0].close > 0)) return null;
-    return Number(((rows[rows.length - 1].close - rows[0].close) / rows[0].close * 100).toFixed(2));
+    const lastRow = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, gran);
+    const lastPrice = liveTail?.close > 0 ? liveTail.close : lastRow?.close;
+    if (!(lastPrice > 0)) return null;
+    const targetIso = new Date(Date.now() - 86400000).toISOString();
+    const before = db.prepare('SELECT close, time FROM candles WHERE instrument=? AND granularity=? AND time <= ? ORDER BY time DESC LIMIT 1')
+      .get(instrument, gran, targetIso);
+    const after = db.prepare('SELECT close, time FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time ASC LIMIT 1')
+      .get(instrument, gran, targetIso);
+    const targetMs = Date.parse(targetIso);
+    const dist = (row) => Math.abs(Date.parse(row.time) - targetMs);
+    const base = !before ? after : !after ? before : (dist(before) <= dist(after) ? before : after);
+    if (!base || !(base.close > 0)) return null;
+    if (Date.now() - Date.parse(base.time) > CHANGE_24H_SANITY_MS) return null;
+    return Number(((lastPrice - base.close) / base.close * 100).toFixed(2));
   });
 }
 
@@ -758,6 +776,8 @@ function buildQuote(recent) {
     last: last.close,
     time: last.time,
     change1hPct: pct(at(60)),
+    // naive fallback, overwritten by change24hPct() below when the
+    // fixed-res series has usable (sanity-bounded) data for this instrument
     change24hPct: pct(recent[0]),
     dayHigh: Math.max(...day.map((c) => c.high)),
     dayLow: Math.min(...day.map((c) => c.low)),
@@ -885,6 +905,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
         const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
         data.activeInd = effectiveInd;
+        // #163: the one tz pipeline — the trader tz, so the client can format
+        // every timestamp (signals, audit, candles) with `timeZone: tz`.
+        data.tz = LOCAL_TZ;
         data.info = cfg.info === true; // #57: persisted globally, same pattern as ind
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);

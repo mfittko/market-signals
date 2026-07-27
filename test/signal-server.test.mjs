@@ -1399,6 +1399,19 @@ test('#163 review: a failing deferred chart acquisition (setImmediate) is caught
   }
 });
 
+test('#163: a live fetch\'s newly-COMPLETE candles are in the response candles array before the deferred write lands (no gap)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir);
+  // one brand-new complete candle the DB has never seen, plus a forming tail
+  const fresh = series([202, 203], Date.now() - 600000).map((c) => ({ ...c, complete: true }));
+  fresh[1] = { ...fresh[1], complete: false };
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: async () => fresh });
+  assert.ok(d.candles.some((c) => c.time === fresh[0].time && c.close === 202), 'the newly-fetched complete candle is already in the response');
+  // and it is NOT yet in the DB — persistence is still deferred
+  const stillNotPersisted = withDb(dbPath, (d2) => d2.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? AND time=?').get(INSTRUMENT, 'M5', fresh[0].time));
+  assert.equal(stillNotPersisted, undefined, 'the deferred write has not run yet — merge is in-memory only');
+});
+
 test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summaries — read-only', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, settingsPath }) => {
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watchers: `${INSTRUMENT}|M5` }) });
