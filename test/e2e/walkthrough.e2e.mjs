@@ -160,6 +160,15 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
+          // ad-hoc route with '/' in the instrument: %2F must not act as a path separator
+          const [adhocReq] = await Promise.all([
+            p.waitForResponse((r) => r.url().includes('/api/chart') && r.url().includes('granularity=M5')),
+            p.evaluate(() => { location.hash = '#chart/' + encodeURIComponent('WTICO/USD') + '/M5'; }),
+          ]);
+          assert.equal(adhocReq.ok(), true, '#chart hash navigation triggers a chart fetch');
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#chart/<inst>/<gran> parsed the encoded instrument whole');
+          assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M5', '#chart/<inst>/<gran> parsed the granularity');
           // signal history "load 10 more": clicking must actually run (regression
           // for a call site that dropped the view arg → a TypeError on click).
           const moreShown = await p.evaluate(() => { const b = document.getElementById('histMore'); return b && !b.hidden; });

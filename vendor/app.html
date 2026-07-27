@@ -976,7 +976,8 @@ function navigateToCombo(inst, gran, adhoc) {
 function comboFromHash() {
   const h = location.hash;
   if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return i && g ? { inst: i, gran: g, adhoc: false } : null; }
-  if (h.startsWith('#chart/')) { const [i, g] = decodeURIComponent(h.slice(7)).split('/'); return i && g ? { inst: i, gran: g, adhoc: true } : null; }
+  // split BEFORE decoding: encoded instruments contain %2F which must not act as a separator
+  if (h.startsWith('#chart/')) { const [i, g] = h.slice(7).split('/').map((x) => decodeURIComponent(x)); return i && g ? { inst: i, gran: g, adhoc: true } : null; }
   return null;
 }
 window.addEventListener('hashchange', () => {
