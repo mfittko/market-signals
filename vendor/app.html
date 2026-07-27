@@ -60,8 +60,6 @@
   #pfSpark[hidden] { display: none; }
   .sparkbox { border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; }
   .sparklegend { font-size: 11px; opacity: .75; margin-top: 2px; }
-  .pfcard { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
-  .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
   /* #166: canonical trade rows — the ONLY place a position renders as a row. */
   .traderow { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
   .traderow .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
@@ -70,16 +68,16 @@
   .badge-blue { color: #58a6ff; } .badge-gray { color: #8b949e; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs, #bmTabs, #cfgTabs, #gatesTabs, #wsTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
-  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #wsTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on, #gatesTabs button.on, #wsTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, .bmtabs, #cfgTabs, #gatesTabs, #wsTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button, #wsTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, .bmtabs button.on, #cfgTabs button.on, #gatesTabs button.on, #wsTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   /* a11y (#126): a consistent high-contrast keyboard focus ring on every
      interactive control (native rings still apply; this makes it uniform). */
   a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid #58a6ff; outline-offset: 2px; }
   /* a11y (#126): keep the smaller chip/row buttons at/above the 24px min target.
      Topbar + dialog controls are already 30px (see #topbar rule below). */
-  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #wsTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
+  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button, #wsTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
   /* a11y (#126): honor reduced-motion — drop the hover/state transitions. */
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
   /* #108: panels use display:contents so their label/input pairs join the form's
@@ -147,7 +145,7 @@
   #botdlg select, #botdlg input[type=number], #botdlg input[type=text], #botdlg textarea { width: 100%; }
   #botdlg #bmEditPrompt { min-height: 200px; } #botdlg #bmEditSpec { min-height: 66px; }
   .botwarn { color: #d29922; font-size: 12px; }
-  #bmVersions { max-height: 160px; overflow-y: auto; }
+  .bmversions { max-height: 160px; overflow-y: auto; }
   #memAddRow { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; }
   #memAddRow input[type=text] { flex: 1 1 160px; min-width: 0; }
   .memrow { border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; }
@@ -206,10 +204,10 @@
   :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
   /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
-  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #wsTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, .bmtabs button:not(.on):hover, #wsTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   /* destructive: red text, no fill on every state */
-  #bmRemove { float: right; color: #f85149; background: none; border: 0; }
-  #bmRemove:hover, #bmRemove:active { background: none; color: #ff7b72; }
+  .bmremove { float: right; color: #f85149; background: none; border: 0; }
+  .bmremove:hover, .bmremove:active { background: none; color: #ff7b72; }
   #saved { color: #3fb950; margin-left: 8px; }
   #watchBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 15px; }
   #cfgbtn, #chatToggle { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
@@ -348,7 +346,7 @@ const INFO = {
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
   bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy — won\'t trade (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
-  portfolio: 'Virtual trading portfolio: positions, trades, performance, and audit.',
+  portfolio: 'Virtual trading portfolio ledger: equity · all trades · scoreboard · audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
   macd: 'MACD: trend and momentum oscillator (fast EMA minus slow EMA, with a signal line).',
@@ -409,7 +407,7 @@ async function load() {
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
-  wsRefresh({ instrument: d.instrument, granularity: d.granularity });
+  wsRefresh({ instrument: d.instrument, granularity: d.granularity }, { fromTick: true });
 }
 // #166: workspace tab strip ([tape][trades][tuning]) scoped to the focused
 // combo — tape is the pre-existing signal-history block (default), trades is
@@ -417,16 +415,30 @@ async function load() {
 let wsActiveTab = 'tape';
 let wsView = { instrument: null, granularity: null };
 async function wsRenderActive() {
+  // #166 review fix: the trades tab can be clicked before the first chart
+  // load sets wsView (instrument still null) — defer with a loading note
+  // rather than fetching /api/trades?instrument=null.
+  if (!wsView.instrument) {
+    if (wsActiveTab === 'trades') document.getElementById('wsTradesRows').innerHTML = '<div class="traderow">loading…</div>';
+    else if (wsActiveTab === 'tuning') document.getElementById('ws-tuning').innerHTML = '<p><small>loading…</small></p>';
+    return;
+  }
   if (wsActiveTab === 'trades') {
     const trades = await fetchTrades({ instrument: wsView.instrument, granularity: wsView.granularity, limit: 500 });
     renderTrades(document.getElementById('wsTradesHead'), document.getElementById('wsTradesRows'), trades, { showInstrument: false });
   } else if (wsActiveTab === 'tuning') {
-    await renderTuningTab();
+    await renderTuningTab(wsView.instrument, wsView.granularity);
   }
 }
-function wsRefresh(view) {
+function wsRefresh(view, { fromTick } = {}) {
+  // #166 review fix: the 60s load() tick used to call this unconditionally,
+  // remounting the tuning tab (clobbering in-progress edits) and re-rendering
+  // trades on every tick. On a tick with no combo change, skip the re-mount —
+  // activation (wsTabs click) and an actual combo change still refresh.
+  const sameCombo = view.instrument === wsView.instrument && view.granularity === wsView.granularity;
   wsView = view;
   for (const name of ['tape', 'trades', 'tuning']) document.getElementById('ws-' + name).hidden = name !== wsActiveTab;
+  if (fromTick && sameCombo) return;
   wsRenderActive().catch(() => {});
 }
 document.getElementById('wsTabs').addEventListener('click', (e) => {
@@ -495,13 +507,21 @@ function tradeRowHtml(t, { showInstrument } = {}) {
       (t.openReason ? '<details><summary>why? ▸</summary><div class="why">' + md(t.openReason) + '</div></details>' : '') +
       '</div>';
   }
-  const heldMin = t.ageMin;
-  const held = heldMin < 90 ? heldMin + 'm' : (heldMin / 60).toFixed(1) + 'h';
+  const held = humanDuration(t.ageMin);
   const reasonCls = CLOSE_REASON_CLS[t.closeReason] || 'badge-gray';
+  // #166 AC: closed rows get the same [why? ▸] as open ones (entry reason +
+  // close reason) plus a chart link back to the combo — news links are #171
+  // scope, not faked here.
+  const chartLink = t.combo ? ' · <a href="#bot/' + encodeURIComponent(t.combo) + '">chart →</a>' : '';
+  const why = (t.openReason || t.closeReason)
+    ? '<details><summary>why? ▸</summary><div class="why">' + (t.openReason ? md(t.openReason) : '') +
+      (t.closeReason ? '<p>closed: ' + esc(t.closeReason) + '</p>' : '') + '</div></details>'
+    : '';
   return '<div class="traderow"><b>✕ CLOSED</b> ' + head + '<br>' + entry + ' → exit ' + esc(t.mark) + ' <span title="execution time">' + esc(localFull(t.exitTime)) + '</span>' +
     ' · held ' + esc(held) +
     ' <span class="' + pnlCls(t.pnl) + '">' + esc(money(t.pnl)) + (t.pnlPct != null ? ' (' + esc(money(t.pnlPct)) + '%)' : '') + '</span>' +
-    (t.closeReason ? ' <span class="' + reasonCls + '">' + esc(t.closeReason) + '</span>' : '') +
+    (t.closeReason ? ' <span class="' + reasonCls + '">' + esc(t.closeReason) + '</span>' : '') + chartLink +
+    why +
     '</div>';
 }
 function tradesHeader(trades) {
@@ -578,7 +598,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   let activeTab = 'setup';
   container.innerHTML =
-    '<div id="' + bid(prefix, 'Tabs') + '"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
+    '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
     '<div id="' + bid(prefix, '-setup') + '"></div><div id="' + bid(prefix, '-strategy') + '" hidden></div>';
   let modalState = isViewedCombo() ? botStateCache : null;
   const refreshModalState = async () => {
@@ -612,8 +632,8 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
   await paint();
 }
 async function openBotModal(instArg, granArg) {
-  // #165: the rail row's configure (⚙) affordance opens this for ITS combo;
-  // the ad-hoc 🤖 button (in chart-without-a-bot mode) still uses the current view.
+  // #165: the rail row's configure (⚙) affordance opens this for ITS combo,
+  // falling back to the current view when called with no args.
   const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
   const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
@@ -622,9 +642,9 @@ async function openBotModal(instArg, granArg) {
   document.getElementById('botdlg').showModal();
 }
 // tuning workspace tab (#166): the modal content inlined for the focused combo.
-async function renderTuningTab() {
-  const inst = qs.get('instrument') || document.getElementById('instSel').value;
-  const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+// wsView is the single source of truth for the focused combo — no re-reading
+// qs/selects here (they can be stale mid-navigation).
+async function renderTuningTab(inst, gran) {
   await mountBotConfig('ws-tuning', inst, gran, 'wsbm');
 }
 function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
@@ -641,7 +661,7 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
     '<details><summary>advanced</summary><label for="' + bid(p, 'Kill') + '" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="' + bid(p, 'Kill') + '" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
     '<div id="' + bid(p, 'Status') + '"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
-    '<p><button type="button" id="' + bid(p, 'ToPf') + '">View in portfolio →</button> <span id="' + bid(p, 'Saved') + '">' + esc(savedMsg || '') + '</span> <button type="button" id="' + bid(p, 'Remove') + '">remove bot</button></p>';
+    '<p><button type="button" id="' + bid(p, 'ToPf') + '">View in portfolio →</button> <span id="' + bid(p, 'Saved') + '">' + esc(savedMsg || '') + '</span> <button type="button" id="' + bid(p, 'Remove') + '" class="bmremove">remove bot</button></p>';
   document.getElementById(bid(p, 'Enabled')).onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById(bid(p, 'Risk')).onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   document.getElementById(bid(p, 'Alloc')).onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -708,7 +728,7 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
     // review fix: an already-active version needs its own assign-only path
     // (bmAssign) — bmActivate stays hidden for it since there's nothing to
     // activate, but "assign the active version" must still be reachable.
-    (editRows.length ? '<div id="' + bid(p, 'Versions') + '">' + editRows.map((v) =>
+    (editRows.length ? '<div id="' + bid(p, 'Versions') + '" class="bmversions">' + editRows.map((v) =>
       '<div class="botrow" data-id="' + v.id + '"><span>v' + v.version + ' · ' + esc(v.created_by) + (v.active ? ' · <b>active</b>' : '') + '</span>' +
       (v.active
         ? (v.name === current ? '' : '<button type="button" class="bmAssign">assign</button>')
@@ -1041,8 +1061,10 @@ function botRailStatus(b) {
   if (b.openPnl != null) return { glyph: '●', word: 'in position', cls: 'pos' };
   return { glyph: '●', word: 'armed', cls: 'armed' };
 }
-// shared by the rail row age and the quote strip's "updated" line
-function humanAge(m) { return m < 90 ? Math.round(m) + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago'; }
+// shared by the rail row age, the quote strip's "updated" line, and the
+// trade rows' held-duration (suffix '' there, ' ago' elsewhere)
+function humanAge(m, suffix = ' ago') { return m < 90 ? Math.round(m) + 'm' + suffix : m < 1440 ? Math.floor(m / 60) + 'h' + suffix : Math.floor(m / 1440) + 'd' + suffix; }
+const humanDuration = (m) => humanAge(m, '');
 // #166: real health signal — a feed entry more than 3x its own granularity
 // behind is a data problem, not a decision-recency one.
 function feedWarnSec(b) {
@@ -1150,8 +1172,6 @@ function quoteStrip(q) {
   const pc = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + v + '%';
   const cls = (v) => v == null || v >= 0 ? 'buy' : 'sell';
   const ageMin = Math.max(0, Math.round((Date.now() - Date.parse(q.time)) / 60000));
-  // #126: humanize staleness past ~90 min (raw minutes get hard to read)
-  const humanAge = (m) => m < 90 ? m + 'm ago' : m < 1440 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago';
   const st = q.supertrend;
   const box = (label, html, key) => '<div' + (key ? ' data-info="' + esc(INFO[key]) + '"' : '') + '><small>' + label + '</small><b>' + html + '</b></div>';
   el.innerHTML =

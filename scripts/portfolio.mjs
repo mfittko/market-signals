@@ -376,6 +376,10 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
     const closedBudget = state === 'open' ? 0 : Math.max(0, limit - openRows.length);
     const closedRows = [];
     if (closedBudget > 0) {
+      // #166 AC: closed rows get the same [why? ▸] as open ones — one
+      // prepared statement reused per row (no N+1 query *planning*), same
+      // bot_journal open-row lookup keyed by position_id as openRows above.
+      const openReasonStmt = db.prepare("SELECT reason FROM bot_journal WHERE position_id=? AND action='open' ORDER BY id LIMIT 1");
       const stmt = instrument
         ? db.prepare('SELECT * FROM bot_trades WHERE instrument=? ORDER BY id DESC').iterate(instrument)
         : db.prepare('SELECT * FROM bot_trades ORDER BY id DESC').iterate();
@@ -399,7 +403,7 @@ export function tradeTimeline(dbPath, cfg, { instrument = null, granularity = nu
           margin, entryPrice: t.entry_price, entryTime: t.entry_time,
           mark: t.close_price, exitTime: t.close_time, stop: null, target: null,
           pnl: t.realized, pnlPct: margin > 0 ? Math.round((t.realized / margin) * 10000) / 100 : null, stale: false, closeReason: t.close_reason,
-          openReason: null, ageMin: closedAgeMin(t.entry_time, t.close_time),
+          openReason: openReasonStmt.get(t.position_id)?.reason ?? null, ageMin: closedAgeMin(t.entry_time, t.close_time),
         });
       }
     }

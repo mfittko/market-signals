@@ -614,8 +614,10 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
     assert.ok(html.includes('chat-collapsed'), 'collapse class wired');
     assert.ok(/<div id="app" class="chat-collapsed"/.test(html), 'app ships collapsed in markup (no first-paint flash of the empty column)');
     assert.ok(html.includes("localStorage.getItem('chatOpen') === '1'"), 'chat collapsed by default (open is opt-in)');
-    // staleness humanized past ~90 min
-    assert.ok(html.includes("'h ago'") && html.includes("'d ago'"), 'staleness humanized to hours/days');
+    // staleness humanized past ~90 min (shared humanAge helper, #166: h/d units
+    // are now built from a suffix param rather than literal 'h ago'/'d ago')
+    assert.ok(/function humanAge\(m, suffix/.test(html), 'shared humanAge helper present');
+    assert.ok(html.includes("m < 1440 ? Math.floor(m / 60) + 'h' + suffix"), 'staleness humanized to hours/days');
   });
 });
 
@@ -1548,7 +1550,7 @@ test('gates modal is tabbed, one tab per gate (#117)', async () => {
     const page = await (await fetch(base + '/')).text();
     // a dedicated gates tab bar exists and shares the modal tab-bar styling
     assert.ok(page.includes('id="gatesTabs"'), 'gates tab bar element present');
-    assert.ok(page.includes('#pfTabs, #bmTabs, #cfgTabs, #gatesTabs'), 'gates tabs reuse the shared tab styling');
+    assert.ok(page.includes('#pfTabs, .bmtabs, #cfgTabs, #gatesTabs'), 'gates tabs reuse the shared tab styling');
     // one tab per gate, last tab remembered, rendered as .gatepanel tab panels
     assert.match(page, /GATE_ORDER = \['filter', 'recheck', 'bot', 'chat'\]/, 'one tab per gate in fixed order');
     assert.ok(page.includes("localStorage.getItem('gatesTab')") && page.includes("localStorage.setItem('gatesTab'"), 'last gates tab remembered');
