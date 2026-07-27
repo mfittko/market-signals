@@ -1004,12 +1004,16 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
-    assert.ok(html.includes('id="bm-setup"') && html.includes('id="bm-strategy"'), 'both tab bodies present');
-    assert.match(html, /bmStratSel/, 'scope-filtered strategy assignment select present');
-    assert.match(html, /bmShowAll/, '"show all" scope-escape checkbox present');
+    // #166: setup/strategy bodies + control ids are now namespaced (bid(p, ...))
+    // so the modal and the [tuning] workspace tab can mount the same render
+    // functions without id collisions — check for the id-composing calls.
+    assert.match(html, /bid\(p, '-setup'\)/, 'setup tab body id present');
+    assert.match(html, /bid\(p, '-strategy'\)/, 'strategy tab body id present');
+    assert.match(html, /bid\(p, 'StratSel'\)/, 'scope-filtered strategy assignment select present');
+    assert.match(html, /bid\(p, 'ShowAll'\)/, '"show all" scope-escape checkbox present');
     assert.match(html, /assigning to /, 'scope mismatch warning copy present');
     assert.match(html, /bmActivate/, 'per-version activate control present');
-    assert.match(html, /bmSaveVersion/, 'inline edit → new version control present');
+    assert.match(html, /bid\(p, 'SaveVersion'\)/, 'inline edit → new version control present');
   });
 });
 
@@ -1034,17 +1038,17 @@ test('bmWarn (UI review finding 1) is driven by the RESOLVED botState.strategyNa
 test('strategy select (UI review finding 2) only previews on change — no write — and assignment is a separate explicit action', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    const onchangeBlock = html.match(/document\.getElementById\('bmStratSel'\)\.onchange = \(e\) => \{[\s\S]*?\};/);
+    const onchangeBlock = html.match(/document\.getElementById\(bid\(p, 'StratSel'\)\)\.onchange = \(e\) => \{[\s\S]*?\};/);
     assert.ok(onchangeBlock, 'bmStratSel onchange handler found');
     assert.doesNotMatch(onchangeBlock[0], /save\(/, 'selecting a strategy name must never call save() directly — browsing must not rebind a live bot');
     assert.match(onchangeBlock[0], /el\.dataset\.editing = e\.target\.value/, 'selecting still previews (updates editing state + rerenders)');
     // the explicit, reachable single write path for select-driven assignment
-    assert.match(html, /id="bmAssignBtn"/, 'explicit assign button present');
-    assert.match(html, /getElementById\('bmAssignBtn'\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
+    assert.match(html, /bid\(p, 'AssignBtn'\)/, 'explicit assign button present');
+    assert.match(html, /getElementById\(bid\(p, 'AssignBtn'\)\)\.onclick = async \(\) => \{ await save\(\{ strategyName: editing \|\| null \}\); \};/, 'assign button is the single explicit write path');
     assert.match(html, /n === editing \? ' selected' : ''/, 'the select shows the PREVIEWED name, i.e. exactly what + assign would write');
     assert.match(html, /'editing' in el\.dataset \? el\.dataset\.editing : current/, "an explicit '— none —' preview stays representable so a strategy can be detached");
     assert.equal((html.match(/activation failed/g) || []).length, 2, 'both activation call sites surface a failed activation instead of assigning anyway');
-    assert.match(html, /if \(!r\.ok\) \{ document\.getElementById\('bmEditErr'\)\.textContent = r\.error \|\| 'activation failed'; return; \}/, 'per-version activate checks the response before assigning');
+    assert.match(html, /if \(!r\.ok\) \{ document\.getElementById\(bid\(p, 'EditErr'\)\)\.textContent = r\.error \|\| 'activation failed'; return; \}/, 'per-version activate checks the response before assigning');
   });
 });
 

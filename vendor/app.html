@@ -60,23 +60,26 @@
   #pfSpark[hidden] { display: none; }
   .sparkbox { border: 1px solid #30363d; border-radius: 6px; padding: 6px 8px; }
   .sparklegend { font-size: 11px; opacity: .75; margin-top: 2px; }
-  #pfOpenList { display: inline-flex; flex-wrap: wrap; gap: 8px; vertical-align: middle; }
-  .openpos { font-size: 12px; border: 1px solid #30363d; border-left: 3px solid #58a6ff; border-radius: 6px; padding: 2px 8px; }
-  .openpos .tag { opacity: .65; margin-right: 4px; }
   .pfcard { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
   .pfcard .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
+  /* #166: canonical trade rows — the ONLY place a position renders as a row. */
+  .traderow { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 8px 10px; margin: 6px 0; font-size: 13px; }
+  .traderow .why { color: #8b949e; font-size: 12px; margin-top: 4px; }
+  .traderow summary { cursor: pointer; }
+  .tradeshead { color: #8b949e; font-size: 12px; margin: 4px 0 8px; }
+  .badge-blue { color: #58a6ff; } .badge-gray { color: #8b949e; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs, #bmTabs, #cfgTabs, #gatesTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
-  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on, #gatesTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, #bmTabs, #cfgTabs, #gatesTabs, #wsTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #wsTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, #bmTabs button.on, #cfgTabs button.on, #gatesTabs button.on, #wsTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   /* a11y (#126): a consistent high-contrast keyboard focus ring on every
      interactive control (native rings still apply; this makes it uniform). */
   a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid #58a6ff; outline-offset: 2px; }
   /* a11y (#126): keep the smaller chip/row buttons at/above the 24px min target.
      Topbar + dialog controls are already 30px (see #topbar rule below). */
-  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
+  #pfTabs button, #bmTabs button, #cfgTabs button, #gatesTabs button, #wsTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
   /* a11y (#126): honor reduced-motion — drop the hover/state transitions. */
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
   /* #108: panels use display:contents so their label/input pairs join the form's
@@ -197,7 +200,7 @@
   :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
   /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
-  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, #bmTabs button:not(.on):hover, #wsTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   /* destructive: red text, no fill on every state */
   #bmRemove { float: right; color: #f85149; background: none; border: 0; }
   #bmRemove:hover, #bmRemove:active { background: none; color: #ff7b72; }
@@ -243,7 +246,7 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 ledger</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
 <div id="mainGrid">
 <nav id="rail" role="list" aria-label="configured bots"></nav>
 <div id="mainCol">
@@ -252,21 +255,17 @@
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
 <details id="pf" hidden>
-  <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button>
-    <div id="pfOpenList"></div></summary>
+  <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
 </details>
 <dialog id="pfdlg">
   <form method="dialog" class="dlg-xrow"><button class="dlg-x" aria-label="close" title="close">×</button></form>
-  <h2 id="pfDlgTitle">virtual portfolio <small>(bot-only — view)</small></h2>
+  <h2 id="pfDlgTitle">ledger <small>(bot-only — view)</small></h2>
   <div id="pfHead"></div>
   <div id="haltBanner" hidden></div>
   <div id="pfTabs">
-    <button data-tab="overview" class="on">overview</button><button data-tab="trades">trades</button><button data-tab="performance">performance</button><button data-tab="audit">audit</button>
+    <button data-tab="overview" class="on">equity</button><button data-tab="trades">all trades</button><button data-tab="performance">scoreboard</button><button data-tab="audit">audit</button>
   </div>
   <div id="tab-overview">
-    <h2>open positions</h2>
-    <div id="pfPositions"></div>
-    <h2>equity</h2>
     <div class="sparkbox">
       <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
       <div id="pfSparkLegend" class="sparklegend"></div>
@@ -274,7 +273,8 @@
     <p><small>Bots live in the fleet rail (left/top nav).</small></p>
   </div>
   <div id="tab-trades" hidden>
-    <table id="pfTrades"><thead><tr><th>opened</th><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
+    <div id="pfTradesHead" class="tradeshead"></div>
+    <div id="pfTradesRows"></div>
   </div>
   <div id="tab-performance" hidden></div>
   <div id="tab-audit" hidden></div>
@@ -291,10 +291,22 @@
 <div id="cfgTabs" class="cfgtabs"></div>
 <form id="cfg"></form>
 </dialog>
+<div id="wsTabs" role="tablist" aria-label="workspace for the focused view">
+  <button type="button" role="tab" aria-selected="true" data-tab="tape" class="on">tape</button>
+  <button type="button" role="tab" aria-selected="false" data-tab="trades">trades</button>
+  <button type="button" role="tab" aria-selected="false" data-tab="tuning">tuning</button>
+</div>
+<div id="ws-tape" role="tabpanel">
 <h2>Signal history <small>· current chart window</small></h2>
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>gates</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
 <button type="button" id="histMore" hidden>load 10 more</button>
+</div>
+<div id="ws-trades" role="tabpanel" hidden>
+  <div id="wsTradesHead" class="tradeshead"></div>
+  <div id="wsTradesRows"></div>
+</div>
+<div id="ws-tuning" role="tabpanel" hidden></div>
 </div>
 </div>
 </main>
@@ -391,7 +403,37 @@ async function load() {
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
+  wsRefresh({ instrument: d.instrument, granularity: d.granularity });
 }
+// #166: workspace tab strip ([tape][trades][tuning]) scoped to the focused
+// combo — tape is the pre-existing signal-history block (default), trades is
+// the canonical /api/trades timeline, tuning inlines the bot modal content.
+let wsActiveTab = 'tape';
+let wsView = { instrument: null, granularity: null };
+async function wsRenderActive() {
+  if (wsActiveTab === 'trades') {
+    const trades = await fetchTrades({ instrument: wsView.instrument, granularity: wsView.granularity, limit: 500 });
+    renderTrades(document.getElementById('wsTradesHead'), document.getElementById('wsTradesRows'), trades, { showInstrument: false });
+  } else if (wsActiveTab === 'tuning') {
+    await renderTuningTab();
+  }
+}
+function wsRefresh(view) {
+  wsView = view;
+  for (const name of ['tape', 'trades', 'tuning']) document.getElementById('ws-' + name).hidden = name !== wsActiveTab;
+  wsRenderActive().catch(() => {});
+}
+document.getElementById('wsTabs').addEventListener('click', (e) => {
+  const tab = e.target.dataset?.tab;
+  if (!tab || tab === wsActiveTab) return;
+  wsActiveTab = tab;
+  for (const b of document.querySelectorAll('#wsTabs button')) {
+    const on = b === e.target;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  wsRefresh(wsView);
+});
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
 async function portfolio() {
@@ -414,24 +456,14 @@ async function portfolio() {
     '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
   const dayPnl = pf.dayPnl;
+  // #166: per-position chips deleted (the trades tab is now the only place a
+  // position renders as a row) — the strip keeps just the aggregate.
   document.getElementById('pfChips').innerHTML =
     '<b>equity ' + esc(pf.equity.toFixed(2)) + '</b>' +
     '<span>cash ' + esc(pf.cash.toFixed(2)) + '</span>' +
     '<span class="' + pnlCls(totalPnl) + '">P&L ' + esc(money(totalPnl)) + '</span>' +
     '<span class="' + pnlCls(dayPnl) + '">day ' + esc(money(dayPnl)) + '</span>' +
-    '<span>' + pf.positions.length + ' pos</span>' + status;
-  // The per-instrument page shows only what belongs to THIS chart: an open
-  // position on the viewed instrument, or nothing. The portfolio-wide list
-  // (every open position, every closed trade, the equity curve) is the modal's
-  // job — repeating it under every instrument was noise.
-  const viewed = qs.get('instrument') || document.getElementById('instSel').value;
-  const mine = pf.positions.filter(p => p.instrument === viewed);
-  document.getElementById('pfOpenList').innerHTML = mine.map(p =>
-    '<span class="openpos"><span class="tag">open</span><span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
-    ' <b>' + esc(p.notional.toFixed(2)) + '</b> @ ' + esc(p.entry_price.toFixed(3)) +
-    ' · <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' +
-    (p.stop != null ? ' · stop ' + esc(p.stop) : '') + (p.target != null ? ' · target ' + esc(p.target) : '') +
-    ' · <span title="execution time">opened ' + esc(localFull(p.entry_time)) + '</span></span>').join('');
+    '<span>open ' + pf.positions.length + ' · <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span></span>' + status;
   sparkline(pf);
   }
   // #164 (F17): equity+cash live in the always-visible strip — the modal header
@@ -439,27 +471,48 @@ async function portfolio() {
   document.getElementById('pfHead').innerHTML =
     '<span data-info="' + esc(INFO.margin) + '">margin ' + esc(pf.marginLocked.toFixed(2)) + '</span>' +
     ' · unrealized <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> · ' + status;
-  document.getElementById('pfPositions').innerHTML = pf.positions.map(p => {
-    const age = Math.round((Date.now() - Date.parse(p.entry_time)) / 60000);
-    const stopD = p.stop != null ? ' · stop ' + esc(p.stop) + ' (' + esc((Math.abs(p.last_mark - p.stop) / p.last_mark * 100).toFixed(2)) + '%)' : '';
-    const tgtD = p.target != null ? ' · target ' + esc(p.target) + ' (' + esc((Math.abs(p.target - p.last_mark) / p.last_mark * 100).toFixed(2)) + '%)' : '';
-    return '<div class="pfcard"><b>' + esc(p.instrument) + '</b> <span class="' + (p.side === 'long' ? 'buy' : 'sell') + '">' + esc(p.side) + '</span>' +
-      ' ' + esc(p.notional.toFixed(2)) + ' notional @ ' + esc(p.entry_price.toFixed(3)) + ' → mark ' + esc(p.last_mark) + (p.stale ? ' (stale)' : '') +
-      ' <span class="' + pnlCls(p.unrealized) + '">' + esc(money(p.unrealized)) + '</span>' + stopD + tgtD +
-      ' · <span title="execution time">opened ' + esc(localFull(p.entry_time)) + '</span> (' + age + 'm)' +
-      (p.reason ? '<div class="why">' + md(p.reason) + '</div>' : '') +
+}
+// #166: the canonical trade timeline (plan §5 C4) — the ONLY place a position
+// renders as a row, shared by the workspace [trades] tab (scoped to one
+// combo) and the ledger's "all trades" tab (every combo).
+const CLOSE_REASON_CLS = { target: 'buy', stop: 'sell', 'bot-close': 'badge-blue', manual: 'badge-gray' };
+function tradeRowHtml(t, { showInstrument } = {}) {
+  const sideCls = t.side === 'long' ? 'buy' : 'sell';
+  const head = (showInstrument ? esc(t.instrument) + (t.granularity ? ' · ' + esc(t.granularity) : '') + ' — ' : '') +
+    '<span class="' + sideCls + '">' + esc(t.side) + '</span> ' + esc(Number(t.notional).toFixed(2));
+  const entry = 'entry ' + esc(t.entryPrice) + ' <span title="execution time">' + esc(localFull(t.entryTime)) + '</span>';
+  if (t.state === 'open') {
+    const stopD = t.stop != null ? ' · stop ' + esc(t.stop) + ' (' + esc((Math.abs(t.mark - t.stop) / t.mark * 100).toFixed(2)) + '%)' : '';
+    const tgtD = t.target != null ? ' · target ' + esc(t.target) + ' (' + esc((Math.abs(t.target - t.mark) / t.mark * 100).toFixed(2)) + '%)' : '';
+    return '<div class="traderow"><b>● OPEN</b> ' + head + '<br>' + entry + ' → mark ' + esc(t.mark) + (t.stale ? ' (stale)' : '') +
+      ' <span class="' + pnlCls(t.pnl) + '">' + esc(money(t.pnl)) + (t.pnlPct != null ? ' (' + esc(money(t.pnlPct)) + '%)' : '') + '</span>' + stopD + tgtD +
+      (t.openReason ? '<details><summary>why? ▸</summary><div class="why">' + md(t.openReason) + '</div></details>' : '') +
       '</div>';
-  }).join('') || '<div class="pfcard">' + (hasActivity ? 'no open positions' : 'no bot activity yet — click 🤖 in the header to configure a bot for a view and assign a strategy') + '</div>';
-  const tb = document.querySelector('#pfTrades tbody');
-  tb.innerHTML = '';
-  for (const t of pf.trades) {
-    const tr = document.createElement('tr');
-    tr.style.cursor = 'pointer';
-    tr.onclick = () => { location.search = '?' + new URLSearchParams({ instrument: t.instrument, granularity: qs.get('granularity') || 'M5', t: t.entry_time }); };
-    tr.innerHTML = '<td title="execution time">' + esc(localFull(t.entry_time)) + '</td><td title="execution time">' + esc(localFull(t.close_time)) + '</td><td>' + esc(t.instrument) + '</td><td class="' + (t.side === 'long' ? 'buy' : 'sell') + '">' + esc(t.side) +
-      '</td><td class="' + pnlCls(t.realized) + '">' + esc(money(t.realized)) + '</td><td>' + esc(t.close_reason) + '</td>';
-    tb.appendChild(tr);
   }
+  const heldMin = t.ageMin;
+  const held = heldMin < 90 ? heldMin + 'm' : (heldMin / 60).toFixed(1) + 'h';
+  const reasonCls = CLOSE_REASON_CLS[t.closeReason] || 'badge-gray';
+  return '<div class="traderow"><b>✕ CLOSED</b> ' + head + '<br>' + entry + ' → exit ' + esc(t.mark) + ' <span title="execution time">' + esc(localFull(t.exitTime)) + '</span>' +
+    ' · held ' + esc(held) +
+    ' <span class="' + pnlCls(t.pnl) + '">' + esc(money(t.pnl)) + (t.pnlPct != null ? ' (' + esc(money(t.pnlPct)) + '%)' : '') + '</span>' +
+    (t.closeReason ? ' <span class="' + reasonCls + '">' + esc(t.closeReason) + '</span>' : '') +
+    '</div>';
+}
+function tradesHeader(trades) {
+  const closed = trades.filter(t => t.state === 'closed');
+  const open = trades.filter(t => t.state === 'open');
+  const sum = (arr) => arr.reduce((a, t) => a + t.pnl, 0);
+  const warn = closed.length < 5 ? ' <span title="fewer than 5 closed trades — descriptive only, not predictive">⚠ n&lt;5</span>' : '';
+  return 'since first trade: ' + closed.length + ' closed <span class="' + pnlCls(sum(closed)) + '">' + esc(money(sum(closed))) + '</span>' +
+    ' · ' + open.length + ' open <span class="' + pnlCls(sum(open)) + '">' + esc(money(sum(open))) + '</span>' + warn;
+}
+function renderTrades(headEl, rowsEl, trades, opts) {
+  headEl.innerHTML = trades.length ? tradesHeader(trades) : '';
+  rowsEl.innerHTML = trades.length ? trades.map(t => tradeRowHtml(t, opts)).join('') : '<div class="traderow">no trades yet</div>';
+}
+async function fetchTrades(params) {
+  const r = await (await fetch('/api/trades?' + new URLSearchParams(params))).json();
+  return r.ok ? r.trades : [];
 }
 function sparkline(pf) {
   const c = document.getElementById('pfSpark');
@@ -501,25 +554,26 @@ let botStateCache = null;
 // NAME, version list w/ per-version activate, inline draft/edit). A single
 // shared save() drives both tabs and repaints them both, so the setup tab's
 // "no strategy assigned" warning always reflects a strategy-tab assignment.
-let bmActiveTab = 'setup';
-async function openBotModal(instArg, granArg) {
-  // #165: the rail row's configure (⚙) affordance opens this for ITS combo;
-  // the ad-hoc 🤖 button (in chart-without-a-bot mode) still uses the current view.
-  const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
-  const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+// #166: bot config (setup + strategy tabs) is ONE render path shared by the
+// per-view modal (rail ⚙, any combo) and the focused-combo [tuning] workspace
+// tab — mountBotConfig(containerId, inst, gran, prefix) builds it into
+// whichever container, with all element ids namespaced by prefix so a modal
+// for one combo and the tuning tab for another can coexist in the DOM
+// without id collisions (review finding on #166).
+const bid = (p, s) => p + s;
+async function mountBotConfig(containerId, inst, gran, prefix) {
   const combo = inst + '|' + gran;
+  const container = document.getElementById(containerId);
   // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
   // one on screen — bmStatus/bmWarn must reflect COMBO's own state, not
   // whatever the view last cached, and saving here must never clobber the
   // view's cache when they differ.
   const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
-  document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
-  document.getElementById('botTitle').dataset.info = INFO.botModal;
-  bmActiveTab = 'setup';
-  document.getElementById('botBody').innerHTML =
-    '<div id="bmTabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
-    '<div id="bm-setup"></div><div id="bm-strategy" hidden></div>';
+  let activeTab = 'setup';
+  container.innerHTML =
+    '<div id="' + bid(prefix, 'Tabs') + '"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
+    '<div id="' + bid(prefix, '-setup') + '"></div><div id="' + bid(prefix, '-strategy') + '" hidden></div>';
   let modalState = isViewedCombo() ? botStateCache : null;
   const refreshModalState = async () => {
     const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
@@ -536,51 +590,68 @@ async function openBotModal(instArg, granArg) {
   const paint = async (savedMsg) => {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
-    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState);
-    if (bmActiveTab === 'strategy') await renderBotStrategyTab(inst, gran, entry, save, savedMsg);
+    renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
+    if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
   };
-  document.getElementById('bmTabs').onclick = async (e) => {
+  document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
     const tab = e.target.dataset?.tab;
     if (!tab) return;
-    bmActiveTab = tab;
-    for (const b of document.querySelectorAll('#bmTabs button')) b.classList.toggle('on', b === e.target);
-    document.getElementById('bm-setup').hidden = tab !== 'setup';
-    document.getElementById('bm-strategy').hidden = tab !== 'strategy';
+    activeTab = tab;
+    for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) b.classList.toggle('on', b === e.target);
+    document.getElementById(bid(prefix, '-setup')).hidden = tab !== 'setup';
+    document.getElementById(bid(prefix, '-strategy')).hidden = tab !== 'strategy';
     if (tab === 'strategy') await paint();
   };
   await refreshModalState();
   await paint();
+}
+async function openBotModal(instArg, granArg) {
+  // #165: the rail row's configure (⚙) affordance opens this for ITS combo;
+  // the ad-hoc 🤖 button (in chart-without-a-bot mode) still uses the current view.
+  const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
+  const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+  document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
+  document.getElementById('botTitle').dataset.info = INFO.botModal;
+  await mountBotConfig('botBody', inst, gran, 'bm');
   document.getElementById('botdlg').showModal();
 }
-function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState) {
-  const body = document.getElementById('bm-setup');
+// tuning workspace tab (#166): the modal content inlined for the focused combo.
+async function renderTuningTab() {
+  const inst = qs.get('instrument') || document.getElementById('instSel').value;
+  const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+  await mountBotConfig('ws-tuning', inst, gran, 'wsbm');
+}
+function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
+  const body = document.getElementById(bid(p, '-setup'));
   body.innerHTML =
-    '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
+    '<label for="' + bid(p, 'Enabled') + '">enabled</label><input type="checkbox" id="' + bid(p, 'Enabled') + '"' + (entry.enabled ? ' checked' : '') + '>' +
     // review fix: gate on the RESOLVED active-version name (modalState, scoped
     // to THIS combo — same value /api/bots + runBot see), not entry.strategyName
     // — a name whose versions are all inactive must still show the warning.
-    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !modalState?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
-    '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
-    '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
-    '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
-    '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
-    '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
-    '<div id="bmStatus"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
-    '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove">remove bot</button></p>';
-  document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
-  document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
-  document.getElementById('bmAlloc').onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
-  document.getElementById('bmLev').onchange = async (e) => {
+    '<span id="' + bid(p, 'Warn') + '" class="botwarn"' + (entry.enabled && !modalState?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
+    '<label for="' + bid(p, 'Risk') + '" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="' + bid(p, 'Risk') + '" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
+    '<label for="' + bid(p, 'Alloc') + '" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="' + bid(p, 'Alloc') + '" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
+    '<label for="' + bid(p, 'Lev') + '" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="' + bid(p, 'Lev') + '" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
+    '<details><summary>advanced</summary><label for="' + bid(p, 'Kill') + '" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
+    '<input type="number" step="1" id="' + bid(p, 'Kill') + '" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
+    '<div id="' + bid(p, 'Status') + '"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
+    '<p><button type="button" id="' + bid(p, 'ToPf') + '">View in portfolio →</button> <span id="' + bid(p, 'Saved') + '">' + esc(savedMsg || '') + '</span> <button type="button" id="' + bid(p, 'Remove') + '">remove bot</button></p>';
+  document.getElementById(bid(p, 'Enabled')).onchange = (e) => save({ enabled: e.target.checked });
+  document.getElementById(bid(p, 'Risk')).onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById(bid(p, 'Alloc')).onchange = (e) => save({ allocationPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  document.getElementById(bid(p, 'Lev')).onchange = async (e) => {
     const v = Number(e.target.value) > 0 ? Number(e.target.value) : null;
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { leverage: { [inst]: v } } }) })).json();
-    document.getElementById('bmSaved').textContent = r.error ? r.error : 'saved';
+    document.getElementById(bid(p, 'Saved')).textContent = r.error ? r.error : 'saved';
   };
-  document.getElementById('bmKill').onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
-  document.getElementById('bmToPf').onclick = () => { document.getElementById('botdlg').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
+  document.getElementById(bid(p, 'Kill')).onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
+  // "view in portfolio" closes the enclosing dialog first, if any (the tuning
+  // workspace tab has none — it just opens the ledger over the current page).
+  document.getElementById(bid(p, 'ToPf')).onclick = () => { document.getElementById(bid(p, 'ToPf')).closest('dialog')?.close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   // #126: confirm before removing — it sits next to the primary action
-  document.getElementById('bmRemove').onclick = async () => {
+  document.getElementById(bid(p, 'Remove')).onclick = async () => {
     if (!confirm('Remove this bot from the view? Its configuration will be cleared.')) return;
-    await save(null); document.getElementById('botdlg').close();
+    await save(null); document.getElementById(bid(p, 'Remove')).closest('dialog')?.close();
   };
 }
 // #75 strategy tab: assign by name (scope-filtered, "show all" escape),
@@ -588,8 +659,8 @@ function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalSta
 // showAll/editing state lives on the tab element's dataset — cheap enough to
 // refetch+rerender the whole tab on every interaction (same pattern as the
 // rest of this page).
-async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
-  const el = document.getElementById('bm-strategy');
+async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
+  const el = document.getElementById(bid(p, '-strategy'));
   const strat = await (await fetch('/api/strategies')).json();
   const rows = strat.strategies || [];
   const byName = new Map();
@@ -614,7 +685,7 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
   let editFull = null;
   if (editActiveRow) editFull = (await (await fetch('/api/strategies?id=' + editActiveRow.id)).json()).strategy;
   el.innerHTML =
-    '<label for="bmStratSel" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="bmStratSel"><option value="">— none —</option>' +
+    '<label for="' + bid(p, 'StratSel') + '" data-info="' + esc(INFO.strategyActivate) + '">assign strategy</label><select id="' + bid(p, 'StratSel') + '"><option value="">— none —</option>' +
     // an assigned name whose rows are all archived has no option of its own; show it
     // disabled so the select still mirrors the preview and none stays a real change
     (editing && !assignable.includes(editing) ? '<option value="' + esc(editing) + '" selected disabled>' + esc(editing) + ' — archived</option>' : '') +
@@ -623,37 +694,37 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
       const label = n + (av ? ' (active v' + av.version + ')' : ' — draft, no active version') + (mismatched(n) ? ' ⚠' : '');
       return '<option value="' + esc(n) + '"' + (n === editing ? ' selected' : '') + '>' + esc(label) + '</option>';
     }).join('') + '</select> ' +
-    '<button type="button" id="bmAssignBtn"' + (editing === current ? ' disabled' : '') + '>+ assign</button>' +
-    '<label><input type="checkbox" id="bmShowAll"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +
+    '<button type="button" id="' + bid(p, 'AssignBtn') + '"' + (editing === current ? ' disabled' : '') + '>+ assign</button>' +
+    '<label><input type="checkbox" id="' + bid(p, 'ShowAll') + '"' + (showAll ? ' checked' : '') + '> show all strategies (ignore scope)</label>' +
     (current && mismatched(current) ? '<div class="botwarn">declared for ' + esc(scopeOf(current).instrument) + '·' + esc(scopeOf(current).granularity) + ' — assigning to ' + esc(inst) + '·' + esc(gran) + '</div>' : '') +
     (current && !byName.has(current) ? '<div class="botwarn">assigned strategy "' + esc(current) + '" has no active versions (archived?) — reassign or reactivate a version</div>' : '') +
     (!rows.length ? '<div class="botwarn">No strategies yet — draft one below or with the copilot.</div>' : '') +
     // review fix: an already-active version needs its own assign-only path
     // (bmAssign) — bmActivate stays hidden for it since there's nothing to
     // activate, but "assign the active version" must still be reachable.
-    (editRows.length ? '<div id="bmVersions">' + editRows.map((v) =>
+    (editRows.length ? '<div id="' + bid(p, 'Versions') + '">' + editRows.map((v) =>
       '<div class="botrow" data-id="' + v.id + '"><span>v' + v.version + ' · ' + esc(v.created_by) + (v.active ? ' · <b>active</b>' : '') + '</span>' +
       (v.active
         ? (v.name === current ? '' : '<button type="button" class="bmAssign">assign</button>')
         : '<button type="button" class="bmActivate">activate' + (v.name === current ? '' : ' + assign') + '</button>') +
       '</div>').join('') + '</div>' : '') +
     '<details open><summary>' + (editing ? 'edit ' + esc(editing) + ' / draft a new version' : 'draft a strategy') + '</summary>' +
-    '<label for="bmEditName">name</label><input type="text" id="bmEditName" value="' + esc(editing) + '" placeholder="kebab-case-name">' +
-    '<label for="bmEditPrompt">prompt</label><textarea id="bmEditPrompt" rows="6">' + esc(editFull?.prompt ?? '') + '</textarea>' +
-    '<label for="bmEditSpec" data-info="declarative backtest spec JSON, optional">spec JSON (optional)</label><textarea id="bmEditSpec" rows="3">' + esc(editFull?.spec ? JSON.stringify(editFull.spec) : '') + '</textarea>' +
-    '<label><input type="checkbox" id="bmEditDedicated"' + (editFull?.dedicated ? ' checked' : '') + '> dedicated to ' + esc(inst) + '·' + esc(gran) + '</label>' +
-    '<p><button type="button" id="bmSaveVersion">save as new version</button> <button type="button" id="bmSaveActivate">save + activate + assign</button></p>' +
-    '<div id="bmEditErr" class="botwarn"></div></details>' +
-    '<p><small id="bmStratSaved">' + esc(savedMsg || '') + '</small></p>';
-  document.getElementById('bmShowAll').onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(inst, gran, entry, save); };
+    '<label for="' + bid(p, 'EditName') + '">name</label><input type="text" id="' + bid(p, 'EditName') + '" value="' + esc(editing) + '" placeholder="kebab-case-name">' +
+    '<label for="' + bid(p, 'EditPrompt') + '">prompt</label><textarea id="' + bid(p, 'EditPrompt') + '" rows="6">' + esc(editFull?.prompt ?? '') + '</textarea>' +
+    '<label for="' + bid(p, 'EditSpec') + '" data-info="declarative backtest spec JSON, optional">spec JSON (optional)</label><textarea id="' + bid(p, 'EditSpec') + '" rows="3">' + esc(editFull?.spec ? JSON.stringify(editFull.spec) : '') + '</textarea>' +
+    '<label><input type="checkbox" id="' + bid(p, 'EditDedicated') + '"' + (editFull?.dedicated ? ' checked' : '') + '> dedicated to ' + esc(inst) + '·' + esc(gran) + '</label>' +
+    '<p><button type="button" id="' + bid(p, 'SaveVersion') + '">save as new version</button> <button type="button" id="' + bid(p, 'SaveActivate') + '">save + activate + assign</button></p>' +
+    '<div id="' + bid(p, 'EditErr') + '" class="botwarn"></div></details>' +
+    '<p><small id="' + bid(p, 'StratSaved') + '">' + esc(savedMsg || '') + '</small></p>';
+  document.getElementById(bid(p, 'ShowAll')).onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(p, inst, gran, entry, save); };
   // review fix: browsing the select only PREVIEWS a name (version list +
   // editor below) — it must never rebind (or disarm) a live bot on its own.
-  // Assignment is a separate, explicit write via #bmAssignBtn / .bmAssign.
-  document.getElementById('bmStratSel').onchange = (e) => {
+  // Assignment is a separate, explicit write via the assign button / .bmAssign.
+  document.getElementById(bid(p, 'StratSel')).onchange = (e) => {
     el.dataset.editing = e.target.value || '';
-    renderBotStrategyTab(inst, gran, entry, save);
+    renderBotStrategyTab(p, inst, gran, entry, save);
   };
-  document.getElementById('bmAssignBtn').onclick = async () => { await save({ strategyName: editing || null }); };
+  document.getElementById(bid(p, 'AssignBtn')).onclick = async () => { await save({ strategyName: editing || null }); };
   el.querySelectorAll('.bmAssign').forEach((row) => {
     row.onclick = async () => { await save({ strategyName: editing }); };
   });
@@ -663,28 +734,28 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
       // a failed activation must NOT be followed by an assign — that would read
       // as 'activated' while the bot silently has no active version to trade
       const r = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id }) })).json();
-      if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error || 'activation failed'; return; }
+      if (!r.ok) { document.getElementById(bid(p, 'EditErr')).textContent = r.error || 'activation failed'; return; }
       await save({ strategyName: editing });
     };
   });
-  document.getElementById('bmSaveVersion').onclick = () => saveVersion(false);
-  document.getElementById('bmSaveActivate').onclick = () => saveVersion(true);
+  document.getElementById(bid(p, 'SaveVersion')).onclick = () => saveVersion(false);
+  document.getElementById(bid(p, 'SaveActivate')).onclick = () => saveVersion(true);
   async function saveVersion(activate) {
-    const name = document.getElementById('bmEditName').value.trim();
-    const prompt = document.getElementById('bmEditPrompt').value;
-    const specText = document.getElementById('bmEditSpec').value.trim();
+    const name = document.getElementById(bid(p, 'EditName')).value.trim();
+    const prompt = document.getElementById(bid(p, 'EditPrompt')).value;
+    const specText = document.getElementById(bid(p, 'EditSpec')).value.trim();
     let spec = null;
-    if (specText) { try { spec = JSON.parse(specText); } catch { document.getElementById('bmEditErr').textContent = 'spec is not valid JSON'; return; } }
-    const dedicated = document.getElementById('bmEditDedicated').checked;
+    if (specText) { try { spec = JSON.parse(specText); } catch { document.getElementById(bid(p, 'EditErr')).textContent = 'spec is not valid JSON'; return; } }
+    const dedicated = document.getElementById(bid(p, 'EditDedicated')).checked;
     const r = await (await fetch('/api/strategies', { method: 'POST', body: JSON.stringify({ name, prompt, spec, dedicated, instrument: dedicated ? inst : null, granularity: dedicated ? gran : null }) })).json();
-    if (!r.ok) { document.getElementById('bmEditErr').textContent = r.error; return; }
+    if (!r.ok) { document.getElementById(bid(p, 'EditErr')).textContent = r.error; return; }
     el.dataset.editing = name;
     if (activate) {
       const a = await (await fetch('/api/strategies/activate', { method: 'POST', body: JSON.stringify({ id: r.strategy.id }) })).json();
-      if (!a.ok) { document.getElementById('bmEditErr').textContent = a.error || 'activation failed'; return; }
+      if (!a.ok) { document.getElementById(bid(p, 'EditErr')).textContent = a.error || 'activation failed'; return; }
       await save({ strategyName: name });
     } else {
-      await renderBotStrategyTab(inst, gran, entry, save);
+      await renderBotStrategyTab(p, inst, gran, entry, save);
     }
   }
 }
@@ -710,6 +781,10 @@ document.getElementById('pfTabs').addEventListener('click', async (e) => {
   for (const b of document.querySelectorAll('#pfTabs button')) b.classList.toggle('on', b === e.target);
   for (const name of ['overview', 'trades', 'performance', 'audit']) document.getElementById('tab-' + name).hidden = name !== tab;
   if (tab === 'overview') renderOverviewBots();
+  if (tab === 'trades') {
+    const trades = await fetchTrades({ limit: 500 });
+    renderTrades(document.getElementById('pfTradesHead'), document.getElementById('pfTradesRows'), trades, { showInstrument: true });
+  }
   if (tab === 'performance' || tab === 'audit') renderEvaluation().catch(() => { document.getElementById('tab-' + tab).innerHTML = '<p><small>evaluation unavailable</small></p>'; });
 });
 async function renderEvaluation() {

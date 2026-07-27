@@ -147,6 +147,28 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
+          // #166: workspace tabs ([tape][trades][tuning]) under the chart, scoped
+          // to the focused combo — tape is the default, trades/tuning switch in.
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#wsTabs button')].map((b) => b.dataset.tab)), ['tape', 'trades', 'tuning'], 'workspace tab strip present, tape default');
+          assert.ok(await p.evaluate(() => !document.getElementById('ws-tape').hidden && document.getElementById('ws-trades').hidden), 'tape panel visible by default');
+          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="trades"]').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => !document.getElementById('ws-trades').hidden), 'trades tab switches in');
+          assert.ok(await p.evaluate(() => !!document.getElementById('wsTradesRows').textContent.trim()), 'trades tab rendered content (open row or empty state)');
+          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tuning"]').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#ws-tuning [data-tab="setup"]')), 'tuning tab inlines the bot setup/strategy tabs');
+          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').click());
+
+          // #166: ledger overlay (renamed from "portfolio") — equity/all trades/scoreboard/audit
+          await p.evaluate(() => document.getElementById('pfBtn').click());
+          await p.waitForTimeout(300);
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#pfTabs button')].map((b) => b.textContent)), ['equity', 'all trades', 'scoreboard', 'audit'], 'ledger opens with 4 tabs');
+          await p.evaluate(() => document.querySelector('#pfTabs button[data-tab="trades"]').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'ledger all-trades tab rendered content');
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+
           // #165: fleet rail — one row for the seeded bot combo, and navigating
           // to its hash focuses the chart on that combo (instSel value flips).
           await p.waitForFunction(() => document.querySelectorAll('#rail .railjump[data-combo]').length > 0, { timeout: 5000 });
