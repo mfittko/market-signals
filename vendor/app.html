@@ -40,6 +40,11 @@
   #app.chat-collapsed { grid-template-columns: 1fr; }
   #app.chat-collapsed > aside, #app.chat-collapsed > #asideResize { display: none; }
   #chatToggle.on { background: #1f6feb33; border-color: #1f6feb; }
+  /* default: expand toggle + detail row hidden until the <900px media query
+     below opts them in (must come BEFORE that query — equal specificity,
+     source order decides, and this rule used to be declared after it,
+     permanently hiding detail rows at every width). */
+  .rowExpandCell, table.collapsible tr.rowDetail { display: none; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #asideResize { display: none; }
@@ -55,11 +60,15 @@
     table.collapsible tr.rowDetail { display: table-row; }
     dialog form, dialog .advgrid { grid-template-columns: 1fr; }
     dialog form button { grid-column: auto; }
+
+    /* #168 wfn: tables without the collapsible opt-in (chat markdown tables,
+       audit) still need a mobile fallback — horizontal scroll instead of
+       overflow/squash. */
+    table:not(.collapsible) { display: block; overflow-x: auto; }
   }
   /* #168: chart height clamp (spec: min 260px, 45vh, max 460px) replaces the
      old fixed 460px + mobile !important override — one rule, every viewport. */
   #wrap { height: clamp(260px, 45vh, 460px); }
-  .rowExpandCell, table.collapsible tr.rowDetail { display: none; }
   .rowExpandBtn { background: none; border: 1px solid #30363d; border-radius: 5px; color: #e6edf3; cursor: pointer; font-size: 12px; padding: 1px 7px; }
   tr.rowDetail td { white-space: normal; cursor: default; background: #0d1117; }
   h1 { font-size: 16px; } h2 { font-size: 14px; margin: 20px 0 8px; }
@@ -475,7 +484,8 @@ function tabStrip(container) {
     btns[next].click();
   });
 }
-for (const id of ['wsTabs', 'pfTabs', 'cfgTabs', 'gatesTabs']) tabStrip(document.getElementById(id));
+// gatesTabs is bound in renderTuningTab (below) — it doesn't exist in the DOM until that render runs.
+for (const id of ['wsTabs', 'pfTabs', 'cfgTabs']) tabStrip(document.getElementById(id));
 document.getElementById('wsTabs').addEventListener('click', (e) => {
   const tab = e.target.dataset?.tab;
   if (!tab || tab === wsActiveTab) return;
@@ -531,7 +541,7 @@ async function portfolio() {
 }
 // #166: the canonical trade timeline (plan §5 C4) — the ONLY place a position
 // renders as a row, shared by the workspace [trades] tab (scoped to one
-// combo) and the ledger's "all trades" tab (every combo).
+// combo) and the portfolio's "all trades" tab (every combo).
 const CLOSE_REASON_CLS = { target: 'buy', stop: 'sell', 'bot-close': 'badge-blue', manual: 'badge-gray' };
 function tradeRowHtml(t, { showInstrument } = {}) {
   const sideCls = t.side === 'long' ? 'buy' : 'sell';
@@ -691,9 +701,10 @@ async function renderTuningTab(inst, gran) {
   // in-progress gate draft or memory input mid-keystroke.
   document.getElementById('ws-tuning').insertAdjacentHTML('beforeend',
     '<fieldset><legend>global — affects every bot</legend>' +
-    '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' +
+    '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
     '<div><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount"></summary></details></div>' +
     '</fieldset>');
+  tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
   await renderGates();
   await renderMemories();
 }
@@ -748,7 +759,7 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
   };
   document.getElementById(bid(p, 'Kill')).onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
   // "view in portfolio" closes the enclosing dialog first, if any (the tuning
-  // workspace tab has none — it just opens the ledger over the current page).
+  // workspace tab has none — it just opens the portfolio over the current page).
   document.getElementById(bid(p, 'ToPf')).onclick = () => { document.getElementById(bid(p, 'ToPf')).closest('dialog')?.close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   // #126: confirm before removing — it sits next to the primary action
   document.getElementById(bid(p, 'Remove')).onclick = async () => {
@@ -907,28 +918,22 @@ async function renderEvaluation() {
   };
   // #168 F10: PF/max DD hide <900px (mobile-hide) behind a per-row expand
   // toggle — strategy/trades/win rate/realized stay the 4 always-visible columns.
-  const rowsHtml = r.scoreboard.map((s) => {
-    const pf = esc(s.profitFactor == null || s.profitFactor === 'inf' ? '—' : Number(s.profitFactor).toFixed(2));
-    const dd = esc(s.maxDrawdownPct) + '%';
-    return '<tr><td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + nTrades(s.trades) +
-      '</td><td>' + winRateCell(s) + '</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
-      '</td><td class="mobile-hide">PF ' + pf + '</td><td class="mobile-hide">max DD ' + dd + '</td>' +
-      '<td class="rowExpandCell"><button type="button" class="rowExpandBtn" aria-expanded="false" aria-label="show profit factor and max drawdown">▸</button></td></tr>' +
-      '<tr class="rowDetail" hidden><td colspan="7"><div class="lane">PF ' + pf + ' · max DD ' + dd + '</div></td></tr>';
-  }).join('');
+  // #168 wfn: one expand mechanism (collapsibleRow), shared with histRow — no
+  // bespoke markup/delegated handler here.
   const b = r.baselines;
-  perf.innerHTML = '<table class="collapsible"><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th class="mobile-hide">PF</th><th class="mobile-hide">max DD</th><th class="rowExpandCell"></th></tr></thead><tbody>' + (rowsHtml || '<tr><td colspan="7">no attributed trades yet</td></tr>') + '</tbody></table>' +
+  perf.innerHTML = '<table class="collapsible"><thead><tr><th>strategy</th><th>trades</th><th>win rate</th><th>realized</th><th class="mobile-hide">PF</th><th class="mobile-hide">max DD</th><th class="rowExpandCell"></th></tr></thead><tbody>' + (r.scoreboard.length ? '' : '<tr><td colspan="7">no attributed trades yet</td></tr>') + '</tbody></table>' +
     '<p class="lane">realized figures exclude open positions.</p>' +
     (b ? '<p><small>baselines over ' + esc(b.window.candles) + ' candles: flip-following ' + winRateText(b.flipFollowing.winRatePct) + ' win / ' + winRateText(b.flipFollowing.totalReturnPct) + ' return (' + nTrades(b.flipFollowing.trades) + ') · buy&hold ' + esc(b.buyAndHold.totalReturnPct) + '%</small></p>' : '');
-  // delegate the expand toggle (rows are rebuilt on every render, one listener suffices)
-  perf.querySelector('table')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.rowExpandBtn'); if (!btn) return;
-    const detail = btn.closest('tr').nextElementSibling;
-    const opening = detail.hidden;
-    detail.hidden = !opening;
-    btn.setAttribute('aria-expanded', String(opening));
-    btn.textContent = opening ? '▾' : '▸';
-  });
+  const tb = perf.querySelector('tbody');
+  for (const s of r.scoreboard) {
+    const pf = esc(s.profitFactor == null || s.profitFactor === 'inf' ? '—' : Number(s.profitFactor).toFixed(2));
+    const dd = esc(s.maxDrawdownPct) + '%';
+    const mainCells = '<td>' + esc(s.strategyName ?? (s.strategyVersion ? 'hash ' + s.strategyVersion : 'unattributed')) + (s.strategyDbVersion ? ' v' + esc(s.strategyDbVersion) : '') + '</td><td>' + nTrades(s.trades) +
+      '</td><td>' + winRateCell(s) + '</td><td class="' + pnlCls(s.totalRealized) + '">' + esc(money(s.totalRealized)) +
+      '</td><td class="mobile-hide">PF ' + pf + '</td><td class="mobile-hide">max DD ' + dd + '</td>';
+    const detailHtml = '<div class="lane">PF ' + pf + ' · max DD ' + dd + '</div>';
+    for (const row of collapsibleRow(mainCells, detailHtml, 7, 'profit factor and max drawdown')) tb.appendChild(row);
+  }
   // execSizing (#83/#85) carries what actually happened at open (effective,
   // sized-down notional), not the LLM's raw ask — the decision journal on its
   // own only ever had the requested figure, which disagreed with the position
@@ -1435,13 +1440,16 @@ function fmtOutcome(v, open) {
 // #168 F10: pairs a compact row with a hidden detail row, toggled by a
 // button — CSS (table.collapsible) only shows the toggle + detail row
 // <900px; desktop already shows every column directly, nothing to expand.
-function collapsibleRow(mainCellsHtml, detailHtml, extraColCount) {
+function collapsibleRow(mainCellsHtml, detailHtml, colspan, label) {
   const tr = document.createElement('tr');
-  tr.innerHTML = mainCellsHtml + '<td class="rowExpandCell"><button type="button" class="rowExpandBtn" aria-expanded="false" aria-label="show reason and gates">▸</button></td>';
+  const btnId = 'rowExpand' + Math.random().toString(36).slice(2);
+  const detailId = 'rowDetail' + Math.random().toString(36).slice(2);
+  tr.innerHTML = mainCellsHtml + '<td class="rowExpandCell"><button type="button" id="' + btnId + '" class="rowExpandBtn" aria-expanded="false" aria-controls="' + detailId + '" aria-label="show ' + esc(label || 'more') + '">▸</button></td>';
   const detail = document.createElement('tr');
   detail.className = 'rowDetail';
+  detail.id = detailId;
   detail.hidden = true;
-  detail.innerHTML = '<td colspan="' + (extraColCount || 99) + '">' + detailHtml + '</td>';
+  detail.innerHTML = '<td colspan="' + colspan + '">' + detailHtml + '</td>';
   tr.querySelector('.rowExpandBtn').onclick = (e) => {
     e.stopPropagation();
     const opening = detail.hidden;
@@ -1469,7 +1477,7 @@ function histRow(s, botDecisions) {
   const detailHtml = '<div class="lane">gates: <b>' + esc((s.verdict || '—').toUpperCase()) + '</b>' + (gr.text ? ' · ' + esc(gr.text) : '') + '</div>' +
     (botNote || badgeNote ? '<div class="lane">' + botNote.replace(/^ · /, '') + badgeNote + '</div>' : '') +
     '<div class="lane">MFE to flip: ' + adv + '</div>';
-  const [tr, detail] = collapsibleRow(mainCells, detailHtml, 8);
+  const [tr, detail] = collapsibleRow(mainCells, detailHtml, 8, 'reason and gates');
   tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
   return [tr, detail];
 }
@@ -1901,7 +1909,11 @@ loadThreads();
   const c0 = comboFromHash();
   if (!c0) return;
   const qInst = qs.get('instrument'); const qGran = qs.get('granularity');
-  if (qInst && qGran && (qInst !== c0.inst || qGran !== c0.gran)) {
+  // #168: a PARTIAL explicit query (e.g. only ?instrument=, no granularity)
+  // that disagrees with the hash still counts as "explicit user action wins"
+  // — checking only the both-present case let a disagreeing hash silently
+  // override a partial query.
+  if ((qInst && qInst !== c0.inst) || (qGran && qGran !== c0.gran)) {
     // query and hash disagree: the query is the newer, explicit user action —
     // drop the stale hash instead of re-asserting it (dead-UI bug, 27/07)
     window.history.replaceState(null, '', location.pathname + '?' + new URLSearchParams(location.search).toString());

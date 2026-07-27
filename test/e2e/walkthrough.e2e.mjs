@@ -109,6 +109,19 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p2.evaluate(() => document.getElementById('granSel').value), 'M15', 'explicit query granularity wins over stale hash');
           assert.equal(await p2.evaluate(() => location.hash), '', 'stale hash dropped');
           await p2.close();
+
+          // #168: a PARTIAL explicit query (instrument only, no granularity) that
+          // disagrees with the hash must still win — the both-present check used
+          // to let a disagreeing hash silently override a partial query.
+          const p3 = await browser.newPage({ viewport: { width, height } });
+          const errs3 = [];
+          p3.on('pageerror', (e) => errs3.push(e.message));
+          await p3.goto(base + '/?instrument=WTICO%2FUSD#bot/' + encodeURIComponent('XAUUSD|M5'), { waitUntil: 'networkidle' });
+          await p3.waitForTimeout(500);
+          assert.deepEqual(errs3, [], 'no page errors with mismatched partial query+hash');
+          assert.equal(await p3.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', 'explicit partial query instrument wins over stale hash');
+          assert.equal(await p3.evaluate(() => location.hash), '', 'stale hash dropped for a disagreeing partial query');
+          await p3.close();
         }
 
         // base page invariants
@@ -135,6 +148,23 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
               return !!b && getComputedStyle(b).display !== 'none' && b.getClientRects().length > 0;
             });
             assert.ok(expandBtn, 'collapsed tape rows carry an expand toggle for reason/gates');
+            // #168: clicking the toggle must actually REVEAL detail content, not
+            // just flip a class — a CSS cascade bug once kept detail rows
+            // display:none at every width regardless of the click.
+            const before = await p.evaluate(() => {
+              const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
+              return { hidden: detail.hidden, visible: getComputedStyle(detail).display !== 'none', text: detail.textContent.trim() };
+            });
+            assert.equal(before.hidden, true, 'detail row starts hidden');
+            await p.evaluate(() => document.querySelector('#hist .rowExpandBtn').click());
+            await p.waitForTimeout(100);
+            const after = await p.evaluate(() => {
+              const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
+              return { hidden: detail.hidden, visible: getComputedStyle(detail).display !== 'none', text: detail.textContent.trim() };
+            });
+            assert.equal(after.hidden, false, 'clicking the expand toggle un-hides the detail row');
+            assert.ok(after.visible, `expanded detail row is actually rendered (computed display != none) on ${vname}`);
+            assert.ok(after.text.length > 0, 'expanded detail row shows visible text content');
           }
         }
 
@@ -210,6 +240,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#ws-tuning fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD', 'global'], 'tuning tab groups fields into scope-explicit fieldsets');
           // gates/memories moved here from the settings modal, reused verbatim
           assert.ok(await p.evaluate(() => !!document.getElementById('gatesTabs') && !!document.getElementById('memAddBtn')), 'gates/memories embedded in the tuning tab global fieldset');
+          // #168: gatesTabs is created by renderTuningTab, AFTER boot — tabStrip
+          // used to be bound at boot against a not-yet-existing element (a no-op),
+          // leaving gates without arrow-key nav. Pin it here.
+          await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').focus());
+          await p.keyboard.press('ArrowRight');
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'recheck', 'gatesTabs ArrowRight moves focus to the next gate tab');
+          assert.ok(await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="recheck"]').classList.contains('on')), 'gatesTabs ArrowRight also activates the tab it moved to');
           // #167: the gates/memories mount moved OUT of renderBotSetupTab (which
           // repaints on every bot-field save()) into renderTuningTab (mounted once)
           // — a bot-field save must never wipe an in-progress gate draft or memory input.
