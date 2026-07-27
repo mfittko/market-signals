@@ -426,16 +426,22 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
             return out;
           }, gapMs);
           const gapTicks = await p.evaluate(({ times, gm }) => window.roundAxisTicks(times, 5, gm), { times: gapTimes, gm: gapMs });
-          const gapStart = gapTimes[gapTimes.length / 2 - 1], gapEnd = gapTimes[gapTimes.length / 2];
-          assert.ok(gapTicks.every((v) => v <= gapStart || v >= gapEnd), 'no tick lands inside the gap between the two runs');
-          const dayLabel = (v) => { const d = new Date(v); return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate(); };
-          let prevDay = null; let sawDateLabel = false;
-          for (const v of gapTicks) {
-            const day = dayLabel(v);
-            if (day !== prevDay) sawDateLabel = true; // this is exactly the callback's own day-change test in app.html
-            prevDay = day;
+          // locate the REAL >3×granularity break by scanning deltas — a
+          // midpoint guess can sit inside the first run and assert nothing
+          let gapStart = null; let gapEnd = null;
+          for (let i = 1; i < gapTimes.length; i++) {
+            if (gapTimes[i] - gapTimes[i - 1] > 3 * gapMs) { gapStart = gapTimes[i - 1]; gapEnd = gapTimes[i]; break; }
           }
-          assert.ok(sawDateLabel, 'the tick set spans a day boundary the label callback can detect (no undated duplicate across days)');
+          assert.ok(gapStart !== null, 'fixture really contains a >3×granularity gap');
+          assert.ok(gapTicks.every((v) => v <= gapStart || v >= gapEnd), 'no tick lands inside the gap between the two runs');
+          const timeSet = new Set(gapTimes);
+          assert.ok(gapTicks.every((v) => timeSet.has(v)), 'every tick is a real timestamp from the input series');
+          // the label callback in app.html compares LOCAL date parts — use the
+          // same basis, and require ticks from >1 distinct local day (prevDay
+          // starting null must not count as a boundary)
+          const localDay = (v) => { const d = new Date(v); return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); };
+          const distinctDays = new Set(gapTicks.map(localDay));
+          assert.ok(distinctDays.size > 1, 'the tick set spans multiple local calendar days, so the day-change label logic has a boundary to mark');
 
           // #170 review (item 8, soc seam pin): this fixture's default
           // fetcher:null combo never has candles, so draw() never runs and
