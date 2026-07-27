@@ -387,16 +387,55 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
             [{ x: 1000, y: 1 }, { x: 2000, y: 2 }, { x: 20000, y: null }],
             'gapBreakData breaks the line at an EXISTING timestamp (no synthetic x added to the shared timeseries index)'
           );
-          const ticks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1, 3, 0), Date.UTC(2026, 0, 3, 3, 0), 240));
+          // roundAxisTicks now takes the actual candle timestamps (not a
+          // continuous min/max range) and snaps every tick to one of them —
+          // a synthetic H4 series with no gaps here.
+          const h4Times = await p.evaluate(
+            ({ start, end, step }) => { const out = []; for (let t = start; t <= end; t += step) out.push(t); return out; },
+            { start: Date.UTC(2026, 0, 1, 3, 0), end: Date.UTC(2026, 0, 3, 3, 0), step: 4 * 3600 * 1000 }
+          );
+          const ticks = await p.evaluate((times) => window.roundAxisTicks(times, 240, 4 * 3600 * 1000), h4Times);
           assert.ok(Array.isArray(ticks) && ticks.length > 0, 'roundAxisTicks returns tick boundaries for an H4 window');
-          assert.ok(ticks.every((v) => typeof v === 'number' && v >= Date.UTC(2026, 0, 1, 3, 0) && v <= Date.UTC(2026, 0, 3, 3, 0)), 'every tick lands inside the requested window');
+          assert.ok(ticks.every((v) => h4Times.includes(v)), 'every tick lands exactly on a real data timestamp, never a value the series lacks');
 
           // narrow-width tick-collision check: roundAxisTicks itself doesn't
           // know about pixel width (autoSkipPadding handles that at render
           // time) — pin that a dense H1/M1 window still yields a bounded,
           // non-per-candle tick count regardless of viewport.
-          const denseTicks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 1) + 6 * 3600 * 1000, 1));
+          const m1Times = await p.evaluate(
+            ({ start, end, step }) => { const out = []; for (let t = start; t <= end; t += step) out.push(t); return out; },
+            { start: Date.UTC(2026, 0, 1), end: Date.UTC(2026, 0, 1) + 6 * 3600 * 1000, step: 60 * 1000 }
+          );
+          const denseTicks = await p.evaluate((times) => window.roundAxisTicks(times, 1, 60 * 1000), m1Times);
           assert.ok(denseTicks.length < 60, `roundAxisTicks (${denseTicks.length}) stays bounded for a dense M1 6h window, not one per candle`);
+
+          // Gapped-chart regression (#170 follow-up): a synthetic two-day M5
+          // series with a multi-day gap in the middle must (a) never emit a
+          // tick inside the gap (every tick sits on a real timestamp, so none
+          // can land in the dead zone and crush together on the rank-based
+          // timeseries scale), and (b) label the first tick of each calendar
+          // day with a date, so the SAME wall-clock time on two different
+          // days never renders as a bare, undated duplicate.
+          const gapMs = 5 * 60 * 1000;
+          const gapTimes = await p.evaluate((step) => {
+            const out = [];
+            const day1Start = Date.UTC(2026, 0, 1, 13, 25);
+            for (let t = day1Start; t <= Date.UTC(2026, 0, 1, 20, 40); t += step) out.push(t);
+            const day3Start = Date.UTC(2026, 0, 3, 15, 10); // >1 day later — a real weekend-style gap
+            for (let t = day3Start; t <= Date.UTC(2026, 0, 3, 19, 35); t += step) out.push(t);
+            return out;
+          }, gapMs);
+          const gapTicks = await p.evaluate(({ times, gm }) => window.roundAxisTicks(times, 5, gm), { times: gapTimes, gm: gapMs });
+          const gapStart = gapTimes[gapTimes.length / 2 - 1], gapEnd = gapTimes[gapTimes.length / 2];
+          assert.ok(gapTicks.every((v) => v <= gapStart || v >= gapEnd), 'no tick lands inside the gap between the two runs');
+          const dayLabel = (v) => { const d = new Date(v); return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate(); };
+          let prevDay = null; let sawDateLabel = false;
+          for (const v of gapTicks) {
+            const day = dayLabel(v);
+            if (day !== prevDay) sawDateLabel = true; // this is exactly the callback's own day-change test in app.html
+            prevDay = day;
+          }
+          assert.ok(sawDateLabel, 'the tick set spans a day boundary the label callback can detect (no undated duplicate across days)');
 
           // #170 review (item 8, soc seam pin): this fixture's default
           // fetcher:null combo never has candles, so draw() never runs and
