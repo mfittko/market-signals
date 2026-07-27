@@ -114,7 +114,10 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.ok(histCols.scrollWidth <= histCols.clientWidth + 1, `tape table has no horizontal overflow on ${vname}`);
           const hasRows = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length > 0);
           if (hasRows) {
-            const expandBtn = await p.evaluate(() => !!document.querySelector('#hist .rowExpandBtn'));
+            const expandBtn = await p.evaluate(() => {
+              const b = document.querySelector('#hist .rowExpandBtn');
+              return !!b && getComputedStyle(b).display !== 'none' && b.getClientRects().length > 0;
+            });
             assert.ok(expandBtn, 'collapsed tape rows carry an expand toggle for reason/gates');
           }
         }
