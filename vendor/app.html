@@ -141,7 +141,9 @@
   .railstat { font-weight: 600; }
   .railrow.pos .railstat { color: #3fb950; } .railrow.armed .railstat { color: #58a6ff; }
   .railrow.warn .railstat { color: #d29922; } .railrow.off .railstat { color: #8b949e; }
-  .railcombo { opacity: .9; } .railstrat, .railage { font-size: 11px; opacity: .7; }
+  .railcombo { opacity: .9; } .railstrat, .railage, .railnote { font-size: 11px; opacity: .7; }
+  /* #171 3.6: gray/informational — a tuning signal (bot vs. gate divergence), never a health warning */
+  .railnote { display: block; color: #8b949e; }
   @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
   @media (max-width: 899px) {
     #mainGrid { flex-direction: column; }
@@ -211,6 +213,7 @@
      colours (those stay reserved for the signal word itself). */
   .lanes { margin-top: 4px; }
   .lane { color: #8b949e; font-size: 12px; }
+  .newslist { margin: 2px 0 6px; padding-left: 18px; font-size: 12px; }
   .badge-amber { color: #d29922; }
   .badge-muted { color: #8b949e; }
   #recheckBtn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 1px 7px; cursor: pointer; font-size: 13px; }
@@ -1026,6 +1029,7 @@ async function renderEvaluation() {
     (a.reason ? '<div>' + esc(a.reason) + '</div>' : '') +
     (sizeNote(a) ? '<div class="meta">' + esc(sizeNote(a)) + '</div>' : '') +
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
+    newsHtml(a) +
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
 }
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
@@ -1490,7 +1494,14 @@ function renderRail(ok) {
       '<span class="railcombo">' + esc(b.combo.replace('|', ' · ')) + '</span>' +
       (b.strategyName ? '<span class="railstrat">' + esc(b.strategyName) + '</span>' : '') +
       (b.openPnl != null ? '<span class="' + pnlCls(b.openPnl) + '">' + esc(money(b.openPnl)) + '</span>' : '') +
-      '<span class="railage">' + esc(age) + '</span></button>' +
+      '<span class="railage">' + esc(age) + '</span>' +
+      '</button>' +
+      // #171 review item 4: a SIBLING of the railjump button, not nested
+      // inside it — a nested span would pollute the button's accessible
+      // name with the gate-note text. Composed here from the raw
+      // {checked, disagreements} the API ships (gray, never amber — the
+      // #151 STALE lesson: this is a tuning signal, not a health problem).
+      (b.gateDisagreement ? '<span class="railnote">disagreed with gates ' + esc(b.gateDisagreement.disagreements) + ' of last ' + esc(b.gateDisagreement.checked) + '</span>' : '') +
       '<button type="button" class="railcfg" data-combo="' + esc(b.combo) + '" aria-label="configure ' + esc(b.combo) + '" title="configure bot">⚙</button></div>';
   }).join('');
   const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
@@ -1597,6 +1608,28 @@ function friendlyReason(verdictWord, raw) {
 // #164 (F19): "?%" is not a number — n/a reads honestly for an unrecorded win rate.
 function winRateText(v) { return v == null ? 'n/a' : esc(v) + '%'; }
 function nTrades(n) { return esc(n ?? 0) + ((n ?? 0) === 1 ? ' trade' : ' trades'); }
+// https-only guard: a headline href is untrusted external data — never emit
+// javascript:/data: etc as a live href.
+function safeUrl(u) {
+  try { return new URL(u).protocol === 'https:' ? u : null; } catch { return null; }
+}
+// #171: renders the recorded sentinel news, or an honest "consulted, not recorded" fallback for raw tool calls — shared by the audit tab, tape row detail, and verdict banner's bot lane.
+const NEWS_TOOL_NAMES = ['sentinel_news', 'fxempire_articles'];
+function newsHtml(a) {
+  const heads = a && a.news && Array.isArray(a.news.headlines) ? a.news.headlines : [];
+  if (heads.length) {
+    return '<div class="meta">news used:</div><ul class="newslist">' + heads.map((h) => {
+      const href = h.url ? safeUrl(h.url) : null;
+      return '<li>' + (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(h.title) + '</a>' : esc(h.title)) +
+        ' <span class="lane">' + esc(h.source || 'unknown source') + (h.provider ? ' via ' + esc(h.provider) : '') + ' · ' + esc(h.time ? localFull(h.time) : 'time unknown') + '</span></li>';
+    }).join('') + '</ul>';
+  }
+  const newsToolCalls = (a && a.toolTrace || []).filter((t) => NEWS_TOOL_NAMES.includes(t.name));
+  if (newsToolCalls.length) {
+    return '<div class="meta">news consulted (' + newsToolCalls.length + ') — headlines not recorded</div>';
+  }
+  return '';
+}
 // #164 (F3): the gates lane (advisory, never trades) vs the bot lane (the only
 // lane that can move money) plus a relationship badge — see docs/ux-redesign-
 // plan.md §4 for the exact vocabulary/colour table this implements.
@@ -1614,9 +1647,15 @@ const BOT_ACTION_LABEL = { open: 'OPENED', hold: 'HELD', close: 'CLOSED' };
 function renderLanes(s, botDecision) {
   const gr = friendlyReason(s.verdict, s.reason);
   const gateLane = '<div class="lane" data-info="' + esc(INFO.gates) + '" title="' + esc(gr.title || INFO.gates) + '">gates: <b>' + esc((s.verdict || 'unfiltered').toUpperCase()) + '</b>' + (gr.text ? ' · ' + esc(gr.text) : '') + '</div>';
-  const botLane = botDecision
-    ? '<div class="lane botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: <b>' + esc(BOT_ACTION_LABEL[botDecision.action] || botDecision.action.toUpperCase()) + '</b>' + (botDecision.reasoning ? ' · ' + esc(botDecision.reasoning) : '') + '</div>'
+  const botLaneNews = botDecision ? newsHtml(botDecision) : '';
+  const botLaneHead = botDecision
+    ? '<b>' + esc(BOT_ACTION_LABEL[botDecision.action] || botDecision.action.toUpperCase()) + '</b>' + (botDecision.reasoning ? ' · ' + esc(botDecision.reasoning) : '')
     : '';
+  // native <details> disclosure when there's news to expand — avoids a
+  // bespoke toggle for a single optional block.
+  const botLane = !botDecision ? '' : botLaneNews
+    ? '<details class="lane botnote"><summary data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + botLaneHead + '</summary>' + botLaneNews + '</details>'
+    : '<div class="lane botnote" data-info="' + esc(INFO.botDecision) + '" title="' + esc(INFO.botDecision) + '">bot: ' + botLaneHead + '</div>';
   const badge = gatesBotBadge(s.verdict, botDecision);
   const badgeLine = badge ? '<div class="lane ' + badge.cls + '">' + esc(badge.text) + '</div>' : '';
   return '<div class="lanes">' + gateLane + botLane + badgeLine + '</div>';
@@ -1707,6 +1746,7 @@ function histRow(s, botDecisions) {
   // hide — only "time/signal/price/+30min move" stay visible <900px.
   const detailHtml = '<div class="lane">gates: <b>' + esc((s.verdict || '—').toUpperCase()) + '</b>' + (gr.text ? ' · ' + esc(gr.text) : '') + '</div>' +
     (botNote || badgeNote ? '<div class="lane">' + botNote.replace(/^ · /, '') + badgeNote + '</div>' : '') +
+    (bd ? newsHtml(bd) : '') +
     '<div class="lane">MFE to flip: ' + adv + '</div>';
   const [tr, detail] = collapsibleRow(mainCells, detailHtml, 8, 'reason and gates');
   tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
@@ -1754,7 +1794,10 @@ function renderHistory(list, botDecisions, view) {
 // the two client uses (the select + the validation below) in sync via this one
 // const. The old primary mode was dropped (byte-identical to auto).
 const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['', 'off'], ['1', 'on']]]];
+// #171 review item 5: an untouched setting's default lives on ITS OWN
+// descriptor (4th element) — field() below applies it generically instead of
+// special-casing one key by name.
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number']];
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
@@ -1792,8 +1835,8 @@ async function cfg() {
   const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
-  const field = ([k, kind, opts]) => {
-    const cur = s[k] ?? '';
+  const field = ([k, kind, opts, def]) => {
+    const cur = s[k] ?? def ?? '';
     if (kind === 'select') {
       const curS = String(cur);
       const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];

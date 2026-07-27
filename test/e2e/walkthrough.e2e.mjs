@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer } from '../../scripts/signal-server.mjs';
+import { withDb } from '../../scripts/supertrend.mjs';
 
 let webkit = null;
 try { ({ webkit } = await import('playwright')); } catch { /* skips below */ }
@@ -72,6 +73,36 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
     // seed a filter draft so the gates modal has drafts content
     const seed = await fetch(base + '/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: 'filter', prompt: 'e2e walkthrough override' }) });
     assert.equal(seed.status, 200, 'gate-draft seed request succeeded');
+
+    // #171: seed a decision-context news block (the default view combo,
+    // WTICO/USD|M5, so the audit tab picks it up with no extra navigation)
+    // plus 10 flip decisions with 3 gate disagreements on the WTICO/USD|M15
+    // combo seeded above, so the rail's gray tuning note renders.
+    withDb(dbPath, (db) => {
+      db.exec('CREATE TABLE IF NOT EXISTS bot_journal (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, action TEXT NOT NULL, position_id INTEGER, reason TEXT, context TEXT)');
+      db.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)').run(
+        new Date().toISOString(), 'decision', 'e2e seeded news decision',
+        JSON.stringify({
+          instrument: 'WTICO/USD', granularity: 'M5', event: 'review', decision: { action: 'hold' },
+          instrumentContext: { sentinel: { escalation: false, asOf: '2026-07-27T00:00:00Z', headlines: [{ title: 'e2e seeded headline: OPEC+ signals output hike', source: 'reuters', time: '2026-07-27T00:00:00Z', url: 'https://reuters.example/e2e' }] } },
+        }),
+      );
+      const sig = db.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict) VALUES (?,?,?,?,?)');
+      const dec = db.prepare('INSERT INTO bot_journal (at, action, reason, context) VALUES (?,?,?,?)');
+      const rows = [
+        ['suppress', 'open'], ['suppress', 'open'], ['alert', 'hold'],
+        ['suppress', 'hold'], ['alert', 'open'], ['alert', 'open'], ['alert', 'open'],
+        ['suppress', 'hold'], ['alert', 'open'], ['suppress', 'hold'],
+      ]; // 3 disagreements / 10 gate-bearing flip decisions ⇒ rail note fires (>=3)
+      rows.forEach(([verdict, action], i) => {
+        const t = `2026-07-26T00:${String(i).padStart(2, '0')}:00.000Z`;
+        sig.run('WTICO/USD', 'M15', t, 'buy', verdict);
+        dec.run(t, 'decision', 'e2e gate-disagreement seed', JSON.stringify({
+          instrument: 'WTICO/USD', granularity: 'M15', event: 'flip', decision: { action },
+          instrumentContext: { flip: { time: t } },
+        }));
+      });
+    });
     browser = await webkit.launch({ headless: true });
     for (const vname of selected) {
       await t.test(vname, async () => {
@@ -238,6 +269,9 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => { const t2 = [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'news'); t2 && t2.click(); });
           await p.waitForTimeout(150);
           assert.deepEqual(await p.evaluate(() => [...document.getElementById('f-NEWSAPI_AI_MODE').options].map((o) => o.value)), ['auto', 'shadow', 'off'], 'news modes = auto/shadow/off');
+          // #171: sentinelSourceFootnotes default flips to ON — an untouched
+          // settings.json (this fresh e2e db) must render the 'on' option selected.
+          assert.equal(await p.evaluate(() => document.getElementById('f-sentinelSourceFootnotes').value), '1', 'sentinelSourceFootnotes defaults on when never explicitly set');
           // #167: three GLOBAL-config tabs, in order (gates/memories moved into the
           // workspace tuning tab's global fieldset; bot stays per-view, not here)
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'adv'], 'three settings tabs in order (no gates/mem/bot)');
@@ -302,7 +336,31 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('#pfTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !!document.getElementById('pfTradesRows').textContent.trim()), 'portfolio all-trades tab rendered content');
+          // #171 F24: the audit tab renders the seeded decision's recorded news
+          // (real headline/source/link — see news.mjs#newsContextFor), not an
+          // invented summary.
+          await p.evaluate(() => document.querySelector('#pfTabs button[data-tab="audit"]').click());
+          await p.waitForTimeout(300);
+          const auditHtml = await p.evaluate(() => document.getElementById('tab-audit').innerHTML);
+          assert.ok(auditHtml.includes('news used:'), 'audit tab renders the "news used:" section for the seeded decision');
+          assert.ok(auditHtml.includes('e2e seeded headline: OPEC+ signals output hike'), 'seeded headline title renders');
+          assert.ok(/href="https:\/\/reuters\.example\/e2e"[^>]*target="_blank"[^>]*rel="noopener"/.test(auditHtml), 'headline link opens in a new tab with rel=noopener');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+
+          // #171 review item 1/6: the SAME newsHtml() render helper the audit
+          // tab uses is shared by the tape row detail + verdict banner's bot
+          // lane — pinned via synthetic input (a full tape-row round trip
+          // would need a decision timestamp inside a real signal's candle
+          // window, which the "now"-stamped seed above can't guarantee).
+          const newsHeadlineHtml = await p.evaluate(() => window.newsHtml({
+            news: { headlines: [{ title: 'synthetic tape headline', source: 'reuters', time: '2026-01-01T00:00:00Z', url: 'https://reuters.example/x' }] },
+          }));
+          assert.ok(newsHeadlineHtml.includes('news used:') && newsHeadlineHtml.includes('synthetic tape headline'), 'newsHtml renders recorded headlines for the tape/verdict-banner surfaces too');
+          const newsFallbackHtml = await p.evaluate(() => window.newsHtml({ news: null, toolTrace: [{ name: 'sentinel_news', ok: true }] }));
+          assert.ok(newsFallbackHtml.includes('news consulted (1) — headlines not recorded'), 'newsHtml falls back to the honest "consulted, not recorded" line');
+          // #171 review item 5: https-only guard on headline hrefs.
+          assert.equal(await p.evaluate(() => window.safeUrl('javascript:alert(1)')), null, 'safeUrl rejects a non-https scheme');
+          assert.equal(await p.evaluate(() => window.safeUrl('https://reuters.example/x')), 'https://reuters.example/x', 'safeUrl passes through an https url');
 
           // #170: indicators popover — opens from the chart-corner button,
           // toggling a checkbox persists (reflected in the ?ind= URL + a
@@ -374,6 +432,18 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForFunction(() => document.querySelectorAll('#rail .railjump[data-combo]').length > 0, { timeout: 5000 });
           const railCombos = await p.evaluate(() => [...document.querySelectorAll('#rail .railjump[data-combo]')].map((b) => b.dataset.combo));
           assert.ok(railCombos.includes('WTICO/USD|M15'), 'rail shows a row for the seeded bot combo');
+          // #171 3.6: the seeded WTICO/USD|M15 combo has 3/10 gate-bearing flip
+          // decisions disagreeing with the gate — a gray (never amber) tuning
+          // note renders on its rail row.
+          // #171 review item 4: .railnote is a SIBLING of the .railjump button
+          // inside .railrow, not nested inside it (nesting would pollute the
+          // button's accessible name) — look it up via the row, not the button.
+          const gateNoteRow = await p.evaluate(() => {
+            const jump = [...document.querySelectorAll('#rail .railjump[data-combo="WTICO/USD|M15"]')][0];
+            const row = jump ? jump.closest('.railrow') : null;
+            return row ? row.querySelector('.railnote')?.textContent ?? null : null;
+          });
+          assert.equal(gateNoteRow, 'disagreed with gates 3 of last 10', 'rail note renders for a seeded ≥3-of-10 disagreement combo');
           const [chartReq] = await Promise.all([
             p.waitForResponse((r) => r.url().includes('/api/chart') && r.url().includes('granularity=M15')),
             p.evaluate(() => { location.hash = '#bot/' + encodeURIComponent('WTICO/USD|M15'); }),
