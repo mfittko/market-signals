@@ -94,7 +94,8 @@ test('header structure: two rows — pfMini right-clusters on row 1, indicators 
     assert.ok(hdr.indexOf('id="pfMini"') < hdr.indexOf('id="pfBtn"'), 'insights precede the portfolio button on row 1');
     assert.ok(hdr.indexOf('id="pfBtn"') < hdr.indexOf('id="cfgbtn"'), 'settings is the last row-1 control');
     assert.ok(hdr.indexOf('id="cfgbtn"') < hdr.indexOf('id="hdr2"'), 'row 2 comes after all row-1 controls');
-    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="botBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
+    // #165: the bot button moved into the ad-hoc rail row's expanded state (hdr2's adhocSel span)
+    assert.ok(hdr2.includes('id="indbar"') && hdr2.indexOf('id="adhocBotBtn"') < hdr2.indexOf('id="indbar"'), 'indicators sit in hdr2 after the bot button');
     const auto = /margin-left:\s*auto/;
     assert.ok(!auto.test(page.match(/#cfgbtn[^{]*\{[^}]*\}/)[0]), 'single auto-margin: only pfMini pushes the right cluster');
     assert.match(page.match(/#pfMini \{[^}]*\}/)[0], auto);
@@ -595,7 +596,8 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     // icon-only header buttons carry an accessible name (aria-label), not just title
-    for (const [id, label] of [['cfgbtn', 'settings'], ['botBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
+    // #165: the header 🤖 moved into the rail's ad-hoc row (adhocBotBtn)
+    for (const [id, label] of [['cfgbtn', 'settings'], ['adhocBotBtn', 'bot for this view'], ['watchBtn', 'toggle alerts']])
       assert.ok(new RegExp('id="' + id + '"[^>]*aria-label="' + label).test(html), id + ' has an aria-label');
     // canvas charts expose a text alternative
     assert.ok(/id="chart"[^>]*role="img"[^>]*aria-label=/.test(html), 'price chart canvas has role=img + aria-label');
@@ -899,9 +901,12 @@ test('strategy management (#25): chat drafts never activate, human activation vi
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('id="botcfg"'), 'settings dialog no longer carries the bot row (#49)');
     assert.ok(html.includes('id="pfBtn"'), 'header portfolio button always present');
-    assert.ok(html.includes('id="botBtn"'), 'contextual bot icon in the header');
+    // #165: the contextual per-view bot control now lives in the rail's ad-hoc row
+    assert.ok(html.includes('id="adhocBotBtn"'), 'contextual bot icon (ad-hoc row)');
+    assert.ok(html.includes('id="rail"'), 'fleet rail nav present');
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
-    assert.ok(html.includes('data-tab="overview"') && html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview with activated-bots list + halt banner');
+    // #165 review: the read-only activated-bots list is gone — the rail is authoritative
+    assert.ok(html.includes('data-tab="overview"') && !html.includes('id="botList"') && html.includes('id="haltBanner"'), 'portfolio overview drops the redundant bot list (rail is authoritative) but keeps the halt banner');
     assert.ok(!html.includes('id="botAdd"') && !html.includes('id="botTable"'), 'editable bots table removed from the read-only portfolio modal');
 
     // settings whitelist accepts the bot object, rejects junk bot keys
@@ -1011,10 +1016,13 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
 test('bmWarn (UI review finding 1) is driven by the RESOLVED botState.strategyName, not the raw settings name, and options flag draft/no-active-version names', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    // the setup-tab warning span must gate on botStateCache (the resolved
-    // active-version name from /api/chart), never on entry.strategyName —
-    // an assigned name with zero active versions must still warn.
-    assert.match(html, /entry\.enabled && !botStateCache\?\.strategyName/, 'bmWarn gates on resolved botStateCache.strategyName');
+    // the setup-tab warning span must gate on the resolved active-version name
+    // for the MODAL's own combo (modalState, from /api/chart — #165 review:
+    // renamed from the shared botStateCache so a rail ⚙ open for a different
+    // combo than the current view can't read/clobber the wrong state), never
+    // on entry.strategyName — an assigned name with zero active versions must
+    // still warn.
+    assert.match(html, /entry\.enabled && !modalState\?\.strategyName/, 'bmWarn gates on resolved modalState.strategyName (scoped to the modal\'s combo)');
     assert.doesNotMatch(html, /entry\.enabled && !entry\.strategyName/, 'bmWarn no longer trusts the raw settings name alone');
     // the assign <select> must label each option with its active-version
     // state so an operator sees "won't trade" risk before assigning.

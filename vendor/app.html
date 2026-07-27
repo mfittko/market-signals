@@ -100,14 +100,34 @@
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
   /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
-  #botBtn { position: relative; }
-  #botBtn.nobot { opacity: 0.45; }
-  #botBtn::after { content: ''; position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; display: none; }
-  #botBtn.dot-grey::after { display: block; background: #8b949e; }
-  #botBtn.dot-green::after { display: block; background: #3fb950; }
-  #botBtn.dot-amber::after { display: block; background: #d29922; }
-  #botBtn.ring-halt { box-shadow: 0 0 0 2px #f85149; border-radius: 6px; }
+  /* #165: fleet rail replaces the header 🤖 status dot — a per-combo status
+     word+glyph now lives on the rail row itself. */
+  #mainGrid { display: flex; gap: 16px; align-items: flex-start; min-width: 0; }
+  #mainCol { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+  #rail { flex: 0 0 220px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; border: 1px solid #30363d;
+          border-radius: 6px; padding: 8px; background: #161b22; max-height: 80vh; overflow-y: auto; }
+  .railrow { display: flex; align-items: stretch; gap: 4px; }
+  .railjump { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+              text-align: left; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
+              padding: 6px 8px; cursor: pointer; font-size: 12px; min-height: 26px; }
+  .railjump[aria-current="true"] { border-color: #1f6feb; background: #1f6feb22; }
+  .railcfg { flex: 0 0 auto; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
+             cursor: pointer; min-width: 26px; min-height: 26px; }
+  .railstat { font-weight: 600; }
+  .railrow.pos .railstat { color: #3fb950; } .railrow.armed .railstat { color: #58a6ff; }
+  .railrow.warn .railstat { color: #d29922; } .railrow.off .railstat { color: #8b949e; }
+  .railcombo { opacity: .9; } .railstrat, .railage { font-size: 11px; opacity: .7; }
+  @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
+  @media (max-width: 899px) {
+    #mainGrid { flex-direction: column; }
+    #rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; width: 100%; max-height: none; }
+    .railrow { flex: 0 0 auto; }
+    .railjump { flex-direction: row; gap: 8px; white-space: nowrap; }
+  }
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
+  /* #165 review: halted chip — full-width in the rail, inline in the header strip */
+  .railhalt { display: block; text-align: center; padding: 6px; margin-bottom: 2px; background: #f8514922; border: 1px solid #f85149; border-radius: 5px; color: #f85149; font-weight: 600; }
+  #pfMini .railhalt { display: inline-block; padding: 1px 8px; margin: 0; }
   /* #87: wide enough that the strategy tab's prompt/spec textareas breathe on
      desktop; the max-width:900px query still caps dialogs at 92vw (box-sizing:
      border-box) so 390px stays single-column with no overflow. */
@@ -190,7 +210,6 @@
   [data-info] { position: relative; }
   body.info-on [data-info]:not(button):not(label):not(select):not(input) { cursor: help; }
   @media (hover: hover) {
-  /* ::before, NOT ::after — #botBtn's status dot lives on ::after and the rules would merge */
   body.info-on [data-info]:hover::before, body.info-on [data-info]:focus::before {
     content: attr(data-info); position: absolute; left: 0; top: 100%; margin-top: 4px;
     width: max-content;
@@ -224,7 +243,10 @@
          border-radius: 6px; padding: 6px 9px; font-size: 12px; line-height: 1.45;
          pointer-events: none; white-space: nowrap; z-index: 2; }
 </style></head><body><div id="app" class="chat-collapsed"><div id="asideResize" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize chat sidebar (arrow keys, double-click to reset)" title="drag to resize · double-click to reset"></div><main>
-<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="botBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button> <span id="indbar"></span></span></header>
+<header id="topbar"><h1>Market Signals</h1> <span id="pfMini"></span> <button id="pfBtn" type="button">💼 portfolio</button> <button id="cfgbtn" type="button" title="settings" aria-label="settings">⚙</button> <button id="chatToggle" type="button" title="toggle chat copilot" aria-label="toggle chat copilot" aria-expanded="false">💬</button><span id="hdr2"><span id="adhocSel"><select id="instSel" aria-label="instrument"></select> <select id="granSel" aria-label="granularity"></select> <button id="watchBtn" type="button" title="toggle alerts for this instrument/granularity" aria-label="toggle alerts for this instrument and granularity">🔕</button> <button id="adhocBotBtn" type="button" title="bot for this view" aria-label="bot for this view">🤖</button></span> <span id="indbar"></span></span></header>
+<div id="mainGrid">
+<nav id="rail" role="list" aria-label="configured bots"></nav>
+<div id="mainCol">
 <div id="wrap" style="height:460px"><canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas></div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
@@ -249,8 +271,7 @@
       <canvas id="pfSpark" width="560" height="46" role="img" aria-label="Realized equity after each closed trade"></canvas>
       <div id="pfSparkLegend" class="sparklegend"></div>
     </div>
-    <h2>activated bots</h2>
-    <div id="botList"></div>
+    <p><small>Bots live in the fleet rail (left/top nav).</small></p>
   </div>
   <div id="tab-trades" hidden>
     <table id="pfTrades"><thead><tr><th>opened</th><th>closed</th><th>instrument</th><th>side</th><th>P&amp;L</th><th>reason</th></tr></thead><tbody></tbody></table>
@@ -274,6 +295,8 @@
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
 <table id="hist"><thead><tr><th>time</th><th>signal</th><th>price</th><th>gates</th><th>reason</th><th title="directional return 30 minutes after the signal">30-min</th><th title="directional return held until the next opposite signal (× = still open)">to reversal</th></tr></thead><tbody></tbody></table>
 <button type="button" id="histMore" hidden>load 10 more</button>
+</div>
+</div>
 </main>
 <aside>
   <div id="threadBar"><button id="newThread">+ new</button></div>
@@ -306,7 +329,7 @@ const INFO = {
   pnl: 'Total P&L: realized plus unrealized.',
   active: 'active means the bot(s) may trade. halted means the kill-switch drawdown tripped; only a human can reset it.',
   alertToggle: 'Toggle alert notifications for this instrument and granularity.',
-  bot: 'grey = configured but off. green = armed. amber = enabled with no strategy assigned. red ring = a global halt is in effect.',
+  bot: 'Rail status: ○ off (configured, disabled), ● armed (ready to trade), ● in position (open trade), ⚠ no strategy / STALE (needs attention). A red ⛔ HALTED chip at the top of the rail means the global kill-switch tripped — only a human can reset it.',
   portfolio: 'Virtual trading portfolio: positions, trades, performance, and audit.',
   ema: 'EMA 20/50/200 overlay on the chart.',
   bb: 'Bollinger Bands: volatility bands around a moving average.',
@@ -328,7 +351,7 @@ const INFO = {
 };
 // Drives both the always-on native title AND (when the toggle is on) the
 // styled data-info hover tooltip — one map, one loop, no duplicated copy.
-const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', botBtn: 'bot', pfDlgTitle: 'portfolio' };
+const STATIC_TITLES = { pfBtn: 'portfolio', cfgbtn: 'settings', watchBtn: 'alertToggle', adhocBotBtn: 'bot', pfDlgTitle: 'portfolio' };
 for (const sid in STATIC_TITLES) {
   const el = document.getElementById(sid);
   // symbol-only buttons need an accessible name too — title alone is unreliable for AT
@@ -365,8 +388,9 @@ async function load() {
   applyInfo(!!d.info);
   selectors(d);
   draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); history(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
-  indBar(d); axisChips(d.axisGate); oscPanel(d); botIcon(d.botState);
+  indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
+  loadRail().catch(() => {});
 }
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
@@ -386,6 +410,7 @@ async function portfolio() {
   // bot_trades, not just the 50-row pf.trades slice this page also renders).
   const totalPnl = pf.realizedTotal + pf.unrealized;
   mini.innerHTML =
+    (pf.halted ? '<span class="railhalt">⛔ HALTED</span>' : '') +
     '<b data-info="' + esc(INFO.equity) + '">equity ' + esc(pf.equity.toFixed(2)) + '</b><span class="' + pnlCls(totalPnl) + '" data-info="' + esc(INFO.pnl) + '">' + esc(money(totalPnl)) + '</span>' + status;
   if (hasActivity) {
   const dayPnl = pf.dayPnl;
@@ -468,44 +493,50 @@ function sparkline(pf) {
 document.getElementById('pfOpen').addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 document.getElementById('pfBtn').addEventListener('click', () => { document.getElementById('pfdlg').showModal(); renderOverviewBots(); });
 // Contextual per-combo bot modal + read-only overview (#49 design grill).
+// botStateCache mirrors the CURRENTLY VIEWED combo's bot state (set in load()
+// and, when the bot modal is opened for the viewed combo, in openBotModal's
+// save()); the fleet rail row shows the word+glyph status itself.
 let botStateCache = null;
-function botIcon(bs) {
-  botStateCache = bs;
-  const el = document.getElementById('botBtn');
-  el.className = '';
-  const combo = (qs.get('instrument') || '') + '·' + (qs.get('granularity') || 'M5');
-  if (!bs || !bs.configured) { el.classList.add('nobot'); el.title = 'no bot for ' + combo + ' — click to configure'; }
-  else if (bs.enabled && !bs.strategyName) { el.classList.add('dot-amber'); el.title = 'bot enabled — no strategy, will not trade'; }
-  else if (bs.enabled) { el.classList.add('dot-green'); el.title = 'armed — ' + bs.strategyName + (bs.openPosition ? ' · ' + bs.openPosition.side + ' ' + money(bs.openPosition.unrealized) : ''); }
-  else { el.classList.add('dot-grey'); el.title = 'bot configured (off)'; }
-  if (bs && bs.halted) { el.classList.add('ring-halt'); el.title += ' · PORTFOLIO halted — all bots paused'; }
-}
 // #75: bot modal tabs — setup (unchanged knobs) + strategy (assignment by
 // NAME, version list w/ per-version activate, inline draft/edit). A single
 // shared save() drives both tabs and repaints them both, so the setup tab's
 // "no strategy assigned" warning always reflects a strategy-tab assignment.
 let bmActiveTab = 'setup';
-async function openBotModal() {
-  const inst = qs.get('instrument') || document.getElementById('instSel').value;
-  const gran = qs.get('granularity') || document.getElementById('granSel').value || 'M5';
+async function openBotModal(instArg, granArg) {
+  // #165: the rail row's configure (⚙) affordance opens this for ITS combo;
+  // the ad-hoc 🤖 button (in chart-without-a-bot mode) still uses the current view.
+  const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
+  const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   const combo = inst + '|' + gran;
+  // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
+  // one on screen — bmStatus/bmWarn must reflect COMBO's own state, not
+  // whatever the view last cached, and saving here must never clobber the
+  // view's cache when they differ.
+  const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
+    (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
   document.getElementById('botTitle').dataset.info = INFO.botModal;
   bmActiveTab = 'setup';
   document.getElementById('botBody').innerHTML =
     '<div id="bmTabs"><button type="button" data-tab="setup" class="on">setup</button><button type="button" data-tab="strategy">strategy</button></div>' +
     '<div id="bm-setup"></div><div id="bm-strategy" hidden></div>';
+  let modalState = isViewedCombo() ? botStateCache : null;
+  const refreshModalState = async () => {
+    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
+    modalState = d2.botState;
+    if (isViewedCombo()) botStateCache = d2.botState;
+  };
   const save = async (patch) => {
     const r = await (await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { [combo]: patch } } }) })).json();
-    const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
-    botIcon(d2.botState);
+    await refreshModalState();
     await paint(r.error ? r.error : 'saved');
+    loadRail().catch(() => {}); // reflect enable/disable/strategy changes on the rail immediately
     return r;
   };
   const paint = async (savedMsg) => {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
-    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg);
+    renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState);
     if (bmActiveTab === 'strategy') await renderBotStrategyTab(inst, gran, entry, save, savedMsg);
   };
   document.getElementById('bmTabs').onclick = async (e) => {
@@ -517,23 +548,24 @@ async function openBotModal() {
     document.getElementById('bm-strategy').hidden = tab !== 'strategy';
     if (tab === 'strategy') await paint();
   };
+  await refreshModalState();
   await paint();
   document.getElementById('botdlg').showModal();
 }
-function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg) {
+function renderBotSetupTab(inst, gran, entry, settings, save, savedMsg, modalState) {
   const body = document.getElementById('bm-setup');
   body.innerHTML =
     '<label for="bmEnabled">enabled</label><input type="checkbox" id="bmEnabled"' + (entry.enabled ? ' checked' : '') + '>' +
-    // review fix: gate on the RESOLVED active-version name (botStateCache,
-    // same value /api/bots + runBot see), not entry.strategyName — a name
-    // whose versions are all inactive must still show the warning.
-    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !botStateCache?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
+    // review fix: gate on the RESOLVED active-version name (modalState, scoped
+    // to THIS combo — same value /api/bots + runBot see), not entry.strategyName
+    // — a name whose versions are all inactive must still show the warning.
+    '<span id="bmWarn" class="botwarn"' + (entry.enabled && !modalState?.strategyName ? '' : ' hidden') + '> won’t trade until a strategy is assigned (strategy tab)</span>' +
     '<label for="bmRisk" data-info="' + esc(INFO.riskPct) + '">risk % / trade (margin per trade as % of equity)</label><input type="number" step="0.1" id="bmRisk" value="' + esc(entry.riskPct ?? '') + '" placeholder="default">' +
     '<label for="bmAlloc" data-info="' + esc(INFO.allocation) + '">allocation % of equity (max total margin locked in ' + esc(inst) + ' — shared by all granularities, like leverage)</label><input type="number" step="1" id="bmAlloc" value="' + esc(entry.allocationPct ?? '') + '" placeholder="uncapped">' +
     '<label for="bmLev" data-info="' + esc(INFO.leverage) + '">leverage (per instrument — shared by all granularities of ' + esc(inst) + ')</label><input type="number" step="1" id="bmLev" value="' + esc((settings.bot && settings.bot.leverage && settings.bot.leverage[inst]) ?? '') + '" placeholder="default 10×, cap 20×">' +
     '<details><summary>advanced</summary><label for="bmKill" data-info="' + esc(INFO.killSwitch) + '">kill-switch DD % (threshold feeding the single GLOBAL portfolio halt — bots cannot halt individually)</label>' +
     '<input type="number" step="1" id="bmKill" value="' + esc(entry.killSwitchDrawdownPct ?? '') + '" placeholder="global default"></details>' +
-    '<div id="bmStatus"><small>' + (botStateCache?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : botStateCache?.openPosition ? '● ' + esc(botStateCache.openPosition.side) + ' open ' + esc(money(botStateCache.openPosition.unrealized)) : '') + '</small></div>' +
+    '<div id="bmStatus"><small>' + (modalState?.halted ? '<span class="halted">portfolio halted — bot paused (reset in portfolio)</span>' : modalState?.openPosition ? '● ' + esc(modalState.openPosition.side) + ' open ' + esc(money(modalState.openPosition.unrealized)) : '') + '</small></div>' +
     '<p><button type="button" id="bmToPf">View in portfolio →</button> <span id="bmSaved">' + esc(savedMsg || '') + '</span> <button type="button" id="bmRemove">remove bot</button></p>';
   document.getElementById('bmEnabled').onchange = (e) => save({ enabled: e.target.checked });
   document.getElementById('bmRisk').onchange = (e) => save({ riskPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
@@ -656,8 +688,9 @@ async function renderBotStrategyTab(inst, gran, entry, save, savedMsg) {
     }
   }
 }
-document.getElementById('botBtn').addEventListener('click', openBotModal);
-// Read-only activated-bots list + halt banner in the portfolio overview.
+document.getElementById('adhocBotBtn').addEventListener('click', () => openBotModal());
+// Halt banner in the portfolio overview — the activated-bots list itself
+// lives in the fleet rail now (#165); this dialog no longer duplicates it.
 async function renderOverviewBots() {
   const r = await (await fetch('/api/bots')).json();
   if (!r.ok) return;
@@ -670,22 +703,6 @@ async function renderOverviewBots() {
       renderOverviewBots(); portfolio();
     };
   }
-  const list = document.getElementById('botList');
-  const active = r.bots.filter(b => b.enabled);
-  const off = r.bots.filter(b => !b.enabled);
-  const row = (b) => '<div class="botrow"><span><b>' + esc(b.combo) + '</b> · ' +
-    (b.strategyName ? esc(b.strategyName) : '<span class="botwarn">— none — won’t trade</span>') + '</span>' +
-    '<span>' + (b.enabled ? '<span class="active">on</span>' : 'off') + ' · ' + esc(b.leverage) + '×' + (b.allocationPct ? ' · alloc ' + esc(b.allocationPct) + '%' : '') + ' · ' + nTrades(b.trades) + ' · <span class="' + pnlCls(b.realized) + '">' + esc(money(b.realized)) + '</span>' +
-    (b.lastDecisionAt ? ' · last ' + esc(localFull(b.lastDecisionAt)) : '') + '</span>' +
-    '<button class="jump" data-combo="' + esc(b.combo) + '" aria-label="open this bot’s view (' + esc(b.combo) + ')" title="open this bot’s view">→</button></div>';
-  list.innerHTML = (active.map(row).join('') || '<div class="pfcard">No bots yet. Open a chart for an instrument, then click 🤖 in the header to configure a bot for that view.</div>') +
-    (off.length ? '<details><summary><small>configured (off): ' + off.length + '</small></summary>' + off.map(row).join('') + '</details>' : '');
-  list.onclick = (e) => {
-    const combo = e.target.dataset?.combo;
-    if (!combo) return;
-    const [i2, g2] = combo.split('|');
-    location.search = '?' + new URLSearchParams({ instrument: i2, granularity: g2, bot: '1' });
-  };
 }
 document.getElementById('pfTabs').addEventListener('click', async (e) => {
   const tab = e.target.dataset?.tab;
@@ -913,7 +930,12 @@ function selectors(d) {
   inst.innerHTML = d.instruments.map(i => '<option' + (i === d.instrument ? ' selected' : '') + '>' + esc(i) + '</option>').join('');
   const grans = GRANULARITIES.includes(d.granularity) ? GRANULARITIES : [d.granularity, ...GRANULARITIES];
   gran.innerHTML = grans.map(g => '<option' + (g === d.granularity ? ' selected' : '') + '>' + esc(g) + '</option>').join('');
-  const go = () => { location.search = '?' + new URLSearchParams({ instrument: inst.value, granularity: gran.value }); };
+  // #165: ad-hoc select changes are hash-driven too (chart-without-a-bot mode)
+  // — location.hash first so back/forward and bookmarking capture the combo.
+  // #165 review: one navigation (navigateToCombo owns hash+search as a single
+  // assignment) — setting hash then search separately created two history
+  // entries and a Back trap.
+  const go = () => navigateToCombo(inst.value, gran.value, true);
   inst.onchange = go; gran.onchange = go;
   const btn = document.getElementById('watchBtn');
   btn.textContent = d.watched ? '🔔' : '🔕';
@@ -923,6 +945,116 @@ function selectors(d) {
     await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ watchers: next.join(', ') }) });
     load();
   };
+}
+
+// #165: fleet rail — primary nav. One row per configured bot combo (from
+// /api/bots), hash-focused (#bot/<combo> / #chart/<inst>/<gran> for ad-hoc).
+// instSel/granSel stay the underlying state store (smallest diff, no chart
+// state rewrite) — the rail just sets them (via navigateToCombo → reload,
+// matching every other state change in this page) and syncs the hash.
+const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
+let railBots = [];
+const currentCombo = () => (qs.get('instrument') || '') + '|' + (qs.get('granularity') || 'M5');
+function botRailStatus(b) {
+  if (!b.enabled) return { glyph: '○', word: 'off', cls: 'off' };
+  if (!b.strategyName) return { glyph: '⚠', word: "no strategy — won't trade", cls: 'warn' };
+  const granMin = GRAN_MINUTES[b.granularity] || 5;
+  // review fix: no decisions yet (lastDecisionAt null) is NOT stale — it just
+  // hasn't run. STALE only applies once there's a finite age to compare.
+  const ageMin = b.lastDecisionAt ? (Date.now() - Date.parse(b.lastDecisionAt)) / 60000 : null;
+  if (ageMin != null && ageMin > granMin * 2) return { glyph: '⚠', word: 'STALE ' + Math.round(ageMin) + 'm', cls: 'warn' };
+  if (b.openPnl != null) return { glyph: '●', word: 'in position', cls: 'pos' };
+  return { glyph: '●', word: 'armed', cls: 'armed' };
+}
+const RAIL_SORT = { pos: 0, armed: 1, warn: 2, off: 3 };
+function railIsAdhoc(cur) { return !railBots.some((b) => b.combo === cur); }
+// hash change alone must not reload — only a real combo switch does (matches
+// every other state change on this page, which navigates via location.search).
+function navigateToCombo(inst, gran, adhoc) {
+  const hash = adhoc ? '#chart/' + encodeURIComponent(inst) + '/' + encodeURIComponent(gran) : '#bot/' + encodeURIComponent(inst + '|' + gran);
+  if (qs.get('instrument') === inst && (qs.get('granularity') || 'M5') === gran) {
+    if (location.hash !== hash) location.hash = hash; // same combo — only the hash needs to move
+    return;
+  }
+  // #165 review: one URL, one navigation — setting hash then search
+  // separately created two history entries (a Back trap). Build '?'+params+
+  // hash and assign it once.
+  const p = new URLSearchParams(location.search);
+  p.set('instrument', inst); p.set('granularity', gran);
+  location.href = location.pathname + '?' + p.toString() + hash;
+}
+// review fix: a granularity must be one of GRANULARITIES (and instrument
+// non-empty) or the route is ignored — e.g. an unencoded slash in
+// '#chart/WTICO/USD/M5' would otherwise split into gran='USD'.
+const validCombo = (i, g) => !!i && GRANULARITIES.includes(g);
+function comboFromHash() {
+  const h = location.hash;
+  if (h.startsWith('#bot/')) { const [i, g] = decodeURIComponent(h.slice(5)).split('|'); return validCombo(i, g) ? { inst: i, gran: g, adhoc: false } : null; }
+  // split BEFORE decoding: encoded instruments contain %2F which must not act as a separator
+  if (h.startsWith('#chart/')) { const [i, g] = h.slice(7).split('/').map((x) => decodeURIComponent(x)); return validCombo(i, g) ? { inst: i, gran: g, adhoc: true } : null; }
+  return null;
+}
+window.addEventListener('hashchange', () => {
+  const c = comboFromHash();
+  if (c) navigateToCombo(c.inst, c.gran, c.adhoc);
+});
+// review fix: rail load failure must not strand navigation — the ad-hoc
+// inst/gran selects default to visible in the HTML and are hidden ONLY after
+// a successful rail render whose current combo IS a configured bot. Kept as
+// a small pure function so its branches are unit-testable without needing to
+// actually break /api/bots.
+function adhocSelVisible(ok, adhoc) { return ok === false ? true : adhoc; }
+let railHalted = false;
+function renderRail(ok) {
+  const el = document.getElementById('rail');
+  if (ok === false) {
+    el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>';
+    document.getElementById('adhocSel').hidden = !adhocSelVisible(false, true);
+    return;
+  }
+  const cur = currentCombo();
+  // status computed once per row before sorting (stable order, no re-derive on read)
+  const withStatus = railBots.map((b) => ({ b, s: botRailStatus(b) }));
+  withStatus.sort((x, y) => RAIL_SORT[x.s.cls] - RAIL_SORT[y.s.cls]);
+  const rows = withStatus.map(({ b, s }) => {
+    const active = b.combo === cur;
+    const age = b.lastDecisionAt ? Math.round((Date.now() - Date.parse(b.lastDecisionAt)) / 60000) + 'm ago' : '—';
+    return '<div class="railrow ' + s.cls + '" role="listitem">' +
+      '<button type="button" class="railjump" data-combo="' + esc(b.combo) + '"' + (active ? ' aria-current="true"' : '') + '>' +
+      '<span class="railstat">' + s.glyph + ' ' + esc(s.word) + '</span>' +
+      '<span class="railcombo">' + esc(b.combo.replace('|', ' · ')) + '</span>' +
+      (b.strategyName ? '<span class="railstrat">' + esc(b.strategyName) + '</span>' : '') +
+      (b.openPnl != null ? '<span class="' + pnlCls(b.openPnl) + '">' + esc(money(b.openPnl)) + '</span>' : '') +
+      '<span class="railage">' + esc(age) + '</span></button>' +
+      '<button type="button" class="railcfg" data-combo="' + esc(b.combo) + '" aria-label="configure ' + esc(b.combo) + '" title="configure bot">⚙</button></div>';
+  }).join('');
+  const adhoc = railIsAdhoc(cur);
+  const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
+  el.innerHTML = haltChip + rows +
+    '<div class="railrow" role="listitem"><button type="button" id="railAdhocBtn" class="railjump"' + (adhoc ? ' aria-current="true"' : '') + '>⌕ chart without a bot</button></div>';
+  document.getElementById('adhocSel').hidden = !adhocSelVisible(true, adhoc);
+  el.onclick = (e) => {
+    const cfg = e.target.closest('.railcfg');
+    if (cfg) { const [i, g] = cfg.dataset.combo.split('|'); openBotModal(i, g); return; }
+    const adhocBtn = e.target.closest('#railAdhocBtn');
+    if (adhocBtn) { document.getElementById('adhocSel').hidden = false; document.getElementById('instSel').focus(); return; }
+    const jump = e.target.closest('.railjump');
+    if (jump && jump.dataset.combo) { const [i, g] = jump.dataset.combo.split('|'); navigateToCombo(i, g, false); }
+  };
+}
+async function loadRail() {
+  // review fix: a failed/unreachable /api/bots must not strand navigation
+  // behind a rail that never rendered — render an explicit failure state and
+  // keep the ad-hoc inst/gran selects reachable (see adhocSelVisible/renderRail(false)).
+  try {
+    const r = await (await fetch('/api/bots')).json();
+    if (!r.ok) { renderRail(false); return; }
+    railBots = r.bots;
+    railHalted = !!r.halted;
+    renderRail(true);
+  } catch {
+    renderRail(false);
+  }
 }
 
 // #163: one tz pipeline — the server exposes its trader tz (data.tz /
@@ -1482,6 +1614,17 @@ document.getElementById('chatForm').onsubmit = async (e) => {
   loadThreads();
 };
 loadThreads();
+// #165: a bookmarked/shared #bot or #chart hash without matching query params
+// wins on first load — redirect the query string to match before fetching.
+(() => {
+  const c0 = comboFromHash();
+  if (c0 && (qs.get('instrument') !== c0.inst || (qs.get('granularity') || 'M5') !== c0.gran)) {
+    const p = new URLSearchParams(location.search);
+    p.set('instrument', c0.inst); p.set('granularity', c0.gran);
+    qs.set('instrument', c0.inst); qs.set('granularity', c0.gran);
+    history.replaceState(null, '', '?' + p.toString() + location.hash);
+  }
+})();
 load().then(() => { if (qs.get('bot') === '1') openBotModal(); });
 
 // Speech-to-text (#137): MediaRecorder captures mic audio, POSTed to
