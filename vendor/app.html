@@ -134,6 +134,8 @@
               text-align: left; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
               padding: 6px 8px; cursor: pointer; font-size: 12px; min-height: 26px; }
   .railjump[aria-current="true"] { border-color: #1f6feb; background: #1f6feb22; }
+  .railadd { width: 100%; background: none; color: #8b949e; border: 1px dashed #30363d; border-radius: 6px; padding: 6px 8px; cursor: pointer; font: inherit; font-size: 12px; }
+  .railadd:hover { color: #e6edf3; border-color: #8b949e; }
   .railcfg { flex: 0 0 auto; background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
              cursor: pointer; min-width: 26px; min-height: 26px; }
   .railstat { font-weight: 600; }
@@ -146,6 +148,10 @@
     #rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; width: 100%; max-height: none; }
     .railrow { flex: 0 0 auto; }
     .railjump { flex-direction: row; gap: 8px; white-space: nowrap; }
+    /* the only bot-creation affordance must not hide behind horizontal
+       scroll once a few bots exist — first chip on the strip */
+    .railrow:has(.railadd) { order: -1; }
+    .railadd { width: auto; white-space: nowrap; }
   }
   #haltBanner { background: #f8514922; border: 1px solid #f85149; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; color: #f85149; font-weight: 600; }
   /* #165 review: halted chip — full-width in the rail, inline in the header strip */
@@ -1164,7 +1170,15 @@ function selectors(d) {
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 let railBots = [];
 let railFeed = [];
-const currentCombo = () => (qs.get('instrument') || '') + '|' + (qs.get('granularity') || 'M5');
+// ONE derivation of the viewed combo (qs wins, selects fall back — same
+// semantics as isViewedCombo in the bot config): label, has-a-bot check and
+// the add-bot click all use this, so they can never disagree.
+function viewedCombo() {
+  const inst = qs.get('instrument') || document.getElementById('instSel')?.value || '';
+  const gran = qs.get('granularity') || document.getElementById('granSel')?.value || 'M5';
+  return { inst, gran };
+}
+const currentCombo = () => { const c = viewedCombo(); return c.inst + '|' + c.gran; };
 // #166: STALE badge removed — bot decisions are event-driven, so decision
 // age alone is not a health warning. Recency renders once per row (see
 // humanAge below), not as a status word.
@@ -1275,8 +1289,19 @@ function renderRail(ok) {
   }).join('');
   const haltChip = railHalted ? '<div class="railrow" role="listitem"><span class="railhalt">⛔ HALTED</span></div>' : '';
   const aggWarn = allWarn ? '<div class="railrow" role="listitem"><span class="railstat warn">⚠ feed behind (market closed?)</span></div>' : '';
-  el.innerHTML = haltChip + aggWarn + rows;
+  // plan §5 C2 "+ new bot": bot creation lives in the rail (the old per-view
+  // header 🤖 is gone). Opens the bot modal for the currently charted combo —
+  // pick instrument/granularity with the selects first, then add.
+  const { inst: viewInst, gran: viewGran } = viewedCombo();
+  const addRow = viewInst && !railBots.some((b) => b.combo === viewInst + '|' + viewGran)
+    ? '<div class="railrow" role="listitem"><button type="button" class="railadd" id="railAddBot">+ add bot for ' + esc(viewInst + ' · ' + viewGran) + '</button></div>'
+    : ''; // current combo already has a bot (its ⚙ covers config) or instrument unknown yet
+  el.innerHTML = haltChip + aggWarn + rows + addRow;
   el.onclick = (e) => {
+    if (e.target.closest('#railAddBot')) {
+      const vc = viewedCombo(); openBotModal(vc.inst, vc.gran);
+      return;
+    }
     const cfg = e.target.closest('.railcfg');
     if (cfg) { const [i, g] = cfg.dataset.combo.split('|'); openBotModal(i, g); return; }
     const jump = e.target.closest('.railjump');

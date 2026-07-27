@@ -95,6 +95,18 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         await p.unroute('**/api/bots');
         await p.waitForTimeout(400);
 
+        // rail '+ add bot' row (plan §5 C2): the current view combo has no bot
+        // on the fresh test server (default view), so the add row must render
+        // and open the bot modal for that combo.
+        if (vname === 'desktop-landscape') {
+          const addBtn = await p.evaluate(() => { const b = document.getElementById('railAddBot'); return b ? b.textContent : null; });
+          assert.ok(addBtn && addBtn.startsWith('+ add bot for '), 'rail offers + add bot for the un-botted current combo');
+          await p.evaluate(() => document.getElementById('railAddBot').click());
+          await p.waitForTimeout(300);
+          assert.ok(await p.evaluate(() => document.getElementById('botdlg')?.open), '+ add bot opens the bot modal');
+          await p.evaluate(() => document.getElementById('botdlg').close());
+        }
+
         // 27/07 dead-UI regression: a stale #bot hash disagreeing with explicit
         // query params must not throw (window.history shadow) or re-assert the
         // hash — the page boots alive and the QUERY combo wins.
