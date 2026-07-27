@@ -290,13 +290,14 @@
 <div id="wrap">
   <div id="indpop">
     <button id="indbtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="indpanel">indicators ▾</button>
-    <div id="indpanel" hidden></div>
+    <div id="indpanel" hidden role="group" aria-label="indicators"></div>
   </div>
   <canvas id="chart" role="img" aria-label="Price candlestick chart with supertrend and indicator overlays. Numeric values are in the quote and axis-gate strips below."></canvas>
 </div>
 <div id="oscwrap" hidden style="height: 110px"><canvas id="osc" role="img" aria-label="Oscillator panel (RSI / MACD). Current values are shown in the axis-gate strip below."></canvas></div>
 <div class="quote" id="quote" hidden></div>
 <div id="axischips" class="quote" hidden></div>
+<div id="gapNote" class="tradeshead" hidden></div>
 <details id="pf" hidden>
   <summary><span id="pfChips">portfolio</span> <button id="pfOpen" type="button">details</button></summary>
 </details>
@@ -425,25 +426,39 @@ const INDICATORS = [['ema', 'EMA 20/50/200'], ['bb', 'Bollinger'], ['vwap', 'VWA
 // chrome moved.
 const indBtn = document.getElementById('indbtn');
 const indPanel = document.getElementById('indpanel');
+const closeIndPanel = () => { indPanel.hidden = true; indBtn.setAttribute('aria-expanded', 'false'); };
 indBtn.onclick = () => {
   const open = indPanel.hidden;
   indPanel.hidden = !open;
   indBtn.setAttribute('aria-expanded', String(open));
 };
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || indPanel.hidden) return;
+  closeIndPanel();
+  indBtn.focus();
+});
 document.addEventListener('click', (e) => {
-  if (!indPanel.hidden && !e.target.closest('#indpop')) { indPanel.hidden = true; indBtn.setAttribute('aria-expanded', 'false'); }
+  if (!(e.target instanceof Element)) return;
+  if (!indPanel.hidden && !e.target.closest('#indpop')) closeIndPanel();
 });
 function indBar(d) {
   const on = new Set(d.activeInd || []);
-  indPanel.innerHTML = INDICATORS.map(([k, label]) =>
-    '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
-  indPanel.onchange = async () => {
-    const next = [...indPanel.querySelectorAll('input:checked')].map(el => el.dataset.ind);
-    // persisted globally (#49): every view opens with this selection
-    await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ ind: next.join(',') || null }) });
-    if (next.length) qs.set('ind', next.join(',')); else qs.delete('ind');
-    location.search = '?' + qs.toString();
-  };
+  // #170 review: while the panel is open, reconcile checked state in place —
+  // rebuilding innerHTML on every 60s load() would blow away focus/keyboard
+  // position mid-interaction. Rebuild only when closed (or first paint).
+  if (indPanel.hidden || !indPanel.childElementCount) {
+    indPanel.innerHTML = INDICATORS.map(([k, label]) =>
+      '<label data-info="' + esc(INFO[k] || '') + '" title="' + esc(INFO[k] || '') + '"><input type="checkbox" data-ind="' + k + '"' + (on.has(k) ? ' checked' : '') + '> ' + esc(label) + '</label>').join('');
+    indPanel.onchange = async () => {
+      const next = [...indPanel.querySelectorAll('input:checked')].map(el => el.dataset.ind);
+      // persisted globally (#49): every view opens with this selection
+      await fetch('/api/settings', { method: 'POST', body: JSON.stringify({ ind: next.join(',') || null }) });
+      if (next.length) qs.set('ind', next.join(',')); else qs.delete('ind');
+      location.search = '?' + qs.toString();
+    };
+  } else {
+    for (const cb of indPanel.querySelectorAll('input[data-ind]')) cb.checked = on.has(cb.dataset.ind);
+  }
 }
 async function load() {
   const p = new URLSearchParams();
@@ -456,9 +471,15 @@ async function load() {
   applyInfo(!!d.info);
   selectors(d);
   // #170 (F8): the chart's own entry/stop/target lines + trade markers reuse
-  // this combo-scoped fetch — no separate polling loop, no double-fetch.
-  const chartTrades = await fetchTrades({ instrument: d.instrument, granularity: d.granularity, limit: 30 }).catch(() => []);
-  draw(d, chartTrades); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
+  // this combo-scoped fetch (the workspace [trades] tab below still does its
+  // own separate /api/trades call — full history at limit 500 vs. this
+  // chart-window-sized fetch — so this only avoids a SECOND chart-scoped fetch,
+  // not every trades fetch on the page).
+  // #170 review: 30 was an arbitrary cap that could clip trades right out of the
+  // visible candle window on a busy combo; the real clamp is the window filter
+  // in tradeOverlay() below, so fetch generous headroom instead of guessing.
+  lastTrades = await fetchTrades({ instrument: d.instrument, granularity: d.granularity, limit: 200 }).catch(() => []);
+  draw(d); quoteStrip(d.quote); verdict(d.signal, d.botDecision, d.recheck, { instrument: d.instrument, granularity: d.granularity, isLatestSignal: d.isLatestSignal }); renderHistory(d.signals, d.botDecisions, { instrument: d.instrument, granularity: d.granularity });
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
@@ -624,17 +645,26 @@ async function fetchTrades(params) {
 }
 function sparkline(pf) {
   const c = document.getElementById('pfSpark');
-  // Fewer than 2 closed trades draws a flat line that says nothing — the
-  // caption below carries the numbers instead.
-  c.hidden = pf.trades.length < 2;
+  // #170 review (item 4): an open position with no (or one) closed trade still
+  // has a real curve worth showing — start flat, then the live segment carries
+  // the unrealized move. Only truly nothing-to-plot (no trades, no position)
+  // hides the canvas.
+  c.hidden = pf.trades.length < 2 && !pf.positions.length;
   const g = c.getContext('2d');
   g.clearRect(0, 0, c.width, c.height);
-  // trades arrive newest-first; the curve runs oldest → newest realized equity
-  const pts = pf.trades.slice().reverse().reduce((acc, t) => { acc.push(acc[acc.length - 1] + t.realized); return acc; }, [pf.startingBalance]);
+  // trades arrive newest-first; the curve runs oldest → newest realized equity.
+  // #170 review: the visible pf.trades is a capped (50-row) slice — summing
+  // its own deltas from startingBalance can drift from the true realized
+  // total on an account with more history than that. Anchor the curve's last
+  // point to pf.realizedTotal (server truth, #163) so the live segment below
+  // shows ONLY unrealized P&L, not also a correction for trades off-slice.
+  const rawPts = pf.trades.slice().reverse().reduce((acc, t) => { acc.push(acc[acc.length - 1] + t.realized); return acc; }, [pf.startingBalance]);
+  const anchorShift = (pf.startingBalance + pf.realizedTotal) - rawPts[rawPts.length - 1];
+  const pts = rawPts.map(v => v + anchorShift);
   if (pts.length < 2) pts.push(pts[0]);
   // #170 (F19 residue): append live equity (incl. unrealized on open positions)
   // as a final, visually distinct point instead of leaving it out with a caveat.
-  const liveEquity = pf.equity;
+  const liveEquity = pts[pts.length - 1] + pf.unrealized;
   const allPts = [...pts, liveEquity];
   const min = Math.min(...allPts), max = Math.max(...allPts), span = (max - min) || 1;
   const xAt = (i) => (i / (allPts.length - 1)) * (c.width - 8) + 4;
@@ -999,47 +1029,92 @@ async function renderEvaluation() {
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
 }
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
-// #170 (F28): one gap-break helper for every polyline overlay (EMA/BB/VWAP/
-// supertrend/RSI/MACD) — a session gap (weekend, feed outage) skips candles
-// entirely rather than leaving null placeholders, so a plain line dataset
-// draws a long diagonal "balloon" across the gap. Insert a null point just
-// after the pre-gap time so spanGaps:false breaks the line there instead.
+// #170 (F28, review): one gap-break helper for every polyline overlay
+// (EMA/BB/VWAP/supertrend/RSI) — a session gap (weekend, feed outage) skips
+// candles entirely rather than leaving null placeholders, so a plain line
+// dataset draws a long diagonal "balloon" across the gap.
+// Review verdict (issue #170): the x scale here is type:'timeseries', which —
+// unlike a plain 'time' scale — builds its pixel-distribution table from the
+// UNIQUE x values merged across every dataset sharing the axis. The original
+// version inserted a synthetic x (times[i-1]+1) that exists in NO other
+// dataset (candles included), adding a phantom entry to that shared table.
+// Fix: null the y at the EXISTING post-gap timestamp instead of fabricating a
+// new x — this sacrifices rendering that one point's value (acceptable; it's
+// the point immediately after a real gap) but never adds an x the candle
+// series doesn't already have.
 function gapBreakData(times, ys, granMs) {
-  const out = [];
-  for (let i = 0; i < times.length; i++) {
-    if (i > 0 && granMs && times[i] - times[i - 1] > 3 * granMs) out.push({ x: times[i - 1] + 1, y: null });
-    out.push({ x: times[i], y: ys[i] });
-  }
-  return out;
+  return times.map((x, i) => ({ x, y: (i > 0 && granMs && x - times[i - 1] > 3 * granMs) ? null : ys[i] }));
 }
 // #170 (F28): round-boundary x-axis ticks, granularity-aware — a plain
 // autoSkip pass doesn't line labels up on clean boundaries (:00/:30 for M5,
 // midnight/noon for H1…). Ticks land on round time boundaries here; the
 // existing autoSkipPadding still drops collisions on narrow (mobile) widths.
+// #170 review: anchored to LOCAL midnight and stepped via Date field
+// arithmetic (not a fixed millisecond stride) — DST-safe, since setMinutes()
+// recomputes the wall-clock time under local rules on each step instead of
+// drifting by a fixed UTC offset across a DST transition.
+const TICK_STEP_TABLE = [[240, 24 * 60], [60, 12 * 60], [15, 4 * 60], [5, 30], [0, 10]]; // [minGranMinutes, stepMinutes], checked widest-first
 function roundAxisTicks(minTime, maxTime, granMinutes) {
   if (!(maxTime > minTime)) return [];
-  const stepMinutes = granMinutes >= 240 ? 24 * 60 // H4 → daily
-    : granMinutes >= 60 ? 12 * 60 // H1 → midnight/noon
-      : granMinutes >= 15 ? 4 * 60 // M15/M30 → every 4h
-        : granMinutes >= 5 ? 30 // M5 → :00/:30
-          : 10; // M1 → every 10m
-  const stepMs = stepMinutes * 60 * 1000;
-  const first = Math.ceil(minTime / stepMs) * stepMs;
+  const stepMinutes = (TICK_STEP_TABLE.find(([g]) => granMinutes >= g) || TICK_STEP_TABLE[TICK_STEP_TABLE.length - 1])[1];
+  const cursor = new Date(minTime);
+  cursor.setHours(0, 0, 0, 0); // local midnight of the day containing minTime
   const out = [];
-  for (let t = first; t <= maxTime; t += stepMs) out.push(t);
+  while (cursor.getTime() <= maxTime) {
+    if (cursor.getTime() >= minTime) out.push(cursor.getTime());
+    cursor.setMinutes(cursor.getMinutes() + stepMinutes);
+  }
   return out;
 }
+// #170 (F8, review): trade markers/lines for the chart overlay — extracted so
+// both draw() call sites (60s load() and the 10s light tick) render an
+// identical overlay from the SAME data, and so a trade whose entry/exit falls
+// outside the visible candle window can never stretch either chart axis.
+function tradeOverlay(trades, times, granMs) {
+  const winStart = times[0], winEnd = times[times.length - 1];
+  const tradeMarkers = [];
+  const priceLines = []; // drawn via a chart.js afterDatasetsDraw plugin below
+  for (const tr of (trades || [])) {
+    const entryX = Date.parse(tr.entryTime);
+    const exitX = tr.exitTime != null ? Date.parse(tr.exitTime) : null;
+    const isLong = tr.side === 'long';
+    if (entryX >= winStart && entryX <= winEnd) {
+      tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'triangle', rotation: isLong ? 0 : 180, radius: 5,
+        backgroundColor: isLong ? '#3fb95099' : '#f8514999', borderWidth: 0,
+        data: [{ x: entryX, y: tr.entryPrice }] });
+    }
+    if (tr.state === 'closed' && exitX != null && exitX >= winStart && exitX <= winEnd) {
+      tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'rect', radius: 4,
+        backgroundColor: '#8b949e99', borderWidth: 0,
+        data: [{ x: exitX, y: tr.mark }] });
+    }
+    if (tr.state === 'open') {
+      if (tr.entryPrice != null) priceLines.push({ y: tr.entryPrice, color: 'rgba(139,148,158,0.7)', label: 'entry ' + tr.entryPrice });
+      if (tr.stop != null) priceLines.push({ y: tr.stop, color: 'rgba(248,81,73,0.7)', label: 'stop ' + tr.stop });
+      if (tr.target != null) priceLines.push({ y: tr.target, color: 'rgba(63,185,80,0.7)', label: 'target ' + tr.target });
+    }
+  }
+  return { tradeMarkers, priceLines };
+}
 let chart = null;
-function draw(d, trades) {
+// #170 review (item 1): ONE module-level binding for the chart's own trades
+// fetch, written only by load() — draw() always reads this, never an optional
+// param, so a caller can't forget to pass trades and silently drop the overlay.
+let lastTrades = [];
+function draw(d) {
   const cs = d.candles; if (!cs.length) return;
-  const stByTime = Object.fromEntries(d.supertrend.map(s => [s.time, s]));
   const P = (t) => Date.parse(t);
   const times = cs.map(k => P(k.time));
-  const granMs = (GRAN_MINUTES[d.granularity] || 5) * 60 * 1000;
+  // #170 review: one granularity-minutes resolution per draw, shared by the
+  // gap-break threshold and the tick builder below (was resolved twice).
+  const granMinutes = GRAN_MINUTES[d.granularity] || 5;
+  const granMs = granMinutes * 60 * 1000;
   const candleData = cs.map(k => ({ x: P(k.time), o: k.open, h: k.high, l: k.low, c: k.close, k }));
-  const stByMs = Object.fromEntries(d.supertrend.map(s => [P(s.time), s.trend]));
+  // #170 review: one epoch-keyed supertrend map — the tooltip lookup derives
+  // from it too (was a separate time-string-keyed map alongside this one).
+  const stByMs = Object.fromEntries(d.supertrend.map(s => [P(s.time), s]));
   const stData = gapBreakData(d.supertrend.map(s => P(s.time)), d.supertrend.map(s => s.value), granMs)
-    .map((p) => ({ ...p, trend: stByMs[p.x] }));
+    .map((p) => ({ ...p, trend: (stByMs[p.x] || {}).trend }));
   const maxVol = Math.max(1, ...cs.map(k => k.volume || 0));
   const volData = cs.map(k => ({ x: P(k.time), y: k.volume || 0 }));
   const volColor = cs.map(k => k.close >= k.open ? 'rgba(63,185,80,0.35)' : 'rgba(248,81,73,0.35)');
@@ -1061,29 +1136,19 @@ function draw(d, trades) {
     if (ind.vwap) line(ind.vwap, '#f2cc60', [2, 2]);
   }
 
-  // #170 (F8): trade markers/lines for the focused combo, from the shared
-  // /api/trades fetch — kept lazy: entry (▲/▼) + exit (■) glyphs, and for the
-  // one open position, thin dashed entry/stop/target lines with right-edge tags.
-  const tradeMarkers = [];
-  const priceLines = []; // drawn via a chart.js afterDatasetsDraw plugin below
-  for (const tr of (trades || [])) {
-    const entryX = P(tr.entryTime);
-    const isLong = tr.side === 'long';
-    tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'triangle', rotation: isLong ? 0 : 180, radius: 5,
-      backgroundColor: isLong ? '#3fb95099' : '#f8514999', borderWidth: 0,
-      data: [{ x: entryX, y: tr.entryPrice }],
-      _tooltip: (tr.state === 'open' ? 'open ' : '') + tr.side + ' entry ' + tr.entryPrice });
-    if (tr.state === 'closed' && tr.exitTime != null) {
-      tradeMarkers.push({ type: 'scatter', yAxisID: 'y', pointStyle: 'rect', radius: 4,
-        backgroundColor: '#8b949e99', borderWidth: 0,
-        data: [{ x: P(tr.exitTime), y: tr.mark }], _tooltip: 'exit ' + tr.mark + ' (' + tr.closeReason + ')' });
-    }
-    if (tr.state === 'open') {
-      const rightX = times[times.length - 1];
-      if (tr.entryPrice != null) priceLines.push({ y: tr.entryPrice, color: 'rgba(139,148,158,0.7)', label: 'entry ' + tr.entryPrice, x: rightX });
-      if (tr.stop != null) priceLines.push({ y: tr.stop, color: 'rgba(248,81,73,0.7)', label: 'stop ' + tr.stop, x: rightX });
-      if (tr.target != null) priceLines.push({ y: tr.target, color: 'rgba(63,185,80,0.7)', label: 'target ' + tr.target, x: rightX });
-    }
+  // #170 (F8, review): trade markers/lines for the focused combo, drawn from
+  // the module-level lastTrades binding (set by load(), never passed as an
+  // optional draw() arg — the 10s light tick calls draw(d) too and must not
+  // silently drop the overlay because it forgot to pass trades along).
+  const { tradeMarkers, priceLines } = tradeOverlay(lastTrades, times, granMs);
+
+  // #170 (item 8): honest cheap weekend/feed-gap notice — a gap wider than 3x
+  // the granularity inside the visible window (market closed, provider pause).
+  const gapNote = document.getElementById('gapNote');
+  if (gapNote) {
+    const hasGap = times.some((tm, i) => i > 0 && tm - times[i - 1] > 3 * granMs);
+    gapNote.hidden = !hasGap;
+    gapNote.textContent = hasGap ? 'feed gap in window (market closed or provider pause)' : '';
   }
 
   if (chart) chart.destroy();
@@ -1129,12 +1194,17 @@ function draw(d, trades) {
       events: [], // hover is fully owned by fullColumnTooltip (nearest-by-x, full chart height)
       scales: {
         x: { type: 'timeseries', grid: { color: 'rgba(48,54,61,0.5)' },
+             // #170 review (item 2): pin the visible range to the candle window —
+             // belt-and-suspenders alongside the trade-marker window filter above,
+             // so nothing (a stray dataset, a future bug) can stretch the x axis
+             // past what's actually on screen.
+             min: times[0], max: times[times.length - 1],
              time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
              // #170 (F28): round-boundary ticks (granularity-aware) instead of
              // whatever the auto algorithm lands on — autoSkipPadding still
              // drops collisions on narrow/mobile widths.
              afterBuildTicks(axis) {
-               const built = roundAxisTicks(times[0], times[times.length - 1], GRAN_MINUTES[d.granularity] || 5);
+               const built = roundAxisTicks(times[0], times[times.length - 1], granMinutes);
                if (built.length) axis.ticks = built.map((value) => ({ value }));
              },
              ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
@@ -1160,7 +1230,7 @@ function draw(d, trades) {
             label: (ctx) => {
               const k = ctx.raw.k; if (!k) return '';
               const chg = k.open ? ((k.close - k.open) / k.open * 100).toFixed(2) : '0.00';
-              const st = stByTime[k.time];
+              const st = stByMs[P(k.time)];
               const lines = [
                 'O ' + k.open + '  H ' + k.high + '  L ' + k.low + '  C ' + k.close + '  (' + (chg >= 0 ? '+' : '') + chg + '%)',
                 'volume ' + (k.volume ?? '—') + (k.partial ? '  (forming)' : ''),
@@ -1174,6 +1244,12 @@ function draw(d, trades) {
     },
   });
   fullColumnTooltip(chart);
+  // #170 (item 8 test seam): `chart` is a top-level `let`, so it (unlike the
+  // function declarations above) never lands on `window` for e2e to reach —
+  // expose it explicitly, plus the closed-over priceLines array (canvas-drawn,
+  // not a chart.js dataset, otherwise unobservable from outside).
+  chart.$priceLines = priceLines;
+  window.chart = chart;
 }
 
 // Full-column tooltip target (operator UX request): hovering anywhere at an x
@@ -1222,8 +1298,12 @@ function oscPanel(d) {
   if (!mode) return;
   const P = (t) => Date.parse(t);
   const xs = d.candles.map(k => P(k.time));
+  const granMs = (GRAN_MINUTES[d.granularity] || 5) * 60 * 1000;
+  // #170 review (item 3): RSI gets the same gap-break treatment as the
+  // chart's overlay lines — was drawn raw, so a weekend/feed gap balloons
+  // a diagonal line across it same as the un-fixed EMA/BB/VWAP lines used to.
   const datasets = mode === 'rsi'
-    ? [{ type: 'line', pointRadius: 0, borderWidth: 1, borderColor: '#d2a8ff', data: d.candles.map((k, i) => ({ x: xs[i], y: ind.rsi[i] ?? null })) }]
+    ? [{ type: 'line', pointRadius: 0, borderWidth: 1, borderColor: '#d2a8ff', spanGaps: false, data: gapBreakData(xs, ind.rsi.map(v => v ?? null), granMs) }]
     : [{ type: 'bar', backgroundColor: d.candles.map((k, i) => (ind.macd.hist[i] ?? 0) >= 0 ? 'rgba(63,185,80,0.6)' : 'rgba(248,81,73,0.6)'), data: d.candles.map((k, i) => ({ x: xs[i], y: ind.macd.hist[i] ?? null })) }];
   oscChart = new Chart(document.getElementById('osc'), {
     data: { datasets },

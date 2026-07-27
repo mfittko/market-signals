@@ -77,6 +77,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
       await t.test(vname, async () => {
         const [width, height] = VIEWPORTS[vname]; // validated up front
         const p = await browser.newPage({ viewport: { width, height } });
+        // #170 review: dedupe the indicator-checkbox-toggle + navigation-wait
+        // pattern used by both the "check ema" and the "clean up, uncheck it" steps.
+        const setInd = (key, checked) => Promise.all([
+          p.waitForNavigation(),
+          p.evaluate(([k, c]) => {
+            const cb = document.querySelector(`#indpanel input[data-ind="${k}"]`);
+            cb.checked = c;
+            cb.dispatchEvent(new Event('change', { bubbles: true }));
+          }, [key, checked]),
+        ]);
         const errs = [];
         p.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
         p.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
@@ -302,10 +312,19 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(150);
           assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), false, 'indicators popover opens on click');
           assert.ok(await p.evaluate(() => document.querySelectorAll('#indpanel input[data-ind]').length > 0), 'popover lists indicator toggles');
-          await Promise.all([
-            p.waitForNavigation(),
-            p.evaluate(() => { const cb = document.querySelector('#indpanel input[data-ind="ema"]'); cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }),
-          ]);
+          // #170 review: #indpop (and its #indpanel) live inside #wrap (the chart
+          // corner), not the header — pin that so the popover can't regress back
+          // there.
+          assert.ok(await p.evaluate(() => !!document.querySelector('#wrap #indpop')), '#indpop lives inside #wrap');
+          // Escape closes the popover and returns focus to #indbtn.
+          await p.evaluate(() => document.getElementById('indbtn').focus());
+          await p.keyboard.press('Escape');
+          await p.waitForTimeout(100);
+          assert.equal(await p.evaluate(() => document.getElementById('indpanel').hidden), true, 'Escape closes the indicators popover');
+          assert.equal(await p.evaluate(() => document.activeElement.id), 'indbtn', 'Escape returns focus to #indbtn');
+          await p.evaluate(() => document.getElementById('indbtn').click());
+          await p.waitForTimeout(150);
+          await setInd('ema', true);
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => new URL(location.href).searchParams.get('ind')), 'ema', 'toggling an indicator updates the ?ind= URL');
           // fresh navigation with NO ?ind= param — the global setting (not just
@@ -314,11 +333,41 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.querySelector('#indpanel input[data-ind="ema"]')?.checked), true, 'indicator selection persists via the global setting, not just the URL');
           // clean up: un-check it so later assertions in this test aren't affected
-          await Promise.all([
-            p.waitForNavigation(),
-            p.evaluate(() => { const cb = document.querySelector('#indpanel input[data-ind="ema"]'); cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true })); }),
-          ]);
+          await setInd('ema', false);
           await p.waitForTimeout(300);
+
+          // #170 review (item 8): pure page-embedded helpers pinned via
+          // page.evaluate — they aren't module-exported, so a synthetic-input
+          // assertion in the live page is the only reachable unit check.
+          assert.deepEqual(
+            await p.evaluate(() => window.gapBreakData([1000, 2000, 20000], [1, 2, 3], 1000)),
+            [{ x: 1000, y: 1 }, { x: 2000, y: 2 }, { x: 20000, y: null }],
+            'gapBreakData breaks the line at an EXISTING timestamp (no synthetic x added to the shared timeseries index)'
+          );
+          const ticks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1, 3, 0), Date.UTC(2026, 0, 3, 3, 0), 240));
+          assert.ok(Array.isArray(ticks) && ticks.length > 0, 'roundAxisTicks returns tick boundaries for an H4 window');
+          assert.ok(ticks.every((v) => typeof v === 'number' && v >= Date.UTC(2026, 0, 1, 3, 0) && v <= Date.UTC(2026, 0, 3, 3, 0)), 'every tick lands inside the requested window');
+
+          // narrow-width tick-collision check: roundAxisTicks itself doesn't
+          // know about pixel width (autoSkipPadding handles that at render
+          // time) — pin that a dense H1/M1 window still yields a bounded,
+          // non-per-candle tick count regardless of viewport.
+          const denseTicks = await p.evaluate(() => window.roundAxisTicks(Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 1) + 6 * 3600 * 1000, 1));
+          assert.ok(denseTicks.length < 60, `roundAxisTicks (${denseTicks.length}) stays bounded for a dense M1 6h window, not one per candle`);
+
+          // #170 review (item 8, soc seam pin): this fixture's default
+          // fetcher:null combo never has candles, so draw() never runs and
+          // chart.$priceLines is unreachable here — tradeOverlay() itself
+          // (the actual priceLines-painting logic) is a plain function and
+          // reachable directly with synthetic input.
+          assert.deepEqual(
+            await p.evaluate(() => window.tradeOverlay(
+              [{ state: 'open', side: 'long', entryTime: new Date(1000).toISOString(), entryPrice: 10, stop: 9, target: 12 }],
+              [500, 1500], 500
+            ).priceLines.map((pl) => pl.label)),
+            ['entry 10', 'stop 9', 'target 12'],
+            'tradeOverlay paints entry/stop/target priceLines for an open position inside the window'
+          );
 
           // #165/#166: fleet rail — one row for the seeded bot combo, and navigating
           // to its hash focuses the chart on that combo (instSel value flips).
