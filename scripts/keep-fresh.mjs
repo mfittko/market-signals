@@ -54,7 +54,10 @@ export async function sweepCombo(dbPath, instrument, granularity, { fetcher, now
     'SELECT MAX(time) AS t FROM candles WHERE instrument=? AND granularity=?').get(instrument, granularity)?.t ?? null);
   const newestMs = newest ? Date.parse(newest) : null;
   const nowMs = now();
-  if (newestMs != null && nowMs - newestMs <= granMs) {
+  // candle `time` is the bar OPEN time: a fully-current series' newest bar
+  // opened up to ~1×granMs ago, so "fresh" means within 2×granMs (one full
+  // bar-close period) — ≤1× would misread current series as stale every sweep.
+  if (newestMs != null && nowMs - newestMs <= 2 * granMs) {
     log(`skip ${instrument}|${granularity} (fresh, last=${newest})`);
     return { fetched: false };
   }

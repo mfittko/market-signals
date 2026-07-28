@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withDb, storeCandles } from '../scripts/supertrend.mjs';
@@ -52,11 +52,14 @@ test('instrumentUniverse: union of bot combos, watchers, and DISTINCT candles in
   assert.deepEqual(instrumentUniverse(dbPath, settingsPath).sort(), ['BCO/USD', 'WTICO/USD', 'XAU/USD']);
 });
 
-test('sweepCombo: skip-when-fresh issues no request when the newest stored bar is within one period', async () => {
+test('sweepCombo: skip-when-fresh issues no request when the newest stored OPEN time is within 2 periods (bar-close aware)', async () => {
   const dbPath = tmpDb();
   const granMs = 60000;
   const now = Date.now();
-  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs / 2)]);
+  // review pin: candle time is the bar OPEN — a fully-current series' newest
+  // bar opened up to ~1×granMs ago, so seed at 1.5×granMs (fresh under the
+  // 2×granMs rule, stale under the naive 1× rule this test guards against)
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 1.5)]);
   let calls = 0;
   const fetcher = async () => { calls++; return []; };
   const logs = [];
