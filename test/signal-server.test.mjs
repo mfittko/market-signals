@@ -1018,7 +1018,9 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
-    assert.match(html, /data-tab="setup"[\s\S]{0,200}data-tab="strategy"/, 'bot modal carries setup + strategy tabs, setup first');
+    // #187 review: buttons are generated from TAB_NAMES (one source of truth),
+    // so pin the array literal's order instead of literal button markup.
+    assert.match(html, /'setup', 'strategy', 'trades', 'audit'/, 'bot modal tab set derives from TAB_NAMES, setup first, history tabs present');
     // #166: setup/strategy bodies + control ids are now namespaced (bid(p, ...))
     // so the modal and the [tuning] workspace tab can mount the same render
     // functions without id collisions — check for the id-composing calls.
