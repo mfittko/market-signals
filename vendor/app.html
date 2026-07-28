@@ -708,7 +708,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     const settings = await (await fetch('/api/settings')).json();
     const entry = ((settings.bot || {}).bots || {})[combo] || {};
     renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
-    if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
+    if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg, modalState);
   };
   tabStrip(document.getElementById(bid(prefix, 'Tabs'))); // #168 (2.7): arrow-key nav, shared with pfTabs/cfgTabs/gatesTabs
   document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
@@ -832,7 +832,7 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
 // showAll/editing state lives on the tab element's dataset — cheap enough to
 // refetch+rerender the whole tab on every interaction (same pattern as the
 // rest of this page).
-async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
+async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg, modalState) {
   const el = document.getElementById(bid(p, '-strategy'));
   const strat = await (await fetch('/api/strategies')).json();
   const rows = strat.strategies || [];
@@ -849,7 +849,11 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
   const showAll = el.dataset.showAll === '1';
   const names = [...byName.keys()];
   const assignable = showAll ? names : names.filter((n) => !mismatched(n));
-  const current = entry.strategyName || '';
+  // review fix: a legacy-only bot ({strategyId} only, no strategyName) resolves a
+  // trading strategy server-side (modalState — same source as the "won't trade"
+  // warning) even though entry.strategyName is empty; seed current from that
+  // resolved name so the UI reflects what actually trades and can be detached.
+  const current = modalState?.strategyName || entry.strategyName || '';
   // an explicit '— none —' preview is an empty STRING, not 'unset' — falling back to
   // current here made detaching a strategy impossible from the modal
   const editing = 'editing' in el.dataset ? el.dataset.editing : current;
@@ -889,13 +893,13 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
     '<p><button type="button" id="' + bid(p, 'SaveVersion') + '">save as new version</button> <button type="button" id="' + bid(p, 'SaveActivate') + '">save + activate + assign</button></p>' +
     '<div id="' + bid(p, 'EditErr') + '" class="botwarn"></div></details>' +
     '<p><small id="' + bid(p, 'StratSaved') + '">' + esc(savedMsg || '') + '</small></p>';
-  document.getElementById(bid(p, 'ShowAll')).onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(p, inst, gran, entry, save); };
+  document.getElementById(bid(p, 'ShowAll')).onchange = (e) => { el.dataset.showAll = e.target.checked ? '1' : ''; renderBotStrategyTab(p, inst, gran, entry, save, undefined, modalState); };
   // review fix: browsing the select only PREVIEWS a name (version list +
   // editor below) — it must never rebind (or disarm) a live bot on its own.
   // Assignment is a separate, explicit write via the assign button / .bmAssign.
   document.getElementById(bid(p, 'StratSel')).onchange = (e) => {
     el.dataset.editing = e.target.value || '';
-    renderBotStrategyTab(p, inst, gran, entry, save);
+    renderBotStrategyTab(p, inst, gran, entry, save, undefined, modalState);
   };
   document.getElementById(bid(p, 'AssignBtn')).onclick = async () => { await save({ strategyName: editing || null }); };
   el.querySelectorAll('.bmAssign').forEach((row) => {
@@ -928,7 +932,7 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg) {
       if (!a.ok) { document.getElementById(bid(p, 'EditErr')).textContent = a.error || 'activation failed'; return; }
       await save({ strategyName: name });
     } else {
-      await renderBotStrategyTab(p, inst, gran, entry, save);
+      await renderBotStrategyTab(p, inst, gran, entry, save, undefined, modalState);
     }
   }
 }

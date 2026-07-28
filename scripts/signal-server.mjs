@@ -212,11 +212,14 @@ export function writeSettings(settingsPath, patch) {
             if (entry === null) delete bots[k2];
             else {
               const mergedEntry = { ...(bots[k2] ?? {}), ...entry };
-              // #197: a patch that sets strategyName (string OR explicit null)
-              // heals the entry — drop any legacy strategyId so a later detach
-              // (strategyName: null) can't resurrect it via resolveBotFor's
-              // legacy-id fallback.
-              if ('strategyName' in entry) delete mergedEntry.strategyId;
+              // #197: writing strategyName (string OR explicit null) makes the
+              // entry name-migrated, so the now-redundant legacy strategyId key
+              // is cleaned up — plain key hygiene, not load-bearing for trading
+              // safety (resolveBotFor already ignores strategyId once
+              // strategyName is set; #197 review fix also stops it from being
+              // published). Only clean up when the patch itself doesn't carry a
+              // strategyId — never silently discard a value the caller just sent.
+              if ('strategyName' in entry && !('strategyId' in entry)) delete mergedEntry.strategyId;
               bots[k2] = mergedEntry;
             }
           }

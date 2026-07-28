@@ -68,10 +68,13 @@ export function resolveBotFor(settings, instrument, granularity, dbPath = null) 
   const strategyName = typeof entry.strategyName === 'string' && entry.strategyName
     ? entry.strategyName
     : (entry.strategyName === undefined && dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
+  // an explicit detach (strategyName === null) also drops the ignored legacy
+  // id from the published state — nothing reads it once detached, and
+  // publishing it invites a caller to resurrect it (review fix, #197).
   return {
     configured: true,
     enabled: entry.enabled === true,
-    strategyId: legacyId,
+    strategyId: entry.strategyName === null ? null : legacyId,
     strategyName,
     riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
     allocationPct: Number.isFinite(entry.allocationPct) && entry.allocationPct > 0 ? entry.allocationPct : null,

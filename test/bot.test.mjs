@@ -379,6 +379,7 @@ test('resolveBotFor (#197): an explicit strategyName:null detach never falls bac
   const botFor = resolveBotFor(detached, WTI, 'M5', db);
   assert.equal(botFor.strategyName, null, 'explicit null detach wins over the leftover legacy id');
   assert.equal(resolvedStrategy(db, botFor), null, 'no ghost fallback — the bot will not trade');
+  assert.equal(botFor.strategyId, null, 'a detached entry must not publish the ignored legacy id either — nothing should be able to resurrect it (review fix)');
 
   // AC2 (regression): a genuinely un-migrated entry (strategyId only, key
   // absent) still resolves by id — legacy migration-on-read is unchanged.
