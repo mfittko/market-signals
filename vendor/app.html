@@ -1022,6 +1022,17 @@ async function renderBotAuditTab(containerId, inst, gran) {
   document.getElementById(containerId).innerHTML = r.ok ? auditEntriesHtml(r) : '<p><small>evaluation unavailable</small></p>';
 }
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
+// #195: default UI light-tick cadence, scaled by candle size — M30/H1 and
+// slower default to the 60s full load's own cadence, so the light tick is
+// effectively deferred to it at that point (no separate poll to configure).
+const UI_REFRESH_DEFAULT_MS = { M1: 3000, M5: 10000, M15: 30000 };
+// A settings.uiRefreshSeconds[gran] override (integer >= 2s, validated
+// server-side) wins; otherwise the granularity-scaled default; otherwise 60s.
+function uiRefreshDelayMs(gran, map) {
+  const override = map ? Number(map[gran]) : NaN;
+  if (Number.isInteger(override) && override >= 2) return override * 1000;
+  return UI_REFRESH_DEFAULT_MS[gran] ?? 60000;
+}
 // #170 (F28, review): one gap-break helper for every polyline overlay
 // (EMA/BB/VWAP/supertrend/RSI) — a session gap (weekend, feed outage) skips
 // candles entirely rather than leaving null placeholders, so a plain line
@@ -1925,7 +1936,7 @@ const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['watcherOwner', 'select', [['launchagent', 'LaunchAgent (cron)'], ['server', 'server heartbeat']], 'launchagent']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['watcherOwner', 'select', [['launchagent', 'LaunchAgent (cron)'], ['server', 'server heartbeat']], 'launchagent'], ['cycleMinutes', 'json'], ['uiRefreshSeconds', 'json']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -1947,6 +1958,8 @@ const FIELD_HINTS = {
   NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
   NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
+  cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to 5. Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations.',
+  uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
@@ -1999,6 +2012,7 @@ async function cfg() {
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts, def]) => {
+    if (kind === 'json') return inputRow(k, 'text', k, s[k] ? JSON.stringify(s[k]) : '', '{"M1":1,"M5":5}');
     const cur = s[k] ?? def ?? '';
     if (kind === 'select') {
       const curS = String(cur);
@@ -2061,7 +2075,11 @@ async function cfg() {
     for (const [k, kind] of [...NEWS_FIELDS, ...ADV_FIELDS]) {
       const el = f.elements[k]; if (!el) continue;
       const v = el.value;
-      patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
+      if (kind === 'json') {
+        try { patch[k] = v.trim() ? JSON.parse(v) : ''; } catch { document.getElementById('saved').textContent = k + ': invalid JSON'; return; }
+      } else {
+        patch[k] = kind === 'number' && v !== '' ? Number(v) : v;
+      }
     }
     // LLM: provider + its contextual fields; the model binds to models[provider]
     const p = f.querySelector('#f-provider').value;
@@ -2476,15 +2494,28 @@ setInterval(load, 60000);
 // Light tick (#154): chart + quote only. A full load() rebuilds the instrument
 // and granularity selects and clears the header, which at this cadence would
 // flicker and fight an open dropdown.
-setInterval(async () => {
-  if (document.hidden) return; // a background tab does not need a live feed
-  try {
-    const p = new URLSearchParams();
-    for (const k of ['instrument', 't', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
-    const d = await (await fetch('/api/chart?' + p)).json();
-    draw(d); quoteStrip(d.quote);
-  } catch { /* transient: the 60s full load is the recovery path */ }
-}, 10000);
+// #195: self-rescheduling (not a fixed setInterval) so the delay always
+// resolves fresh from the CURRENTLY selected granularity + the latest
+// uiRefreshSeconds map seen from the server — a settings change applies on
+// the very next tick, no restart/reload needed (granularity switches are
+// already a full page load here, so those re-resolve trivially too).
+let uiRefreshMap = null;
+function scheduleLightTick() {
+  setTimeout(lightTick, uiRefreshDelayMs(qs.get('granularity') || 'M5', uiRefreshMap));
+}
+async function lightTick() {
+  if (!document.hidden) { // a background tab does not need a live feed
+    try {
+      const p = new URLSearchParams();
+      for (const k of ['instrument', 't', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
+      const d = await (await fetch('/api/chart?' + p)).json();
+      if (d.uiRefreshSeconds) uiRefreshMap = d.uiRefreshSeconds;
+      draw(d); quoteStrip(d.quote);
+    } catch { /* transient: the 60s full load is the recovery path */ }
+  }
+  scheduleLightTick();
+}
+scheduleLightTick();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 // #108: one tabbed settings modal (llm/news/adv only — #167/#189 moved
 // gates/memories into the bot modal's global tab, see mountGlobalTab).

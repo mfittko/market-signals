@@ -26,16 +26,21 @@ const log = (msg) => dbg(`[keep-fresh] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MASTER_TICK_MS = 60000;
-// #193: single scheduled process — the server heartbeat runs the same
-// decision cycle the LaunchAgent's plist runs (StartCalendarInterval minutes
-// 1,6,11,...,56 — one minute after every M5 candle close). Candle-aligned,
-// not a plain 5-minute interval timer: local minute % 5 === 1 is "in phase",
-// and a bucket (floor(epoch ms / 5min)) newer than the last cycle's bucket is
-// "not yet run this bar" — so a restart mid-bucket waits for the next :X1
-// minute instead of firing off-phase immediately (no RunAtLoad-style burst).
-const CYCLE_BUCKET_MS = 5 * 60000;
-const isCyclePhase = (nowMs) => new Date(nowMs).getMinutes() % 5 === 1;
-const cycleBucket = (nowMs) => Math.floor(nowMs / CYCLE_BUCKET_MS);
+// #193/#195: single scheduled process — the server heartbeat runs the same
+// decision cycle the LaunchAgent's plist ran by default (StartCalendarInterval
+// minutes 1,6,11,...,56 — one minute after every M5 candle close), but now
+// PER WATCHED GRANULARITY: `cycleMinutes[gran]` (default 5) sets that
+// granularity's own candle-aligned cadence — minute % n === 1 % n is "in
+// phase", and a bucket (floor(epoch ms / n min)) newer than that
+// granularity's last cycle bucket is "not yet run this bar", so a restart
+// mid-bucket waits for the next in-phase minute instead of firing off-phase
+// immediately (no RunAtLoad-style burst). n=1 (M1) is in-phase every tick.
+export const cycleCadenceMinutes = (cfg, gran) => {
+  const n = Number(cfg?.cycleMinutes?.[gran]);
+  return Number.isFinite(n) && n >= 1 ? n : 5;
+};
+export const cycleBucketFor = (nowMs, n) => Math.floor(nowMs / (n * 60000));
+export const isCycleDue = (nowMs, n) => new Date(nowMs).getMinutes() % n === 1 % n;
 const INTER_REQUEST_DELAY_MS = 250; // politeness: serial sweep, small gap between live requests
 export const MAX_GAP_REPAIRS_PER_COMBO = 3; // residual gaps re-detect and repair next sweep
 export const BOOTSTRAP_SEED_BARS = 500; // a never-fetched combo seeds deep, not staleness-derived
@@ -179,7 +184,7 @@ export function startKeepFresh({
   let cycleInFlight = false;
   let sweepInFlight = false;
   let lastCycleAt = null; // null = never run
-  let lastCycleBucket = null; // null = never run: the boot case waits for the next :X1 minute, not an immediate off-phase fire
+  const lastCycleBucket = new Map(); // per-granularity: unset = never run, waits for the next in-phase minute (no immediate off-phase fire)
   let lastCycleError = null;
   const backoff = new Map(); // per-combo never-fresh backoff, lives as long as this loop
   const tick = async () => {
@@ -192,29 +197,57 @@ export function startKeepFresh({
     // LaunchAgent's own run, if any, isn't this process's to report on).
     if (isServerOwned(cfg)) {
       const nowMs = now();
-      const bucket = cycleBucket(nowMs);
-      if (!cycleInFlight && isCyclePhase(nowMs) && (lastCycleBucket == null || bucket > lastCycleBucket)) {
-        // stamp the ATTEMPT (not just success) and the bucket it belongs to
-        // BEFORE the async call: a failing/slow cycle still claims this bar
-        // instead of retrying every 60s tick within the same bucket.
+      // #195: distinct granularities among the watched combos, each due
+      // independently on its own cycleMinutes cadence. Fallback combo (no
+      // `watchers` configured) mirrors the settings-over-defaults merge CLI
+      // main() applies, so a bare settings.instrument/granularity override
+      // still reaches the cycle the way it did pre-#195.
+      const fallback = applyWatcherSettings({ instrument: DEFAULT_ARGS.instrument, granularity: DEFAULT_ARGS.granularity }, cfg);
+      const allCombos = parseWatchers(cfg, fallback);
+      const grans = [...new Set(allCombos.map((c) => c.granularity))];
+      const dueGrans = grans.filter((gran) => {
+        const n = cycleCadenceMinutes(cfg, gran);
+        if (!isCycleDue(nowMs, n)) return false;
+        const bucket = cycleBucketFor(nowMs, n);
+        const last = lastCycleBucket.get(gran);
+        return last == null || bucket > last;
+      });
+      if (!cycleInFlight && dueGrans.length) {
+        // stamp the ATTEMPT (not just success) and each due granularity's
+        // bucket BEFORE the async call: a failing/slow cycle still claims
+        // this bar instead of retrying every 60s tick within the same bucket.
+        for (const gran of dueGrans) {
+          lastCycleBucket.set(gran, cycleBucketFor(nowMs, cycleCadenceMinutes(cfg, gran)));
+        }
         lastCycleAt = nowMs;
-        lastCycleBucket = bucket;
         cycleInFlight = true;
-        // the same settings-over-defaults merge CLI main() applies — without
-        // it an empty `watchers` would fall back to DEFAULT_ARGS' combo and
-        // run the wrong instrument from the server. #193 review: freshBars
-        // defaults to the plist's operating value (1), not the CLI's looser
-        // default (2), when settings don't say otherwise.
-        const opts = applyWatcherSettings(
-          { ...DEFAULT_ARGS, freshBars: 1, notify: true, pretty: false, db: dbPath, settings: settingsPath },
-          cfg,
-        );
-        runCycle(opts, cfg).then(() => {
-          lastCycleError = null;
-        }).catch((err) => {
-          lastCycleError = err.message;
-          logFn(`[watcher-cycle] failed: ${err.message}`);
-        }).finally(() => { cycleInFlight = false; });
+        (async () => {
+          let firstErr = null;
+          for (const gran of dueGrans) {
+            // scope this granularity's watched combos only — a due
+            // granularity cycles its own combos, not every watched combo.
+            const combos = allCombos.filter((c) => c.granularity === gran);
+            const scopedCfg = { ...cfg, watchers: combos.map((c) => `${c.instrument}|${c.granularity}`).join(',') };
+            // the same settings-over-defaults merge CLI main() applies —
+            // without it an empty `watchers` would fall back to
+            // DEFAULT_ARGS' combo and run the wrong instrument from the
+            // server. #193 review: freshBars defaults to the plist's
+            // operating value (1), not the CLI's looser default (2), when
+            // settings don't say otherwise.
+            const opts = applyWatcherSettings(
+              { ...DEFAULT_ARGS, freshBars: 1, notify: true, pretty: false, db: dbPath, settings: settingsPath },
+              scopedCfg,
+            );
+            try {
+              await runCycle(opts, scopedCfg);
+            } catch (err) {
+              firstErr = err;
+              logFn(`[watcher-cycle] failed (${gran}): ${err.message}`);
+            }
+          }
+          lastCycleError = firstErr ? firstErr.message : null;
+          cycleInFlight = false;
+        })();
       }
     } else {
       lastCycleError = null;

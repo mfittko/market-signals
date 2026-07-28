@@ -51,7 +51,21 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'watcherOwner', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'watcherOwner', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
+// #195: a granularity key is [MH]<digits> — the same shape granularityMs
+// parses, not a fixed enum (the app never hardcodes a granularity list
+// server-side; vendor/app.html's GRANULARITIES is the client's own display list).
+const GRANULARITY_KEY_RE = /^[MH]\d+$/;
+// Shared validator for both per-granularity maps: object keyed by a known
+// granularity shape, integer values, each ≥ its own floor.
+function validateGranularityMinMap(patchVal, key, min) {
+  if (patchVal === undefined || patchVal === '' || patchVal === null) return;
+  if (typeof patchVal !== 'object' || Array.isArray(patchVal)) throw new Error(`${key} must be an object keyed by granularity`);
+  for (const [g, v] of Object.entries(patchVal)) {
+    if (!GRANULARITY_KEY_RE.test(g)) throw new Error(`${key} key '${g}' must be a granularity like M5 or H1`);
+    if (!Number.isInteger(v) || v < min) throw new Error(`${key}['${g}'] must be an integer >= ${min}`);
+  }
+}
 // #193: decision-cycle ownership during the LaunchAgent → server-heartbeat
 // transition; 'launchagent' (default) preserves today's behavior exactly.
 const WATCHER_OWNERS = ['launchagent', 'server'];
@@ -148,6 +162,10 @@ export function writeSettings(settingsPath, patch) {
   if (patch.watcherOwner !== undefined && patch.watcherOwner !== '' && patch.watcherOwner !== null && !WATCHER_OWNERS.includes(patch.watcherOwner)) {
     throw new Error(`watcherOwner must be one of ${WATCHER_OWNERS.join(', ')}`);
   }
+  // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
+  // (chart/quote poll interval, seconds) — both per-granularity maps.
+  validateGranularityMinMap(patch.cycleMinutes, 'cycleMinutes', 1);
+  validateGranularityMinMap(patch.uiRefreshSeconds, 'uiRefreshSeconds', 2);
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
   }
@@ -966,6 +984,9 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // every timestamp (signals, audit, candles) with `timeZone: tz`.
         data.tz = LOCAL_TZ;
         data.info = cfg.info === true; // #57: persisted globally, same pattern as ind
+        // #195: per-granularity light-tick override map — smallest clean path
+        // is the payload the chart already fetches every load()/light-tick.
+        if (cfg.uiRefreshSeconds) data.uiRefreshSeconds = cfg.uiRefreshSeconds;
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));

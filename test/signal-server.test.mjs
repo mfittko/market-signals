@@ -237,6 +237,35 @@ test('writeSettings validates directly (unit)', () => {
   assert.equal(maskedSettings(p).provider, undefined);
 });
 
+// --- #195: cycleMinutes / uiRefreshSeconds settings validation ---
+test('writeSettings: cycleMinutes/uiRefreshSeconds accept a valid per-granularity map', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 's.json');
+  writeSettings(p, { cycleMinutes: { M1: 1, M5: 5 }, uiRefreshSeconds: { M1: 3, M5: 10 } });
+  assert.deepEqual(maskedSettings(p).cycleMinutes, { M1: 1, M5: 5 });
+  assert.deepEqual(maskedSettings(p).uiRefreshSeconds, { M1: 3, M5: 10 });
+  writeSettings(p, { cycleMinutes: '' }); // empty deletes
+  assert.equal(maskedSettings(p).cycleMinutes, undefined);
+});
+
+test('writeSettings: cycleMinutes rejects a non-object, an unknown-shaped granularity key, or a value < 1', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 's.json');
+  assert.throws(() => writeSettings(p, { cycleMinutes: 'M1:1' }), /cycleMinutes must be an object/);
+  assert.throws(() => writeSettings(p, { cycleMinutes: [1] }), /cycleMinutes must be an object/);
+  assert.throws(() => writeSettings(p, { cycleMinutes: { foo: 1 } }), /cycleMinutes key 'foo' must be a granularity/);
+  assert.throws(() => writeSettings(p, { cycleMinutes: { M1: 0 } }), /cycleMinutes\['M1'\] must be an integer >= 1/);
+  assert.throws(() => writeSettings(p, { cycleMinutes: { M1: 1.5 } }), /cycleMinutes\['M1'\] must be an integer >= 1/);
+});
+
+test('writeSettings: uiRefreshSeconds rejects a value < 2 (its own floor, distinct from cycleMinutes\' 1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const p = join(dir, 's.json');
+  writeSettings(p, { uiRefreshSeconds: { M1: 2 } }); // 2 is the floor: accepted
+  assert.deepEqual(maskedSettings(p).uiRefreshSeconds, { M1: 2 });
+  assert.throws(() => writeSettings(p, { uiRefreshSeconds: { M1: 1 } }), /uiRefreshSeconds\['M1'\] must be an integer >= 2/);
+});
+
 test('sendNotification: explicit notifierBin is authoritative — used when present, SUPPRESSES when missing (no phantom osascript)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const argsFile = join(dir, 'args.txt');
