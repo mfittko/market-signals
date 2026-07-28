@@ -469,10 +469,37 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // narrow-width decimation (index-uniform, evenly thinning the FULL
           // set) must still reach both edges of the window — no longer a
           // "died after the first segment" truncation, whatever the stride.
-          const fragDecimated = await p.evaluate((times) => window.decimateTicksForWidth(times, 390, 56), sortedFragTicks);
+          // Pinned through the whole pipeline (buildXTicks), not the
+          // internal decimateTicks helper, so a refactor of the internals
+          // can't silently break the public seam.
+          const fragBuilt = await p.evaluate((times) => window.buildXTicks(times, 5, 5 * 60 * 1000, 390), fragTimes);
+          const fragDecimated = fragBuilt.map((t) => t.value);
           assert.ok(fragDecimated.length <= sortedFragTicks.length, 'narrow-width decimation never adds ticks');
           assert.equal(fragDecimated[0], sortedFragTicks[0], 'decimation keeps the first tick');
           assert.equal(fragDecimated[fragDecimated.length - 1], sortedFragTicks[sortedFragTicks.length - 1], 'decimation keeps the last tick (reaches the end of the window, not truncated)');
+
+          // #185 follow-up regression: an H4-style series where EVERY tick is
+          // a local-day boundary (major) at a narrow width used to defeat
+          // decimation outright (majors were always kept, unthinned) —
+          // buildXTicks must still cap the kept count at maxCount, with no
+          // two adjacent kept indices collapsing into a visual collision.
+          const allMajorTimes = await p.evaluate(
+            ({ start, count, step }) => { const out = []; for (let i = 0; i < count; i++) out.push(start + i * step); return out; },
+            { start: Date.UTC(2026, 0, 1), count: 40, step: 24 * 3600 * 1000 }
+          );
+          const narrowWidth = 200; // maxCount = floor(200/56) = 3
+          const allMajorBuilt = await p.evaluate(
+            ({ times, w }) => window.buildXTicks(times, 240, 4 * 3600 * 1000, w),
+            { times: allMajorTimes, w: narrowWidth }
+          );
+          const maxCount = Math.floor(narrowWidth / 56);
+          assert.ok(allMajorBuilt.length <= maxCount, `all-major series decimates to <= maxCount (${maxCount}) ticks at a narrow width (got ${allMajorBuilt.length})`);
+          const allMajorIdx = allMajorBuilt.map((t) => allMajorTimes.indexOf(t.value)).sort((a, b) => a - b);
+          for (let i = 1; i < allMajorIdx.length; i++) {
+            assert.ok(allMajorIdx[i] - allMajorIdx[i - 1] > 1, `no two kept ticks are index-adjacent when thinning was required (got indices ${allMajorIdx})`);
+          }
+          assert.equal(allMajorBuilt[0].value, allMajorTimes[0], 'first tick kept');
+          assert.equal(allMajorBuilt[allMajorBuilt.length - 1].value, allMajorTimes[allMajorTimes.length - 1], 'last tick kept');
 
           // Gapped-chart regression (#170 follow-up): a synthetic two-day M5
           // series with a multi-day gap in the middle must (a) never emit a
@@ -553,11 +580,28 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
           // #185 regression + operator 28/07: the desktop overlay is a slim
           // horizontal row along the chart TOP (not a corner box over candles),
-          // whose right edge stops short of the y-axis price-label column
-          // (measured up to ~51px across real instruments; fetcher:null here
-          // means no live Chart.js scale to read, so the CSS offset is pinned).
-          const indpanelRight = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById('indpanel')).right));
-          assert.ok(indpanelRight >= 60, `indicator panel's right offset (${indpanelRight}px) clears the measured y-axis label width on ${vname}`);
+          // whose right edge stops short of the y-axis price-label column.
+          // draw() sets #indpanel's `right` from the live chart's y-scale
+          // width once rendered, so assert the geometric invariant against
+          // the live instance instead of a static CSS-offset guess: the
+          // panel clears the price labels, and stays a single-line row.
+          const geo = await p.evaluate(() => {
+            const c = window.chart;
+            if (!c || !c.canvas) return null;
+            const panel = document.getElementById('indpanel').getBoundingClientRect();
+            const canvasRect = c.canvas.getBoundingClientRect();
+            return {
+              panelRight: panel.right, panelHeight: panel.height,
+              canvasRight: canvasRect.right, yAxisWidth: c.scales.y.width,
+              lineHeight: parseFloat(getComputedStyle(document.getElementById('indpanel')).fontSize) * 1.6,
+            };
+          });
+          if (geo) {
+            assert.ok(geo.panelRight <= geo.canvasRight - geo.yAxisWidth + 1, `indicator panel's right edge (${geo.panelRight}px) clears the live y-axis price labels (${geo.yAxisWidth}px wide, canvas right ${geo.canvasRight}px) on ${vname}`);
+            assert.ok(geo.panelHeight < 2 * geo.lineHeight, `indicator panel stays a single-line row (height ${geo.panelHeight}px) with the full label set on ${vname}`);
+          } else {
+            console.log(`[e2e] ${vname}: no live chart instance (no candles) — skipping indpanel/y-axis geometry check`);
+          }
           // #165 review: a hash missing the '|' separator (no granularity) must not
           // crash or navigate — the route is ignored (state stays on the prior combo).
           await p.evaluate(() => { location.hash = '#bot/' + encodeURIComponent('WTICO/USD'); });
