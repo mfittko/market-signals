@@ -109,8 +109,8 @@ links/back button and a system-health row fed by a small `/api/health`.
 │  (halted → full-width ⛔ banner, role="alert", the only red at rest)       │
 ├──────────┬────────────────────────────────────────────────┬────────────────┤
 │ FLEET    │ BOT WORKSPACE (focused bot, hash-addressed)    │ CHAT           │
-│ RAIL     │  [tape] [trades] [tuning]                      │ (collapsible)  │
-│ one row  │  chart + evidence                              │                │
+│ RAIL     │  chart + evidence                              │ (collapsible)  │
+│ one row  │                                                │                │
 │ per bot  │                                                │                │
 └──────────┴────────────────────────────────────────────────┴────────────────┘
      LEDGER overlay (portfolio-wide: equity · all trades · scoreboard · audit)
@@ -133,14 +133,15 @@ links/back button and a system-health row fed by a small `/api/health`.
   F30) above a combo-scoped two-lane event tape (§4). The signal-history table is deleted *as a
   table*; outcome stats move into `[why? ▸]` with renamed plain-language labels (F33). Re-check
   attaches to the newest entry, takes an explicit signal id (F20), shows progress + cost hint.
-- **Workspace › Trades** (C4): the canonical rows for this combo, **open first** — the only place
-  a position is drawn as a row (headline fix, F1/F2). Open rows show entry/mark/stop/target/age/
-  reason; closed rows entry/exit/prices/P&L/exit badge; expandable to signal + news links (F25,
-  F29). Header: `since first trade: 1 closed −6.27 · 1 open +0.15` with honesty note `⚠ n<5`.
-- **Workspace › Tuning** (C5): scope-explicit fieldsets — `this bot` / `INSTRUMENT — shared by
-  every granularity` (with blast-radius note `ⓘ also applies to XAG/USD·H1`) / `global` — merging
-  bot-modal setup + strategy, settings→gates, settings→memories (F18, F12 config side). Existing
-  write endpoints only; no new write routes.
+- **Workspace › Trades / Tuning (C4/C5) — superseded (#189).** The workspace no longer has a
+  [tape][trades][tuning] tab strip at all: only the signal tape (C3) renders under the verdict
+  banner. C4's "only place a position is drawn as a row" is now the ⚙ bot modal's trades tab
+  (open rows show entry/mark/stop/target/age/reason; closed rows entry/exit/prices/P&L/exit badge;
+  expandable to signal + news links — F25, F29) plus the portfolio overlay's all-trades tab (C6).
+  C5's scope-explicit fieldsets (`this bot` / `INSTRUMENT — shared by every granularity` / `global`
+  — F18, F12 config side) moved wholesale into the bot modal as its 5th tab (setup · strategy ·
+  trades · audit · global), reusing the same gates/memories mounts. The bot modal (rail ⚙) is now
+  THE bot surface. Existing write endpoints only; no new write routes.
 - **Ledger overlay** (C6): equity curve, all-bot trades, scoreboard grouped by strategy (open rows
   counted separately, excluded from win rate), global audit. Statistical honesty: `PF ∞` → `—`;
   win rate as a record `2W-1L` below n=20; `⚠ n<5 — descriptive only` (F19). Marking the curve at
@@ -194,9 +195,9 @@ PR-sized issues through the normal dev-loop; UI-review gate per §8.
 | # | Change | Fixes |
 |---|---|---|
 | 2.1 | Fleet rail replaces `instSel`/`granSel`/`botBtn`/`#botList`; hash-driven focus | F12, F11, F30 |
-| 2.2 | Workspace tabs; bot modal → Tuning; portfolio modal → Ledger overlay | F2, F18, F17 |
+| 2.2 | Workspace tabs; bot modal → Tuning; portfolio modal → Ledger overlay | F2, F18, F17 — superseded by #189 |
 | 2.3 | Trades tab renders canonical rows; delete the other four position renderings | F1, F2, F25, F29 |
-| 2.4 | Scope fieldsets + blast-radius notes; gates/memories move Settings → Tuning | F18 |
+| 2.4 | Scope fieldsets + blast-radius notes; gates/memories move Settings → Tuning | F18 — superseded by #189 |
 | 2.5 | Status-bar health row + labelled alerts toggle with confirmation | F9, F11, F30 |
 | 2.6 | Mobile: chip-strip rail, `clamp()` chart, collapsing tables, working chat panel | F10 |
 | 2.7 | `role="tablist"` + arrow keys + word-not-colour states | a11y |
