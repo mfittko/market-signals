@@ -1189,16 +1189,15 @@ export async function fetchCandles({ instrument, granularity, count, from = null
     .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite));
 }
 
-// #193: shared with the server-owned decision cycle (keep-fresh.mjs), so a
+// #193: shared with the heartbeat's decision cycle (keep-fresh.mjs), so a
 // server-invoked runWatcherCycle uses the exact same baseline the CLI does —
 // one source of truth for the defaults instead of two copies drifting apart.
 export const DEFAULT_ARGS = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
 
-// #193: shared by both watcher invokers (CLI main() and the server-owned
+// #193: shared by both watcher invokers (CLI main() and the heartbeat's
 // cycle in keep-fresh.mjs) — one merge rule instead of two copies drifting
-// apart. main() passes argv so an explicit CLI flag still wins over settings
-// (the LaunchAgent may pin flags); the server cycle has no argv, so settings
-// always apply there.
+// apart. main() passes argv so an explicit CLI flag still wins over settings;
+// the server cycle has no argv, so settings always apply there.
 export function applyWatcherSettings(opts, cfg, { argv } = {}) {
   for (const k of ['instrument', 'granularity', 'freshBars']) {
     const flagGiven = argv ? argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`)) : false;
@@ -1452,7 +1451,7 @@ async function main() {
   const opts = parseArgs(argv);
 
   // Watcher fields set on the config page win over baked defaults but lose to
-  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  // explicit CLI flags — the UI edits settings, a caller's flags win.
   const cfg = readSettings(opts.settings);
   applyWatcherSettings(opts, cfg, { argv });
 

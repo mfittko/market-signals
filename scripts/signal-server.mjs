@@ -13,9 +13,9 @@
 
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, renameSync, mkdirSync, createWriteStream, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, mkdirSync, createWriteStream, unlinkSync, existsSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
@@ -52,6 +52,9 @@ try {
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
 const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
+// #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
+// from settings.json on the next write, wherever it came from.
+const RETIRED_KEYS = ['watcherOwner'];
 // Shared validator for both per-granularity maps: object keyed by a known
 // granularity shape, integer values, each ≥ its own floor.
 function validateGranularityMinMap(patchVal, key, min) {
@@ -250,6 +253,9 @@ export function writeSettings(settingsPath, patch) {
       delete next.model;
     } else next[k] = v;
   }
+  // #199: strip any legacy key still lingering in an old settings.json — every
+  // write is a chance to clean it up, not just a patch that mentions it.
+  for (const rk of RETIRED_KEYS) delete next[rk];
   // #99: reject a state that would always fail at request time — an explicit
   // openai-compatible provider with no base URL (openaiEndpoint requires one).
   // Validated on the MERGED result so a partial patch can't sneak into it.
@@ -958,7 +964,21 @@ async function readJson(req, res) {
   try { return JSON.parse(raw); } catch { json(res, 400, { ok: false, error: 'invalid JSON' }); return undefined; }
 }
 
+// #199: the decommissioned two-owner LaunchAgent would double-execute cycles
+// if it were ever left installed alongside the heartbeat — a one-line warning
+// so a leftover plist doesn't silently duplicate trades. homeDir override
+// only exists so this is trivially testable without touching the real home.
+export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir()) {
+  try {
+    const plist = join(homeDir, 'Library/LaunchAgents/com.market-signals.supertrend.plist');
+    if (existsSync(plist)) {
+      logFn(`[signal-server] legacy LaunchAgent still installed (${plist}) — it will double-run cycles alongside this heartbeat; remove it with: launchctl bootout gui/$UID/com.market-signals.supertrend`);
+    }
+  } catch { /* best-effort warning only */ }
+}
+
 export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
+  warnLegacyLaunchAgent();
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
   // attemptedGaps (unfillable-gap memory) and lastLiveFetch (the on-read gate)

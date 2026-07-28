@@ -285,7 +285,7 @@ test('buildServer: server.on(close) stops the keep-fresh loop so no further tick
 // --- #199: single scheduled process — the heartbeat always owns the decision cycle ---
 
 // #193/#199 review: candle-aligned cadence — the cycle only fires when local
-// minute % 5 === 1 (matches the plist's :01,:06,... firing), one bucket at
+// minute % 5 === 1 (one minute after every M5 candle close), one bucket at
 // most per 5-minute bar. `at(min)` below pins a fake clock's minute so tests
 // don't depend on the wall clock's actual phase.
 function at(min, base = Date.now()) {
@@ -388,7 +388,7 @@ test('startKeepFresh: the sweep still runs on a tick while a slow cycle from a p
   handle.stop();
 });
 
-test('startKeepFresh: opts handed to runCycle default freshBars to 1 (the plist\'s operating value), not DEFAULT_ARGS\' looser 2, when settings omit it', async () => {
+test('startKeepFresh: opts handed to runCycle default freshBars to 1 (the historical operating value), not DEFAULT_ARGS\' looser 2, when settings omit it', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   const settingsPath = settingsFile(dir, {}); // no freshBars in settings

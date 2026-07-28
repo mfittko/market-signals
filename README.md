@@ -7,7 +7,7 @@ free breaking-news context, and agent skills for market analysis — all plain
 Node (stdlib only, no npm dependencies; the one chart library is vendored).
 
 ```
-┌─ LaunchAgent (KeepAlive) ─────────────────────────────────────────────────┐
+┌─ LaunchAgent (KeepAlive) ────────────────────────────────────────────────┐
 │ scripts/signal-server.mjs — single process                               │
 │  http://127.0.0.1:8787 — chart · quote strip · signals · settings · bot  │
 │  · chat copilot                                                          │
@@ -15,7 +15,8 @@ Node (stdlib only, no npm dependencies; the one chart library is vendored).
 │   fetch candles → supertrend(10,3) flips → LLM filter verdict            │
 │   → notification → per-combo bot deliberation (paper trades)             │
 │   → refresh HTF cache (M15/M30/H1/H4) → refresh sentinel news cache      │
-└──────────────────────────┬─────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────┘
+                            │
                             └── data/candles.db
 ```
 

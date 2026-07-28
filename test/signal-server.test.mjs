@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
-import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor } from '../scripts/signal-server.mjs';
+import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor, warnLegacyLaunchAgent } from '../scripts/signal-server.mjs';
+import { mkdirSync } from 'node:fs';
 
 const INSTRUMENT = 'WTICO/USD';
 
@@ -1619,6 +1620,9 @@ test('#199: a legacy stored watcherOwner key never breaks settings reads/writes 
     const patch = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ granularity: 'M15' }) });
     assert.equal(patch.status, 200, 'legacy key in the stored file never blocks an unrelated write');
 
+    const stored = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    assert.equal(stored.watcherOwner, undefined, 'an unrelated write also scrubs the retired key from disk');
+
     // explicitly patching the retired key is now an unknown-key rejection
     const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'server' }) });
     assert.equal(bad.status, 400);
@@ -1626,6 +1630,21 @@ test('#199: a legacy stored watcherOwner key never breaks settings reads/writes 
     const h = await (await fetch(base + '/api/health')).json();
     assert.equal(h.cycle.owner, undefined, 'no owner field anywhere in health');
   });
+});
+
+test('#199: warnLegacyLaunchAgent logs once when the decommissioned plist is still installed, and never when absent', () => {
+  const homeAbsent = mkdtempSync(join(tmpdir(), 'home-'));
+  const warningsAbsent = [];
+  warnLegacyLaunchAgent((msg) => warningsAbsent.push(msg), homeAbsent);
+  assert.equal(warningsAbsent.length, 0, 'no leftover plist → no warning');
+
+  const homePresent = mkdtempSync(join(tmpdir(), 'home-'));
+  mkdirSync(join(homePresent, 'Library/LaunchAgents'), { recursive: true });
+  writeFileSync(join(homePresent, 'Library/LaunchAgents/com.market-signals.supertrend.plist'), '');
+  const warningsPresent = [];
+  warnLegacyLaunchAgent((msg) => warningsPresent.push(msg), homePresent);
+  assert.equal(warningsPresent.length, 1);
+  assert.match(warningsPresent[0], /launchctl bootout gui\/\$UID\/com\.market-signals\.supertrend/);
 });
 
 test('#163 review: GET /api/health never runs portfolio.mjs migrations (no positions/portfolio/bot_trades tables)', async () => {

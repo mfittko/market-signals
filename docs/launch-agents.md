@@ -32,11 +32,7 @@ candle-aligned cadence (`cycleMinutes[gran]`, default 5 — see #195), plus:
 
 Both background refreshes are failure-isolated (a fetch error is logged and
 skipped, never surfaced as a cycle failure) and never delay or block the
-watched combo's own alert. Set `MS_DEBUG_LLM=1` in the LaunchAgent's
-environment (or your shell, for a manual run) to log a one-line
-provider/model/token-usage summary per LLM completion (filter and bot) to
-stderr — a local dev flag, not a persisted setting, and a no-op cost when
-unset.
+watched combo's own alert.
 
 `~/Library/LaunchAgents/com.market-signals.signal-server.plist`:
 
@@ -65,8 +61,10 @@ cadence, and every other field the cycle needs come from the config page
 (`data/settings.json`'s `watchers`/`instrument`/`granularity`/`freshBars`/
 `cycleMinutes`, etc.) — no CLI flags to keep in sync.
 
-Same `MS_DEBUG_LLM=1` flag as above: set it in this LaunchAgent's
-environment to surface the completion's provider/model/usage. `/api/recheck`
+Set `MS_DEBUG_LLM=1` in this LaunchAgent's environment (or your shell, for a
+manual run) to log a one-line provider/model/token-usage summary per LLM
+completion (filter and bot) to stderr — a local dev flag, not a persisted
+setting, and a no-op cost when unset. `/api/recheck`
 (non-streamed) gets all four `X-LLM-Provider`/`X-LLM-Model`/`X-LLM-Usage-Input`/
 `X-LLM-Usage-Output` headers; the chat SSE stream gets the `X-LLM-Provider`/
 `X-LLM-Model` headers plus a trailing `{type:'usage'}` SSE event (headers flush
