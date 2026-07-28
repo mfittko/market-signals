@@ -207,17 +207,20 @@
   #watchBtn.on { color: #3fb950; }
   #pfMini b { color: #e6edf3; }
   /* indicator checkboxes: a corner overlay on the chart on desktop (#wrap is
-     the positioning parent). Operator decision (27/07): always visible, no
-     toggle button. */
-  #indpanel { position: absolute; top: 10px; right: 10px; z-index: 3; background: #161b22; border: 1px solid #30363d;
-              border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
-              color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
+     the positioning parent, always visible, no toggle button). One slim
+     horizontal row across the chart TOP — a corner box covered candles and
+     the right-edge y-axis price labels. `right` here is just the pre-render
+     default (64px, ~37-51px measured across instruments); the live value is
+     set per-render in draw() to clear the actual axis width. Desktop keeps
+     the row single-line with horizontal scroll instead of wrapping over the
+     chart; narrow/phone renders it as a static wrapping row above the canvas
+     instead, since an overlay there would sit on top of the candles. */
+  #indpanel { position: absolute; top: 6px; left: 10px; right: 64px; z-index: 3; background: rgba(22,27,34,0.95); border: 1px solid #30363d;
+              border-radius: 6px; padding: 4px 10px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 4px 14px; font-size: 12px;
+              color: #8b949e; }
   #indpanel label { cursor: pointer; white-space: normal; }
-  /* narrow/phone: a corner overlay would sit on top of the candles — render
-     it as a static row above the canvas instead */
   @media (max-width: 900px) {
-    #indpanel { position: static; flex-direction: row; flex-wrap: wrap; box-shadow: none; max-width: none;
-                margin-bottom: 6px; white-space: normal; }
+    #indpanel { position: static; flex-wrap: wrap; overflow-x: visible; margin-bottom: 6px; }
   }
   #oscwrap { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 4px; margin-top: 6px; }
   #wrap { position: relative; background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 6px; }
@@ -1056,8 +1059,8 @@ function gapBreakData(times, ys, granMs) {
 }
 // #170 (F28): round-boundary x-axis ticks, granularity-aware — a plain
 // autoSkip pass doesn't line labels up on clean boundaries (:00/:30 for M5,
-// midnight/noon for H1…). Ticks land on round time boundaries here; the
-// existing autoSkipPadding still drops collisions on narrow (mobile) widths.
+// midnight/noon for H1…). Ticks land on round time boundaries here; narrow
+// (mobile) widths get thinned by decimateTicksForWidth, not Chart.js autoSkip.
 // #170 review: anchored to LOCAL midnight and stepped via Date field
 // arithmetic (not a fixed millisecond stride) — DST-safe, since setMinutes()
 // recomputes the wall-clock time under local rules on each step instead of
@@ -1104,6 +1107,60 @@ function markMajorTicks(values) {
     lastDay = dayKey;
     return { value, major };
   });
+}
+// #185 follow-up: Chart.js's built-in autoSkip anchors its spacing pass to
+// `major` (date-boundary) ticks and fits each inter-major segment
+// independently off that segment's own pixel width — once it runs out of
+// room inside the FIRST segment it drops every tick in every later segment
+// instead of resampling the whole axis, so a long window's labels rendered
+// for only the first slice then stopped dead. We own the tick list already
+// (roundAxisTicks below), so we also own the narrow-viewport thinning:
+// autoSkip is disabled and this decimates evenly by INDEX across the WHOLE
+// tick array. Majors (already flagged by markMajorTicks) are thinned to fit
+// the same budget when there are more day boundaries than room (H1/H4 on a
+// phone used to mark every tick major and defeat decimation entirely), and a
+// minimum index-distance guard keeps a uniform grid point from landing right
+// next to an already-kept major/endpoint (that adjacency was the source of
+// the tight tick pairs next to date labels).
+const MIN_PX_PER_TICK = 56;
+// Thin a sorted index array to at most n entries, always keeping its first
+// and last element (used both to cap an over-budget major set and, below, to
+// pick the uniform decimation grid).
+function thinIndices(idx, n) {
+  if (idx.length <= n) return idx;
+  if (n <= 1) return [idx[0]];
+  const out = new Set();
+  for (let k = 0; k < n; k++) out.add(idx[Math.round(k * (idx.length - 1) / (n - 1))]);
+  return [...out];
+}
+function decimateTicks(items, maxCount) {
+  const len = items.length;
+  if (len <= maxCount) return items;
+  const majorIdx = [];
+  items.forEach((it, i) => { if (it.major) majorIdx.push(i); });
+  // required anchors (majors + both endpoints) capped to the budget FIRST —
+  // otherwise a major-heavy series (H1/H4 on a phone, every tick a day
+  // boundary) could alone exceed maxCount before the grid even runs.
+  const anchors = thinIndices([...new Set([0, len - 1, ...majorIdx])].sort((a, b) => a - b), maxCount);
+  const stride = (len - 1) / Math.max(1, maxCount - 1);
+  const minDist = Math.max(1, Math.floor(stride / 2));
+  const kept = new Set(anchors);
+  for (let k = 0; k < maxCount && kept.size < maxCount; k++) {
+    const idx = Math.round(k * (len - 1) / (maxCount - 1));
+    let tooClose = false;
+    for (const j of kept) { if (Math.abs(j - idx) < minDist) { tooClose = true; break; } }
+    if (!tooClose) kept.add(idx);
+  }
+  return [...kept].sort((a, b) => a - b).map(i => items[i]);
+}
+// Single entry point for the x-axis tick pipeline: round to granularity-aware
+// boundaries, mark day-boundary majors ONCE (the only place tick identity is
+// decided), then decimate to fit the available width.
+function buildXTicks(times, granMinutes, granMs, widthPx) {
+  const built = roundAxisTicks(times, granMinutes, granMs);
+  if (!built.length) return [];
+  const maxCount = Math.max(1, Math.floor(widthPx / MIN_PX_PER_TICK));
+  return decimateTicks(markMajorTicks(built), maxCount);
 }
 function roundAxisTicks(times, granMinutes, granMs) {
   if (times.length < 2) return [];
@@ -1267,13 +1324,13 @@ function draw(d) {
              min: times[0], max: times[times.length - 1],
              time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
              // #170 (F28): round-boundary ticks (granularity-aware) instead of
-             // whatever the auto algorithm lands on — autoSkipPadding still
-             // drops collisions on narrow/mobile widths.
+             // whatever the auto algorithm lands on — narrow/mobile thinning
+             // is decimateTicksForWidth below, not Chart.js's own autoSkip
+             // (see #185 follow-up on decimateTicksForWidth for why).
              afterBuildTicks(axis) {
-               const built = roundAxisTicks(times, granMinutes, granMs);
-               if (built.length) axis.ticks = markMajorTicks(built);
+               axis.ticks = buildXTicks(times, granMinutes, granMs, axis.width);
              },
-             ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
+             ticks: { color: '#8b949e', maxRotation: 0, autoSkip: false,
                // the date on the first tick of each local day (flagged `major` in
                // afterBuildTicks above — a pure formatting read, not neighbour
                // adjacency), the time on the rest
@@ -1309,6 +1366,10 @@ function draw(d) {
     },
   });
   fullColumnTooltip(chart);
+  // #indpanel CSS `right: 64px` above is only the pre-render default — once
+  // the chart has actually drawn we know the real y-axis (price label)
+  // width, which varies ~37-51px across instruments, so clear it exactly.
+  if (indPanel) indPanel.style.right = (chart.scales.y.width + 12) + 'px';
   // #170 (item 8 test seam): `chart` is a top-level `let`, so it (unlike the
   // function declarations above) never lands on `window` for e2e to reach —
   // expose it explicitly, plus the closed-over priceLines array (canvas-drawn,
