@@ -194,6 +194,20 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
 
+        // #187 AC3 (mobile): the bot modal's 4-tab strip renders and the
+        // history tabs are tappable on phones (collapse inherited via .bmtabs
+        // flex-wrap — pin reachability, not pixels).
+        if (vname === 'phone-portrait') {
+          await p.waitForFunction(() => !!document.querySelector('#rail .railcfg'), { timeout: 5000 });
+          await p.evaluate(() => document.querySelector('#rail .railcfg').click());
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#bmTabs button').length), 4, 'bot modal shows 4 tabs on phone');
+          await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
+          await p.waitForTimeout(400);
+          assert.ok(await p.evaluate(() => !document.getElementById('bm-trades').hidden), 'trades tab opens on phone');
+          await p.evaluate(() => document.querySelector('dialog[open]')?.close());
+        }
+
         // #168 F10: phone viewports collapse the tape table to <=4 visible
         // columns (reason/gates move behind the row's expand toggle) with no
         // horizontal scroll anywhere in the table.
@@ -303,7 +317,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // and the chart's own periodic /api/trades poll is 60s, so this short
           // window counts only modal-triggered requests.
           let historyReqs = 0;
-          const onReq = (req) => { const u = req.url(); if (u.includes('/api/trades') || u.includes('/api/evaluation')) historyReqs++; };
+          // review fix (flake): the chart's 60s load() poll also hits /api/trades
+          // (limit=200) and its timer phase is unrelated to this test — count only
+          // the MODAL's uniquely-shaped requests (limit=500 trades / combo-scoped
+          // evaluation), so an unlucky poll tick can't fail a correct build.
+          const onReq = (req) => { const u = req.url(); if ((u.includes('/api/trades') && u.includes('limit=500')) || (u.includes('/api/evaluation') && u.includes('granularity=M15'))) historyReqs++; };
           p.on('request', onReq);
           await p.evaluate(() => document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]').click());
           await p.waitForTimeout(300);

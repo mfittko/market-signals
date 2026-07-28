@@ -739,10 +739,8 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
   const loadedTabs = new Set();
   container.innerHTML =
     '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections">' +
-    '<button type="button" role="tab" aria-selected="true" data-tab="setup" class="on">setup</button>' +
-    '<button type="button" role="tab" aria-selected="false" data-tab="strategy">strategy</button>' +
-    (withHistory ? '<button type="button" role="tab" aria-selected="false" data-tab="trades">trades</button>' +
-    '<button type="button" role="tab" aria-selected="false" data-tab="audit">audit</button>' : '') + '</div>' +
+    // one source of truth: buttons AND panels both derive from TAB_NAMES
+    TAB_NAMES.map((t, i) => '<button type="button" role="tab" aria-selected="' + (i === 0) + '" data-tab="' + t + '"' + (i === 0 ? ' class="on"' : '') + '>' + t + '</button>').join('') + '</div>' +
     TAB_NAMES.map((t) => '<div id="' + bid(prefix, '-' + t) + '"' + (t === 'setup' ? '' : ' hidden') + '>' +
       (t === 'trades' ? '<p id="' + bid(prefix, '-trades-head') + '"></p><div id="' + bid(prefix, '-trades-rows') + '"></div>' : '') + '</div>').join('');
   let modalState = isViewedCombo() ? botStateCache : null;
@@ -773,12 +771,19 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
     for (const t of TAB_NAMES) document.getElementById(bid(prefix, '-' + t)).hidden = t !== tab;
     if (tab === 'strategy') await paint();
     if ((tab === 'trades' || tab === 'audit') && !loadedTabs.has(tab)) {
-      loadedTabs.add(tab);
+      // cache only on SUCCESS — a failed fetch must retry on the next click,
+      // and the failure paints the file's canonical unavailable copy instead
+      // of an unhandled rejection leaving a silently blank panel
+      try {
       if (tab === 'trades') {
         const trades = await fetchTrades({ instrument: inst, granularity: gran, limit: 500 });
         renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
       } else {
         await renderBotAuditTab(bid(prefix, '-audit'), inst, gran);
+      }
+      loadedTabs.add(tab);
+      } catch {
+        document.getElementById(bid(prefix, '-' + tab)).innerHTML = '<p><small>' + tab + ' unavailable — click the tab to retry</small></p>';
       }
     }
   };
@@ -1041,7 +1046,7 @@ async function renderEvaluation() {
   document.getElementById('tab-audit').innerHTML = auditEntriesHtml(r);
 }
 // #187: decisionAudit rows (meta/decision/reason/sizeNote/tools/news) — one
-// render path shared by the portfolio's audit tab (all combos) and the bot
+// render path shared by the portfolio audit tab (combo from the URL, plus its strategy filter) and the bot
 // modal's per-combo audit tab (renderBotAuditTab below), same pattern as
 // #166's tradeRowHtml/renderTrades split.
 function auditEntriesHtml(r) {
