@@ -1583,7 +1583,7 @@ function renderHealthStrip() {
     ? ' · <span class="warn">⛔ cycle error (' + esc(cyc.owner) + ')</span>'
     : cyc.owner === 'server'
     ? ' · cycle: server · ' + (cyc.lastCycleAt ? humanAge((Date.now() - Date.parse(cyc.lastCycleAt)) / 60000) : 'not yet run')
-    : '';
+    : ' · cycle: launchagent';
   el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg + cycleSeg;
 }
 function renderRail(ok) {
@@ -1988,7 +1988,7 @@ async function cfg() {
   // reserved for real example values, not a duplicate of the same hint text.
   const fieldHint = (id) => {
     const h = FIELD_HINTS[id]; if (!h) return '';
-    const danger = id === 'port'; // the one field a UI change can't apply live
+    const danger = id === 'port' || id === 'watcherOwner'; // fields a UI change can't apply live / that cut over ownership
     return '<small class="fieldhint' + (danger ? ' danger' : '') + '">' + (danger ? '⚠ ' : '') + esc(h) + '</small>';
   };
   const hintedLabel = (id, label) =>

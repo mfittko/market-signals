@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isServerOwned, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -1342,7 +1342,12 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // #193: decision-cycle ownership + last-run telemetry — an LLM/bot
         // failure in the server-owned cycle surfaces here without ever
         // breaking chart serving (the cycle's own try/catch already isolates it).
-        const cycleStatus = keepFresh.getCycleStatus();
+        // Owner flip hygiene: stamps only ever mean something for the owner
+        // currently running the cycle — nulled here (not just left stale)
+        // when ownership isn't the server's, mirroring keep-fresh.mjs's own
+        // tick-side clear of lastCycleError on the same flip.
+        const serverOwned = isServerOwned(cfg);
+        const cycleStatus = serverOwned ? keepFresh.getCycleStatus() : { lastCycleAt: null, lastCycleError: null };
         return json(res, 200, {
           ok: true,
           halted,
@@ -1350,7 +1355,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           llm: { lastOkAt: lastDecisionRow?.at ?? null },
           news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },
           bots,
-          cycle: { owner: cfg.watcherOwner === 'server' ? 'server' : 'launchagent', ...cycleStatus },
+          cycle: { owner: serverOwned ? 'server' : 'launchagent', ...cycleStatus },
         });
       }
       if (url.pathname === '/api/portfolio') {

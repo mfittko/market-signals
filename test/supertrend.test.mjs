@@ -1232,7 +1232,7 @@ test('CLI main(): watcherOwner=server no-ops with an empty result and never runs
   writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server' }));
   const res = spawnSync('node', [script, '--settings', settingsPath, '--pretty', 'false'], { encoding: 'utf8', timeout: 20000, cwd: dir });
   assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), '[]');
+  assert.equal(res.stdout.trim(), '', 'no stdout print on the no-op path (stderr dbg suffices)');
   assert.ok(/watcherOwner=server/.test(res.stderr), 'logs the no-op reason');
   assert.equal(existsSync(join(dir, 'data')), false, 'no db/network side effects when the CLI no-ops');
 });

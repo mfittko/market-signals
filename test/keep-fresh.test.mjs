@@ -295,7 +295,18 @@ test('startKeepFresh: watcherOwner!=="server" never invokes the cycle (single-ow
   assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
 });
 
-test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligible tick, decision cycle BEFORE the keep-fresh sweep', async () => {
+// #193 review: candle-aligned cadence — the cycle only fires when local
+// minute % 5 === 1 (matches the plist's :01,:06,... firing), one bucket at
+// most per 5-minute bar. `at(min)` below pins a fake clock's minute so tests
+// don't depend on the wall clock's actual phase.
+function at(min, base = Date.now()) {
+  const d = new Date(base);
+  d.setSeconds(0, 0);
+  d.setMinutes(Math.floor(d.getMinutes() / 5) * 5 + min);
+  return d.getTime();
+}
+
+test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligible (in-phase) tick, decision cycle BEFORE the keep-fresh sweep', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
@@ -303,7 +314,7 @@ test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligib
   const order = [];
   const runCycle = async () => { order.push('cycle'); return []; };
   const fetcher = async ({ count }) => { order.push('sweep'); return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle });
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle, now: () => at(1) });
   await handle.tick();
   handle.stop();
   assert.deepEqual(order, ['cycle', 'sweep']);
@@ -312,22 +323,34 @@ test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligib
   assert.equal(status.lastCycleError, null);
 });
 
-test('startKeepFresh: the cycle only re-runs after CYCLE_INTERVAL_MS, not on every 60s tick', async () => {
+test('startKeepFresh: a restart mid-bucket (off-phase minute) does not fire immediately — waits for the next :X1 minute', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
-  let nowMs = Date.now();
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs, cycleIntervalMs: 300000 });
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(3) });
+  await handle.tick(); // boot mid-bucket, off-phase
+  assert.equal(cycleCalls, 0, 'off-phase boot tick never fires the cycle');
+  handle.stop();
+});
+
+test('startKeepFresh: the cycle only re-runs on a NEW bucket\'s in-phase minute, not on every 60s tick', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
+  let cycleCalls = 0;
+  const runCycle = async () => { cycleCalls++; return []; };
+  let nowMs = at(1);
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
   await handle.tick();
   assert.equal(cycleCalls, 1);
-  nowMs += 60000; // one more 60s tick, well under the 5-minute cycle interval
+  nowMs += 60000; // :02 — same bucket, in-phase check no longer true anyway
   await handle.tick();
-  assert.equal(cycleCalls, 1, 'not due yet');
-  nowMs += 300000;
+  assert.equal(cycleCalls, 1, 'not due yet: same bucket');
+  nowMs = at(1, nowMs + 5 * 60000); // next bucket's :01
   await handle.tick();
-  assert.equal(cycleCalls, 2, 'due again after the full interval');
+  assert.equal(cycleCalls, 2, 'due again on the next bucket\'s in-phase minute');
   handle.stop();
 });
 
@@ -339,15 +362,80 @@ test('startKeepFresh: a throwing cycle is isolated — the tick continues to the
   const runCycle = async () => { throw new Error('llm boom'); };
   let sweepCalls = 0;
   const fetcher = async ({ count }) => { sweepCalls++; return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle });
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle, now: () => at(1) });
   await handle.tick();
+  await new Promise((r) => setTimeout(r, 0)); // let the fire-and-forget cycle's .catch settle
   handle.stop();
   assert.equal(sweepCalls, 1, 'a cycle failure never breaks chart serving (the sweep still ran)');
   const status = handle.getCycleStatus();
   // review fix: the ATTEMPT is stamped so a failing cycle waits out the full
-  // interval instead of retrying every 60s tick (the error field carries state)
+  // bucket instead of retrying every 60s tick (the error field carries state)
   assert.ok(status.lastCycleAt !== null, 'a failed cycle still stamps the attempt time');
   assert.match(status.lastCycleError, /llm boom/);
+});
+
+test('startKeepFresh: the sweep still runs on a tick while a slow cycle from a prior tick is still in flight (separate guards)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  let releaseCycle;
+  const cycleGate = new Promise((r) => { releaseCycle = r; });
+  const runCycle = async () => { await cycleGate; return []; };
+  const fetcher = async ({ count }) => Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse();
+  const sweepLogs = [];
+  let nowMs = at(1);
+  const handle = startKeepFresh({
+    dbPath, settingsPath, fetcher, runCycle, now: () => nowMs,
+    logFn: (m) => { if (m.startsWith('sweep summary')) sweepLogs.push(m); },
+  });
+  await handle.tick(); // starts the cycle (still in flight, gated) + a sweep
+  assert.equal(sweepLogs.length, 1, 'first tick sweeps once');
+  nowMs += 60000; // still the same bucket, off-phase — the cycle guard alone wouldn't matter here
+  await handle.tick(); // the cycle from tick 1 is still in flight; the sweep must not be blocked by it
+  assert.equal(sweepLogs.length, 2, 'sweep ran on the second tick even though the cycle is still in flight');
+  releaseCycle([]);
+  await new Promise((r) => setTimeout(r, 0));
+  handle.stop();
+});
+
+test('startKeepFresh: opts handed to runCycle default freshBars to 1 (the plist\'s operating value), not DEFAULT_ARGS\' looser 2, when settings omit it', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server' }); // no freshBars in settings
+  let seenFreshBars = null;
+  const runCycle = async (opts) => { seenFreshBars = opts.freshBars; return []; };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
+  await handle.tick();
+  handle.stop();
+  assert.equal(seenFreshBars, 1);
+});
+
+test('startKeepFresh: an explicit settings.freshBars still wins over the server-cycle default', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', freshBars: 3 });
+  let seenFreshBars = null;
+  const runCycle = async (opts) => { seenFreshBars = opts.freshBars; return []; };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
+  await handle.tick();
+  handle.stop();
+  assert.equal(seenFreshBars, 3);
+});
+
+test('startKeepFresh: watcherOwner flips away from server clears a previously-stamped lastCycleError', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
+  const runCycle = async () => { throw new Error('boom'); };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
+  await handle.tick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(handle.getCycleStatus().lastCycleError, /boom/);
+  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'launchagent' }));
+  await handle.tick();
+  assert.equal(handle.getCycleStatus().lastCycleError, null, 'ownership flip clears the stamped error');
+  handle.stop();
 });
 
 test('startKeepFresh: the fixture no-fetcher handle exposes a safe getCycleStatus too', () => {
@@ -358,16 +446,17 @@ test('watcher cycle (#193 review): settings overrides reach the server-run cycle
   const dbPath = tmpDb();
   const settingsPath = settingsFile(mkdtempSync(join(tmpdir(), 'kf-')), { watcherOwner: 'server', keepFresh: '0', instrument: 'XAG/USD', granularity: 'M15' });
   const seen = [];
-  let t = 1_000_000;
+  let t = at(1);
   const runCycle = async (opts) => { seen.push({ instrument: opts.instrument, granularity: opts.granularity }); throw new Error('boom'); };
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], now: () => t, runCycle, log: () => {}, lastLiveFetch: new Map(), liveGateMs: 8000 });
-  await handle.tick();
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], now: () => t, runCycle, logFn: () => {}, lastLiveFetch: new Map(), liveGateMs: 8000 });
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  await handle.tick(); await flush();
   assert.equal(seen.length, 1, 'first eligible tick runs the cycle');
   assert.deepEqual(seen[0], { instrument: 'XAG/USD', granularity: 'M15' }, 'settings instrument/granularity override DEFAULT_ARGS');
-  t += 60_000; await handle.tick();
+  t += 60_000; await handle.tick(); await flush();
   assert.equal(seen.length, 1, 'a failed cycle does NOT retry on the next 60s tick');
-  t += 5 * 60_000; await handle.tick();
-  assert.equal(seen.length, 2, 'retries after the full interval');
+  t = at(1, t + 5 * 60_000); await handle.tick(); await flush();
+  assert.equal(seen.length, 2, 'retries after the full bucket');
   assert.ok(handle.getCycleStatus().lastCycleError, 'error surfaced');
   handle.stop();
 });

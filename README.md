@@ -18,6 +18,10 @@ Node (stdlib only, no npm dependencies; the one chart library is vendored).
                └────────────────── data/candles.db ─────────────────┘
 ```
 
+`watcherOwner: 'server'` in settings moves the left box's decision cycle into
+the signal-server's own heartbeat instead (same code path, candle-aligned
+cadence) — see [docs/launch-agents.md](docs/launch-agents.md#ownership-193).
+
 ## The alert watcher — `scripts/supertrend.mjs`
 
 Runs once per candle close (candle-aligned LaunchAgent — see

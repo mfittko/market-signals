@@ -1186,6 +1186,24 @@ export async function fetchCandles({ instrument, granularity, count, from = null
 // one source of truth for the defaults instead of two copies drifting apart.
 export const DEFAULT_ARGS = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
 
+// #193: shared by both watcher invokers (CLI main() and the server-owned
+// cycle in keep-fresh.mjs) — one merge rule instead of two copies drifting
+// apart. main() passes argv so an explicit CLI flag still wins over settings
+// (the LaunchAgent may pin flags); the server cycle has no argv, so settings
+// always apply there.
+export function applyWatcherSettings(opts, cfg, { argv } = {}) {
+  for (const k of ['instrument', 'granularity', 'freshBars']) {
+    const flagGiven = argv ? argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`)) : false;
+    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
+  }
+  return opts;
+}
+
+// Single owner-check shared by both guard sides (CLI no-op + server cycle).
+export function isServerOwned(cfg) {
+  return cfg.watcherOwner === 'server';
+}
+
 function parseArgs(argv) {
   const out = { ...DEFAULT_ARGS };
   for (let i = 0; i < argv.length; i++) {
@@ -1426,17 +1444,13 @@ async function main() {
   // Watcher fields set on the config page win over baked defaults but lose to
   // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
   const cfg = readSettings(opts.settings);
-  for (const k of ['instrument', 'granularity', 'freshBars']) {
-    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
-    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
-  }
+  applyWatcherSettings(opts, cfg, { argv });
 
   // #193: single-owner guard, read AT RUN TIME (not at process start) so a
   // still-installed LaunchAgent stops firing the moment ownership moves to
   // the server heartbeat, without needing `launchctl unload` first.
-  if (cfg.watcherOwner === 'server') {
+  if (isServerOwned(cfg)) {
     dbg('watcherOwner=server: CLI run is a no-op (the server heartbeat owns the decision cycle)');
-    process.stdout.write(`${JSON.stringify([], null, opts.pretty ? 2 : 0)}\n`);
     return;
   }
 
