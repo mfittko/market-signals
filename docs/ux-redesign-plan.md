@@ -133,14 +133,15 @@ links/back button and a system-health row fed by a small `/api/health`.
   F30) above a combo-scoped two-lane event tape (§4). The signal-history table is deleted *as a
   table*; outcome stats move into `[why? ▸]` with renamed plain-language labels (F33). Re-check
   attaches to the newest entry, takes an explicit signal id (F20), shows progress + cost hint.
-- **Workspace › Trades** (C4): the canonical rows for this combo, **open first** — the only place
-  a position is drawn as a row (headline fix, F1/F2). Open rows show entry/mark/stop/target/age/
-  reason; closed rows entry/exit/prices/P&L/exit badge; expandable to signal + news links (F25,
-  F29). Header: `since first trade: 1 closed −6.27 · 1 open +0.15` with honesty note `⚠ n<5`.
-- **Workspace › Tuning** (C5): scope-explicit fieldsets — `this bot` / `INSTRUMENT — shared by
-  every granularity` (with blast-radius note `ⓘ also applies to XAG/USD·H1`) / `global` — merging
-  bot-modal setup + strategy, settings→gates, settings→memories (F18, F12 config side). Existing
-  write endpoints only; no new write routes.
+- **Workspace › Trades / Tuning (C4/C5) — superseded (#189).** The workspace no longer has a
+  [tape][trades][tuning] tab strip at all: only the signal tape (C3) renders under the verdict
+  banner. C4's "only place a position is drawn as a row" is now the ⚙ bot modal's trades tab
+  (open rows show entry/mark/stop/target/age/reason; closed rows entry/exit/prices/P&L/exit badge;
+  expandable to signal + news links — F25, F29) plus the portfolio overlay's all-trades tab (C6).
+  C5's scope-explicit fieldsets (`this bot` / `INSTRUMENT — shared by every granularity` / `global`
+  — F18, F12 config side) moved wholesale into the bot modal as its 5th tab (setup · strategy ·
+  trades · audit · global), reusing the same gates/memories mounts. The bot modal (rail ⚙) is now
+  THE bot surface. Existing write endpoints only; no new write routes.
 - **Ledger overlay** (C6): equity curve, all-bot trades, scoreboard grouped by strategy (open rows
   counted separately, excluded from win rate), global audit. Statistical honesty: `PF ∞` → `—`;
   win rate as a record `2W-1L` below n=20; `⚠ n<5 — descriptive only` (F19). Marking the curve at

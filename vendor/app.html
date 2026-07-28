@@ -89,16 +89,16 @@
   .badge-blue { color: #58a6ff; } .badge-gray { color: #8b949e; }
   #pfdlg { background: #0d1117; color: #e6edf3; border: 1px solid #30363d; border-radius: 8px; min-width: min(640px, 92vw); max-height: 85vh; overflow-y: auto; }
   .halted { color: #f85149; font-weight: 600; } .active { color: #3fb950; font-weight: 600; }
-  #pfTabs, .bmtabs, #cfgTabs, #gatesTabs, #wsTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
-  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button, #wsTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
-  #pfTabs button.on, .bmtabs button.on, #cfgTabs button.on, #gatesTabs button.on, #wsTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
+  #pfTabs, .bmtabs, #cfgTabs, #gatesTabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; }
+  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  #pfTabs button.on, .bmtabs button.on, #cfgTabs button.on, #gatesTabs button.on { background: #1f6feb33; border-color: #1f6feb; }
   /* a11y (#126): a consistent high-contrast keyboard focus ring on every
      interactive control (native rings still apply; this makes it uniform). */
   a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
     outline: 2px solid #58a6ff; outline-offset: 2px; }
   /* a11y (#126): keep the smaller chip/row buttons at/above the 24px min target.
      Topbar + dialog controls are already 30px (see #topbar rule below). */
-  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button, #wsTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
+  #pfTabs button, .bmtabs button, #cfgTabs button, #gatesTabs button, #threadBar button, .botrow .jump, #pf summary button { min-height: 26px; }
   /* a11y (#126): honor reduced-motion — drop the hover/state transitions. */
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
   /* #108: panels use display:contents so their label/input pairs join the form's
@@ -119,7 +119,7 @@
   .fieldhint.danger { color: #f85149; }
   #cfg .fieldhint { grid-column: 2; margin: -6px 0 4px; }
   @media (max-width: 900px) { #cfg .fieldhint { grid-column: 1; } }
-  #ws-tuning .fieldhint { display: block; margin: 0 0 6px; }
+  #botBody .fieldhint { display: block; margin: 0 0 6px; }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
   /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
@@ -199,9 +199,9 @@
   #topbar h1 { margin: 0; }
   #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: center; flex-wrap: wrap; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; margin-left: auto; }
-  /* #167: scope-explicit tuning fieldsets (this bot / instrument / global) */
-  #ws-tuning fieldset, #botBody fieldset { border: 1px solid #30363d; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
-  #ws-tuning legend, #botBody legend { color: #8b949e; font-size: 12px; padding: 0 4px; }
+  /* #167/#189: scope-explicit bot-modal fieldsets (this bot / instrument / global) */
+  #botBody fieldset { border: 1px solid #30363d; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+  #botBody legend { color: #8b949e; font-size: 12px; padding: 0 4px; }
   #healthStrip { font-size: 12px; color: #8b949e; margin-left: 8px; }
   #healthStrip .warn { color: #d29922; }
   #watchBtn.on { color: #3fb950; }
@@ -262,7 +262,7 @@
   :where(button:not(.dlg-x)):active { background: #235f37; }
   button:disabled { opacity: 0.5; cursor: default; }
   /* lighter-grey hover affordance for the subordinate controls (never the active tab) */
-  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, .bmtabs button:not(.on):hover, #wsTabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
+  #cfgbtn:hover, #chatToggle:not(.on):hover, .botrow .jump:hover, #threadBar button:hover, #pfTabs button:not(.on):hover, .bmtabs button:not(.on):hover, #pf summary button:hover { background: #2a313a; border-color: #3d444d; }
   /* destructive: red text, no fill on every state */
   .bmremove { float: right; color: #f85149; background: none; border: 0; }
   .bmremove:hover, .bmremove:active { background: none; color: #ff7b72; }
@@ -357,22 +357,14 @@
 <div id="cfgTabs" class="cfgtabs" role="tablist" aria-label="settings sections"></div>
 <form id="cfg"></form>
 </dialog>
-<div id="wsTabs" role="tablist" aria-label="workspace for the focused view">
-  <button type="button" role="tab" aria-selected="true" data-tab="tape" class="on">tape</button>
-  <button type="button" role="tab" aria-selected="false" data-tab="trades">trades</button>
-  <button type="button" role="tab" aria-selected="false" data-tab="tuning">tuning</button>
-</div>
-<div id="ws-tape" role="tabpanel">
+<!-- #189: the workspace tab strip ([tape][trades][tuning]) is gone — trades/tuning
+     were redundant with the ⚙ bot modal's trades/global tabs (#188). Signal
+     history renders directly under the verdict banner, no tab chrome. -->
+<div id="ws-tape">
 <h2>Signal history <small id="histWindowLabel">· current chart window</small></h2>
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
 <table id="hist" class="collapsible"><thead><tr><th>time</th><th>signal</th><th>price</th><th class="mobile-hide">gates</th><th class="mobile-hide">reason</th><th title="+30min move (signal direction): directional return 30 minutes after the signal">+30min move</th><th class="mobile-hide" title="MFE to flip: directional return held until the next opposite signal (open = no reversal yet)">MFE to flip</th><th class="rowExpandCell"></th></tr></thead><tbody></tbody></table>
 <button type="button" id="histMore" hidden>load 10 more</button>
-</div>
-<div id="ws-trades" role="tabpanel" hidden>
-  <div id="wsTradesHead" class="tradeshead"></div>
-  <div id="wsTradesRows"></div>
-</div>
-<div id="ws-tuning" role="tabpanel" hidden></div>
 </div>
 </div>
 </main>
@@ -476,7 +468,7 @@ async function load() {
   applyInfo(!!d.info);
   selectors(d);
   // #170 (F8): the chart's own entry/stop/target lines + trade markers reuse
-  // this combo-scoped fetch (the workspace [trades] tab below still does its
+  // this combo-scoped fetch (the bot modal's [trades] tab still does its
   // own separate /api/trades call — full history at limit 500 vs. this
   // chart-window-sized fetch — so this only avoids a SECOND chart-scoped fetch,
   // not every trades fetch on the page).
@@ -488,42 +480,9 @@ async function load() {
   indBar(d); axisChips(d.axisGate); oscPanel(d); botStateCache = d.botState;
   portfolio().catch(() => { document.getElementById('pf').hidden = true; });
   loadRail().catch(() => {});
-  wsRefresh({ instrument: d.instrument, granularity: d.granularity }, { fromTick: true });
-}
-// #166: workspace tab strip ([tape][trades][tuning]) scoped to the focused
-// combo — tape is the pre-existing signal-history block (default), trades is
-// the canonical /api/trades timeline, tuning inlines the bot modal content.
-let wsActiveTab = 'tape';
-let wsView = { instrument: null, granularity: null };
-async function wsRenderActive() {
-  // #166 review fix: the trades tab can be clicked before the first chart
-  // load sets wsView (instrument still null) — defer with a loading note
-  // rather than fetching /api/trades?instrument=null.
-  if (!wsView.instrument) {
-    if (wsActiveTab === 'trades') document.getElementById('wsTradesRows').innerHTML = '<div class="traderow">loading…</div>';
-    else if (wsActiveTab === 'tuning') document.getElementById('ws-tuning').innerHTML = '<p><small>loading…</small></p>';
-    return;
-  }
-  if (wsActiveTab === 'trades') {
-    const trades = await fetchTrades({ instrument: wsView.instrument, granularity: wsView.granularity, limit: 500 });
-    renderTrades(document.getElementById('wsTradesHead'), document.getElementById('wsTradesRows'), trades, { showInstrument: false });
-  } else if (wsActiveTab === 'tuning') {
-    await renderTuningTab(wsView.instrument, wsView.granularity);
-  }
-}
-function wsRefresh(view, { fromTick } = {}) {
-  // #166 review fix: the 60s load() tick used to call this unconditionally,
-  // remounting the tuning tab (clobbering in-progress edits) and re-rendering
-  // trades on every tick. On a tick with no combo change, skip the re-mount —
-  // activation (wsTabs click) and an actual combo change still refresh.
-  const sameCombo = view.instrument === wsView.instrument && view.granularity === wsView.granularity;
-  wsView = view;
-  for (const name of ['tape', 'trades', 'tuning']) document.getElementById('ws-' + name).hidden = name !== wsActiveTab;
-  if (fromTick && sameCombo) return;
-  wsRenderActive().catch(() => {});
 }
 // #168 (2.7): one ArrowLeft/ArrowRight/Home/End keyboard-nav helper for every
-// tab strip (wsTabs/pfTabs/cfgTabs/gatesTabs/bmtabs), per the WAI-ARIA tabs
+// tab strip (pfTabs/cfgTabs/gatesTabs/bmtabs), per the WAI-ARIA tabs
 // pattern — moves focus and activates (dispatches a real click, so each
 // strip's own click handler still owns activation; behavior is unchanged,
 // only keyboard reach is added). Roving tabindex is skipped: every tab
@@ -543,23 +502,12 @@ function tabStrip(container) {
     btns[next].click();
   });
 }
-// gatesTabs is bound in renderTuningTab (below) — it doesn't exist in the DOM until that render runs.
-for (const id of ['wsTabs', 'pfTabs', 'cfgTabs']) tabStrip(document.getElementById(id));
-document.getElementById('wsTabs').addEventListener('click', (e) => {
-  const tab = e.target.dataset?.tab;
-  if (!tab || tab === wsActiveTab) return;
-  wsActiveTab = tab;
-  for (const b of document.querySelectorAll('#wsTabs button')) {
-    const on = b === e.target;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-selected', String(on));
-  }
-  wsRefresh(wsView);
-});
+// gatesTabs is bound in mountBotConfig's global tab (below) — it doesn't exist in the DOM until that render runs.
+for (const id of ['pfTabs', 'cfgTabs']) tabStrip(document.getElementById(id));
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
 const fmtNotional = (v) => v == null || v === '' || !Number.isFinite(Number(v)) ? '' : '$' + Number(v).toFixed(2);
-// #167: latest polled equity, reused by the tuning tab's effective-values note
+// #167: latest polled equity, reused by the bot modal's effective-values note
 // (alloc % → $ max margin) instead of a second /api/portfolio fetch.
 let lastEquity = null;
 async function portfolio() {
@@ -709,14 +657,14 @@ let botStateCache = null;
 // NAME, version list w/ per-version activate, inline draft/edit). A single
 // shared save() drives both tabs and repaints them both, so the setup tab's
 // "no strategy assigned" warning always reflects a strategy-tab assignment.
-// #166: bot config (setup + strategy tabs) is ONE render path shared by the
-// per-view modal (rail ⚙, any combo) and the focused-combo [tuning] workspace
-// tab — mountBotConfig(containerId, inst, gran, prefix) builds it into
-// whichever container, with all element ids namespaced by prefix so a modal
-// for one combo and the tuning tab for another can coexist in the DOM
-// without id collisions (review finding on #166).
+// #166/#189: bot config (setup/strategy/trades/audit/global tabs) is ONE
+// render path, mountBotConfig(containerId, inst, gran, prefix) — prefix
+// namespaces every element id (only one caller today, openBotModal, but the
+// namespacing is what keeps this function's ids collision-safe if a second
+// mount is ever added). This modal is now THE bot surface (#189 — the
+// workspace tuning tab that used to duplicate it is gone).
 const bid = (p, s) => p + s;
-async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = false } = {}) {
+async function mountBotConfig(containerId, inst, gran, prefix) {
   const combo = inst + '|' + gran;
   const container = document.getElementById(containerId);
   // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
@@ -726,14 +674,10 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
   const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   let activeTab = 'setup';
-  // #187: trades/audit tabs added alongside setup/strategy, but ONLY for the
-  // rail's ⚙ modal (openBotModal, withHistory=true) — the focused-combo's
-  // workspace [tuning] tab already has its own [trades] sibling tab (#166), so
-  // renderTuningTab opts out to avoid a duplicate/forked history surface.
-  // Lazy-loaded (fetched only once this tab is first clicked, tracked in
-  // loadedTabs below) so opening the modal for config-only use costs zero
-  // extra requests.
-  const TAB_NAMES = withHistory ? ['setup', 'strategy', 'trades', 'audit'] : ['setup', 'strategy'];
+  // #187/#189: trades/audit/global are lazy — fetched (or, for global,
+  // mounted) only once each tab is first clicked, tracked in loadedTabs below
+  // — so opening the modal for config-only use costs zero extra requests.
+  const TAB_NAMES = ['setup', 'strategy', 'trades', 'audit', 'global'];
   const loadedTabs = new Set();
   container.innerHTML =
     '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections">' +
@@ -760,7 +704,7 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
     renderBotSetupTab(prefix, inst, gran, entry, settings, save, savedMsg, modalState);
     if (activeTab === 'strategy') await renderBotStrategyTab(prefix, inst, gran, entry, save, savedMsg);
   };
-  tabStrip(document.getElementById(bid(prefix, 'Tabs'))); // #168 (2.7): arrow-key nav, shared with wsTabs/pfTabs/cfgTabs/gatesTabs
+  tabStrip(document.getElementById(bid(prefix, 'Tabs'))); // #168 (2.7): arrow-key nav, shared with pfTabs/cfgTabs/gatesTabs
   document.getElementById(bid(prefix, 'Tabs')).onclick = async (e) => {
     const tab = e.target.dataset?.tab;
     if (!tab) return;
@@ -768,7 +712,7 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
     for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
     for (const t of TAB_NAMES) document.getElementById(bid(prefix, '-' + t)).hidden = t !== tab;
     if (tab === 'strategy') await paint();
-    if ((tab === 'trades' || tab === 'audit') && !loadedTabs.has(tab)) {
+    if ((tab === 'trades' || tab === 'audit' || tab === 'global') && !loadedTabs.has(tab)) {
       // cache only on SUCCESS — a failed fetch must retry on the next click,
       // and the failure paints the file's canonical unavailable copy instead
       // of an unhandled rejection leaving a silently blank panel
@@ -776,8 +720,10 @@ async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = f
       if (tab === 'trades') {
         const trades = await fetchTrades({ instrument: inst, granularity: gran, limit: 500 });
         renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
-      } else {
+      } else if (tab === 'audit') {
         await renderBotAuditTab(bid(prefix, '-audit'), inst, gran);
+      } else {
+        await mountGlobalTab(bid(prefix, '-global'));
       }
       loadedTabs.add(tab);
       } catch {
@@ -795,22 +741,20 @@ async function openBotModal(instArg, granArg) {
   const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
   document.getElementById('botTitle').dataset.info = INFO.botModal;
-  await mountBotConfig('botBody', inst, gran, 'bm', { withHistory: true });
+  await mountBotConfig('botBody', inst, gran, 'bm');
   document.getElementById('botdlg').showModal();
 }
-// tuning workspace tab (#166): the modal content inlined for the focused combo.
-// wsView is the single source of truth for the focused combo — no re-reading
-// qs/selects here (they can be stale mid-navigation).
-async function renderTuningTab(inst, gran) {
-  await mountBotConfig('ws-tuning', inst, gran, 'wsbm');
-  // #167: mounted here (once per tuning-tab paint), NOT inside renderBotSetupTab —
-  // that function repaints on every bot-field save(), which would wipe an
-  // in-progress gate draft or memory input mid-keystroke.
-  document.getElementById('ws-tuning').insertAdjacentHTML('beforeend',
+// #189: the modal's 5th tab (global) — gates + memories, moved here verbatim
+// from the now-deleted workspace tuning tab (#166/#167). Mounted lazily, once
+// per modal open (tracked in mountBotConfig's loadedTabs), NOT inside
+// renderBotSetupTab — that function repaints on every bot-field save(), which
+// would wipe an in-progress gate draft or memory input mid-keystroke.
+async function mountGlobalTab(containerId) {
+  document.getElementById(containerId).innerHTML =
     '<fieldset><legend>global — affects every bot</legend>' +
     '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
     '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
-    '</fieldset>');
+    '</fieldset>';
   tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
   await renderGates();
   await renderMemories();
@@ -823,7 +767,7 @@ async function renderTuningTab(inst, gran) {
 // as leverage (settings.bot.leverage[inst]), hence both live in the instrument
 // fieldset (pre-existing label already said so; this just makes the grouping
 // visual). Gates/memories are genuinely global (one settings.gates/memories
-// store, no per-combo or per-instrument scoping) — mounted by renderTuningTab,
+// store, no per-combo or per-instrument scoping) — mounted by mountGlobalTab,
 // NOT here: this function repaints on every bot-field save() (see mountBotConfig's
 // save/paint), which would otherwise wipe an in-progress gate draft or memory input.
 function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
@@ -1990,12 +1934,11 @@ const FIELD_HINTS = {
 };
 // tabs whose fields are flat (LLM is rendered contextually, handled separately)
 const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-// #108/#167: one modal for GLOBAL provider config — three tabs, all batched-Save.
-// Gates/Memories moved into the workspace tuning tab's "global" fieldset (#167 —
-// they're bot-wide config, same as this modal used to embed them as management
-// panels, just reached from the combo-scoped tuning surface now). Per-combo bot
-// config is instrument-specific, so it stays in its own per-view modal (🤖), NOT
-// a global settings tab.
+// #108/#167/#189: one modal for GLOBAL provider config — three tabs, all
+// batched-Save. Gates/Memories moved into the bot (🤖) modal's "global" tab
+// (#189 — they're bot-wide config, reached from that combo-scoped modal now).
+// Per-combo bot config is instrument-specific, so it stays in its own
+// per-view modal (🤖), NOT a global settings tab.
 const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['adv', 'Advanced']];
 const CFG_TAB_IDS = CFG_TABS.map(([id]) => id);
 const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // all batched-Save now (no mgmt tabs left here)
@@ -2183,21 +2126,11 @@ async function renderGates() {
       renderGates();
     };
   });
-  // #167: gates now render inside the tuning tab itself (see renderTuningTab),
-  // so "view strategy in bot modal" is stale — jump to the tuning tab of the
-  // current combo instead of closing a (no-longer-open) cfgdlg + opening a
-  // redundant bot modal.
+  // #189: gates now render inside the bot modal's own global tab, so "view
+  // strategy in bot modal" just switches to the strategy tab of the SAME,
+  // already-open dialog — no navigation/close/reopen needed.
   const toBot = document.getElementById('gateToBot');
-  if (toBot) toBot.onclick = () => {
-    navigateToCombo(wsView.instrument, wsView.granularity);
-    wsActiveTab = 'tuning';
-    for (const b of document.querySelectorAll('#wsTabs button')) {
-      const on = b.dataset.tab === 'tuning';
-      b.classList.toggle('on', on);
-      b.setAttribute('aria-selected', String(on));
-    }
-    wsRefresh(wsView);
-  };
+  if (toBot) toBot.onclick = () => document.querySelector('#bmTabs button[data-tab="strategy"]')?.click();
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();
@@ -2529,8 +2462,9 @@ setInterval(async () => {
   } catch { /* transient: the 60s full load is the recovery path */ }
 }, 10000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-// #108: one tabbed settings modal (llm/news/adv only — #167 moved gates/memories
-// out to the tuning tab, see renderTuningTab). openCfg(tab) opens it on a given tab.
+// #108: one tabbed settings modal (llm/news/adv only — #167/#189 moved
+// gates/memories into the bot modal's global tab, see mountGlobalTab).
+// openCfg(tab) opens it on a given tab.
 async function openCfg(tab) {
   if (tab) localStorage.setItem('cfgTab', tab);
   await cfg();

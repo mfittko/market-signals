@@ -194,14 +194,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
 
-        // #187 AC3 (mobile): the bot modal's 4-tab strip renders and the
+        // #187/#189 AC3 (mobile): the bot modal's 5-tab strip renders and the
         // history tabs are tappable on phones (collapse inherited via .bmtabs
         // flex-wrap — pin reachability, not pixels).
         if (vname === 'phone-portrait') {
           await p.waitForFunction(() => !!document.querySelector('#rail .railcfg'), { timeout: 5000 });
           await p.evaluate(() => document.querySelector('#rail .railcfg').click());
           await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.querySelectorAll('#bmTabs button').length), 4, 'bot modal shows 4 tabs on phone');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#bmTabs button').length), 5, 'bot modal shows 5 tabs on phone');
           await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(400);
           assert.ok(await p.evaluate(() => !document.getElementById('bm-trades').hidden), 'trades tab opens on phone');
@@ -296,8 +296,8 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // #171: sentinelSourceFootnotes default flips to ON — an untouched
           // settings.json (this fresh e2e db) must render the 'on' option selected.
           assert.equal(await p.evaluate(() => document.getElementById('f-sentinelSourceFootnotes').value), '1', 'sentinelSourceFootnotes defaults on when never explicitly set');
-          // #167: three GLOBAL-config tabs, in order (gates/memories moved into the
-          // workspace tuning tab's global fieldset; bot stays per-view, not here)
+          // #167/#189: three GLOBAL-config tabs, in order (gates/memories moved into
+          // the bot modal's global tab; bot stays per-view, not here)
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'adv'], 'three settings tabs in order (no gates/mem/bot)');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           // per-view bot modal opens from a rail row's ⚙ (railcfg) and carries its tabs
@@ -321,15 +321,22 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // (limit=200) and its timer phase is unrelated to this test — count only
           // the MODAL's uniquely-shaped requests (limit=500 trades / combo-scoped
           // evaluation), so an unlucky poll tick can't fail a correct build.
-          const onReq = (req) => { const u = req.url(); if ((u.includes('/api/trades') && u.includes('limit=500')) || (u.includes('/api/evaluation') && u.includes('granularity=M15'))) historyReqs++; };
+          const onReq = (req) => {
+            const u = req.url();
+            if ((u.includes('/api/trades') && u.includes('limit=500')) || (u.includes('/api/evaluation') && u.includes('granularity=M15'))) historyReqs++;
+            if (u.includes('/api/gate-prompts') || u.includes('/api/memories')) globalTabReqs++;
+          };
+          let globalTabReqs = 0;
           p.on('request', onReq);
           await p.evaluate(() => document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]').click());
           await p.waitForTimeout(300);
-          // #187: bot modal gains trades/audit tabs, combo-scoped, lazy-loaded —
-          // config-only modal use (setup/strategy) must fire zero /api/trades or
-          // /api/evaluation requests until one of those tabs is actually opened.
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit'], 'bot modal tab strip includes trades + audit');
+          // #187/#189: bot modal gains trades/audit/global tabs, lazy-loaded —
+          // config-only modal use (setup/strategy) must fire zero /api/trades,
+          // /api/evaluation, /api/gate-prompts, or /api/memories requests until
+          // one of those tabs is actually opened.
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit', 'global'], 'bot modal tab strip includes trades + audit + global');
           assert.equal(historyReqs, 0, 'no /api/trades or /api/evaluation requests from opening the modal (incl. mountBotConfig) before the trades/audit tabs are opened');
+          assert.equal(globalTabReqs, 0, 'no /api/gate-prompts or /api/memories requests before the global tab is opened');
           await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
           assert.ok(historyReqs >= 1, 'opening the trades tab fires the lazy /api/trades fetch');
@@ -341,35 +348,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           const bmAuditHtml = await p.evaluate(() => document.getElementById('bm-audit').innerHTML);
           assert.ok(bmAuditHtml.includes('e2e gate-disagreement seed'), 'bot modal audit tab renders the seeded WTICO/USD|M15 decisions via the shared audit renderer');
           assert.ok(!bmAuditHtml.includes('e2e seeded headline'), 'audit tab is combo-scoped — the M5 combo\'s seeded news does not leak into the M15 combo\'s audit');
-          p.off('request', onReq);
-          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
-          // #166: workspace tabs ([tape][trades][tuning]) under the chart, scoped
-          // to the focused combo — tape is the default, trades/tuning switch in.
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#wsTabs button')].map((b) => b.dataset.tab)), ['tape', 'trades', 'tuning'], 'workspace tab strip present, tape default');
-          assert.ok(await p.evaluate(() => !document.getElementById('ws-tape').hidden && document.getElementById('ws-trades').hidden), 'tape panel visible by default');
-          // #168 (2.7): shared tabStrip helper — ArrowRight moves focus AND
-          // activates the next tab (WAI-ARIA tabs pattern), Home returns to the first.
-          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').focus());
-          await p.keyboard.press('ArrowRight');
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'trades', 'ArrowRight moves focus to the next tab');
-          assert.ok(await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="trades"]').classList.contains('on')), 'ArrowRight also activates the tab it moved to');
-          await p.keyboard.press('Home');
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'tape', 'Home moves focus back to the first tab');
-          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="trades"]').click());
+          // #189: the modal's global tab hosts gates + memories (moved here
+          // wholesale from the now-deleted workspace tuning tab) — reused verbatim.
+          await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="global"]').click());
           await p.waitForTimeout(300);
-          assert.ok(await p.evaluate(() => !document.getElementById('ws-trades').hidden), 'trades tab switches in');
-          assert.ok(await p.evaluate(() => !!document.getElementById('wsTradesRows').textContent.trim()), 'trades tab rendered content (open row or empty state)');
-          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tuning"]').click());
-          await p.waitForTimeout(300);
-          assert.ok(await p.evaluate(() => !!document.querySelector('#ws-tuning [data-tab="setup"]')), 'tuning tab inlines the bot setup/strategy tabs');
+          assert.ok(globalTabReqs > 0, 'opening the global tab fires the lazy gate-prompts/memories fetch');
+          assert.ok(await p.evaluate(() => !!document.getElementById('gatesTabs') && !!document.getElementById('memAddBtn')), 'gates/memories embedded in the bot modal global tab');
+          p.off('request', onReq);
           // #167 (F18): scope-explicit fieldsets — this bot / instrument / global
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#ws-tuning fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD', 'global'], 'tuning tab groups fields into scope-explicit fieldsets');
-          // gates/memories moved here from the settings modal, reused verbatim
-          assert.ok(await p.evaluate(() => !!document.getElementById('gatesTabs') && !!document.getElementById('memAddBtn')), 'gates/memories embedded in the tuning tab global fieldset');
-          // #168: gatesTabs is created by renderTuningTab, AFTER boot — tabStrip
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#botBody fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD', 'global'], 'bot modal groups fields into scope-explicit fieldsets');
+          // #168: gatesTabs is created by mountGlobalTab, AFTER boot — tabStrip
           // used to be bound at boot against a not-yet-existing element (a no-op),
           // leaving gates without arrow-key nav. Pin it here.
           await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').focus());
@@ -378,17 +367,20 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'recheck', 'gatesTabs ArrowRight moves focus to the next gate tab');
           assert.ok(await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="recheck"]').classList.contains('on')), 'gatesTabs ArrowRight also activates the tab it moved to');
           // #167: the gates/memories mount moved OUT of renderBotSetupTab (which
-          // repaints on every bot-field save()) into renderTuningTab (mounted once)
+          // repaints on every bot-field save()) into mountGlobalTab (mounted once)
           // — a bot-field save must never wipe an in-progress gate draft or memory input.
           await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'bot'); t && t.click(); });
           await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'filter'); t && t.click(); });
           await p.evaluate(() => { const ta = document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt'); ta.value = 'draft in progress — do not lose me'; });
-          await p.evaluate(() => { const cb = document.getElementById('wsbmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
+          // toggling the (hidden, since 'global' is the active tab) setup panel's
+          // bmEnabled checkbox still fires a save()/repaint — the pin is that this
+          // must never wipe the still-open global tab's in-progress gate draft.
+          await p.evaluate(() => { const cb = document.getElementById('bmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'draft in progress — do not lose me', 'toggling a bot field preserves an in-progress gate draft');
-          await p.evaluate(() => { const cb = document.getElementById('wsbmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
+          await p.evaluate(() => { const cb = document.getElementById('bmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
           await p.waitForTimeout(300);
-          await p.evaluate(() => document.querySelector('#wsTabs button[data-tab="tape"]').click());
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
           // #166/#168: portfolio overlay — equity/all trades/scoreboard/audit (the "ledger" rename was reverted on operator feedback: plain words win)
           await p.evaluate(() => document.getElementById('pfBtn').click());
