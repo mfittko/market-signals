@@ -14,7 +14,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
-const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
+export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -965,16 +965,22 @@ export function findGaps(times, granMs) {
   return gaps;
 }
 
+// Bars needed to cover a span, +2 pad, clamped to [1, 2500] — 2500 verified
+// live against the provider (fxempire returned exactly 2500 M1 rows for a
+// single request), so this is a measured cap, not a guess. Shared by
+// gapFetchPlan (below) and keep-fresh's tail sizing — one home for the cap.
+export function barsForSpan(spanMs, granMs) {
+  return Math.max(Math.min(Math.ceil(spanMs / granMs) + 2, 2500), 1);
+}
+
 // Pure planning, no I/O: turn a {start,end} gap into the ranged-fetch request
 // shape. Unit-tested directly against literal {from,count} pairs.
 export function gapFetchPlan(gap, granMs) {
-  // count=2500 verified live against the provider (fxempire returned exactly
-  // 2500 M1 rows for a single request) — this is a measured cap, not a guess.
   // Clamped to >=1 so a degenerate (empty/inverted) gap still issues a
   // request rather than a zero/negative count. A gap wider than 2500 bars
   // only partially repairs in one call; the residual re-detects as a
   // (smaller) gap on the next read and gets picked up then.
-  const count = Math.max(Math.min(Math.ceil((gap.end - gap.start) / granMs) + 2, 2500), 1);
+  const count = barsForSpan(gap.end - gap.start, granMs);
   return { from: new Date(gap.start).toISOString(), count };
 }
 

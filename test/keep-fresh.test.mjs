@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withDb, storeCandles } from '../scripts/supertrend.mjs';
 import {
-  CADENCE_MS, dueGranularities, instrumentUniverse, tailFetchCount,
-  sweepCombo, sweepGranularity, startKeepFresh,
+  configuredCombos, comboUniverse, sweepAll, startKeepFresh,
+  MAX_GAP_REPAIRS_PER_COMBO,
 } from '../scripts/keep-fresh.mjs';
+import { buildServer } from '../scripts/signal-server.mjs';
 
 function tmpDb() {
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-'));
@@ -24,24 +25,19 @@ function candle(ms) {
   return { time: new Date(ms).toISOString(), open: 70, high: 70.1, low: 69.9, close: 70, volume: 10, complete: true };
 }
 
-test('dueGranularities: a never-swept bucket is due immediately (cold start)', () => {
-  assert.deepEqual(dueGranularities({}, 0).sort(), Object.keys(CADENCE_MS).sort());
+test('configuredCombos: watchers CSV ∪ bot.bots keys, normalized', () => {
+  const cfg = { watchers: 'XAU/USD|M15', bot: { bots: { 'WTICO/USD | M5': {} } } };
+  assert.deepEqual(
+    configuredCombos(cfg).map((c) => `${c.instrument}|${c.granularity}`).sort(),
+    ['WTICO/USD|M5', 'XAU/USD|M15'],
+  );
 });
 
-test('dueGranularities: only buckets whose cadence has elapsed are due', () => {
-  const lastSweepAt = { M1: 0, M5: 0, M15: 0, M30: 0, H1: 0, H4: 0 };
-  const now = 6 * 60000; // 6 minutes: M1/M5 (5min cadence) due, M15/M30/H1/H4 not
-  assert.deepEqual(dueGranularities(lastSweepAt, now).sort(), ['M1', 'M5']);
+test('configuredCombos: coerces a non-string watchers value instead of throwing', () => {
+  assert.deepEqual(configuredCombos({ watchers: undefined }), []);
 });
 
-test('tailFetchCount: bounded by staleness, padded by 2, capped at 2500', () => {
-  const granMs = 60000;
-  assert.equal(tailFetchCount(5 * granMs, granMs), 7);
-  assert.equal(tailFetchCount(granMs * 1e6, granMs), 2500);
-  assert.equal(tailFetchCount(0, granMs), 2);
-});
-
-test('instrumentUniverse: union of bot combos, watchers, and DISTINCT candles instruments', () => {
+test('comboUniverse: union of configured combos and DISTINCT (instrument, granularity) pairs in candles — no cross-product fan-out', () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(0)]);
@@ -49,45 +45,64 @@ test('instrumentUniverse: union of bot combos, watchers, and DISTINCT candles in
     watchers: 'XAU/USD|M15',
     bot: { bots: { 'WTICO/USD|M5': {} } },
   });
-  assert.deepEqual(instrumentUniverse(dbPath, settingsPath).sort(), ['BCO/USD', 'WTICO/USD', 'XAU/USD']);
+  assert.deepEqual(
+    comboUniverse(dbPath, settingsPath).map((c) => `${c.instrument}|${c.granularity}`).sort(),
+    ['BCO/USD|M1', 'WTICO/USD|M5', 'XAU/USD|M15'],
+  );
 });
 
-test('sweepCombo: skip-when-fresh issues no request when the newest stored OPEN time is within 2 periods (bar-close aware)', async () => {
+test('sweepAll: skips a fresh combo (newest OPEN time within 2×granMs, bar-close aware) with no request', async () => {
   const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
   const granMs = 60000;
   const now = Date.now();
   // review pin: candle time is the bar OPEN — a fully-current series' newest
   // bar opened up to ~1×granMs ago, so seed at 1.5×granMs (fresh under the
   // 2×granMs rule, stale under the naive 1× rule this test guards against)
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 1.5)]);
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
   let calls = 0;
   const fetcher = async () => { calls++; return []; };
-  const logs = [];
-  const res = await sweepCombo(dbPath, 'BCO/USD', 'M1', { fetcher, now: () => now, log: (m) => logs.push(m) });
+  const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now });
   assert.equal(calls, 0, 'no request for a fresh combo');
-  assert.equal(res.fetched, false);
-  assert.ok(logs.some((l) => l.includes('skip') && l.includes('fresh')));
+  assert.deepEqual(res, { fetched: 0, skipped: 1 });
 });
 
-test('sweepCombo: a stale combo tail-fetches and stores the newest bars', async () => {
+test('sweepAll: a stale combo tail-fetches and stores the newest bars', async () => {
   const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
   const granMs = 60000;
   const now = Date.now();
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 20)]); // stale
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
   const fetcher = async ({ instrument, granularity, count }) => {
     assert.equal(instrument, 'BCO/USD');
     assert.equal(granularity, 'M1');
     assert.ok(count > 0 && count <= 2500);
     return Array.from({ length: count }, (_, i) => candle(now - i * granMs)).reverse();
   };
-  const res = await sweepCombo(dbPath, 'BCO/USD', 'M1', { fetcher, now: () => now, attempted: new Set() });
-  assert.equal(res.fetched, true);
-  assert.ok(res.stored > 0);
+  const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, attempted: new Set() });
+  assert.deepEqual(res, { fetched: 1, skipped: 0 });
   const { n } = withDb(dbPath, (db) => db.prepare('SELECT COUNT(*) AS n FROM candles WHERE instrument=? AND granularity=?').get('BCO/USD', 'M1'));
   assert.ok(n > 1, 'newly fetched bars were stored alongside the stale one');
 });
 
-test('sweepGranularity: one combo throwing does not stop the sweep (error isolation)', async () => {
+test('sweepAll: skips a combo the on-read path (lastLiveFetch) fetched within its own gate window', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const granMs = 60000;
+  const now = Date.now();
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 20)]); // stale by the freshness rule alone
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  let calls = 0;
+  const fetcher = async () => { calls++; return []; };
+  const lastLiveFetch = new Map([[`${dbPath}|BCO/USD|M1`, { at: now - 1000, tail: null }]]); // fetched 1s ago
+  const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, lastLiveFetch, liveGateMs: 8000 });
+  assert.equal(calls, 0, 'the on-read gate suppressed the request even though the stored bar is stale');
+  assert.deepEqual(res, { fetched: 0, skipped: 1 });
+});
+
+test('sweepAll: one combo throwing does not stop the sweep (error isolation)', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
   const settingsPath = settingsFile(dir, { bot: { bots: { 'BAD/USD|M1': {}, 'GOOD/USD|M1': {} } } });
@@ -99,9 +114,35 @@ test('sweepGranularity: one combo throwing does not stop the sweep (error isolat
     return Array.from({ length: count }, (_, i) => candle(now - i * 60000)).reverse();
   };
   const logs = [];
-  await sweepGranularity(dbPath, settingsPath, 'M1', { fetcher, now: () => now, attempted: new Set(), log: (m) => logs.push(m), delayMs: 0 });
+  const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, attempted: new Set(), logFn: (m) => logs.push(m), delayMs: 0 });
   assert.deepEqual(touched, ['GOOD/USD']);
+  assert.equal(res.fetched, 1);
   assert.ok(logs.some((l) => l.includes('BAD/USD') && l.includes('failed')));
+});
+
+test('sweepAll: caps gap repairs at MAX_GAP_REPAIRS_PER_COMBO per combo per sweep', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const granMs = 60000;
+  const now = Date.now();
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 20)]);
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  let gapFetches = 0;
+  const fetcher = async ({ from, count }) => {
+    if (from) { // a repairGap ranged fetch: return nothing so every gap "fails to close" and stays a gap
+      gapFetches++;
+      return [];
+    }
+    // the tail fetch: produce a series with 5×granMs spacing (> the 3×granMs
+    // gap threshold) so more than MAX_GAP_REPAIRS_PER_COMBO gaps exist in the
+    // fetched window
+    const rows = [];
+    for (let i = 0; i < count; i += 5) rows.push(candle(now - i * granMs));
+    return rows.reverse();
+  };
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, attempted: new Set(), delayMs: 0 });
+  assert.ok(gapFetches <= MAX_GAP_REPAIRS_PER_COMBO, `expected at most ${MAX_GAP_REPAIRS_PER_COMBO} gap-repair fetches, got ${gapFetches}`);
+  assert.ok(gapFetches > 0, 'sanity: this fixture does produce gaps');
 });
 
 test('startKeepFresh: fetcher:null (fixture) never creates a timer / never sweeps', async () => {
@@ -132,17 +173,36 @@ test('startKeepFresh: an overlapping tick returns immediately instead of re-ente
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
   const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  // an explicitly-resolved deferred promise (not a timer race) gates the first
+  // fetch, so the second tick's re-entry check is deterministic, not timing-based
+  let releaseFirstFetch;
+  const gate = new Promise((r) => { releaseFirstFetch = r; });
   const fetcher = async ({ count }) => {
-    await new Promise((r) => setTimeout(r, 30));
+    await gate;
     return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse();
   };
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher });
   let firstSweepDone = false;
   const p1 = handle.tick().then(() => { firstSweepDone = true; });
-  let secondSawFirstStillRunning = null;
-  const p2 = handle.tick().then(() => { secondSawFirstStillRunning = !firstSweepDone; });
+  const p2 = handle.tick(); // must see inFlight and return immediately, before the gate releases
   await p2;
-  assert.equal(secondSawFirstStillRunning, true, 'the overlapping tick resolved (guard, no re-entry) before the in-flight sweep finished');
+  assert.equal(firstSweepDone, false, 'the overlapping tick resolved before the in-flight sweep finished (guard, no re-entry)');
+  releaseFirstFetch([]);
   await p1;
   handle.stop();
+});
+
+test('buildServer: server.on(close) stops the keep-fresh loop so no further ticks fire', async (t) => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now())]);
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  let calls = 0;
+  const fetcher = async () => { calls++; return []; };
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const server = buildServer({ dbPath, settingsPath, fetcher });
+  await new Promise((resolve) => server.close(resolve)); // close before any tick fires
+  t.mock.timers.tick(120000); // well past two 60s ticks, had the interval survived close()
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(calls, 0, 'no tick fired after close, even though the interval period elapsed');
 });
