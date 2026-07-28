@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
@@ -50,7 +51,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
@@ -135,6 +136,11 @@ export function writeSettings(settingsPath, patch) {
   }
   if (patch.info !== undefined && patch.info !== null && patch.info !== '' && typeof patch.info !== 'boolean') {
     throw new Error('info must be a boolean');
+  }
+  // Boolean-ish like sentinelSourceFootnotes/NEWSAPI_AI_BACKGROUND: stored as
+  // '0'/'1' (or true/false) and read via isSettingOn, not a strict JS boolean.
+  if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
+    throw new Error("keepFresh must be '0', '1', or a boolean");
   }
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
@@ -928,7 +934,12 @@ async function readJson(req, res) {
 }
 
 export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
-  return createServer(async (req, res) => {
+  // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
+  // fixtures) never starts the timer at all — fixture-safety. Shares
+  // attemptedGaps (unfillable-gap memory) and lastLiveFetch (the on-read gate)
+  // with the GET /api/chart path so the two never duplicate a fetch.
+  const keepFresh = startKeepFresh({ dbPath, settingsPath, fetcher, attempted: attemptedGaps, lastLiveFetch, liveGateMs: LIVE_TAIL_GATE_MS });
+  const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
       if (req.method !== 'GET' && !sameOrigin(req)) {
@@ -1458,6 +1469,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       return json(res, 500, { ok: false, error: err.message });
     }
   });
+  server.on('close', keepFresh.stop);
+  return server;
 }
 
 // The dashboard page (canvas chart + supertrend/marker, verdict panel, signal
