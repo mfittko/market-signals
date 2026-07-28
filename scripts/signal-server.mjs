@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
 import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
@@ -928,6 +929,9 @@ async function readJson(req, res) {
 }
 
 export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
+  // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
+  // fixtures) never starts the timer at all — fixture-safety.
+  startKeepFresh({ dbPath, settingsPath, fetcher });
   return createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
