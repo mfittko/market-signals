@@ -718,7 +718,7 @@ let botStateCache = null;
 // for one combo and the tuning tab for another can coexist in the DOM
 // without id collisions (review finding on #166).
 const bid = (p, s) => p + s;
-async function mountBotConfig(containerId, inst, gran, prefix) {
+async function mountBotConfig(containerId, inst, gran, prefix, { withHistory = false } = {}) {
   const combo = inst + '|' + gran;
   const container = document.getElementById(containerId);
   // #165 review fix: the rail's ⚙ can open this for a DIFFERENT combo than the
@@ -728,9 +728,23 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
   const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   let activeTab = 'setup';
+  // #187: trades/audit tabs added alongside setup/strategy, but ONLY for the
+  // rail's ⚙ modal (openBotModal, withHistory=true) — the focused-combo's
+  // workspace [tuning] tab already has its own [trades] sibling tab (#166), so
+  // renderTuningTab opts out to avoid a duplicate/forked history surface.
+  // Lazy-loaded (fetched only once this tab is first clicked, tracked in
+  // loadedTabs below) so opening the modal for config-only use costs zero
+  // extra requests.
+  const TAB_NAMES = withHistory ? ['setup', 'strategy', 'trades', 'audit'] : ['setup', 'strategy'];
+  const loadedTabs = new Set();
   container.innerHTML =
-    '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections"><button type="button" role="tab" aria-selected="true" data-tab="setup" class="on">setup</button><button type="button" role="tab" aria-selected="false" data-tab="strategy">strategy</button></div>' +
-    '<div id="' + bid(prefix, '-setup') + '"></div><div id="' + bid(prefix, '-strategy') + '" hidden></div>';
+    '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections">' +
+    '<button type="button" role="tab" aria-selected="true" data-tab="setup" class="on">setup</button>' +
+    '<button type="button" role="tab" aria-selected="false" data-tab="strategy">strategy</button>' +
+    (withHistory ? '<button type="button" role="tab" aria-selected="false" data-tab="trades">trades</button>' +
+    '<button type="button" role="tab" aria-selected="false" data-tab="audit">audit</button>' : '') + '</div>' +
+    TAB_NAMES.map((t) => '<div id="' + bid(prefix, '-' + t) + '"' + (t === 'setup' ? '' : ' hidden') + '>' +
+      (t === 'trades' ? '<p id="' + bid(prefix, '-trades-head') + '"></p><div id="' + bid(prefix, '-trades-rows') + '"></div>' : '') + '</div>').join('');
   let modalState = isViewedCombo() ? botStateCache : null;
   const refreshModalState = async () => {
     const d2 = await (await fetch('/api/chart?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
@@ -756,9 +770,17 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     if (!tab) return;
     activeTab = tab;
     for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
-    document.getElementById(bid(prefix, '-setup')).hidden = tab !== 'setup';
-    document.getElementById(bid(prefix, '-strategy')).hidden = tab !== 'strategy';
+    for (const t of TAB_NAMES) document.getElementById(bid(prefix, '-' + t)).hidden = t !== tab;
     if (tab === 'strategy') await paint();
+    if ((tab === 'trades' || tab === 'audit') && !loadedTabs.has(tab)) {
+      loadedTabs.add(tab);
+      if (tab === 'trades') {
+        const trades = await fetchTrades({ instrument: inst, granularity: gran, limit: 500 });
+        renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
+      } else {
+        await renderBotAuditTab(bid(prefix, '-audit'), inst, gran);
+      }
+    }
   };
   await refreshModalState();
   await paint();
@@ -770,7 +792,7 @@ async function openBotModal(instArg, granArg) {
   const gran = granArg || qs.get('granularity') || document.getElementById('granSel').value || 'M5';
   document.getElementById('botTitle').textContent = '🤖 bot — ' + inst + ' · ' + gran;
   document.getElementById('botTitle').dataset.info = INFO.botModal;
-  await mountBotConfig('botBody', inst, gran, 'bm');
+  await mountBotConfig('botBody', inst, gran, 'bm', { withHistory: true });
   document.getElementById('botdlg').showModal();
 }
 // tuning workspace tab (#166): the modal content inlined for the focused combo.
@@ -1016,10 +1038,13 @@ async function renderEvaluation() {
     const detailHtml = '<div class="lane">PF ' + pf + ' · max DD ' + dd + '</div>';
     for (const row of collapsibleRow(mainCells, detailHtml, 7, 'profit factor and max drawdown')) tb.appendChild(row);
   }
-  // execSizing (#83/#85) carries what actually happened at open (effective,
-  // sized-down notional), not the LLM's raw ask — the decision journal on its
-  // own only ever had the requested figure, which disagreed with the position
-  // card. Prefer the effective notional, and note the cap/no-budget story.
+  document.getElementById('tab-audit').innerHTML = auditEntriesHtml(r);
+}
+// #187: decisionAudit rows (meta/decision/reason/sizeNote/tools/news) — one
+// render path shared by the portfolio's audit tab (all combos) and the bot
+// modal's per-combo audit tab (renderBotAuditTab below), same pattern as
+// #166's tradeRowHtml/renderTrades split.
+function auditEntriesHtml(r) {
   const sizeNote = (a) => {
     if (!a.execSizing) return null;
     const { requestedNotional, effectiveNotional, bindingCap } = a.execSizing;
@@ -1027,7 +1052,7 @@ async function renderEvaluation() {
     if (bindingCap && bindingCap !== 'none') return 'sized down to ' + fmtNotional(effectiveNotional) + ' by the ' + bindingCap + ' cap (bot asked for ' + fmtNotional(requestedNotional) + ')';
     return null;
   };
-  document.getElementById('tab-audit').innerHTML = r.audit.map(a =>
+  return r.audit.map(a =>
     '<div class="audit-entry"><div class="meta">' + esc(localFull(a.at)) + ' · ' + esc(a.action) + (a.event ? ' · ' + esc(a.event) : '') + (a.instrument ? ' · ' + esc(a.instrument) : '') +
     (a.strategyName ? ' · ' + esc(a.strategyName) + (a.strategyDbVersion ? ' v' + esc(a.strategyDbVersion) : '') : '') + '</div>' +
     (a.decision ? '<div><b>' + esc(a.decision.action) + '</b>' + (a.decision.side ? ' ' + esc(a.decision.side) + ' ' + esc(fmtNotional(a.execSizing ? a.execSizing.effectiveNotional : a.decision.notional)) : '') + (a.error ? ' <span class="sell">' + esc(a.error) + '</span>' : '') + '</div>' : '') +
@@ -1036,6 +1061,14 @@ async function renderEvaluation() {
     (a.toolTrace && a.toolTrace.length ? '<div class="meta">tools: ' + esc(a.toolTrace.map(t => t.name + (t.ok === false ? '!' : '')).join(', ')) + '</div>' : '') +
     newsHtml(a) +
     '</div>').join('') || '<p><small>no decisions journaled yet</small></p>';
+}
+// #187: combo-scoped audit tab for the bot modal — same /api/evaluation
+// endpoint and auditEntriesHtml renderer as the portfolio audit tab, just
+// filtered to one instrument/granularity and painted into a namespaced
+// container instead of the fixed #tab-audit.
+async function renderBotAuditTab(containerId, inst, gran) {
+  const r = await (await fetch('/api/evaluation?' + new URLSearchParams({ instrument: inst, granularity: gran }))).json();
+  document.getElementById(containerId).innerHTML = r.ok ? auditEntriesHtml(r) : '<p><small>evaluation unavailable</small></p>';
 }
 const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 // #170 (F28, review): one gap-break helper for every polyline overlay

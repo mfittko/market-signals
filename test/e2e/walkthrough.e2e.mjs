@@ -292,6 +292,35 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.ok(await p.evaluate(() => !!document.querySelector('#botdlg[open]') && !!document.getElementById('bmTabs')), 'per-view bot modal opens with its config tabs');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+          // #187: open the seeded WTICO/USD|M15 combo's rail ⚙ specifically
+          // (not just "whichever row is first") — this combo has both seeded
+          // trades and an audited decision with news, so the trades/audit
+          // tabs render real content, not just an empty state.
+          await p.waitForFunction(() => !!document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]'), { timeout: 5000 });
+          await p.evaluate(() => document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]').click());
+          await p.waitForTimeout(300);
+          // #187: bot modal gains trades/audit tabs, combo-scoped, lazy-loaded —
+          // config-only modal use (setup/strategy) must fire zero /api/trades or
+          // /api/evaluation requests until one of those tabs is actually opened.
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit'], 'bot modal tab strip includes trades + audit');
+          let historyReqs = 0;
+          const onReq = (req) => { const u = req.url(); if (u.includes('/api/trades') || u.includes('/api/evaluation')) historyReqs++; };
+          p.on('request', onReq);
+          await p.waitForTimeout(200);
+          assert.equal(historyReqs, 0, 'no /api/trades or /api/evaluation requests before the trades/audit tabs are opened');
+          await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
+          await p.waitForTimeout(300);
+          assert.ok(historyReqs >= 1, 'opening the trades tab fires the lazy /api/trades fetch');
+          // this seeded combo has no bot_trades rows (only journaled decisions) —
+          // the canonical empty-state ("no trades yet") is the correct render.
+          assert.equal(await p.evaluate(() => document.getElementById('bm-trades-rows').textContent.trim()), 'no trades yet', 'bot modal trades tab renders the canonical empty-state via the shared renderer');
+          await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="audit"]').click());
+          await p.waitForTimeout(300);
+          const bmAuditHtml = await p.evaluate(() => document.getElementById('bm-audit').innerHTML);
+          assert.ok(bmAuditHtml.includes('e2e gate-disagreement seed'), 'bot modal audit tab renders the seeded WTICO/USD|M15 decisions via the shared audit renderer');
+          assert.ok(!bmAuditHtml.includes('e2e seeded headline'), 'audit tab is combo-scoped — the M5 combo\'s seeded news does not leak into the M15 combo\'s audit');
+          p.off('request', onReq);
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
           // #166: workspace tabs ([tape][trades][tuning]) under the chart, scoped
           // to the focused combo — tape is the default, trades/tuning switch in.
