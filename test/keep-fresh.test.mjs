@@ -474,6 +474,11 @@ test('cycleCadenceMinutes: an explicit map entry wins', () => {
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1, M15: 15 } }, 'M15'), 15);
 });
 
+test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to 5', () => {
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 1.5 } }, 'M5'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 0 } }, 'M5'), 5);
+});
+
 test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 minutes', () => {
   const minuteMs = (min) => { const d = new Date(); d.setSeconds(0, 0); d.setMinutes(min); return d.getTime(); };
   for (let min = 0; min < 60; min++) assert.equal(isCycleDue(minuteMs(min), 1), true, `M1 due at :${min}`);

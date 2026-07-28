@@ -22,7 +22,15 @@ function extract(name) {
   return appHtml.slice(start, end);
 }
 
-const UI_REFRESH_DEFAULT_MS = { M1: 3000, M5: 10000, M15: 30000 };
+function extractConst(name) {
+  const start = appHtml.indexOf(`const ${name} =`);
+  if (start === -1) throw new Error(`${name} not found in vendor/app.html`);
+  const end = appHtml.indexOf(';', start) + 1;
+  return appHtml.slice(start, end);
+}
+
+// eslint-disable-next-line no-new-func
+const UI_REFRESH_DEFAULT_MS = new Function(`${extractConst('UI_REFRESH_DEFAULT_MS')}; return UI_REFRESH_DEFAULT_MS;`)();
 // eslint-disable-next-line no-new-func
 const uiRefreshDelayMs = new Function('UI_REFRESH_DEFAULT_MS', `${extract('uiRefreshDelayMs')}; return uiRefreshDelayMs;`)(UI_REFRESH_DEFAULT_MS);
 

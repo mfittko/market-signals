@@ -37,7 +37,7 @@ const MASTER_TICK_MS = 60000;
 // immediately (no RunAtLoad-style burst). n=1 (M1) is in-phase every tick.
 export const cycleCadenceMinutes = (cfg, gran) => {
   const n = Number(cfg?.cycleMinutes?.[gran]);
-  return Number.isFinite(n) && n >= 1 ? n : 5;
+  return Number.isInteger(n) && n >= 1 ? n : 5;
 };
 export const cycleBucketFor = (nowMs, n) => Math.floor(nowMs / (n * 60000));
 export const isCycleDue = (nowMs, n) => new Date(nowMs).getMinutes() % n === 1 % n;
