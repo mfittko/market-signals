@@ -215,9 +215,7 @@
      the row single-line with horizontal scroll instead of wrapping over the
      chart; narrow/phone renders it as a static wrapping row above the canvas
      instead, since an overlay there would sit on top of the candles. */
-  #indpanel { position: absolute; top: 6px; left: 10px; right: 64px; z-index: 3; background: rgba(22,27,34,0.95); border: 1px solid #30363d;
-              border-radius: 6px; padding: 4px 10px; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 4px 14px; font-size: 12px;
-              color: #8b949e; }
+  #indpanel { position: absolute; top: 6px; left: 10px; right: 64px; z-index: 3; display: flex; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 4px 14px; font-size: 12px; color: #8b949e; white-space: nowrap; }
   #indpanel label { cursor: pointer; white-space: normal; }
   @media (max-width: 900px) {
     #indpanel { position: static; flex-wrap: wrap; overflow-x: visible; margin-bottom: 6px; }
