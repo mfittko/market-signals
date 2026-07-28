@@ -227,6 +227,29 @@ test('stale data triggers a live refresh through the injected fetcher; fetch fai
   assert.equal(d2.quote.fetchedAt, undefined, 'failed fetch carries no freshness stamp');
 });
 
+test('chartData (#201): live-fetch and gate-closed ticks serve the SAME candle count (no sub-gate poll jitter)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath } = fixtureDb(dir); // 60 stored M5 bars, hours old -> stale
+  // Upstream returns a complete bar NOT yet stored (newer than the fixture)
+  // plus a forming tail — the mergeFetched path that used to grow the window.
+  const nowMs = Date.now();
+  const fresh = series([200, 201], nowMs - 600000);
+  fresh[1] = { ...fresh[1], complete: false };
+  const count = 20;
+  const d1 = await chartData(dbPath, INSTRUMENT, { count, fetcher: async () => fresh });
+  const d2 = await chartData(dbPath, INSTRUMENT, { count, fetcher: async () => { throw new Error('must not fetch: gate closed'); } });
+  assert.equal(d1.candles.length, d2.candles.length,
+    'alternating fetch/gated polls must not change the served bar count (chart x-axis jitter)');
+  assert.equal(d1.candles.length, count + 1, 'count complete bars + the forming tail');
+  assert.equal(d1.candles[d1.candles.length - 1].partial, true);
+  assert.equal(d2.candles[d2.candles.length - 1].partial, true, 'gate-closed tick still carries the cached tail');
+  // Content parity, not just length: the gate carries this tick's pending
+  // completes, so both paths serve the identical union even before the
+  // deferred persistence lands — same left edge, same supertrend seed.
+  assert.deepEqual(d2.candles.map((c) => c.time), d1.candles.map((c) => c.time),
+    'fetch and gated ticks serve the identical window, edge to edge');
+});
+
 test('writeSettings validates directly (unit)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const p = join(dir, 's.json');
