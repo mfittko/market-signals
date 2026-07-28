@@ -853,7 +853,9 @@ async function renderBotStrategyTab(p, inst, gran, entry, save, savedMsg, modalS
   // trading strategy server-side (modalState — same source as the "won't trade"
   // warning) even though entry.strategyName is empty; seed current from that
   // resolved name so the UI reflects what actually trades and can be detached.
-  const current = modalState?.strategyName || entry.strategyName || '';
+  // modalState.strategyRef is the RAW kebab-case name (not the " v<n>" display
+  // string on modalState.strategyName) — byName below is keyed by raw name.
+  const current = modalState?.strategyRef || entry.strategyName || '';
   // an explicit '— none —' preview is an empty STRING, not 'unset' — falling back to
   // current here made detaching a strategy impossible from the modal
   const editing = 'editing' in el.dataset ? el.dataset.editing : current;

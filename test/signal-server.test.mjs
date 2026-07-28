@@ -1099,15 +1099,27 @@ test('strategy select (UI review finding 2) only previews on change — no write
   });
 });
 
-test('strategy tab "current" derivation prefers the resolved modalState name over the raw legacy-only entry (#197 pre-approval fix)', async () => {
+test('strategy tab "current" derivation prefers the resolved modalState RAW name over the raw legacy-only entry (#197 pre-approval fix + follow-up)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
-    const m = html.match(/const current = modalState\?\.strategyName \|\| entry\.strategyName \|\| '';/);
-    assert.ok(m, "current must be seeded from the resolved modalState.strategyName first, so a legacy-only bot (strategyId only, no entry.strategyName) shows what it actually trades and can be detached");
-    const fn = new Function('modalState', 'entry', `const current = modalState?.strategyName || entry.strategyName || ''; return current;`);
-    assert.equal(fn({ strategyName: 'resolved-legacy' }, {}), 'resolved-legacy', 'legacy-only bot (no entry.strategyName) resolves to the server-resolved name');
+    const m = html.match(/const current = modalState\?\.strategyRef \|\| entry\.strategyName \|\| '';/);
+    assert.ok(m, "current must be seeded from modalState.strategyRef (RAW kebab-case name), not modalState.strategyName (which is the '<name> v<n>' DISPLAY string and would never match byName)");
+    const fn = new Function('modalState', 'entry', `const current = modalState?.strategyRef || entry.strategyName || ''; return current;`);
+    assert.equal(fn({ strategyRef: 'resolved-legacy', strategyName: 'resolved-legacy v1' }, {}), 'resolved-legacy', 'legacy-only bot (no entry.strategyName) resolves to the RAW server-resolved name, not the "name vN" display string');
     assert.equal(fn(null, { strategyName: 'named' }), 'named', 'falls back to entry.strategyName when no modalState');
     assert.equal(fn(null, {}), '', 'no strategy assigned stays representable as empty string, not "unset"');
+  });
+});
+
+test('/api/chart botState.strategyRef is the raw kebab-case strategy name, distinct from strategyName\'s "name vN" display string (#197 follow-up review fix)', async () => {
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, { name: 'conservative-supertrend', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    activateStrategy(dbPath, st.id);
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: st.id } } } }) });
+    const d = await (await fetch(base + '/api/chart?' + new URLSearchParams({ instrument: 'WTICO/USD', granularity: 'M5' }))).json();
+    assert.equal(d.botState.strategyRef, 'conservative-supertrend', 'strategyRef is the raw name, matching what byName in the strategy tab is keyed by');
+    assert.equal(d.botState.strategyName, 'conservative-supertrend v1', 'strategyName stays the existing "name vN" display string used elsewhere');
   });
 });
 

@@ -1017,6 +1017,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           configured: botFor.configured === true,
           enabled: botFor.enabled,
           strategyName: strat ? `${strat.name} v${strat.version}` : null,
+          // raw kebab-case name (no " v<n>" display suffix) — the modal's
+          // strategy tab needs this to match byName lookups; strategyName
+          // above stays the display string (#197 follow-up review fix).
+          strategyRef: strat ? strat.name : null,
           halted: pfB.halted,
           openPosition: pos ? { side: pos.side, unrealized: Math.round(pos.unrealized * 100) / 100 } : null,
         };
