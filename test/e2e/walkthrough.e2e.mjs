@@ -297,17 +297,21 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // trades and an audited decision with news, so the trades/audit
           // tabs render real content, not just an empty state.
           await p.waitForFunction(() => !!document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]'), { timeout: 5000 });
+          // #187 lazy pin — review fix: the listener must be attached BEFORE the
+          // modal opens, or a fetch fired during mountBotConfig() (the exact bug
+          // this guards) would be missed. The page settled above (networkidle),
+          // and the chart's own periodic /api/trades poll is 60s, so this short
+          // window counts only modal-triggered requests.
+          let historyReqs = 0;
+          const onReq = (req) => { const u = req.url(); if (u.includes('/api/trades') || u.includes('/api/evaluation')) historyReqs++; };
+          p.on('request', onReq);
           await p.evaluate(() => document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]').click());
           await p.waitForTimeout(300);
           // #187: bot modal gains trades/audit tabs, combo-scoped, lazy-loaded —
           // config-only modal use (setup/strategy) must fire zero /api/trades or
           // /api/evaluation requests until one of those tabs is actually opened.
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit'], 'bot modal tab strip includes trades + audit');
-          let historyReqs = 0;
-          const onReq = (req) => { const u = req.url(); if (u.includes('/api/trades') || u.includes('/api/evaluation')) historyReqs++; };
-          p.on('request', onReq);
-          await p.waitForTimeout(200);
-          assert.equal(historyReqs, 0, 'no /api/trades or /api/evaluation requests before the trades/audit tabs are opened');
+          assert.equal(historyReqs, 0, 'no /api/trades or /api/evaluation requests from opening the modal (incl. mountBotConfig) before the trades/audit tabs are opened');
           await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
           assert.ok(historyReqs >= 1, 'opening the trades tab fires the lazy /api/trades fetch');
