@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
@@ -259,12 +259,22 @@ export const LIVE_TAIL_GATE_MS = 8000;
 // (fetcher() + the in-memory lastLiveFetch cache) is untouched — that's an
 // upstream HTTP read, not a local mutation, so chart freshness is unaffected;
 // only the persistence of what it read is deferred.
-function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
-  if (!complete.length && !flips.length) return;
+function scheduleAcquisition(dbPath, instrument, granularity, complete, flips, gaps = [], fetcher = fetchCandles) {
+  if (!complete.length && !flips.length && !gaps.length) return;
   const key = `${dbPath}|${instrument}|${granularity}`;
   setImmediate(() => {
     try {
       if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+      // #gap-backfill: repair holes in the stored window as soon as they're seen
+      // (chart read path), not blocking this GET — same deferred pattern as the
+      // tail persistence above. Uses the same fetcher chartData was given (so
+      // tests/fixtures never leak a real network call, and prod naturally uses
+      // the live provider).
+      for (const gap of (fetcher ? gaps : [])) {
+        repairGap(dbPath, instrument, granularity, gap, { fetcher }).catch((err) => {
+          console.error(`[chart] gap repair failed for ${key} (gap ${new Date(gap.start).toISOString()}):`, err?.message || err);
+        });
+      }
       // Lazy backfill: persist historical flips for whatever combo is being
       // viewed so history/outcomes populate beyond the watcher's own
       // instrument. Flips newer than the watcher's fresh+cooldown horizon are
@@ -339,6 +349,10 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
       .all(instrument, granularity, dayBars).reverse();
     return { candles: windowed, recent };
   });
+  // Gap backfill (#gap-backfill): scan the stored window itself (before any
+  // in-memory merge with freshly-fetched candles below) for holes and repair
+  // them via a deferred ranged fetch — see scheduleAcquisition.
+  const gaps = findGaps(candles.map((c) => Date.parse(c.time)), granularityMs(granularity));
   // #163: candles fetched this call (pendingComplete) persist asynchronously
   // below, so the DB read above can miss them on a first request after
   // downtime (gappy chart). Merge them into the in-memory response now —
@@ -368,7 +382,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   // #163: the actual persistence (new complete candles + flip backfill) is
   // deferred out of this GET — see scheduleAcquisition above.
-  scheduleAcquisition(dbPath, instrument, granularity, pendingComplete, flips);
+  scheduleAcquisition(dbPath, instrument, granularity, pendingComplete, flips, gaps, fetcher);
   // The history table is scoped to the visible chart window: only signals whose
   // time falls within the shown candles (falls back to the latest 50 when there
   // are no candles yet). The current/deep-linked signal is resolved separately.

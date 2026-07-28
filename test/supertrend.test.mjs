@@ -1028,3 +1028,121 @@ test('buildFilterPayload volumeContext: a real 0-volume flip against a nonzero a
   assert.ok(payload.volumeContext.avg20 > 0, 'nonzero average volume');
   assert.equal(payload.volumeContext.ratio, 0, '0-volume flip against a nonzero avg is 0×, not null');
 });
+
+// --- gap backfill: findGaps / fetchCandles `from` / repairGap ---
+
+test('findGaps: no gap on a perfectly contiguous series', async () => {
+  const { findGaps } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000;
+  const times = Array.from({ length: 5 }, (_, i) => i * granMs);
+  assert.deepEqual(findGaps(times, granMs), []);
+});
+
+test('findGaps: a single gap > 3x granularity is reported with its bounds', async () => {
+  const { findGaps } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000;
+  const times = [0, granMs, granMs * 10, granMs * 11]; // hole between index 1 and 2
+  assert.deepEqual(findGaps(times, granMs), [{ start: granMs, end: granMs * 10 }]);
+});
+
+test('findGaps: multiple gaps in one series are all reported', async () => {
+  const { findGaps } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000;
+  const times = [0, granMs, granMs * 10, granMs * 11, granMs * 30];
+  assert.deepEqual(findGaps(times, granMs), [
+    { start: granMs, end: granMs * 10 },
+    { start: granMs * 11, end: granMs * 30 },
+  ]);
+});
+
+test('findGaps: a gap at the very start/end of the window is still caught (no off-by-one at the edges)', async () => {
+  const { findGaps } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000;
+  // gap between the first two points, and between the last two points
+  const times = [0, granMs * 10, granMs * 11, granMs * 12, granMs * 30];
+  assert.deepEqual(findGaps(times, granMs), [
+    { start: 0, end: granMs * 10 },
+    { start: granMs * 12, end: granMs * 30 },
+  ]);
+});
+
+test('findGaps: exactly 3x granularity is not a gap (threshold is strictly greater-than, matching the client)', async () => {
+  const { findGaps } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000;
+  assert.deepEqual(findGaps([0, granMs * 3], granMs), []);
+  assert.deepEqual(findGaps([0, granMs * 3 + 1], granMs), [{ start: 0, end: granMs * 3 + 1 }]);
+});
+
+test('fetchCandles: an optional `from` is forwarded as a query param (backward compatible when omitted)', async () => {
+  const { fetchCandles } = await import('../scripts/supertrend.mjs');
+  const { createServer } = await import('node:http');
+  const hits = [];
+  const srv = createServer((req, res) => {
+    hits.push(req.url);
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ candles: [] }));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const realFetch = globalThis.fetch;
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  globalThis.fetch = (url, opts) => realFetch(String(url).replace('https://p.fxempire.com/oanda/candles/latest', base), opts);
+  try {
+    await fetchCandles({ instrument: 'WTICO/USD', granularity: 'M5', count: 3 });
+    assert.doesNotMatch(hits[0], /from=/, 'no from param when omitted');
+    await fetchCandles({ instrument: 'WTICO/USD', granularity: 'M5', count: 3, from: '2026-07-28T06:00:00.000Z' });
+    assert.match(decodeURIComponent(hits[1]), /from=2026-07-28T06:00:00\.000Z/);
+  } finally {
+    globalThis.fetch = realFetch;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('repairGap: fetches from the gap start with the right count and upserts the missing rows', async () => {
+  const { repairGap } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gap-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const granMs = 5 * 60000; // M5
+  const gap = { start: Date.parse('2026-07-28T06:00:00.000Z'), end: Date.parse('2026-07-28T06:30:00.000Z') };
+  const requests = [];
+  const fetcher = async (opts) => {
+    requests.push(opts);
+    const rows = [];
+    for (let t = gap.start; t < gap.end; t += granMs) rows.push(fxempireCandleFromMs(t));
+    return rows.map((r) => ({ ...r, complete: true }));
+  };
+  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].from, new Date(gap.start).toISOString());
+  assert.equal(requests[0].count, Math.ceil((gap.end - gap.start) / granMs) + 2);
+  assert.equal(stored, (gap.end - gap.start) / granMs);
+  const { n } = withDb(dbPath, (db) => db.prepare('SELECT COUNT(*) AS n FROM candles').get());
+  assert.equal(Number(n), stored);
+});
+
+function fxempireCandleFromMs(ms) {
+  return { time: new Date(ms).toISOString(), open: 70, high: 70.1, low: 69.9, close: 70, volume: 10, complete: true };
+}
+
+test('repairGap: an already-attempted gap is never re-fetched (per dbPath+combo+gapStart, process lifetime)', async () => {
+  const { repairGap } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gap-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const gap = { start: Date.parse('2026-07-28T21:00:00.000Z'), end: Date.parse('2026-07-28T22:00:00.000Z') };
+  let calls = 0;
+  const fetcher = async () => { calls++; return []; };
+  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  assert.equal(calls, 1, 'second attempt at the same gap is skipped from memory, not a second fetch');
+});
+
+test('repairGap: an empty result (e.g. market-closed hole) still marks the gap attempted, and stores nothing', async () => {
+  const { repairGap } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gap-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const gap = { start: Date.parse('2026-07-29T21:00:00.000Z'), end: Date.parse('2026-07-29T22:00:00.000Z') };
+  const fetcher = async () => [];
+  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  assert.equal(stored, 0);
+  const { n } = withDb(dbPath, (db) => db.prepare('SELECT COUNT(*) AS n FROM candles').get());
+  assert.equal(Number(n), 0);
+});

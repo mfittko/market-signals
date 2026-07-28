@@ -945,6 +945,46 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
 // to `complete` before storeCandles persists), so no completeness column is
 // needed — we tag complete:true so rows match fetchCandles' shape for the merge
 // in acquireWindow.
+// Server-side counterpart to the client's isGap/contiguousRuns (vendor/app.html)
+// — same "3x granularity" threshold, but returns the gap ranges themselves
+// (start/end ms) instead of contiguous runs, since the server's job is to
+// repair holes, not to draw them. `times` must be ascending epoch ms.
+export function findGaps(times, granMs) {
+  const gaps = [];
+  if (!granMs) return gaps;
+  for (let i = 1; i < times.length; i++) {
+    const [a, b] = [times[i - 1], times[i]];
+    if (b - a > 3 * granMs) gaps.push({ start: a, end: b });
+  }
+  return gaps;
+}
+
+// Legit unfillable gaps exist (NYMEX settlement break, weekends) — remember
+// every attempted gap (by dbPath+instrument+granularity+gapStart) for the
+// life of the process so a market-closed hole isn't re-fetched every time the
+// chart is reloaded. ponytail: in-memory only, resets on restart — fine, a
+// restart just re-attempts once more, no correctness issue.
+const attemptedGaps = new Set();
+
+// Fetch+store the candles inside one gap. Marks the gap attempted regardless
+// of outcome (a still-open market that legitimately has no data must not be
+// retried every call). Returns the number of rows actually stored.
+export async function repairGap(dbPath, instrument, granularity, gap, { fetcher = fetchCandles, log = dbg } = {}) {
+  const key = `${dbPath}|${instrument}|${granularity}|${gap.start}`;
+  if (attemptedGaps.has(key)) return 0;
+  attemptedGaps.add(key);
+  const granMs = granularityMs(granularity);
+  const count = Math.min(Math.ceil((gap.end - gap.start) / granMs) + 2, 2500);
+  const from = new Date(gap.start).toISOString();
+  const rows = await fetcher({ instrument, granularity, from, count });
+  const complete = rows.filter((c) => c.complete && Date.parse(c.time) < gap.end);
+  if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+  log(complete.length
+    ? `[gap-backfill] ${instrument}|${granularity} repaired ${complete.length} rows (gap ${from}..${new Date(gap.end).toISOString()})`
+    : `[gap-backfill] ${instrument}|${granularity} nothing to repair (gap ${from}..${new Date(gap.end).toISOString()}, likely market closed)`);
+  return complete.length;
+}
+
 export function loadRecentCandles(dbPath, instrument, granularity, limit) {
   return withDb(dbPath, (db) => db.prepare(
     'SELECT time, open, high, low, close, volume FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
@@ -1090,11 +1130,12 @@ export function backtestFlips(candles, flips) {
   };
 }
 
-export async function fetchCandles({ instrument, granularity, count }) {
+export async function fetchCandles({ instrument, granularity, count, from = null }) {
   const url = new URL('https://p.fxempire.com/oanda/candles/latest');
   url.searchParams.set('instrument', instrument);
   url.searchParams.set('granularity', granularity);
   url.searchParams.set('count', String(count));
+  if (from) url.searchParams.set('from', from); // ranged fetch (gap backfill) — verified live: from+count returns candles starting at `from`
   url.searchParams.set('alignmentTimezone', 'UTC');
   const res = await fetch(url, {
     headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },
