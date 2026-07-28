@@ -123,6 +123,8 @@ test('--help exits 0 with usage, no network, no db writes', () => {
   assert.equal(res.status, 0, res.stderr);
   assert.ok(res.stdout.includes('supertrend'), res.stdout);
   assert.ok(res.stdout.includes('--settings'), 'usage documents the settings flag');
+  assert.ok(/manual\/debug/i.test(res.stdout), 'usage warns this is a manual/debug runner (#199)');
+  assert.ok(/double-execute/i.test(res.stdout), 'usage warns about double-executing a cycle alongside the server heartbeat');
   assert.equal(existsSync(join(cwd, 'data')), false, '--help must not create the data dir/db');
 });
 
@@ -1223,16 +1225,4 @@ test('runWatcherCycle is exported and returns per-combo results (same shape main
     globalThis.fetch = realFetch;
     await new Promise((r) => srv.close(r));
   }
-});
-
-test('CLI main(): watcherOwner=server no-ops with an empty result and never runs the cycle (single-owner guard, read at run time)', () => {
-  const script = fileURLToPath(new URL('../scripts/supertrend.mjs', import.meta.url));
-  const dir = mkdtempSync(join(tmpdir(), 'st-owner-'));
-  const settingsPath = join(dir, 'settings.json');
-  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server' }));
-  const res = spawnSync('node', [script, '--settings', settingsPath, '--pretty', 'false'], { encoding: 'utf8', timeout: 20000, cwd: dir });
-  assert.equal(res.status, 0, res.stderr);
-  assert.equal(res.stdout.trim(), '', 'no stdout print on the no-op path (stderr dbg suffices)');
-  assert.ok(/watcherOwner=server/.test(res.stderr), 'logs the no-op reason');
-  assert.equal(existsSync(join(dir, 'data')), false, 'no db/network side effects when the CLI no-ops');
 });

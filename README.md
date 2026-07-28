@@ -7,26 +7,29 @@ free breaking-news context, and agent skills for market analysis — all plain
 Node (stdlib only, no npm dependencies; the one chart library is vendored).
 
 ```
-┌─ LaunchAgent (per candle close) ─────────────┐   ┌─ LaunchAgent (KeepAlive) ─────────────┐
-│ scripts/supertrend.mjs                       │   │ scripts/signal-server.mjs             │
-│  fetch candles → supertrend(10,3) flips      │   │  http://127.0.0.1:8787                │
-│  → LLM filter verdict → notification         │   │  chart · quote strip · signals        │
-│  → per-combo bot deliberation (paper trades) │   │  settings (LLM/news/gates/memories/    │
-│  → refresh HTF cache (M15/M30/H1/H4)         │   │  adv) · bot · chat copilot             │
-│  → refresh sentinel news cache               │   │                                        │
-└──────────────┬───────────────────────────────┘   └──────────────┬─────────────────────────┘
-               └────────────────── data/candles.db ─────────────────┘
+┌─ LaunchAgent (KeepAlive) ────────────────────────────────────────────────┐
+│ scripts/signal-server.mjs — single process                               │
+│  http://127.0.0.1:8787 — chart · quote strip · signals · settings · bot  │
+│  · chat copilot                                                          │
+│  heartbeat (scripts/keep-fresh.mjs), candle-aligned per watcher combo:   │
+│   fetch candles → supertrend(10,3) flips → LLM filter verdict            │
+│   → notification → per-combo bot deliberation (paper trades)             │
+│   → refresh HTF cache (M15/M30/H1/H4) → refresh sentinel news cache      │
+└──────────────────────────────────────────────────────────────────────────┘
+                            │
+                            └── data/candles.db
 ```
 
-`watcherOwner: 'server'` in settings moves the left box's decision cycle into
-the signal-server's own heartbeat instead (same code path, candle-aligned
-cadence) — see [docs/launch-agents.md](docs/launch-agents.md#ownership-193).
+The LaunchAgent's only job is `KeepAlive` — the server's own heartbeat owns
+candle fetching, decisions, and alerts (see
+[docs/launch-agents.md](docs/launch-agents.md)).
 
-## The alert watcher — `scripts/supertrend.mjs`
+## The decision cycle — `scripts/keep-fresh.mjs` (server heartbeat)
 
-Runs once per candle close (candle-aligned LaunchAgent — see
-[docs/launch-agents.md](docs/launch-agents.md)). For every configured watcher
-combo (`watchers` CSV in settings, e.g. `WTICO/USD|M5, XAU/USD|M15`):
+Runs on each watched combo's own candle-aligned cadence (`cycleMinutes[gran]`,
+default 5 — see #195), owned by the signal-server process. For every
+configured watcher combo (`watchers` CSV in settings, e.g.
+`WTICO/USD|M5, XAU/USD|M15`):
 
 - fetches live Oanda candles (FXEmpire proxy), computes Supertrend(10,3),
   detects flips, and runs an inline flip-following backtest so every alert
@@ -56,6 +59,13 @@ combo (`watchers` CSV in settings, e.g. `WTICO/USD|M5, XAU/USD|M15`):
 Set `MS_DEBUG_LLM=1` in the environment to log a one-line
 provider/model/token-usage summary per LLM completion (filter and bot) to
 stderr — a local dev flag, not a persisted setting.
+
+`scripts/supertrend.mjs` also exists as a manual/debug CLI running this same
+cycle for one combo — useful for one-off checks or backtests, but not run on
+a schedule (the server heartbeat is the sole cycle owner). Running it while
+the server is up against a combo the server already watches can
+double-execute that cycle (duplicate notify/store); that's the operator's
+responsibility, not guarded against.
 
 ```bash
 node scripts/supertrend.mjs --instrument WTICO/USD --granularity M5 --notify true
@@ -274,8 +284,9 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 ## Setup
 
 1. `brew install terminal-notifier` (optional — clickable notifications).
-2. Install the two LaunchAgents: [docs/launch-agents.md](docs/launch-agents.md)
-   (candle-aligned watcher schedule + KeepAlive server).
+2. Install the LaunchAgent: [docs/launch-agents.md](docs/launch-agents.md)
+   (KeepAlive server; its own heartbeat runs the candle-aligned decision
+   cycle).
 3. Open `http://127.0.0.1:8787`, hit ⚙ to configure the provider, and 🔔 the
    combos you want alerts for.
 4. Optional: keep trading notes in `data/notes.md`, arm a bot for a watched

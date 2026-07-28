@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
-import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor } from '../scripts/signal-server.mjs';
+import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor, warnLegacyLaunchAgent } from '../scripts/signal-server.mjs';
+import { mkdirSync } from 'node:fs';
 
 const INSTRUMENT = 'WTICO/USD';
 
@@ -1597,8 +1598,8 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.equal(typeof h.llm, 'object');
     assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
     assert.ok(Array.isArray(h.bots));
-    // #193: default watcherOwner (unset) reports as launchagent, never-run cycle
-    assert.deepEqual(h.cycle, { owner: 'launchagent', lastCycleAt: null, lastCycleError: null });
+    // #199: the heartbeat is the only cycle owner — no owner field, cycle status only
+    assert.deepEqual(h.cycle, { lastCycleAt: null, lastCycleError: null });
 
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
@@ -1606,17 +1607,44 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
   });
 });
 
-test('#193: watcherOwner is validated and GET /api/health reflects it', async () => {
-  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
-    const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'nonsense' }) });
+test('#199: a legacy stored watcherOwner key never breaks settings reads/writes and never leaks over GET', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server', instrument: 'XAU/USD' }));
+
+    const get = await (await fetch(base + '/api/settings')).json();
+    assert.equal(get.watcherOwner, undefined, 'legacy key never leaks over GET');
+    assert.equal(get.instrument, 'XAU/USD', 'other stored settings still read fine');
+
+    // a PATCH that doesn't touch watcherOwner must not be rejected by its presence
+    const patch = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ granularity: 'M15' }) });
+    assert.equal(patch.status, 200, 'legacy key in the stored file never blocks an unrelated write');
+
+    const stored = JSON.parse(readFileSync(settingsPath, 'utf8'));
+    assert.equal(stored.watcherOwner, undefined, 'an unrelated write also scrubs the retired key from disk');
+
+    // explicitly patching the retired key is now an unknown-key rejection
+    const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'server' }) });
     assert.equal(bad.status, 400);
 
-    const ok = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'server' }) });
-    assert.equal(ok.status, 200);
     const h = await (await fetch(base + '/api/health')).json();
-    assert.equal(h.cycle.owner, 'server');
-    assert.equal(h.cycle.lastCycleAt, null, 'this fixture uses fetcher:null — no timer, cycle never ran');
+    assert.equal(h.cycle.owner, undefined, 'no owner field anywhere in health');
   });
+});
+
+test('#199: warnLegacyLaunchAgent logs once when the decommissioned plist is still installed, and never when absent', () => {
+  const homeAbsent = mkdtempSync(join(tmpdir(), 'home-'));
+  const warningsAbsent = [];
+  warnLegacyLaunchAgent((msg) => warningsAbsent.push(msg), homeAbsent);
+  assert.equal(warningsAbsent.length, 0, 'no leftover plist → no warning');
+
+  const homePresent = mkdtempSync(join(tmpdir(), 'home-'));
+  mkdirSync(join(homePresent, 'Library/LaunchAgents'), { recursive: true });
+  writeFileSync(join(homePresent, 'Library/LaunchAgents/com.market-signals.supertrend.plist'), '');
+  const warningsPresent = [];
+  warnLegacyLaunchAgent((msg) => warningsPresent.push(msg), homePresent);
+  assert.equal(warningsPresent.length, 1);
+  assert.match(warningsPresent[0], /launchctl bootout gui\/\$UID\/com\.market-signals\.supertrend/);
 });
 
 test('#163 review: GET /api/health never runs portfolio.mjs migrations (no positions/portfolio/bot_trades tables)', async () => {

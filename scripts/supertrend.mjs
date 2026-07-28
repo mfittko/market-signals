@@ -36,6 +36,10 @@ Options:
                         (default: data/settings.json; no file = no filter, alerts pass through)
   --pretty true|false   (default: true)
   -h, --help
+
+Manual/debug runner only: the signal-server's heartbeat is the sole decision-
+cycle owner. Running this CLI while the server is up can double-execute a
+cycle (duplicate notify/store) — that's on you, not guarded against.
 `;
 
 const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
@@ -1185,27 +1189,21 @@ export async function fetchCandles({ instrument, granularity, count, from = null
     .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite));
 }
 
-// #193: shared with the server-owned decision cycle (keep-fresh.mjs), so a
+// #193: shared with the heartbeat's decision cycle (keep-fresh.mjs), so a
 // server-invoked runWatcherCycle uses the exact same baseline the CLI does —
 // one source of truth for the defaults instead of two copies drifting apart.
 export const DEFAULT_ARGS = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
 
-// #193: shared by both watcher invokers (CLI main() and the server-owned
+// #193: shared by both watcher invokers (CLI main() and the heartbeat's
 // cycle in keep-fresh.mjs) — one merge rule instead of two copies drifting
-// apart. main() passes argv so an explicit CLI flag still wins over settings
-// (the LaunchAgent may pin flags); the server cycle has no argv, so settings
-// always apply there.
+// apart. main() passes argv so an explicit CLI flag still wins over settings;
+// the server cycle has no argv, so settings always apply there.
 export function applyWatcherSettings(opts, cfg, { argv } = {}) {
   for (const k of ['instrument', 'granularity', 'freshBars']) {
     const flagGiven = argv ? argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`)) : false;
     if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
   }
   return opts;
-}
-
-// Single owner-check shared by both guard sides (CLI no-op + server cycle).
-export function isServerOwned(cfg) {
-  return cfg.watcherOwner === 'server';
 }
 
 function parseArgs(argv) {
@@ -1453,17 +1451,9 @@ async function main() {
   const opts = parseArgs(argv);
 
   // Watcher fields set on the config page win over baked defaults but lose to
-  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  // explicit CLI flags — the UI edits settings, a caller's flags win.
   const cfg = readSettings(opts.settings);
   applyWatcherSettings(opts, cfg, { argv });
-
-  // #193: single-owner guard, read AT RUN TIME (not at process start) so a
-  // still-installed LaunchAgent stops firing the moment ownership moves to
-  // the server heartbeat, without needing `launchctl unload` first.
-  if (isServerOwned(cfg)) {
-    dbg('watcherOwner=server: CLI run is a no-op (the server heartbeat owns the decision cycle)');
-    return;
-  }
 
   const results = await runWatcherCycle(opts, cfg);
   const out = results.length === 1 ? results[0] : results;
