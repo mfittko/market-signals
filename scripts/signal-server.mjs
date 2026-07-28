@@ -210,7 +210,18 @@ export function writeSettings(settingsPath, patch) {
           for (const [combo, entry] of Object.entries(bv)) {
             const k2 = normKey(combo);
             if (entry === null) delete bots[k2];
-            else bots[k2] = { ...(bots[k2] ?? {}), ...entry };
+            else {
+              const mergedEntry = { ...(bots[k2] ?? {}), ...entry };
+              // #197: writing strategyName (string OR explicit null) makes the
+              // entry name-migrated, so the now-redundant legacy strategyId key
+              // is cleaned up — plain key hygiene, not load-bearing for trading
+              // safety (resolveBotFor already ignores strategyId once
+              // strategyName is set; #197 review fix also stops it from being
+              // published). Only clean up when the patch itself doesn't carry a
+              // strategyId — never silently discard a value the caller just sent.
+              if ('strategyName' in entry && !('strategyId' in entry)) delete mergedEntry.strategyId;
+              bots[k2] = mergedEntry;
+            }
           }
           merged.bots = bots;
         } else merged[bk] = bv;
@@ -1006,6 +1017,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           configured: botFor.configured === true,
           enabled: botFor.enabled,
           strategyName: strat ? `${strat.name} v${strat.version}` : null,
+          // raw kebab-case name (no " v<n>" display suffix) — the modal's
+          // strategy tab needs this to match byName lookups; strategyName
+          // above stays the display string (#197 follow-up review fix).
+          strategyRef: strat ? strat.name : null,
           halted: pfB.halted,
           openPosition: pos ? { side: pos.side, unrealized: Math.round(pos.unrealized * 100) / 100 } : null,
         };

@@ -1099,6 +1099,30 @@ test('strategy select (UI review finding 2) only previews on change — no write
   });
 });
 
+test('strategy tab "current" derivation prefers the resolved modalState RAW name over the raw legacy-only entry (#197 pre-approval fix + follow-up)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const html = await (await fetch(base + '/')).text();
+    const m = html.match(/const current = modalState\?\.strategyRef \|\| entry\.strategyName \|\| '';/);
+    assert.ok(m, "current must be seeded from modalState.strategyRef (RAW kebab-case name), not modalState.strategyName (which is the '<name> v<n>' DISPLAY string and would never match byName)");
+    const fn = new Function('modalState', 'entry', `const current = modalState?.strategyRef || entry.strategyName || ''; return current;`);
+    assert.equal(fn({ strategyRef: 'resolved-legacy', strategyName: 'resolved-legacy v1' }, {}), 'resolved-legacy', 'legacy-only bot (no entry.strategyName) resolves to the RAW server-resolved name, not the "name vN" display string');
+    assert.equal(fn(null, { strategyName: 'named' }), 'named', 'falls back to entry.strategyName when no modalState');
+    assert.equal(fn(null, {}), '', 'no strategy assigned stays representable as empty string, not "unset"');
+  });
+});
+
+test('/api/chart botState.strategyRef is the raw kebab-case strategy name, distinct from strategyName\'s "name vN" display string (#197 follow-up review fix)', async () => {
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    const st = saveStrategy(dbPath, { name: 'conservative-supertrend', prompt: 'A strategy prompt long enough to pass validation rules.' });
+    activateStrategy(dbPath, st.id);
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: st.id } } } }) });
+    const d = await (await fetch(base + '/api/chart?' + new URLSearchParams({ instrument: 'WTICO/USD', granularity: 'M5' }))).json();
+    assert.equal(d.botState.strategyRef, 'conservative-supertrend', 'strategyRef is the raw name, matching what byName in the strategy tab is keyed by');
+    assert.equal(d.botState.strategyName, 'conservative-supertrend v1', 'strategyName stays the existing "name vN" display string used elsewhere');
+  });
+});
+
 test('served client scopeOf/mismatched tolerate an assigned name with zero visible rows, e.g. all-archived (review fix, escape-drift guard)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();
@@ -1783,6 +1807,40 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
     assert.ok(d.indicators.ema && d.indicators.rsi, 'series served from the stored default');
     const overridden = await (await fetch(base + '/api/chart?ind=vwap')).json();
     assert.deepEqual(overridden.activeInd, ['vwap'], 'URL still overrides');
+  });
+});
+
+test('bot merge (#197): a saved strategyName (string OR explicit null) heals a legacy strategyId out of the stored entry', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    // AC3: assigning a new strategyName in a LATER patch (not carrying its own
+    // strategyId) drops the stale id already stored from a prior write
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: 1 } } } }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyName: 'wti-m5-impulse-flip' } } } }) });
+    let got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyName: 'wti-m5-impulse-flip' }, 'strategyId healed away by the new strategyName write');
+
+    // AC1: a detach (strategyName: null) on an entry carrying a legacy id also
+    // clears the id — no ghost fallback on the next read
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyId: 1 } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.bot.bots['WTICO/USD|M5'].strategyId, 1, 'sanity: legacy id is present before the detach');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyName: null } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyName: null }, 'detach records the explicit null and clears the legacy strategyId');
+
+    // AC(d): /api/bots (the modal's data source) surfaces the detach as
+    // strategyName: null — no ghost fallback to the legacy strategy — which
+    // is what drives the "won't trade until assigned" warning.
+    const bots = await (await fetch(base + '/api/bots')).json();
+    const row = bots.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(row.strategyName, null, 'detached bot surfaces no strategy, not the resurrected legacy one');
+
+    // review fix: a patch that sends strategyId ALONGSIDE strategyName is a
+    // caller-supplied value, not a stale leftover — the heal must never
+    // silently discard it.
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyName: 'wti-m5-impulse-flip', strategyId: 7 } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.bot.bots['WTICO/USD|M5'].strategyId, 7, 'a strategyId sent in the SAME patch as strategyName is preserved, not healed away');
   });
 });
 

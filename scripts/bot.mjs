@@ -61,13 +61,20 @@ export function resolveBotFor(settings, instrument, granularity, dbPath = null) 
   // that happens to point at a now-archived version must still resolve the
   // name, otherwise the bot silently goes unconfigured even though that
   // name has an active version elsewhere (review fix).
+  // #197: an explicit `strategyName: null` is a deliberate detach — it must
+  // NOT fall back to the legacy id (that would resurrect a stale strategy).
+  // The legacy-id fallback applies only when strategyName is absent entirely
+  // (a genuinely un-migrated entry).
   const strategyName = typeof entry.strategyName === 'string' && entry.strategyName
     ? entry.strategyName
-    : (dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
+    : (entry.strategyName === undefined && dbPath && legacyId != null ? strategyNameById(dbPath, legacyId) : null);
+  // an explicit detach (strategyName === null) also drops the ignored legacy
+  // id from the published state — nothing reads it once detached, and
+  // publishing it invites a caller to resurrect it (review fix, #197).
   return {
     configured: true,
     enabled: entry.enabled === true,
-    strategyId: legacyId,
+    strategyId: entry.strategyName === null ? null : legacyId,
     strategyName,
     riskPct: Number.isFinite(entry.riskPct) && entry.riskPct > 0 ? entry.riskPct : null,
     allocationPct: Number.isFinite(entry.allocationPct) && entry.allocationPct > 0 ? entry.allocationPct : null,
