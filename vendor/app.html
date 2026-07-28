@@ -360,7 +360,6 @@
 <!-- #189: the workspace tab strip ([tape][trades][tuning]) is gone — trades/tuning
      were redundant with the ⚙ bot modal's trades/global tabs (#188). Signal
      history renders directly under the verdict banner, no tab chrome. -->
-<div id="ws-tape">
 <h2>Signal history <small id="histWindowLabel">· current chart window</small></h2>
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
 <table id="hist" class="collapsible"><thead><tr><th>time</th><th>signal</th><th>price</th><th class="mobile-hide">gates</th><th class="mobile-hide">reason</th><th title="+30min move (signal direction): directional return 30 minutes after the signal">+30min move</th><th class="mobile-hide" title="MFE to flip: directional return held until the next opposite signal (open = no reversal yet)">MFE to flip</th><th class="rowExpandCell"></th></tr></thead><tbody></tbody></table>
@@ -548,7 +547,7 @@ async function portfolio() {
     ' · unrealized <span class="' + pnlCls(pf.unrealized) + '">' + esc(money(pf.unrealized)) + '</span> · ' + status;
 }
 // #166: the canonical trade timeline (plan §5 C4) — the ONLY place a position
-// renders as a row, shared by the workspace [trades] tab (scoped to one
+// renders as a row, shared by the bot modal's trades tab (scoped to one
 // combo) and the portfolio's "all trades" tab (every combo).
 const CLOSE_REASON_CLS = { target: 'buy', stop: 'sell', 'bot-close': 'badge-blue', manual: 'badge-gray' };
 function tradeRowHtml(t, { showInstrument } = {}) {
@@ -659,10 +658,12 @@ let botStateCache = null;
 // "no strategy assigned" warning always reflects a strategy-tab assignment.
 // #166/#189: bot config (setup/strategy/trades/audit/global tabs) is ONE
 // render path, mountBotConfig(containerId, inst, gran, prefix) — prefix
-// namespaces every element id (only one caller today, openBotModal, but the
-// namespacing is what keeps this function's ids collision-safe if a second
-// mount is ever added). This modal is now THE bot surface (#189 — the
-// workspace tuning tab that used to duplicate it is gone).
+// namespaces every element id. This mount is single-instance-only: only
+// openBotModal calls it, into one container, one at a time. The prefix
+// isn't collision-safety machinery for a second concurrent mount (there
+// isn't one) — it's kept because it's how this function's ids stay out of
+// the way of everything else on the page. This modal is now THE bot surface
+// (#189 — the workspace tuning tab that used to duplicate it is gone).
 const bid = (p, s) => p + s;
 async function mountBotConfig(containerId, inst, gran, prefix) {
   const combo = inst + '|' + gran;
@@ -712,20 +713,23 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
     for (const t of TAB_NAMES) document.getElementById(bid(prefix, '-' + t)).hidden = t !== tab;
     if (tab === 'strategy') await paint();
-    if ((tab === 'trades' || tab === 'audit' || tab === 'global') && !loadedTabs.has(tab)) {
+    // #187/#189: one map drives both the "is this tab lazy?" guard and the
+    // dispatch — no bare else fall-through to keep in sync as tabs are added.
+    const LAZY = {
+      trades: async () => {
+        const trades = await fetchTrades({ instrument: inst, granularity: gran, limit: 500 });
+        renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
+      },
+      audit: () => renderBotAuditTab(bid(prefix, '-audit'), inst, gran),
+      global: () => mountGlobalTab(bid(prefix, '-global'), () => document.querySelector('#' + bid(prefix, 'Tabs') + ' button[data-tab="strategy"]')?.click()),
+    };
+    if (LAZY[tab] && !loadedTabs.has(tab)) {
       // cache only on SUCCESS — a failed fetch must retry on the next click,
       // and the failure paints the file's canonical unavailable copy instead
       // of an unhandled rejection leaving a silently blank panel
       try {
-      if (tab === 'trades') {
-        const trades = await fetchTrades({ instrument: inst, granularity: gran, limit: 500 });
-        renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
-      } else if (tab === 'audit') {
-        await renderBotAuditTab(bid(prefix, '-audit'), inst, gran);
-      } else {
-        await mountGlobalTab(bid(prefix, '-global'));
-      }
-      loadedTabs.add(tab);
+        await LAZY[tab]();
+        loadedTabs.add(tab);
       } catch {
         document.getElementById(bid(prefix, '-' + tab)).innerHTML = '<p><small>' + tab + ' unavailable — click the tab to retry</small></p>';
       }
@@ -749,14 +753,14 @@ async function openBotModal(instArg, granArg) {
 // per modal open (tracked in mountBotConfig's loadedTabs), NOT inside
 // renderBotSetupTab — that function repaints on every bot-field save(), which
 // would wipe an in-progress gate draft or memory input mid-keystroke.
-async function mountGlobalTab(containerId) {
+async function mountGlobalTab(containerId, goToStrategy) {
   document.getElementById(containerId).innerHTML =
     '<fieldset><legend>global — affects every bot</legend>' +
     '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
     '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
     '</fieldset>';
   tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
-  await renderGates();
+  await renderGates(goToStrategy);
   await renderMemories();
 }
 // #167: F18 scope-explicit fieldsets. riskPct/enabled/kill-switch are genuinely
@@ -809,13 +813,13 @@ function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modal
     document.getElementById(bid(p, 'Saved')).textContent = r.error ? r.error : 'saved';
   };
   document.getElementById(bid(p, 'Kill')).onchange = (e) => save({ killSwitchDrawdownPct: Number(e.target.value) > 0 ? Number(e.target.value) : null });
-  // "view in portfolio" closes the enclosing dialog first, if any (the tuning
-  // workspace tab has none — it just opens the portfolio over the current page).
-  document.getElementById(bid(p, 'ToPf')).onclick = () => { document.getElementById(bid(p, 'ToPf')).closest('dialog')?.close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
+  // "view in portfolio" closes the enclosing bot modal first, then opens the
+  // portfolio dialog over the current page.
+  document.getElementById(bid(p, 'ToPf')).onclick = () => { document.getElementById(bid(p, 'ToPf')).closest('dialog').close(); document.getElementById('pfdlg').showModal(); renderOverviewBots(); };
   // #126: confirm before removing — it sits next to the primary action
   document.getElementById(bid(p, 'Remove')).onclick = async () => {
     if (!confirm('Remove this bot from the view? Its configuration will be cleared.')) return;
-    await save(null); document.getElementById(bid(p, 'Remove')).closest('dialog')?.close();
+    await save(null); document.getElementById(bid(p, 'Remove')).closest('dialog').close();
   };
 }
 // #75 strategy tab: assign by name (scope-filtered, "show all" escape),
@@ -1575,7 +1579,13 @@ function renderHealthStrip() {
 function renderRail(ok) {
   const el = document.getElementById('rail');
   if (ok === false) {
-    el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>';
+    // global gates/memories must never depend on /api/bots succeeding — keep
+    // a config affordance reachable even when the rail itself can't render.
+    el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>' +
+      '<div class="railrow" role="listitem"><button type="button" id="railCfgOnly">bot &amp; global config</button></div>';
+    el.onclick = (e) => {
+      if (e.target.closest('#railCfgOnly')) { const vc = viewedCombo(); openBotModal(vc.inst, vc.gran); }
+    };
     return;
   }
   const cur = currentCombo();
@@ -2066,7 +2076,7 @@ async function cfg() {
 // #75 strategy-tab pattern (name/textarea + save-as-draft). Saving a draft
 // NEVER activates it: activation stays its own human-only click, same
 // money-path guardrail as before this dialog existed.
-async function renderGates() {
+async function renderGates(goToStrategy) {
   const r = await (await fetch('/api/gate-prompts')).json();
   const list = document.getElementById('gatesList');
   if (!r.ok) { list.textContent = ''; return; }
@@ -2093,7 +2103,7 @@ async function renderGates() {
     recheck: overridableRow('recheck', g.recheck),
     bot: '<div class="gaterow"><b>bot</b> <small>— toolset: ' + toolsetLine(g.bot.toolset) + (g.bot.strategyName ? ' · strategy: ' + esc(g.bot.strategyName) : '') + '</small>' +
       (g.bot.strategyName ? promptDetails(g.bot.prompt) : '<div class="gateempty"><small>no active strategy — the bot does not trade</small></div>') +
-      '<p><button type="button" id="gateToBot">' + (g.bot.strategyName ? 'view strategy in bot modal →' : 'assign a strategy in the bot modal →') + '</button></p></div>',
+      '<p><button type="button" id="gateToBot">' + (g.bot.strategyName ? 'view strategy (strategy tab) →' : 'assign a strategy (strategy tab) →') + '</button></p></div>',
     chat: '<div class="gaterow"><b>chat</b> <small>— toolset: ' + toolsetLine(g.chat.toolset) + '</small>' + promptDetails(g.chat.prompt) + '</div>',
   };
   const GATE_ORDER = ['filter', 'recheck', 'bot', 'chat'];
@@ -2127,10 +2137,12 @@ async function renderGates() {
     };
   });
   // #189: gates now render inside the bot modal's own global tab, so "view
-  // strategy in bot modal" just switches to the strategy tab of the SAME,
-  // already-open dialog — no navigation/close/reopen needed.
+  // strategy" just switches to the strategy tab of the SAME, already-open
+  // dialog — no navigation/close/reopen needed. renderGates stays a pure
+  // renderer: it takes the switch-to-strategy-tab callback from its caller
+  // rather than naming the modal's own tab ids itself.
   const toBot = document.getElementById('gateToBot');
-  if (toBot) toBot.onclick = () => document.querySelector('#bmTabs button[data-tab="strategy"]')?.click();
+  if (toBot && goToStrategy) toBot.onclick = goToStrategy;
 }
 async function renderMemories() {
   const r = await (await fetch('/api/memories')).json();

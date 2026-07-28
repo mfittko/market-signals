@@ -109,8 +109,8 @@ links/back button and a system-health row fed by a small `/api/health`.
 │  (halted → full-width ⛔ banner, role="alert", the only red at rest)       │
 ├──────────┬────────────────────────────────────────────────┬────────────────┤
 │ FLEET    │ BOT WORKSPACE (focused bot, hash-addressed)    │ CHAT           │
-│ RAIL     │  [tape] [trades] [tuning]                      │ (collapsible)  │
-│ one row  │  chart + evidence                              │                │
+│ RAIL     │  chart + evidence                              │ (collapsible)  │
+│ one row  │                                                │                │
 │ per bot  │                                                │                │
 └──────────┴────────────────────────────────────────────────┴────────────────┘
      LEDGER overlay (portfolio-wide: equity · all trades · scoreboard · audit)
@@ -195,9 +195,9 @@ PR-sized issues through the normal dev-loop; UI-review gate per §8.
 | # | Change | Fixes |
 |---|---|---|
 | 2.1 | Fleet rail replaces `instSel`/`granSel`/`botBtn`/`#botList`; hash-driven focus | F12, F11, F30 |
-| 2.2 | Workspace tabs; bot modal → Tuning; portfolio modal → Ledger overlay | F2, F18, F17 |
+| 2.2 | Workspace tabs; bot modal → Tuning; portfolio modal → Ledger overlay | F2, F18, F17 — superseded by #189 |
 | 2.3 | Trades tab renders canonical rows; delete the other four position renderings | F1, F2, F25, F29 |
-| 2.4 | Scope fieldsets + blast-radius notes; gates/memories move Settings → Tuning | F18 |
+| 2.4 | Scope fieldsets + blast-radius notes; gates/memories move Settings → Tuning | F18 — superseded by #189 |
 | 2.5 | Status-bar health row + labelled alerts toggle with confirmation | F9, F11, F30 |
 | 2.6 | Mobile: chip-strip rail, `clamp()` chart, collapsing tables, working chat panel | F10 |
 | 2.7 | `role="tablist"` + arrow keys + word-not-colour states | a11y |
