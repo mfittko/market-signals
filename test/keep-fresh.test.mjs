@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { withDb, storeCandles } from '../scripts/supertrend.mjs';
 import {
   configuredCombos, comboUniverse, sweepAll, startKeepFresh,
-  MAX_GAP_REPAIRS_PER_COMBO,
+  MAX_GAP_REPAIRS_PER_COMBO, BOOTSTRAP_SEED_BARS, NEVER_FRESH_BACKOFF_MS,
 } from '../scripts/keep-fresh.mjs';
 import { buildServer } from '../scripts/signal-server.mjs';
 
@@ -100,6 +100,80 @@ test('sweepAll: skips a combo the on-read path (lastLiveFetch) fetched within it
   const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, lastLiveFetch, liveGateMs: 8000 });
   assert.equal(calls, 0, 'the on-read gate suppressed the request even though the stored bar is stale');
   assert.deepEqual(res, { fetched: 0, skipped: 1 });
+});
+
+test('sweepAll: a successful sweep fetch also writes lastLiveFetch, so the on-read path skips right after (reverse dedup)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const granMs = 60000;
+  const now = Date.now();
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 20)]); // stale
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  const fetcher = async ({ count }) => Array.from({ length: count }, (_, i) => candle(now - i * granMs)).reverse();
+  const lastLiveFetch = new Map();
+  const res = await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, lastLiveFetch });
+  assert.equal(res.fetched, 1);
+  const gate = lastLiveFetch.get(`${dbPath}|BCO/USD|M1`);
+  assert.ok(gate, 'sweepAll wrote the on-read gate key after a successful fetch');
+  assert.equal(gate.at, now);
+});
+
+test('sweepAll: never-fresh combo (zero rows returned) backs off for NEVER_FRESH_BACKOFF_MS, then refetches', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const granMs = 60000;
+  const now = Date.now();
+  storeCandles(dbPath, 'DEAD/USD', 'M1', [candle(now - granMs * 20)]); // stale, forces a fetch attempt
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'DEAD/USD|M1': {} } } });
+  let calls = 0;
+  const fetcher = async () => { calls++; return []; }; // market closed / dead symbol: zero rows every time
+  const backoff = new Map();
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, backoff });
+  assert.equal(calls, 1, 'first sweep attempts the fetch');
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now + 60000, backoff }); // next 60s tick
+  assert.equal(calls, 1, 'still within the backoff window: no second fetch');
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now + NEVER_FRESH_BACKOFF_MS + 1000, backoff });
+  assert.equal(calls, 2, 'backoff window elapsed: refetches');
+});
+
+test('sweepAll: a successful fetch after a backoff clears it', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const granMs = 60000;
+  const now = Date.now();
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(now - granMs * 20)]);
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
+  const backoff = new Map([['BCO/USD|M1', now - 1000]]); // already elapsed
+  const fetcher = async ({ count }) => Array.from({ length: count }, (_, i) => candle(now - i * granMs)).reverse();
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now, backoff });
+  assert.ok(!backoff.has('BCO/USD|M1'), 'a successful store clears the combo\'s backoff entry');
+});
+
+test('sweepAll: a combo with no stored rows bootstraps with a 500-bar seed, not a staleness-derived count', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const now = Date.now();
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'FRESH/USD|M1': {} } } }); // no candles stored at all
+  let seenCount = null;
+  const fetcher = async ({ count }) => { seenCount = count; return []; };
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now });
+  assert.equal(seenCount, BOOTSTRAP_SEED_BARS);
+});
+
+test('sweepAll: an unparseable MAX(time) is treated as bootstrap (no-rows), never a NaN count', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cfg-'));
+  const now = Date.now();
+  // corrupt the stored time so MAX(time) is an unparseable string
+  withDb(dbPath, (db) => {
+    db.prepare('INSERT INTO candles (instrument, granularity, time, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?,?)')
+      .run('BAD/USD', 'M1', 'not-a-date', 70, 70.1, 69.9, 70, 10);
+  });
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BAD/USD|M1': {} } } });
+  let seenCount = null;
+  const fetcher = async ({ count }) => { seenCount = count; return []; };
+  await sweepAll(dbPath, settingsPath, { fetcher, now: () => now });
+  assert.equal(seenCount, BOOTSTRAP_SEED_BARS, 'unparseable MAX(time) bootstraps instead of producing a NaN count');
 });
 
 test('sweepAll: one combo throwing does not stop the sweep (error isolation)', async () => {

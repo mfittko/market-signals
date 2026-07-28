@@ -3,6 +3,8 @@
 // the decision path can resolve the key without a hard startup dependency on the
 // market-sentinel skill CLI module (issue #114 review) — a broken/missing skill
 // must not stop the server from booting, only fail the tool when invoked.
+import { isSettingOn } from './settings-util.mjs';
+
 export const NEWSAPI_AI_SETTING_KEYS = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
 
 // Merge settings over env into a flat { NEWSAPI_AI_*: string } object, omitting
@@ -15,14 +17,6 @@ export function resolveNewsApiAiSource(settings = {}, env = process.env) {
     if (v !== undefined && v !== null && v !== '') out[k] = String(v);
   }
   return out;
-}
-
-// The settings modal writes ''/‘1’ for its off/on toggles, but a manual edit
-// could leave any string — so an on-check must match the intended values, not
-// "any non-empty string" (which would treat "0" as on). Accepts the modal's '1'
-// plus a real boolean/number for programmatic callers.
-export function isSettingOn(v) {
-  return v === '1' || v === true || v === 1;
 }
 
 // sentinelSourceFootnotes (#171): default flips to ON. A user who explicitly

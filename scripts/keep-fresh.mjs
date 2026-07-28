@@ -16,16 +16,19 @@ import {
   readSettings, dbg, barsForSpan, parseWatchers,
 } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
-import { isSettingOn } from './lib/newsapi-ai-source.mjs';
+import { isSettingOn } from './lib/settings-util.mjs';
 
 // Default ON like sentinelSourceFootnotes: unset/'1'/true is on, '0'/false is off.
 const isKeepFreshOn = (v) => (v === undefined ? true : isSettingOn(v));
 
 const log = (msg) => dbg(`[keep-fresh] ${msg}`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export const MASTER_TICK_MS = 60000;
-export const INTER_REQUEST_DELAY_MS = 250; // politeness: serial sweep, small gap between live requests
+const MASTER_TICK_MS = 60000;
+const INTER_REQUEST_DELAY_MS = 250; // politeness: serial sweep, small gap between live requests
 export const MAX_GAP_REPAIRS_PER_COMBO = 3; // residual gaps re-detect and repair next sweep
+export const BOOTSTRAP_SEED_BARS = 500; // a never-fetched combo seeds deep, not staleness-derived
+export const NEVER_FRESH_BACKOFF_MS = 30 * 60000; // a zero-row fetch (closed market, dead symbol) backs off this long
 
 // Configured combos: watchers CSV ∪ bot.bots keys, both parsed with the
 // existing helpers (parseWatchers, normCombo) — no hand-rolled splitting.
@@ -64,7 +67,8 @@ export function comboUniverse(dbPath, settingsPath) {
 // history), throttled by the same politeness delay between every live request.
 export async function sweepAll(dbPath, settingsPath, {
   fetcher, now = Date.now, attempted = new Set(), logFn = log,
-  delayMs = INTER_REQUEST_DELAY_MS, lastLiveFetch, liveGateMs = 8000,
+  delayMs = INTER_REQUEST_DELAY_MS, lastLiveFetch, liveGateMs,
+  backoff,
 } = {}) {
   const combos = comboUniverse(dbPath, settingsPath);
   if (!combos.length) return { fetched: 0, skipped: 0 };
@@ -78,28 +82,48 @@ export async function sweepAll(dbPath, settingsPath, {
 
   let fetched = 0;
   let skipped = 0;
+  const fetchKey = (dbPathArg, key) => `${dbPathArg}|${key}`;
   for (const combo of combos) {
     const key = `${combo.instrument}|${combo.granularity}`;
     try {
-      const gate = lastLiveFetch?.get(`${dbPath}|${key}`);
+      const gate = lastLiveFetch?.get(fetchKey(dbPath, key));
       if (gate && nowMs - gate.at <= liveGateMs) { skipped++; continue; }
+      const backoffUntil = backoff?.get(key);
+      if (backoffUntil && nowMs < backoffUntil) { skipped++; continue; }
       const granMs = granularityMs(combo.granularity);
       const newestVal = newest[key];
-      const newestMs = newestVal ? Date.parse(newestVal) : null;
-      if (newestMs != null && nowMs - newestMs <= 2 * granMs) { skipped++; continue; }
-      const staleMs = newestMs != null ? nowMs - newestMs : granMs * 3;
-      const count = barsForSpan(staleMs, granMs);
+      const parsed = newestVal ? Date.parse(newestVal) : NaN;
+      // A missing OR unparseable MAX(time) is never-fetched territory (bootstrap
+      // path), not a NaN stale-span — same "bad row self-heals" rule as
+      // refreshHtfCache's ladder-staleness check.
+      const bootstrap = newestVal == null || Number.isNaN(parsed);
+      const newestMs = bootstrap ? null : parsed;
+      if (!bootstrap && nowMs - newestMs <= 2 * granMs) { skipped++; continue; }
+      const staleMs = bootstrap ? null : nowMs - newestMs;
+      const count = bootstrap ? BOOTSTRAP_SEED_BARS : barsForSpan(staleMs, granMs);
       const rows = await fetcher({ instrument: combo.instrument, granularity: combo.granularity, count });
       const complete = rows.filter((c) => c.complete);
-      if (complete.length) storeCandles(dbPath, combo.instrument, combo.granularity, complete);
+      if (complete.length) {
+        storeCandles(dbPath, combo.instrument, combo.granularity, complete);
+        backoff?.delete(key);
+        // Two-way dedup: mirror the on-read gate (signal-server's lastLiveFetch)
+        // so a chart opened right after this sweep reuses this fetch instead of
+        // re-requesting the same tail.
+        const tail = rows.find((c) => !c.complete) ?? null;
+        lastLiveFetch?.set(fetchKey(dbPath, key), { at: nowMs, tail });
+      } else {
+        // Zero stored rows: closed market / unsupported granularity / dead
+        // symbol — back off instead of hammering every 60s tick.
+        backoff?.set(key, nowMs + NEVER_FRESH_BACKOFF_MS);
+      }
       fetched++;
-      logFn(`tail-fetched ${complete.length}/${rows.length} ${key} (stale ${Math.round(staleMs / 1000)}s, count=${count})`);
-      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+      logFn(`tail-fetched ${complete.length}/${rows.length} ${key} (stale ${bootstrap ? 'bootstrap' : `${Math.round(staleMs / 1000)}s`}, count=${count})`);
+      if (delayMs) await sleep(delayMs);
 
       // Bounded gap scan: only the freshly fetched window (pre-fetch newest
       // minus one bar), not full history — the on-read path already owns full
       // history healing.
-      const scanFrom = new Date((newestMs ?? nowMs) - granMs).toISOString();
+      const scanFrom = new Date((bootstrap ? nowMs : newestMs) - granMs).toISOString();
       const times = withDb(dbPath, (db) => db.prepare(
         'SELECT time FROM candles WHERE instrument=? AND granularity=? AND time >= ? ORDER BY time')
         .all(combo.instrument, combo.granularity, scanFrom).map((r) => Date.parse(r.time)));
@@ -107,7 +131,7 @@ export async function sweepAll(dbPath, settingsPath, {
       for (const gap of gaps) {
         try {
           await repairGap(dbPath, combo.instrument, combo.granularity, gap, { fetcher, attempted });
-          if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+          if (delayMs) await sleep(delayMs);
         } catch (err) { logFn(`gap repair failed ${key}: ${err.message}`); }
       }
     } catch (err) {
@@ -130,13 +154,14 @@ export function startKeepFresh({
 } = {}) {
   if (!fetcher) return { stop() {}, tick: async () => {} };
   let inFlight = false;
+  const backoff = new Map(); // per-combo never-fresh backoff, lives as long as this loop
   const tick = async () => {
     if (inFlight) return;
     const cfg = readSettings(settingsPath);
     if (!isKeepFreshOn(cfg.keepFresh)) return;
     inFlight = true;
     try {
-      await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs });
+      await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs, backoff });
     } catch (err) {
       logFn(`tick failed: ${err.message}`);
     } finally {
