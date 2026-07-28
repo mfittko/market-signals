@@ -243,6 +243,11 @@ test('chartData (#201): live-fetch and gate-closed ticks serve the SAME candle c
   assert.equal(d1.candles.length, count + 1, 'count complete bars + the forming tail');
   assert.equal(d1.candles[d1.candles.length - 1].partial, true);
   assert.equal(d2.candles[d2.candles.length - 1].partial, true, 'gate-closed tick still carries the cached tail');
+  // Content parity, not just length: the gate carries this tick's pending
+  // completes, so both paths serve the identical union even before the
+  // deferred persistence lands — same left edge, same supertrend seed.
+  assert.deepEqual(d2.candles.map((c) => c.time), d1.candles.map((c) => c.time),
+    'fetch and gated ticks serve the identical window, edge to edge');
 });
 
 test('writeSettings validates directly (unit)', () => {

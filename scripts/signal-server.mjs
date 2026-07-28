@@ -369,7 +369,11 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
       pendingComplete = live.filter((c) => c.complete);
       liveTail = live.find((c) => !c.complete) ?? null;
       tailFetchedAt = Date.now();
-      lastLiveFetch.set(fetchKey, { at: tailFetchedAt, tail: liveTail });
+      // #201: pending completes ride the gate too, so gate-closed ticks merge
+      // the SAME union of stored ∪ fetched bars this tick saw — otherwise the
+      // window CONTENT (left edge, supertrend seed) is path-dependent until the
+      // deferred persistence lands, and alternating polls wobble.
+      lastLiveFetch.set(fetchKey, { at: tailFetchedAt, tail: liveTail, pending: pendingComplete });
     } catch {
       // failed: back off, stale view beats none — but do NOT stamp a fresh time
       // onto data we did not get.
@@ -378,6 +382,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   } else if (fetcher && gate) {
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
     tailFetchedAt = gate.tail ? gate.at : null;
+    pendingComplete = gate.pending ?? []; // #201: same union as the fetch tick
   }
   // #gap-backfill: scan the FULL stored span for holes, not just the served
   // window below — a hole older than what's rendered would otherwise never
