@@ -420,6 +420,12 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     return [...byTime.values()].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   };
   candles = mergeFetched(candles);
+  // #201: clip the merged window back to `count` — a live-fetch tick must not
+  // serve MORE bars than a gate-closed tick (120 stored + merged fresh + tail
+  // vs 120 stored + tail), or sub-gate poll rates alternate 122↔121 candles
+  // and the chart x-axis rescales every couple of ticks. Deep-link windows
+  // (`t`) keep their before/after shape.
+  if (!t && candles.length > count) candles = candles.slice(-count);
   recent = mergeFetched(recent);
   let supertrend = [];
   let flips = [];
