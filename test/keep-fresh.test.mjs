@@ -512,14 +512,72 @@ test('startKeepFresh: two watched granularities with different cycleMinutes fire
     watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
   });
   const seen = [];
-  const runCycle = async (opts, cfg) => { seen.push({ gran: opts.granularity, watchers: cfg.watchers }); return []; };
+  const runCycle = async (opts) => {
+    seen.push({ gran: opts.granularity, combos: opts.combos.map((c) => `${c.instrument}|${c.granularity}`).join(',') });
+    return [];
+  };
   let nowMs = at(3); // in-phase for M1 (n=1) only
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
   await handle.tick();
-  assert.deepEqual(seen.map((s) => s.watchers), ['BCO/USD|M1'], 'only the M1 combo cycles off-phase for M5');
+  await new Promise((r) => setTimeout(r, 0)); // let the concurrent Promise.allSettled callbacks resolve
+  assert.deepEqual(seen.map((s) => s.combos), ['BCO/USD|M1'], 'only the M1 combo cycles off-phase for M5');
   nowMs = at(1, nowMs + 5 * 60000);
   await handle.tick();
-  assert.deepEqual(seen.map((s) => s.watchers), ['BCO/USD|M1', 'BCO/USD|M1', 'XAU/USD|M5'], 'both cycle when both are due, M5 scoped to its own combo only');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(seen.map((s) => s.combos), ['BCO/USD|M1', 'BCO/USD|M1', 'XAU/USD|M5'], 'both cycle when both are due, M5 scoped to its own combo only');
+  handle.stop();
+});
+
+test('startKeepFresh: a slow M5 cycle in flight does not starve a due M1 cycle (per-granularity in-flight, not one shared flag)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {
+    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+  });
+  let releaseM5;
+  const gateM5 = new Promise((r) => { releaseM5 = r; });
+  const seen = [];
+  const gran = (opts) => opts.combos[0].granularity;
+  const runCycle = async (opts) => {
+    const g = gran(opts);
+    seen.push(g);
+    if (g === 'M5') await gateM5;
+    return [];
+  };
+  let nowMs = at(1); // in-phase for both M1 (n=1) and M5 (n=5)
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick(); // both due: M5 starts and blocks on gateM5, M1 completes
+  assert.deepEqual(seen, ['M1', 'M5'], 'both fired on the first co-due tick');
+  nowMs += 60000; // next minute: M1 due again, M5's own cycle is still in flight
+  await handle.tick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(seen, ['M1', 'M5', 'M1'], 'M1 still fires while M5 is in flight — no shared flag starves it');
+  releaseM5([]);
+  await new Promise((r) => setTimeout(r, 0));
+  handle.stop();
+});
+
+test('startKeepFresh: co-due granularities run concurrently (both fire on the same tick)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {
+    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+  });
+  const started = [];
+  const finished = [];
+  const runCycle = async (opts) => {
+    const g = opts.combos[0].granularity;
+    started.push(g);
+    await new Promise((r) => setTimeout(r, 5));
+    finished.push(g);
+    return [];
+  };
+  const nowMs = at(1); // in-phase for both M1 (n=1) and M5 (n=5)
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick();
+  assert.deepEqual(started.sort(), ['M1', 'M5'], 'both start on the same co-due tick');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(finished.sort(), ['M1', 'M5'], 'both run concurrently to completion');
   handle.stop();
 });
 

@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isServerOwned, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, isServerOwned, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -52,17 +52,13 @@ try {
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
 const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'watcherOwner', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
-// #195: a granularity key is [MH]<digits> — the same shape granularityMs
-// parses, not a fixed enum (the app never hardcodes a granularity list
-// server-side; vendor/app.html's GRANULARITIES is the client's own display list).
-const GRANULARITY_KEY_RE = /^[MH]\d+$/;
 // Shared validator for both per-granularity maps: object keyed by a known
 // granularity shape, integer values, each ≥ its own floor.
 function validateGranularityMinMap(patchVal, key, min) {
   if (patchVal === undefined || patchVal === '' || patchVal === null) return;
   if (typeof patchVal !== 'object' || Array.isArray(patchVal)) throw new Error(`${key} must be an object keyed by granularity`);
   for (const [g, v] of Object.entries(patchVal)) {
-    if (!GRANULARITY_KEY_RE.test(g)) throw new Error(`${key} key '${g}' must be a granularity like M5 or H1`);
+    if (!isGranularity(g)) throw new Error(`${key} key '${g}' must be a granularity like M5 or H1`);
     if (!Number.isInteger(v) || v < min) throw new Error(`${key}['${g}'] must be an integer >= ${min}`);
   }
 }
@@ -986,7 +982,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.info = cfg.info === true; // #57: persisted globally, same pattern as ind
         // #195: per-granularity light-tick override map — smallest clean path
         // is the payload the chart already fetches every load()/light-tick.
-        if (cfg.uiRefreshSeconds) data.uiRefreshSeconds = cfg.uiRefreshSeconds;
+        data.uiRefreshSeconds = cfg.uiRefreshSeconds ?? null;
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));

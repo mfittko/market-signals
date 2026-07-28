@@ -33,6 +33,21 @@ function extractConst(name) {
 const UI_REFRESH_DEFAULT_MS = new Function(`${extractConst('UI_REFRESH_DEFAULT_MS')}; return UI_REFRESH_DEFAULT_MS;`)();
 // eslint-disable-next-line no-new-func
 const uiRefreshDelayMs = new Function('UI_REFRESH_DEFAULT_MS', `${extract('uiRefreshDelayMs')}; return uiRefreshDelayMs;`)(UI_REFRESH_DEFAULT_MS);
+// eslint-disable-next-line no-new-func
+const resolvePollGran = new Function(`${extract('resolvePollGran')}; return resolvePollGran;`)();
+
+test('resolvePollGran: an explicit ?granularity= query param always wins', () => {
+  assert.equal(resolvePollGran('M1', 'M5'), 'M1');
+});
+
+test('resolvePollGran: falls back to the server-served granularity when no query param is present', () => {
+  assert.equal(resolvePollGran(null, 'M1'), 'M1');
+  assert.equal(resolvePollGran('', 'M15'), 'M15');
+});
+
+test('resolvePollGran: falls back to M5 when neither is set', () => {
+  assert.equal(resolvePollGran(null, null), 'M5');
+});
 
 test('uiRefreshDelayMs: granularity-scaled defaults when the map is unset', () => {
   assert.equal(uiRefreshDelayMs('M1', null), 3000);

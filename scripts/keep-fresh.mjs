@@ -14,7 +14,7 @@
 import {
   fetchCandles, findGaps, repairGap, storeCandles, granularityMs, withDb,
   readSettings, dbg, barsForSpan, parseWatchers, runWatcherCycle, DEFAULT_ARGS,
-  applyWatcherSettings, isServerOwned,
+  applyWatcherSettings, isServerOwned, refreshHtfCache,
 } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
 import { isSettingOn } from './lib/settings-util.mjs';
@@ -181,7 +181,11 @@ export function startKeepFresh({
   runCycle = runWatcherCycle,
 } = {}) {
   if (!fetcher) return { stop() {}, tick: async () => {}, getCycleStatus: () => cycleStatus(null, null) };
-  let cycleInFlight = false;
+  // #195 review: ONE shared in-flight flag starved every granularity but M1
+  // (M1's cadence keeps it in-flight at every :X1 minute once its own cycle
+  // runs longer than 60s) — per-granularity tracking so a slow M1 cycle never
+  // blocks a due M5/M15 cycle from starting.
+  const cycleInFlight = new Set();
   let sweepInFlight = false;
   let lastCycleAt = null; // null = never run
   const lastCycleBucket = new Map(); // per-granularity: unset = never run, waits for the next in-phase minute (no immediate off-phase fire)
@@ -206,48 +210,66 @@ export function startKeepFresh({
       const allCombos = parseWatchers(cfg, fallback);
       const grans = [...new Set(allCombos.map((c) => c.granularity))];
       const dueGrans = grans.filter((gran) => {
+        if (cycleInFlight.has(gran)) return false; // its own prior cycle still running
         const n = cycleCadenceMinutes(cfg, gran);
         if (!isCycleDue(nowMs, n)) return false;
         const bucket = cycleBucketFor(nowMs, n);
         const last = lastCycleBucket.get(gran);
         return last == null || bucket > last;
       });
-      if (!cycleInFlight && dueGrans.length) {
+      if (dueGrans.length) {
         // stamp the ATTEMPT (not just success) and each due granularity's
-        // bucket BEFORE the async call: a failing/slow cycle still claims
-        // this bar instead of retrying every 60s tick within the same bucket.
+        // bucket + in-flight flag BEFORE the async call: a failing/slow cycle
+        // still claims this bar instead of retrying every 60s tick within the
+        // same bucket, and never runs twice concurrently for the same gran.
         for (const gran of dueGrans) {
           lastCycleBucket.set(gran, cycleBucketFor(nowMs, cycleCadenceMinutes(cfg, gran)));
+          cycleInFlight.add(gran);
         }
         lastCycleAt = nowMs;
-        cycleInFlight = true;
-        (async () => {
-          let firstErr = null;
-          for (const gran of dueGrans) {
-            // scope this granularity's watched combos only — a due
-            // granularity cycles its own combos, not every watched combo.
-            const combos = allCombos.filter((c) => c.granularity === gran);
-            const scopedCfg = { ...cfg, watchers: combos.map((c) => `${c.instrument}|${c.granularity}`).join(',') };
-            // the same settings-over-defaults merge CLI main() applies —
-            // without it an empty `watchers` would fall back to
-            // DEFAULT_ARGS' combo and run the wrong instrument from the
-            // server. #193 review: freshBars defaults to the plist's
-            // operating value (1), not the CLI's looser default (2), when
-            // settings don't say otherwise.
-            const opts = applyWatcherSettings(
-              { ...DEFAULT_ARGS, freshBars: 1, notify: true, pretty: false, db: dbPath, settings: settingsPath },
-              scopedCfg,
-            );
-            try {
-              await runCycle(opts, scopedCfg);
-            } catch (err) {
-              firstErr = err;
-              logFn(`[watcher-cycle] failed (${gran}): ${err.message}`);
-            }
+        // #195 review: co-due granularities run CONCURRENTLY (each its own
+        // in-flight flag, cleared independently on completion) instead of a
+        // serial loop that let one slow cycle delay every other due gran.
+        // The HTF/news cache refresh tail is hoisted OUT of runWatcherCycle
+        // and run once here for the union of due combos, not once per
+        // granularity (opts.skipCacheRefresh: true skips it inside the cycle).
+        Promise.allSettled(dueGrans.map(async (gran) => {
+          // scope this granularity's watched combos only — a due
+          // granularity cycles its own combos, not every watched combo.
+          const combos = allCombos.filter((c) => c.granularity === gran);
+          // the same settings-over-defaults merge CLI main() applies —
+          // without it an empty `watchers` would fall back to DEFAULT_ARGS'
+          // combo and run the wrong instrument from the server. #193 review:
+          // freshBars defaults to the plist's operating value (1), not the
+          // CLI's looser default (2), when settings don't say otherwise.
+          const opts = applyWatcherSettings(
+            { ...DEFAULT_ARGS, freshBars: 1, notify: true, pretty: false, db: dbPath, settings: settingsPath, combos, skipCacheRefresh: true },
+            cfg,
+          );
+          try {
+            await runCycle(opts, cfg);
+          } finally {
+            cycleInFlight.delete(gran);
           }
-          lastCycleError = firstErr ? firstErr.message : null;
-          cycleInFlight = false;
-        })();
+        })).then(async (settled) => {
+          const firstFailure = settled.find((r) => r.status === 'rejected');
+          if (firstFailure) logFn(`[watcher-cycle] failed: ${firstFailure.reason?.message}`);
+          lastCycleError = firstFailure ? firstFailure.reason?.message ?? String(firstFailure.reason) : null;
+          // hoisted cache tail: once per master tick for the union of due
+          // combos, regardless of how many granularities were due (each
+          // per-granularity runCycle above skipped it via skipCacheRefresh).
+          try {
+            await refreshHtfCache(dbPath, allCombos, cfg);
+          } catch (err) {
+            logFn(`HTF cache refresh failed: ${err.message}`);
+          }
+          try {
+            const { refreshNewsCache } = await import('./news.mjs');
+            await refreshNewsCache(dbPath, allCombos, cfg);
+          } catch (err) {
+            logFn(`news cache refresh failed: ${err.message}`);
+          }
+        });
       }
     } else {
       lastCycleError = null;

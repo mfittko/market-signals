@@ -465,6 +465,11 @@ async function load() {
   const d = await (await fetch('/api/chart?' + p)).json();
   if (d.tz) TZ = d.tz;
   applyInfo(!!d.info);
+  // #195 follow-up: seed both from the FIRST load() too, not just lightTick —
+  // otherwise the very first scheduled tick (before any light tick has run)
+  // resolves against stale/unset values.
+  uiRefreshMap = d.uiRefreshSeconds ?? null;
+  servedGran = d.granularity || servedGran;
   selectors(d);
   // #170 (F8): the chart's own entry/stop/target lines + trade markers reuse
   // this combo-scoped fetch (the bot modal's [trades] tab still does its
@@ -1032,6 +1037,13 @@ function uiRefreshDelayMs(gran, map) {
   const override = map ? Number(map[gran]) : NaN;
   if (Number.isInteger(override) && override >= 2) return override * 1000;
   return UI_REFRESH_DEFAULT_MS[gran] ?? 60000;
+}
+// #195 follow-up: which granularity the light tick should poll — an explicit
+// ?granularity= query param always wins; otherwise the granularity the
+// SERVER last actually served (so a bare "/" visit tracks the server-selected
+// default, e.g. M1, instead of silently assuming M5); otherwise 'M5'.
+function resolvePollGran(qsGran, servedGran) {
+  return qsGran || servedGran || 'M5';
 }
 // #170 (F28, review): one gap-break helper for every polyline overlay
 // (EMA/BB/VWAP/supertrend/RSI) — a session gap (weekend, feed outage) skips
@@ -1936,7 +1948,7 @@ const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['watcherOwner', 'select', [['launchagent', 'LaunchAgent (cron)'], ['server', 'server heartbeat']], 'launchagent'], ['cycleMinutes', 'json'], ['uiRefreshSeconds', 'json']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['watcherOwner', 'select', [['launchagent', 'LaunchAgent (cron)'], ['server', 'server heartbeat']], 'launchagent'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -1958,7 +1970,7 @@ const FIELD_HINTS = {
   NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
   NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
-  cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to 5. Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations.',
+  cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to 5. Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
@@ -2012,7 +2024,7 @@ async function cfg() {
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts, def]) => {
-    if (kind === 'json') return inputRow(k, 'text', k, s[k] ? JSON.stringify(s[k]) : '', '{"M1":1,"M5":5}');
+    if (kind === 'json') return inputRow(k, 'text', k, s[k] ? JSON.stringify(s[k]) : '', opts || '{"M1":1,"M5":5}');
     const cur = s[k] ?? def ?? '';
     if (kind === 'select') {
       const curS = String(cur);
@@ -2500,8 +2512,11 @@ setInterval(load, 60000);
 // the very next tick, no restart/reload needed (granularity switches are
 // already a full page load here, so those re-resolve trivially too).
 let uiRefreshMap = null;
+// the granularity the SERVER last actually served (no query param present ⇒
+// this is the only way a bare "/" visit knows the config default is M1, not M5).
+let servedGran = null;
 function scheduleLightTick() {
-  setTimeout(lightTick, uiRefreshDelayMs(qs.get('granularity') || 'M5', uiRefreshMap));
+  setTimeout(lightTick, uiRefreshDelayMs(resolvePollGran(qs.get('granularity'), servedGran), uiRefreshMap));
 }
 async function lightTick() {
   if (!document.hidden) { // a background tab does not need a live feed
@@ -2509,7 +2524,8 @@ async function lightTick() {
       const p = new URLSearchParams();
       for (const k of ['instrument', 't', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
       const d = await (await fetch('/api/chart?' + p)).json();
-      if (d.uiRefreshSeconds) uiRefreshMap = d.uiRefreshSeconds;
+      uiRefreshMap = d.uiRefreshSeconds ?? null;
+      servedGran = d.granularity || servedGran;
       draw(d); quoteStrip(d.quote);
     } catch { /* transient: the 60s full load is the recovery path */ }
   }
