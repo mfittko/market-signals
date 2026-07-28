@@ -13,7 +13,7 @@
 // request-free: whichever one last fetched a combo makes the other a no-op.
 import {
   fetchCandles, findGaps, repairGap, storeCandles, granularityMs, withDb,
-  readSettings, dbg, barsForSpan, parseWatchers,
+  readSettings, dbg, barsForSpan, parseWatchers, runWatcherCycle, DEFAULT_ARGS,
 } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
 import { isSettingOn } from './lib/settings-util.mjs';
@@ -25,6 +25,12 @@ const log = (msg) => dbg(`[keep-fresh] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MASTER_TICK_MS = 60000;
+// #193: single scheduled process — the server heartbeat runs the same
+// decision cycle the LaunchAgent runs, gated by watcherOwner==='server'
+// (read at run time on both sides, see supertrend.mjs's main()). 5 minutes
+// matches the LaunchAgent's cadence closely enough without a cron-style
+// offset table.
+export const CYCLE_INTERVAL_MS = 5 * 60000;
 const INTER_REQUEST_DELAY_MS = 250; // politeness: serial sweep, small gap between live requests
 export const MAX_GAP_REPAIRS_PER_COMBO = 3; // residual gaps re-detect and repair next sweep
 export const BOOTSTRAP_SEED_BARS = 500; // a never-fetched combo seeds deep, not staleness-derived
@@ -150,18 +156,38 @@ export async function sweepAll(dbPath, settingsPath, {
 // guard stops the next tick from overlapping a sweep still running.
 export function startKeepFresh({
   dbPath, settingsPath, fetcher, now = Date.now, logFn = log, tickMs = MASTER_TICK_MS,
-  attempted = new Set(), lastLiveFetch, liveGateMs,
+  attempted = new Set(), lastLiveFetch, liveGateMs, cycleIntervalMs = CYCLE_INTERVAL_MS,
+  runCycle = runWatcherCycle,
 } = {}) {
-  if (!fetcher) return { stop() {}, tick: async () => {} };
+  if (!fetcher) return { stop() {}, tick: async () => {}, getCycleStatus: () => ({ lastCycleAt: null, lastCycleError: null }) };
   let inFlight = false;
+  let lastCycleAt = null; // null = never run: fires on the very first eligible tick (RunAtLoad-like)
+  let lastCycleError = null;
   const backoff = new Map(); // per-combo never-fresh backoff, lives as long as this loop
   const tick = async () => {
     if (inFlight) return;
     const cfg = readSettings(settingsPath);
-    if (!isKeepFreshOn(cfg.keepFresh)) return;
     inFlight = true;
     try {
-      await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs, backoff });
+      // #193: decision cycle FIRST (latency-sensitive, matches the watcher's
+      // own comment), keep-fresh sweep after. Read watcherOwner AT RUN TIME
+      // (not at process start) — the single-owner guard's server-side half.
+      if (cfg.watcherOwner === 'server') {
+        const nowMs = now();
+        if (lastCycleAt == null || nowMs - lastCycleAt >= cycleIntervalMs) {
+          try {
+            await runCycle({ ...DEFAULT_ARGS, notify: true, pretty: false, db: dbPath, settings: settingsPath }, cfg);
+            lastCycleAt = nowMs;
+            lastCycleError = null;
+          } catch (err) {
+            lastCycleError = err.message;
+            logFn(`[watcher-cycle] failed: ${err.message}`);
+          }
+        }
+      }
+      if (isKeepFreshOn(cfg.keepFresh)) {
+        await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs, backoff });
+      }
     } catch (err) {
       logFn(`tick failed: ${err.message}`);
     } finally {
@@ -170,5 +196,10 @@ export function startKeepFresh({
   };
   const timer = setInterval(() => { tick().catch((err) => logFn(`tick failed: ${err.message}`)); }, tickMs);
   timer.unref?.(); // never keep the process alive on its own
-  return { stop: () => clearInterval(timer), tick };
+  return {
+    stop: () => clearInterval(timer),
+    tick,
+    // #193: /api/health reads this — a bot/LLM failure never breaks chart serving.
+    getCycleStatus: () => ({ lastCycleAt: lastCycleAt == null ? null : new Date(lastCycleAt).toISOString(), lastCycleError }),
+  };
 }

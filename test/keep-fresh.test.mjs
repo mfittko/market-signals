@@ -280,3 +280,75 @@ test('buildServer: server.on(close) stops the keep-fresh loop so no further tick
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(calls, 0, 'no tick fired after close, even though the interval period elapsed');
 });
+
+// --- #193: single scheduled process — server-owned decision cycle on the same tick ---
+test('startKeepFresh: watcherOwner!=="server" never invokes the cycle (single-owner guard, server side)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {}); // default watcherOwner (unset) === launchagent
+  let cycleCalls = 0;
+  const runCycle = async () => { cycleCalls++; return []; };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle });
+  await handle.tick();
+  handle.stop();
+  assert.equal(cycleCalls, 0);
+  assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
+});
+
+test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligible tick, decision cycle BEFORE the keep-fresh sweep', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  const order = [];
+  const runCycle = async () => { order.push('cycle'); return []; };
+  const fetcher = async ({ count }) => { order.push('sweep'); return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle });
+  await handle.tick();
+  handle.stop();
+  assert.deepEqual(order, ['cycle', 'sweep']);
+  const status = handle.getCycleStatus();
+  assert.ok(status.lastCycleAt, 'lastCycleAt recorded after a successful cycle');
+  assert.equal(status.lastCycleError, null);
+});
+
+test('startKeepFresh: the cycle only re-runs after CYCLE_INTERVAL_MS, not on every 60s tick', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
+  let cycleCalls = 0;
+  const runCycle = async () => { cycleCalls++; return []; };
+  let nowMs = Date.now();
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs, cycleIntervalMs: 300000 });
+  await handle.tick();
+  assert.equal(cycleCalls, 1);
+  nowMs += 60000; // one more 60s tick, well under the 5-minute cycle interval
+  await handle.tick();
+  assert.equal(cycleCalls, 1, 'not due yet');
+  nowMs += 300000;
+  await handle.tick();
+  assert.equal(cycleCalls, 2, 'due again after the full interval');
+  handle.stop();
+});
+
+test('startKeepFresh: a throwing cycle is isolated — the tick continues to the keep-fresh sweep and the error surfaces via getCycleStatus', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  const runCycle = async () => { throw new Error('llm boom'); };
+  let sweepCalls = 0;
+  const fetcher = async ({ count }) => { sweepCalls++; return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher, runCycle });
+  await handle.tick();
+  handle.stop();
+  assert.equal(sweepCalls, 1, 'a cycle failure never breaks chart serving (the sweep still ran)');
+  const status = handle.getCycleStatus();
+  assert.equal(status.lastCycleAt, null, 'a failed cycle does not advance lastCycleAt');
+  assert.match(status.lastCycleError, /llm boom/);
+});
+
+test('startKeepFresh: the fixture no-fetcher handle exposes a safe getCycleStatus too', () => {
+  const handle = startKeepFresh({ dbPath: tmpDb(), settingsPath: settingsFile(mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-')), {}), fetcher: null });
+  assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
+});

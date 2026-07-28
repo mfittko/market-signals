@@ -1181,8 +1181,13 @@ export async function fetchCandles({ instrument, granularity, count, from = null
     .filter((c) => c.time && [c.open, c.high, c.low, c.close].every(Number.isFinite));
 }
 
+// #193: shared with the server-owned decision cycle (keep-fresh.mjs), so a
+// server-invoked runWatcherCycle uses the exact same baseline the CLI does —
+// one source of truth for the defaults instead of two copies drifting apart.
+export const DEFAULT_ARGS = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
+
 function parseArgs(argv) {
-  const out = { instrument: 'BCO/USD', granularity: 'M5', count: 500, period: 10, multiplier: 3, freshBars: 2, db: 'data/candles.db', notify: false, settings: 'data/settings.json', pretty: true };
+  const out = { ...DEFAULT_ARGS };
   for (let i = 0; i < argv.length; i++) {
     const m = argv[i].match(/^--([^=]+)(?:=(.*))?$/);
     if (!m) continue;
@@ -1375,19 +1380,11 @@ async function runOne(opts) {
   return result;
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
-  const opts = parseArgs(argv);
-
-  // Watcher fields set on the config page win over baked defaults but lose to
-  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
-  const cfg = readSettings(opts.settings);
-  for (const k of ['instrument', 'granularity', 'freshBars']) {
-    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
-    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
-  }
-
+// #193: the watcher decision cycle (per-combo runOne + best-effort HTF/news
+// cache grounding), extracted from CLI main() unchanged so main() becomes a
+// thin wrapper — same code path either invoker uses, so alert behavior is
+// identical by construction (no separate "server mode" logic to drift).
+export async function runWatcherCycle(opts, cfg) {
   const combos = parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
   const results = [];
   for (const combo of combos) {
@@ -1418,7 +1415,32 @@ async function main() {
       dbg(`news cache refresh failed: ${err.message}`);
     }
   }
+  return results;
+}
 
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.includes('--help') || argv.includes('-h')) return process.stdout.write(USAGE);
+  const opts = parseArgs(argv);
+
+  // Watcher fields set on the config page win over baked defaults but lose to
+  // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
+  const cfg = readSettings(opts.settings);
+  for (const k of ['instrument', 'granularity', 'freshBars']) {
+    const flagGiven = argv.some((a) => a === `--${k}` || a.startsWith(`--${k}=`));
+    if (cfg[k] !== undefined && !flagGiven) opts[k] = cfg[k];
+  }
+
+  // #193: single-owner guard, read AT RUN TIME (not at process start) so a
+  // still-installed LaunchAgent stops firing the moment ownership moves to
+  // the server heartbeat, without needing `launchctl unload` first.
+  if (cfg.watcherOwner === 'server') {
+    dbg('watcherOwner=server: CLI run is a no-op (the server heartbeat owns the decision cycle)');
+    process.stdout.write(`${JSON.stringify([], null, opts.pretty ? 2 : 0)}\n`);
+    return;
+  }
+
+  const results = await runWatcherCycle(opts, cfg);
   const out = results.length === 1 ? results[0] : results;
   process.stdout.write(`${JSON.stringify(out, null, opts.pretty ? 2 : 0)}\n`);
 }

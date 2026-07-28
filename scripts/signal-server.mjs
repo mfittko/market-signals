@@ -51,7 +51,10 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'watcherOwner', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl'];
+// #193: decision-cycle ownership during the LaunchAgent → server-heartbeat
+// transition; 'launchagent' (default) preserves today's behavior exactly.
+const WATCHER_OWNERS = ['launchagent', 'server'];
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
@@ -141,6 +144,9 @@ export function writeSettings(settingsPath, patch) {
   // '0'/'1' (or true/false) and read via isSettingOn, not a strict JS boolean.
   if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
     throw new Error("keepFresh must be '0', '1', or a boolean");
+  }
+  if (patch.watcherOwner !== undefined && patch.watcherOwner !== '' && patch.watcherOwner !== null && !WATCHER_OWNERS.includes(patch.watcherOwner)) {
+    throw new Error(`watcherOwner must be one of ${WATCHER_OWNERS.join(', ')}`);
   }
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
@@ -1333,6 +1339,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const d = lastDecisions.get(combo) ?? null;
           return { combo, lastDecisionAt: d?.at ?? null, ageMin: d?.at ? Math.round((Date.now() - Date.parse(d.at)) / 60000) : null };
         });
+        // #193: decision-cycle ownership + last-run telemetry — an LLM/bot
+        // failure in the server-owned cycle surfaces here without ever
+        // breaking chart serving (the cycle's own try/catch already isolates it).
+        const cycleStatus = keepFresh.getCycleStatus();
         return json(res, 200, {
           ok: true,
           halted,
@@ -1340,6 +1350,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           llm: { lastOkAt: lastDecisionRow?.at ?? null },
           news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },
           bots,
+          cycle: { owner: cfg.watcherOwner === 'server' ? 'server' : 'launchagent', ...cycleStatus },
         });
       }
       if (url.pathname === '/api/portfolio') {

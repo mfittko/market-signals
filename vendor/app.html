@@ -1575,7 +1575,16 @@ function renderHealthStrip() {
   const llmAgeMin = railHealth.llm?.lastOkAt ? (Date.now() - Date.parse(railHealth.llm.lastOkAt)) / 60000 : null;
   const llmSeg = llmAgeMin == null ? 'LLM —' : 'LLM last used ' + humanAge(llmAgeMin);
   const newsSeg = 'news ' + esc(railHealth.news?.mode || '—');
-  el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg;
+  // #193: decision-cycle owner + last run — info-not-warning unless it errored
+  // (mirrors the llmSeg "recency is information" lesson), same strip.
+  const cyc = railHealth.cycle;
+  const cycleSeg = !cyc ? ''
+    : cyc.lastCycleError
+    ? ' · <span class="warn">⛔ cycle error (' + esc(cyc.owner) + ')</span>'
+    : cyc.owner === 'server'
+    ? ' · cycle: server · ' + (cyc.lastCycleAt ? humanAge((Date.now() - Date.parse(cyc.lastCycleAt)) / 60000) : 'not yet run')
+    : '';
+  el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg + cycleSeg;
 }
 function renderRail(ok) {
   const el = document.getElementById('rail');
@@ -1916,7 +1925,7 @@ const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['watcherOwner', 'select', [['launchagent', 'LaunchAgent (cron)'], ['server', 'server heartbeat']], 'launchagent']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -1931,6 +1940,7 @@ const FIELD_HINTS = {
   notifierBin: 'path to an executable invoked for desktop/webhook notifications',
   port: 'HTTP port this server listens on — takes effect only after the server process restarts',
   keepFresh: 'background candle keep-fresh loop; off = fetch only on demand',
+  watcherOwner: 'who runs the decision cycle: the LaunchAgent (cron, default) or this server\'s heartbeat — only one should run it at a time',
   NEWSAPI_AI_KEY: 'API key for the paid NewsAPI.ai tier (leave blank to use free sources only)',
   NEWSAPI_AI_MODE: 'auto uses paid calls when budget allows; shadow logs without spending; off disables paid calls',
   NEWSAPI_AI_INSTRUMENTS: 'comma-separated instruments NewsAPI.ai should fetch for (defaults to all watched)',
