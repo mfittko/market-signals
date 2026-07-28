@@ -430,6 +430,50 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           const denseTicks = await p.evaluate((times) => window.roundAxisTicks(times, 1, 60 * 1000), m1Times);
           assert.ok(denseTicks.length < 60, `roundAxisTicks (${denseTicks.length}) stays bounded for a dense M1 6h window, not one per candle`);
 
+          // #185 regression: a quiet overnight market fragments an M5 series
+          // into many small runs (each hole >3×granularity so it really does
+          // split a run). The ACTUAL root cause was Chart.js's own autoSkip:
+          // it anchors its thinning to `major` (date-boundary) ticks and fits
+          // each inter-major segment off that segment's own pixel width —
+          // once the first segment used up its budget, autoSkip dropped every
+          // tick in every later segment outright instead of resampling the
+          // whole axis, so labels rendered for only the first slice of a long
+          // window then stopped dead (roundAxisTicks/contiguousRuns/dedupe
+          // themselves were already fine — verified against this fixture).
+          // Fix: autoSkip disabled, decimateTicksForWidth (index-uniform,
+          // major-preserving) owns narrow-viewport thinning instead. Assert
+          // both layers: roundAxisTicks spans the full window, and
+          // decimateTicksForWidth at a narrow width doesn't reintroduce a void.
+          const fragTimes = await p.evaluate((step) => {
+            const out = [];
+            let t = Date.UTC(2026, 0, 1, 20, 0);
+            const end = Date.UTC(2026, 0, 2, 8, 0); // 12h overnight window
+            while (t <= end) {
+              // a short ~20min run of M5 candles...
+              for (let k = 0; k < 4 && t <= end; k++, t += step) out.push(t);
+              t += 20 * 60 * 1000; // ...then a ~20min hole (a real gap: >3×granMs)
+            }
+            return out;
+          }, 5 * 60 * 1000);
+          const fragTicks = await p.evaluate((times) => window.roundAxisTicks(times, 5, 5 * 60 * 1000), fragTimes);
+          const fragMaxTick = Math.max(...fragTicks);
+          const fragMinTick = Math.min(...fragTicks);
+          assert.ok(fragTicks.length > 4, `fragmented-runs fixture yields more than a handful of ticks (got ${fragTicks.length})`);
+          assert.ok(fragTimes[fragTimes.length - 1] - fragMaxTick < 60 * 60 * 1000, 'last tick lands within an hour of the fixture end (ticks do not die out partway across a fragmented window)');
+          assert.ok(fragMinTick - fragTimes[0] < 60 * 60 * 1000, 'first tick lands within an hour of the fixture start');
+          const fragStepMs = 30 * 60 * 1000; // TICK_STEP_TABLE: M5 -> 30-minute ticks
+          const sortedFragTicks = [...fragTicks].sort((a, b) => a - b);
+          let fragMaxVoid = 0;
+          for (let i = 1; i < sortedFragTicks.length; i++) fragMaxVoid = Math.max(fragMaxVoid, sortedFragTicks[i] - sortedFragTicks[i - 1]);
+          assert.ok(fragMaxVoid <= 2 * fragStepMs, `no >2x tick-step void in the fragmented-runs tick set (max gap ${fragMaxVoid}ms, limit ${2 * fragStepMs}ms)`);
+          // narrow-width decimation (index-uniform, evenly thinning the FULL
+          // set) must still reach both edges of the window — no longer a
+          // "died after the first segment" truncation, whatever the stride.
+          const fragDecimated = await p.evaluate((times) => window.decimateTicksForWidth(times, 390, 56), sortedFragTicks);
+          assert.ok(fragDecimated.length <= sortedFragTicks.length, 'narrow-width decimation never adds ticks');
+          assert.equal(fragDecimated[0], sortedFragTicks[0], 'decimation keeps the first tick');
+          assert.equal(fragDecimated[fragDecimated.length - 1], sortedFragTicks[sortedFragTicks.length - 1], 'decimation keeps the last tick (reaches the end of the window, not truncated)');
+
           // Gapped-chart regression (#170 follow-up): a synthetic two-day M5
           // series with a multi-day gap in the middle must (a) never emit a
           // tick inside the gap (every tick sits on a real timestamp, so none
@@ -507,6 +551,18 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
+          // #185 regression: on desktop the indicators panel is a corner
+          // overlay (see #indpanel CSS) that must sit clear of the chart's
+          // y-axis price-label column on its right edge, never on top of it.
+          // This fixture's server has fetcher:null (no candle data anywhere
+          // in this suite — see the #170 review note above), so there is no
+          // live Chart.js instance to read scales.y.width from here; the
+          // manually-measured axis width across real instruments (WTICO/USD,
+          // NAS100/USD, BTC/USD) tops out around 51px, so pin the CSS right
+          // offset stays comfortably clear of that (the pre-fix regression
+          // was right: 10px, well inside the axis column).
+          const indpanelRight = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById('indpanel')).right));
+          assert.ok(indpanelRight >= 60, `indicator panel's right offset (${indpanelRight}px) clears the measured y-axis label width on ${vname}`);
           // #165 review: a hash missing the '|' separator (no granularity) must not
           // crash or navigate — the route is ignored (state stays on the prior combo).
           await p.evaluate(() => { location.hash = '#bot/' + encodeURIComponent('WTICO/USD'); });

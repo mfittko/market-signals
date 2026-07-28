@@ -209,7 +209,10 @@
   /* indicator checkboxes: a corner overlay on the chart on desktop (#wrap is
      the positioning parent). Operator decision (27/07): always visible, no
      toggle button. */
-  #indpanel { position: absolute; top: 10px; right: 10px; z-index: 3; background: #161b22; border: 1px solid #30363d;
+  /* right offset clears the y-axis price-label column (measured ~37-51px
+     across instruments here) plus margin — #185 desktop regression: right:
+     10px sat the panel on top of the axis labels. */
+  #indpanel { position: absolute; top: 10px; right: 64px; z-index: 3; background: #161b22; border: 1px solid #30363d;
               border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
               color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
   #indpanel label { cursor: pointer; white-space: normal; }
@@ -1056,8 +1059,8 @@ function gapBreakData(times, ys, granMs) {
 }
 // #170 (F28): round-boundary x-axis ticks, granularity-aware — a plain
 // autoSkip pass doesn't line labels up on clean boundaries (:00/:30 for M5,
-// midnight/noon for H1…). Ticks land on round time boundaries here; the
-// existing autoSkipPadding still drops collisions on narrow (mobile) widths.
+// midnight/noon for H1…). Ticks land on round time boundaries here; narrow
+// (mobile) widths get thinned by decimateTicksForWidth, not Chart.js autoSkip.
 // #170 review: anchored to LOCAL midnight and stepped via Date field
 // arithmetic (not a fixed millisecond stride) — DST-safe, since setMinutes()
 // recomputes the wall-clock time under local rules on each step instead of
@@ -1104,6 +1107,29 @@ function markMajorTicks(values) {
     lastDay = dayKey;
     return { value, major };
   });
+}
+// #185 follow-up: Chart.js's built-in autoSkip anchors its spacing pass to
+// `major` (date-boundary) ticks and fits each inter-major segment
+// independently off that segment's own pixel width — once it runs out of
+// room inside the FIRST segment it drops every tick in every later segment
+// instead of resampling the whole axis, so a long window's labels rendered
+// for only the first slice then stopped dead. We own the tick list already
+// (roundAxisTicks below), so we also own the narrow-viewport thinning:
+// autoSkip is disabled and this decimates evenly by INDEX across the WHOLE
+// tick array, never dropping a day-boundary tick, so the date label always
+// survives regardless of how the rest gets thinned.
+function decimateTicksForWidth(values, widthPx, minPxPerTick) {
+  const maxCount = Math.max(1, Math.floor((widthPx || 0) / minPxPerTick));
+  if (values.length <= maxCount) return values;
+  const majorIdx = new Set();
+  let lastDay = null;
+  values.forEach((v, i) => {
+    const dayKey = new Date(v).toDateString();
+    if (dayKey !== lastDay) majorIdx.add(i);
+    lastDay = dayKey;
+  });
+  const stride = Math.max(1, Math.ceil(values.length / Math.max(maxCount, majorIdx.size)));
+  return values.filter((v, i) => majorIdx.has(i) || i % stride === 0 || i === values.length - 1);
 }
 function roundAxisTicks(times, granMinutes, granMs) {
   if (times.length < 2) return [];
@@ -1267,13 +1293,14 @@ function draw(d) {
              min: times[0], max: times[times.length - 1],
              time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { minute: 'HH:mm', hour: 'HH:mm' } },
              // #170 (F28): round-boundary ticks (granularity-aware) instead of
-             // whatever the auto algorithm lands on — autoSkipPadding still
-             // drops collisions on narrow/mobile widths.
+             // whatever the auto algorithm lands on — narrow/mobile thinning
+             // is decimateTicksForWidth below, not Chart.js's own autoSkip
+             // (see #185 follow-up on decimateTicksForWidth for why).
              afterBuildTicks(axis) {
                const built = roundAxisTicks(times, granMinutes, granMs);
-               if (built.length) axis.ticks = markMajorTicks(built);
+               if (built.length) axis.ticks = markMajorTicks(decimateTicksForWidth(built, axis.width, 56));
              },
-             ticks: { color: '#8b949e', maxRotation: 0, autoSkipPadding: 18,
+             ticks: { color: '#8b949e', maxRotation: 0, autoSkip: false,
                // the date on the first tick of each local day (flagged `major` in
                // afterBuildTicks above — a pure formatting read, not neighbour
                // adjacency), the time on the rest
