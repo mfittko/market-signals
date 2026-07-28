@@ -1065,6 +1065,10 @@ export const granularityMs = (g) => {
   return m ? Number(m[2]) * (m[1] === 'M' ? 60000 : 3600000) : 300000;
 };
 
+// The one "is this string shaped like a granularity" predicate, shared with
+// signal-server.mjs's settings validator instead of a second hand-rolled regex.
+export const isGranularity = (g) => typeof g === 'string' && /^[MH]\d+$/.test(g);
+
 export function computeSupertrend(candles, { period = 10, multiplier = 3 } = {}) {
   const n = candles.length;
   if (n < period + 2) throw new Error(`need at least ${period + 2} candles, got ${n}`);
@@ -1403,7 +1407,11 @@ async function runOne(opts) {
 // thin wrapper — same code path either invoker uses, so alert behavior is
 // identical by construction (no separate "server mode" logic to drift).
 export async function runWatcherCycle(opts, cfg) {
-  const combos = parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
+  // #195 keep-fresh caller (per-granularity concurrent cycles) already has its
+  // own scoped combos array in hand — accepting it directly here skips a
+  // needless parse→CSV-join→re-parse round trip (opts.combos wins; every
+  // other caller, CLI included, still resolves the combos itself as before).
+  const combos = opts.combos ?? parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
   const results = [];
   for (const combo of combos) {
     try {
@@ -1417,7 +1425,10 @@ export async function runWatcherCycle(opts, cfg) {
   // HTF cache grounding runs AFTER the watched combos: the signal path is
   // latency/freshness-sensitive (barsAgo is measured from now), while this is
   // best-effort with its own staleness grace, so it never delays a real alert.
-  if (opts.db) {
+  // #195 keep-fresh caller: multiple due granularities share one cache per
+  // master tick — opts.skipCacheRefresh lets every call but one skip this
+  // tail, instead of refreshing the same HTF/news cache once per granularity.
+  if (opts.db && !opts.skipCacheRefresh) {
     try {
       await refreshHtfCache(opts.db, combos, cfg);
     } catch (err) {

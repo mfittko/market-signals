@@ -7,6 +7,7 @@ import { withDb, storeCandles } from '../scripts/supertrend.mjs';
 import {
   configuredCombos, comboUniverse, sweepAll, startKeepFresh,
   MAX_GAP_REPAIRS_PER_COMBO, BOOTSTRAP_SEED_BARS, NEVER_FRESH_BACKOFF_MS,
+  cycleCadenceMinutes, cycleBucketFor, isCycleDue,
 } from '../scripts/keep-fresh.mjs';
 import { buildServer } from '../scripts/signal-server.mjs';
 
@@ -458,6 +459,141 @@ test('watcher cycle (#193 review): settings overrides reach the server-run cycle
   t = at(1, t + 5 * 60_000); await handle.tick(); await flush();
   assert.equal(seen.length, 2, 'retries after the full bucket');
   assert.ok(handle.getCycleStatus().lastCycleError, 'error surfaced');
+  handle.stop();
+});
+
+// --- #195: per-granularity cycleMinutes cadence ---
+test('cycleCadenceMinutes: unset map/key defaults to 5 (exact parity with pre-#195)', () => {
+  assert.equal(cycleCadenceMinutes({}, 'M5'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: {} }, 'M1'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 5 } }, 'M1'), 5);
+});
+
+test('cycleCadenceMinutes: an explicit map entry wins', () => {
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1, M15: 15 } }, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1, M15: 15 } }, 'M15'), 15);
+});
+
+test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to 5', () => {
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 1.5 } }, 'M5'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 0 } }, 'M5'), 5);
+});
+
+test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 minutes', () => {
+  const minuteMs = (min) => { const d = new Date(); d.setSeconds(0, 0); d.setMinutes(min); return d.getTime(); };
+  for (let min = 0; min < 60; min++) assert.equal(isCycleDue(minuteMs(min), 1), true, `M1 due at :${min}`);
+  assert.equal(isCycleDue(minuteMs(1), 5), true);
+  assert.equal(isCycleDue(minuteMs(2), 5), false);
+  assert.equal(isCycleDue(minuteMs(1), 15), true);
+  assert.equal(isCycleDue(minuteMs(16), 15), true);
+  assert.equal(isCycleDue(minuteMs(6), 15), false);
+});
+
+test('startKeepFresh: cycleMinutes.M1=1 closes the M1 blind window — every tick fires the cycle, not just the :X1 bucket', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } });
+  let cycleCalls = 0;
+  const runCycle = async () => { cycleCalls++; return []; };
+  let nowMs = at(3); // off-phase for the old n=5 cadence, but every minute is in-phase for n=1
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick();
+  assert.equal(cycleCalls, 1, 'M1 fires on an off-phase-for-M5 minute because its own cadence is 1');
+  nowMs += 60000;
+  await handle.tick();
+  assert.equal(cycleCalls, 2, 'M1 fires again on the very next 60s tick (no 5-minute bucket wait)');
+  handle.stop();
+});
+
+test('startKeepFresh: two watched granularities with different cycleMinutes fire independently, each scoped to its own combo', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {
+    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+  });
+  const seen = [];
+  const runCycle = async (opts) => {
+    seen.push({ gran: opts.granularity, combos: opts.combos.map((c) => `${c.instrument}|${c.granularity}`).join(',') });
+    return [];
+  };
+  let nowMs = at(3); // in-phase for M1 (n=1) only
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick();
+  await new Promise((r) => setTimeout(r, 0)); // let the concurrent Promise.allSettled callbacks resolve
+  assert.deepEqual(seen.map((s) => s.combos), ['BCO/USD|M1'], 'only the M1 combo cycles off-phase for M5');
+  nowMs = at(1, nowMs + 5 * 60000);
+  await handle.tick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(seen.map((s) => s.combos), ['BCO/USD|M1', 'BCO/USD|M1', 'XAU/USD|M5'], 'both cycle when both are due, M5 scoped to its own combo only');
+  handle.stop();
+});
+
+test('startKeepFresh: a slow M5 cycle in flight does not starve a due M1 cycle (per-granularity in-flight, not one shared flag)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {
+    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+  });
+  let releaseM5;
+  const gateM5 = new Promise((r) => { releaseM5 = r; });
+  const seen = [];
+  const gran = (opts) => opts.combos[0].granularity;
+  const runCycle = async (opts) => {
+    const g = gran(opts);
+    seen.push(g);
+    if (g === 'M5') await gateM5;
+    return [];
+  };
+  let nowMs = at(1); // in-phase for both M1 (n=1) and M5 (n=5)
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick(); // both due: M5 starts and blocks on gateM5, M1 completes
+  assert.deepEqual(seen, ['M1', 'M5'], 'both fired on the first co-due tick');
+  nowMs += 60000; // next minute: M1 due again, M5's own cycle is still in flight
+  await handle.tick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(seen, ['M1', 'M5', 'M1'], 'M1 still fires while M5 is in flight — no shared flag starves it');
+  releaseM5([]);
+  await new Promise((r) => setTimeout(r, 0));
+  handle.stop();
+});
+
+test('startKeepFresh: co-due granularities run concurrently (both fire on the same tick)', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, {
+    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+  });
+  const started = [];
+  const finished = [];
+  const runCycle = async (opts) => {
+    const g = opts.combos[0].granularity;
+    started.push(g);
+    await new Promise((r) => setTimeout(r, 5));
+    finished.push(g);
+    return [];
+  };
+  const nowMs = at(1); // in-phase for both M1 (n=1) and M5 (n=5)
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick();
+  assert.deepEqual(started.sort(), ['M1', 'M5'], 'both start on the same co-due tick');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(finished.sort(), ['M1', 'M5'], 'both run concurrently to completion');
+  handle.stop();
+});
+
+test('startKeepFresh: a run-time cycleMinutes settings change takes effect without restart', async () => {
+  const dbPath = tmpDb();
+  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
+  const settingsPath = settingsFile(dir, { watcherOwner: 'server', watchers: 'BCO/USD|M1' }); // no cycleMinutes yet: default 5
+  let cycleCalls = 0;
+  const runCycle = async () => { cycleCalls++; return []; };
+  let nowMs = at(3); // off-phase under the default n=5 cadence
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
+  await handle.tick();
+  assert.equal(cycleCalls, 0, 'default cadence: off-phase minute never fires');
+  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server', watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } }));
+  await handle.tick();
+  assert.equal(cycleCalls, 1, 'the settings change is read fresh every tick — no restart needed');
   handle.stop();
 });
 
