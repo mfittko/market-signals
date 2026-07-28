@@ -209,12 +209,13 @@
   /* indicator checkboxes: a corner overlay on the chart on desktop (#wrap is
      the positioning parent). Operator decision (27/07): always visible, no
      toggle button. */
-  /* right offset clears the y-axis price-label column (measured ~37-51px
-     across instruments here) plus margin — #185 desktop regression: right:
-     10px sat the panel on top of the axis labels. */
-  #indpanel { position: absolute; top: 10px; right: 64px; z-index: 3; background: #161b22; border: 1px solid #30363d;
-              border-radius: 6px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px;
-              color: #8b949e; white-space: nowrap; box-shadow: 0 4px 10px rgba(0,0,0,0.4); max-width: calc(100vw - 40px); }
+  /* operator, 28/07: one slim horizontal row across the chart TOP — a corner
+     box covered candles and (at right: 10px) the y-axis price labels. The row
+     ends 64px short of the right edge to stay clear of the axis column
+     (measured ~37-51px across instruments). */
+  #indpanel { position: absolute; top: 6px; left: 10px; right: 64px; z-index: 3; background: rgba(22,27,34,0.85); border: 1px solid #30363d;
+              border-radius: 6px; padding: 4px 10px; display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px 14px; font-size: 12px;
+              color: #8b949e; white-space: nowrap; }
   #indpanel label { cursor: pointer; white-space: normal; }
   /* narrow/phone: a corner overlay would sit on top of the candles — render
      it as a static row above the canvas instead */

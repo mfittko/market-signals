@@ -551,16 +551,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
-          // #185 regression: on desktop the indicators panel is a corner
-          // overlay (see #indpanel CSS) that must sit clear of the chart's
-          // y-axis price-label column on its right edge, never on top of it.
-          // This fixture's server has fetcher:null (no candle data anywhere
-          // in this suite — see the #170 review note above), so there is no
-          // live Chart.js instance to read scales.y.width from here; the
-          // manually-measured axis width across real instruments (WTICO/USD,
-          // NAS100/USD, BTC/USD) tops out around 51px, so pin the CSS right
-          // offset stays comfortably clear of that (the pre-fix regression
-          // was right: 10px, well inside the axis column).
+          // #185 regression + operator 28/07: the desktop overlay is a slim
+          // horizontal row along the chart TOP (not a corner box over candles),
+          // whose right edge stops short of the y-axis price-label column
+          // (measured up to ~51px across real instruments; fetcher:null here
+          // means no live Chart.js scale to read, so the CSS offset is pinned).
           const indpanelRight = await p.evaluate(() => parseFloat(getComputedStyle(document.getElementById('indpanel')).right));
           assert.ok(indpanelRight >= 60, `indicator panel's right offset (${indpanelRight}px) clears the measured y-axis label width on ${vname}`);
           // #165 review: a hash missing the '|' separator (no granularity) must not
