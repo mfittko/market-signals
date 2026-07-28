@@ -940,17 +940,75 @@ export function storeCandles(dbPath, instrument, granularity, candles) {
   });
 }
 
-// Read the most recent `limit` complete bars for a combo from SQLite, ascending
-// by time. The candles table only ever holds complete bars (every caller filters
-// to `complete` before storeCandles persists), so no completeness column is
-// needed — we tag complete:true so rows match fetchCandles' shape for the merge
-// in acquireWindow.
 export function loadRecentCandles(dbPath, instrument, granularity, limit) {
   return withDb(dbPath, (db) => db.prepare(
     'SELECT time, open, high, low, close, volume FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
     .all(instrument, granularity, limit)
     .reverse()
     .map((c) => ({ ...c, complete: true })));
+}
+
+// Same threshold the client uses for isGap/contiguousRuns (vendor/app.html) —
+// keep that literal `3` in sync with this if it ever changes here.
+export const GAP_BARS = 3;
+
+// Server-side counterpart to the client's isGap/contiguousRuns (vendor/app.html)
+// — same "3x granularity" threshold, but returns the gap ranges themselves
+// (start/end ms) instead of contiguous runs, since the server's job is to
+// repair holes, not to draw them. `times` must be ascending epoch ms.
+export function findGaps(times, granMs) {
+  const gaps = [];
+  for (let i = 1; i < times.length; i++) {
+    const [a, b] = [times[i - 1], times[i]];
+    if (b - a > GAP_BARS * granMs) gaps.push({ start: a, end: b });
+  }
+  return gaps;
+}
+
+// Pure planning, no I/O: turn a {start,end} gap into the ranged-fetch request
+// shape. Unit-tested directly against literal {from,count} pairs.
+export function gapFetchPlan(gap, granMs) {
+  // count=2500 verified live against the provider (fxempire returned exactly
+  // 2500 M1 rows for a single request) — this is a measured cap, not a guess.
+  // Clamped to >=1 so a degenerate (empty/inverted) gap still issues a
+  // request rather than a zero/negative count. A gap wider than 2500 bars
+  // only partially repairs in one call; the residual re-detects as a
+  // (smaller) gap on the next read and gets picked up then.
+  const count = Math.max(Math.min(Math.ceil((gap.end - gap.start) / granMs) + 2, 2500), 1);
+  return { from: new Date(gap.start).toISOString(), count };
+}
+
+// Fetch+store the candles inside one gap. `attempted` is an injected Set
+// (owned by the caller — see signal-server.mjs's attemptedGaps — so tests can
+// reset it and its lifetime is explicit) tracking gaps already tried, since
+// legit unfillable gaps exist (NYMEX settlement break, weekends) and a
+// market-closed hole must not be re-fetched every time the chart is reloaded.
+// Only a SUCCESSFUL fetch (including a legitimately empty one) marks a gap
+// attempted — a throw (network blip, provider hiccup) removes the key again
+// before rethrowing, so a transient failure doesn't poison the gap forever.
+// Returns the number of rows actually stored.
+export async function repairGap(dbPath, instrument, granularity, gap, { fetcher = fetchCandles, attempted }) {
+  const key = `${dbPath}|${instrument}|${granularity}|${gap.start}`;
+  if (attempted.has(key)) return 0;
+  attempted.add(key);
+  const granMs = granularityMs(granularity);
+  const { from, count } = gapFetchPlan(gap, granMs);
+  let rows;
+  try {
+    rows = await fetcher({ instrument, granularity, from, count });
+  } catch (err) {
+    attempted.delete(key);
+    throw err;
+  }
+  const inGap = rows.filter((c) => c.complete && Date.parse(c.time) < gap.end);
+  if (inGap.length) storeCandles(dbPath, instrument, granularity, inGap);
+  const range = `${from}..${new Date(gap.end).toISOString()}`;
+  // fetched-rows vs in-gap-rows: a fetch that returns data OUTSIDE the gap
+  // (e.g. only the forming candle) must not be logged as "market closed".
+  console.log(inGap.length
+    ? `[gap-backfill] ${instrument}|${granularity} repaired ${inGap.length}/${rows.length} rows (gap ${range})`
+    : `[gap-backfill] ${instrument}|${granularity} nothing to repair (fetched ${rows.length} rows outside gap ${range}, likely market closed)`);
+  return inGap.length;
 }
 
 // #145 tail-fetch: once a full `count`-bar calc window is warm in SQLite, a
@@ -1090,11 +1148,12 @@ export function backtestFlips(candles, flips) {
   };
 }
 
-export async function fetchCandles({ instrument, granularity, count }) {
+export async function fetchCandles({ instrument, granularity, count, from = null }) {
   const url = new URL('https://p.fxempire.com/oanda/candles/latest');
   url.searchParams.set('instrument', instrument);
   url.searchParams.set('granularity', granularity);
   url.searchParams.set('count', String(count));
+  if (from) url.searchParams.set('from', from); // ranged fetch (gap backfill) — verified live: from+count returns candles starting at `from`
   url.searchParams.set('alignmentTimezone', 'UTC');
   const res = await fetch(url, {
     headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },

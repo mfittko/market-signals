@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
@@ -233,6 +233,14 @@ export function writeSettings(settingsPath, patch) {
 }
 
 const lastLiveFetch = new Map(); // key -> { at, tail }: upstream fetch gate, forming candle cached in between
+// Legit unfillable gaps exist (NYMEX settlement break, weekends) — remember
+// every attempted gap (by dbPath+instrument+granularity+gapStart) for the
+// life of the process so a market-closed hole isn't re-fetched every time the
+// chart is reloaded. Deliberately in-memory only (resets on restart): a
+// restart just re-attempts each gap once more — no correctness issue. Owned
+// here (request-lifecycle layer, next to lastLiveFetch) and injected into
+// repairGap so tests can reset it.
+const attemptedGaps = new Set();
 // #145 measured the provider as effectively tick-driven (poll-limited at every
 // interval tried, ~229ms median request), so the old 55s gate was ~all
 // self-inflicted latency. Adaptive/incident-scoped cadence stays out of scope
@@ -259,12 +267,27 @@ export const LIVE_TAIL_GATE_MS = 8000;
 // (fetcher() + the in-memory lastLiveFetch cache) is untouched — that's an
 // upstream HTTP read, not a local mutation, so chart freshness is unaffected;
 // only the persistence of what it read is deferred.
-function scheduleAcquisition(dbPath, instrument, granularity, complete, flips) {
-  if (!complete.length && !flips.length) return;
+function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips, gaps, fetcher }) {
+  if (!complete.length && !flips.length && !gaps.length) return;
   const key = `${dbPath}|${instrument}|${granularity}`;
   setImmediate(() => {
     try {
       if (complete.length) storeCandles(dbPath, instrument, granularity, complete);
+      // #gap-backfill: repair holes in the stored window as soon as they're seen
+      // (chart read path), not blocking this GET — same deferred pattern as the
+      // tail persistence above. Uses the same fetcher chartData was given (so
+      // tests/fixtures never leak a real network call, and prod naturally uses
+      // the live provider).
+      // serialized: one repair at a time smooths provider load and avoids
+      // concurrent SQLite writers; still fully deferred off the GET.
+      if (fetcher && gaps.length) {
+        (async () => {
+          for (const gap of gaps) {
+            try { await repairGap(dbPath, instrument, granularity, gap, { fetcher, attempted: attemptedGaps }); }
+            catch (err) { console.error(`[gap-backfill] FAILURE for ${key} (gap ${new Date(gap.start).toISOString()}):`, err?.message || err); }
+          }
+        })();
+      }
       // Lazy backfill: persist historical flips for whatever combo is being
       // viewed so history/outcomes populate beyond the watcher's own
       // instrument. Flips newer than the watcher's fresh+cooldown horizon are
@@ -319,7 +342,12 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
     tailFetchedAt = gate.tail ? gate.at : null;
   }
-  let { candles, recent } = withDb(dbPath, (db) => {
+  // #gap-backfill: scan the FULL stored span for holes, not just the served
+  // window below — a hole older than what's rendered would otherwise never
+  // heal. Bounded to the most recent GAP_SCAN_LIMIT stored times so this
+  // stays a cheap indexed query even for a large table.
+  const GAP_SCAN_LIMIT = 5000;
+  let { candles, recent, storedTimes } = withDb(dbPath, (db) => {
     let windowed;
     if (t) {
       // Deep-link window: context before the signal, then everything through
@@ -337,8 +365,13 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     const dayBars = Math.ceil(86400000 / granularityMs(granularity));
     const recent = db.prepare('SELECT * FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
       .all(instrument, granularity, dayBars).reverse();
-    return { candles: windowed, recent };
+    const storedTimes = db.prepare('SELECT time FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?')
+      .all(instrument, granularity, GAP_SCAN_LIMIT).reverse().map((r) => Date.parse(r.time));
+    return { candles: windowed, recent, storedTimes };
   });
+  // Gap backfill (#gap-backfill): repair holes in the full stored span (not
+  // just the served window) via a deferred ranged fetch — see scheduleAcquisition.
+  const gaps = findGaps(storedTimes, granularityMs(granularity));
   // #163: candles fetched this call (pendingComplete) persist asynchronously
   // below, so the DB read above can miss them on a first request after
   // downtime (gappy chart). Merge them into the in-memory response now —
@@ -368,7 +401,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   // #163: the actual persistence (new complete candles + flip backfill) is
   // deferred out of this GET — see scheduleAcquisition above.
-  scheduleAcquisition(dbPath, instrument, granularity, pendingComplete, flips);
+  scheduleAcquisition(dbPath, instrument, granularity, { complete: pendingComplete, flips, gaps, fetcher });
   // The history table is scoped to the visible chart window: only signals whose
   // time falls within the shown candles (falls back to the latest 50 when there
   // are no candles yet). The current/deep-linked signal is resolved separately.
