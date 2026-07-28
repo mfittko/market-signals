@@ -962,8 +962,8 @@ export function findGaps(times, granMs) {
 // Legit unfillable gaps exist (NYMEX settlement break, weekends) — remember
 // every attempted gap (by dbPath+instrument+granularity+gapStart) for the
 // life of the process so a market-closed hole isn't re-fetched every time the
-// chart is reloaded. ponytail: in-memory only, resets on restart — fine, a
-// restart just re-attempts once more, no correctness issue.
+// chart is reloaded. Deliberately in-memory only (resets on restart): a
+// restart just re-attempts each gap once more — no correctness issue.
 const attemptedGaps = new Set();
 
 // Fetch+store the candles inside one gap. Marks the gap attempted regardless

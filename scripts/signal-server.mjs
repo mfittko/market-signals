@@ -270,10 +270,15 @@ function scheduleAcquisition(dbPath, instrument, granularity, complete, flips, g
       // tail persistence above. Uses the same fetcher chartData was given (so
       // tests/fixtures never leak a real network call, and prod naturally uses
       // the live provider).
-      for (const gap of (fetcher ? gaps : [])) {
-        repairGap(dbPath, instrument, granularity, gap, { fetcher }).catch((err) => {
-          console.error(`[chart] gap repair failed for ${key} (gap ${new Date(gap.start).toISOString()}):`, err?.message || err);
-        });
+      // serialized: one repair at a time smooths provider load and avoids
+      // concurrent SQLite writers; still fully deferred off the GET.
+      if (fetcher && gaps.length) {
+        (async () => {
+          for (const gap of gaps) {
+            try { await repairGap(dbPath, instrument, granularity, gap, { fetcher }); }
+            catch (err) { console.error(`[chart] gap repair failed for ${key} (gap ${new Date(gap.start).toISOString()}):`, err?.message || err); }
+          }
+        })();
       }
       // Lazy backfill: persist historical flips for whatever combo is being
       // viewed so history/outcomes populate beyond the watcher's own
