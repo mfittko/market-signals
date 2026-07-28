@@ -36,6 +36,10 @@ Options:
                         (default: data/settings.json; no file = no filter, alerts pass through)
   --pretty true|false   (default: true)
   -h, --help
+
+Manual/debug runner only: the signal-server's heartbeat is the sole decision-
+cycle owner. Running this CLI while the server is up can double-execute a
+cycle (duplicate notify/store) — that's on you, not guarded against.
 `;
 
 const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
@@ -1203,11 +1207,6 @@ export function applyWatcherSettings(opts, cfg, { argv } = {}) {
   return opts;
 }
 
-// Single owner-check shared by both guard sides (CLI no-op + server cycle).
-export function isServerOwned(cfg) {
-  return cfg.watcherOwner === 'server';
-}
-
 function parseArgs(argv) {
   const out = { ...DEFAULT_ARGS };
   for (let i = 0; i < argv.length; i++) {
@@ -1456,14 +1455,6 @@ async function main() {
   // explicit CLI flags (the LaunchAgent may pin flags; the UI edits settings).
   const cfg = readSettings(opts.settings);
   applyWatcherSettings(opts, cfg, { argv });
-
-  // #193: single-owner guard, read AT RUN TIME (not at process start) so a
-  // still-installed LaunchAgent stops firing the moment ownership moves to
-  // the server heartbeat, without needing `launchctl unload` first.
-  if (isServerOwned(cfg)) {
-    dbg('watcherOwner=server: CLI run is a no-op (the server heartbeat owns the decision cycle)');
-    return;
-  }
 
   const results = await runWatcherCycle(opts, cfg);
   const out = results.length === 1 ? results[0] : results;

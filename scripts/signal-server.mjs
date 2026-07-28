@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, isServerOwned, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -51,7 +51,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'watcherOwner', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
 // Shared validator for both per-granularity maps: object keyed by a known
 // granularity shape, integer values, each ≥ its own floor.
 function validateGranularityMinMap(patchVal, key, min) {
@@ -62,9 +62,6 @@ function validateGranularityMinMap(patchVal, key, min) {
     if (!Number.isInteger(v) || v < min) throw new Error(`${key}['${g}'] must be an integer >= ${min}`);
   }
 }
-// #193: decision-cycle ownership during the LaunchAgent → server-heartbeat
-// transition; 'launchagent' (default) preserves today's behavior exactly.
-const WATCHER_OWNERS = ['launchagent', 'server'];
 // #99: per-provider model binding lives in the `models` map, keyed by provider
 // (never 'none'). The flat `model` stays as the active provider's fallback.
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
@@ -154,9 +151,6 @@ export function writeSettings(settingsPath, patch) {
   // '0'/'1' (or true/false) and read via isSettingOn, not a strict JS boolean.
   if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
     throw new Error("keepFresh must be '0', '1', or a boolean");
-  }
-  if (patch.watcherOwner !== undefined && patch.watcherOwner !== '' && patch.watcherOwner !== null && !WATCHER_OWNERS.includes(patch.watcherOwner)) {
-    throw new Error(`watcherOwner must be one of ${WATCHER_OWNERS.join(', ')}`);
   }
   // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
   // (chart/quote poll interval, seconds) — both per-granularity maps.
@@ -1371,15 +1365,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const d = lastDecisions.get(combo) ?? null;
           return { combo, lastDecisionAt: d?.at ?? null, ageMin: d?.at ? Math.round((Date.now() - Date.parse(d.at)) / 60000) : null };
         });
-        // #193: decision-cycle ownership + last-run telemetry — an LLM/bot
-        // failure in the server-owned cycle surfaces here without ever
-        // breaking chart serving (the cycle's own try/catch already isolates it).
-        // Owner flip hygiene: stamps only ever mean something for the owner
-        // currently running the cycle — nulled here (not just left stale)
-        // when ownership isn't the server's, mirroring keep-fresh.mjs's own
-        // tick-side clear of lastCycleError on the same flip.
-        const serverOwned = isServerOwned(cfg);
-        const cycleStatus = serverOwned ? keepFresh.getCycleStatus() : { lastCycleAt: null, lastCycleError: null };
+        // #199: decision-cycle last-run telemetry — an LLM/bot failure in the
+        // server heartbeat's cycle surfaces here without ever breaking chart
+        // serving (the cycle's own try/catch already isolates it).
+        const cycleStatus = keepFresh.getCycleStatus();
         return json(res, 200, {
           ok: true,
           halted,
@@ -1387,7 +1376,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           llm: { lastOkAt: lastDecisionRow?.at ?? null },
           news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },
           bots,
-          cycle: { owner: serverOwned ? 'server' : 'launchagent', ...cycleStatus },
+          cycle: cycleStatus,
         });
       }
       if (url.pathname === '/api/portfolio') {

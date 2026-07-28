@@ -14,7 +14,7 @@
 import {
   fetchCandles, findGaps, repairGap, storeCandles, granularityMs, withDb,
   readSettings, dbg, barsForSpan, parseWatchers, runWatcherCycle, DEFAULT_ARGS,
-  applyWatcherSettings, isServerOwned, refreshHtfCache,
+  applyWatcherSettings, refreshHtfCache,
 } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
 import { isSettingOn } from './lib/settings-util.mjs';
@@ -193,13 +193,9 @@ export function startKeepFresh({
   const backoff = new Map(); // per-combo never-fresh backoff, lives as long as this loop
   const tick = async () => {
     const cfg = readSettings(settingsPath);
-    // #193: decision cycle FIRST (latency-sensitive, matches the watcher's own
-    // comment) — fired without blocking the sweep below. Read watcherOwner AT
-    // RUN TIME (not at process start) — the single-owner guard's server-side
-    // half. Owner flip hygiene: the moment ownership moves away from the
-    // server, its stamped error clears (nothing else to stamp — the
-    // LaunchAgent's own run, if any, isn't this process's to report on).
-    if (isServerOwned(cfg)) {
+    // #199: decision cycle FIRST (latency-sensitive) — the server heartbeat
+    // is the only cycle owner now, so this always runs (no owner gate).
+    {
       const nowMs = now();
       // #195: distinct granularities among the watched combos, each due
       // independently on its own cycleMinutes cadence. Fallback combo (no
@@ -271,8 +267,6 @@ export function startKeepFresh({
           }
         });
       }
-    } else {
-      lastCycleError = null;
     }
     if (sweepInFlight) return;
     sweepInFlight = true;

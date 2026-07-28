@@ -282,21 +282,9 @@ test('buildServer: server.on(close) stops the keep-fresh loop so no further tick
   assert.equal(calls, 0, 'no tick fired after close, even though the interval period elapsed');
 });
 
-// --- #193: single scheduled process — server-owned decision cycle on the same tick ---
-test('startKeepFresh: watcherOwner!=="server" never invokes the cycle (single-owner guard, server side)', async () => {
-  const dbPath = tmpDb();
-  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, {}); // default watcherOwner (unset) === launchagent
-  let cycleCalls = 0;
-  const runCycle = async () => { cycleCalls++; return []; };
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle });
-  await handle.tick();
-  handle.stop();
-  assert.equal(cycleCalls, 0);
-  assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
-});
+// --- #199: single scheduled process — the heartbeat always owns the decision cycle ---
 
-// #193 review: candle-aligned cadence — the cycle only fires when local
+// #193/#199 review: candle-aligned cadence — the cycle only fires when local
 // minute % 5 === 1 (matches the plist's :01,:06,... firing), one bucket at
 // most per 5-minute bar. `at(min)` below pins a fake clock's minute so tests
 // don't depend on the wall clock's actual phase.
@@ -307,11 +295,11 @@ function at(min, base = Date.now()) {
   return d.getTime();
 }
 
-test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligible (in-phase) tick, decision cycle BEFORE the keep-fresh sweep', async () => {
+test('startKeepFresh: runs the cycle on the first eligible (in-phase) tick, decision cycle BEFORE the keep-fresh sweep', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
   const order = [];
   const runCycle = async () => { order.push('cycle'); return []; };
   const fetcher = async ({ count }) => { order.push('sweep'); return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
@@ -327,7 +315,7 @@ test('startKeepFresh: watcherOwner==="server" runs the cycle on the first eligib
 test('startKeepFresh: a restart mid-bucket (off-phase minute) does not fire immediately — waits for the next :X1 minute', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
+  const settingsPath = settingsFile(dir, {});
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(3) });
@@ -339,7 +327,7 @@ test('startKeepFresh: a restart mid-bucket (off-phase minute) does not fire imme
 test('startKeepFresh: the cycle only re-runs on a NEW bucket\'s in-phase minute, not on every 60s tick', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
+  const settingsPath = settingsFile(dir, {});
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
   let nowMs = at(1);
@@ -359,7 +347,7 @@ test('startKeepFresh: a throwing cycle is isolated — the tick continues to the
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
   const runCycle = async () => { throw new Error('llm boom'); };
   let sweepCalls = 0;
   const fetcher = async ({ count }) => { sweepCalls++; return Array.from({ length: count }, (_, i) => candle(Date.now() - i * 60000)).reverse(); };
@@ -379,7 +367,7 @@ test('startKeepFresh: the sweep still runs on a tick while a slow cycle from a p
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   storeCandles(dbPath, 'BCO/USD', 'M1', [candle(Date.now() - 20 * 60000)]);
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', bot: { bots: { 'BCO/USD|M1': {} } } });
+  const settingsPath = settingsFile(dir, { bot: { bots: { 'BCO/USD|M1': {} } } });
   let releaseCycle;
   const cycleGate = new Promise((r) => { releaseCycle = r; });
   const runCycle = async () => { await cycleGate; return []; };
@@ -403,7 +391,7 @@ test('startKeepFresh: the sweep still runs on a tick while a slow cycle from a p
 test('startKeepFresh: opts handed to runCycle default freshBars to 1 (the plist\'s operating value), not DEFAULT_ARGS\' looser 2, when settings omit it', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server' }); // no freshBars in settings
+  const settingsPath = settingsFile(dir, {}); // no freshBars in settings
   let seenFreshBars = null;
   const runCycle = async (opts) => { seenFreshBars = opts.freshBars; return []; };
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
@@ -415,7 +403,7 @@ test('startKeepFresh: opts handed to runCycle default freshBars to 1 (the plist\
 test('startKeepFresh: an explicit settings.freshBars still wins over the server-cycle default', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', freshBars: 3 });
+  const settingsPath = settingsFile(dir, { freshBars: 3 });
   let seenFreshBars = null;
   const runCycle = async (opts) => { seenFreshBars = opts.freshBars; return []; };
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
@@ -424,28 +412,13 @@ test('startKeepFresh: an explicit settings.freshBars still wins over the server-
   assert.equal(seenFreshBars, 3);
 });
 
-test('startKeepFresh: watcherOwner flips away from server clears a previously-stamped lastCycleError', async () => {
-  const dbPath = tmpDb();
-  const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server' });
-  const runCycle = async () => { throw new Error('boom'); };
-  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => at(1) });
-  await handle.tick();
-  await new Promise((r) => setTimeout(r, 0));
-  assert.match(handle.getCycleStatus().lastCycleError, /boom/);
-  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'launchagent' }));
-  await handle.tick();
-  assert.equal(handle.getCycleStatus().lastCycleError, null, 'ownership flip clears the stamped error');
-  handle.stop();
-});
-
 test('startKeepFresh: the fixture no-fetcher handle exposes a safe getCycleStatus too', () => {
   const handle = startKeepFresh({ dbPath: tmpDb(), settingsPath: settingsFile(mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-')), {}), fetcher: null });
   assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
 });
 test('watcher cycle (#193 review): settings overrides reach the server-run cycle, and a FAILING cycle still waits out the interval', async () => {
   const dbPath = tmpDb();
-  const settingsPath = settingsFile(mkdtempSync(join(tmpdir(), 'kf-')), { watcherOwner: 'server', keepFresh: '0', instrument: 'XAG/USD', granularity: 'M15' });
+  const settingsPath = settingsFile(mkdtempSync(join(tmpdir(), 'kf-')), { keepFresh: '0', instrument: 'XAG/USD', granularity: 'M15' });
   const seen = [];
   let t = at(1);
   const runCycle = async (opts) => { seen.push({ instrument: opts.instrument, granularity: opts.granularity }); throw new Error('boom'); };
@@ -492,7 +465,7 @@ test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 
 test('startKeepFresh: cycleMinutes.M1=1 closes the M1 blind window — every tick fires the cycle, not just the :X1 bucket', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } });
+  const settingsPath = settingsFile(dir, { watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } });
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
   let nowMs = at(3); // off-phase for the old n=5 cadence, but every minute is in-phase for n=1
@@ -509,7 +482,7 @@ test('startKeepFresh: two watched granularities with different cycleMinutes fire
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   const settingsPath = settingsFile(dir, {
-    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+    watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
   });
   const seen = [];
   const runCycle = async (opts) => {
@@ -532,7 +505,7 @@ test('startKeepFresh: a slow M5 cycle in flight does not starve a due M1 cycle (
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   const settingsPath = settingsFile(dir, {
-    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+    watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
   });
   let releaseM5;
   const gateM5 = new Promise((r) => { releaseM5 = r; });
@@ -561,7 +534,7 @@ test('startKeepFresh: co-due granularities run concurrently (both fire on the sa
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
   const settingsPath = settingsFile(dir, {
-    watcherOwner: 'server', watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
+    watchers: 'BCO/USD|M1,XAU/USD|M5', cycleMinutes: { M1: 1, M5: 5 },
   });
   const started = [];
   const finished = [];
@@ -584,14 +557,14 @@ test('startKeepFresh: co-due granularities run concurrently (both fire on the sa
 test('startKeepFresh: a run-time cycleMinutes settings change takes effect without restart', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watcherOwner: 'server', watchers: 'BCO/USD|M1' }); // no cycleMinutes yet: default 5
+  const settingsPath = settingsFile(dir, { watchers: 'BCO/USD|M1' }); // no cycleMinutes yet: default 5
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
   let nowMs = at(3); // off-phase under the default n=5 cadence
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
   await handle.tick();
   assert.equal(cycleCalls, 0, 'default cadence: off-phase minute never fires');
-  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server', watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } }));
+  writeFileSync(settingsPath, JSON.stringify({ watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } }));
   await handle.tick();
   assert.equal(cycleCalls, 1, 'the settings change is read fresh every tick — no restart needed');
   handle.stop();
