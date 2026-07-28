@@ -363,6 +363,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // #163: candles newly retrieved this call, persisted asynchronously below
   // (scheduleAcquisition) — never written synchronously inside this GET.
   let pendingComplete = [];
+  let fetchedThisTick = true; // flipped off when the gate re-serves a prior fetch's bars
   if (fetcher && (!gate || Date.now() - gate.at > LIVE_TAIL_GATE_MS)) {
     try {
       const live = await fetcher({ instrument, granularity, count: 60 });
@@ -383,6 +384,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     liveTail = gate.tail; // gate closed: reuse the forming candle from the last fetch
     tailFetchedAt = gate.tail ? gate.at : null;
     pendingComplete = gate.pending ?? []; // #201: same union as the fetch tick
+    fetchedThisTick = false; // reused bars: render them, but don't re-persist every poll
   }
   // #gap-backfill: scan the FULL stored span for holes, not just the served
   // window below — a hole older than what's rendered would otherwise never
@@ -449,7 +451,9 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   }
   // #163: the actual persistence (new complete candles + flip backfill) is
   // deferred out of this GET — see scheduleAcquisition above.
-  scheduleAcquisition(dbPath, instrument, granularity, { complete: pendingComplete, flips, gaps, fetcher });
+  // #201: gate-closed ticks reuse gate.pending for the RESPONSE only — never
+  // re-persist the same bars on every sub-gate poll (idempotent but wasteful).
+  scheduleAcquisition(dbPath, instrument, granularity, { complete: fetchedThisTick ? pendingComplete : [], flips, gaps, fetcher });
   // The history table is scoped to the visible chart window: only signals whose
   // time falls within the shown candles (falls back to the latest 50 when there
   // are no candles yet). The current/deep-linked signal is resolved separately.
