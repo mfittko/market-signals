@@ -1786,6 +1786,31 @@ test('per-combo bots (#49): map validation, per-combo merge, null-delete, stored
   });
 });
 
+test('bot merge (#197): a saved strategyName (string OR explicit null) heals a legacy strategyId out of the stored entry', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    // AC3: assigning a new strategyName drops the stale id
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { enabled: true, strategyId: 1, strategyName: 'wti-m5-impulse-flip' } } } }) });
+    let got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyName: 'wti-m5-impulse-flip' }, 'strategyId healed away by the new strategyName write');
+
+    // AC1: a detach (strategyName: null) on an entry carrying a legacy id also
+    // clears the id — no ghost fallback on the next read
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyId: 1 } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.equal(got.bot.bots['WTICO/USD|M5'].strategyId, 1, 'sanity: legacy id is present before the detach');
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ bot: { bots: { 'WTICO/USD|M5': { strategyName: null } } } }) });
+    got = await (await fetch(base + '/api/settings')).json();
+    assert.deepEqual(got.bot.bots['WTICO/USD|M5'], { enabled: true, strategyName: null }, 'detach records the explicit null and clears the legacy strategyId');
+
+    // AC(d): /api/bots (the modal's data source) surfaces the detach as
+    // strategyName: null — no ghost fallback to the legacy strategy — which
+    // is what drives the "won't trade until assigned" warning.
+    const bots = await (await fetch(base + '/api/bots')).json();
+    const row = bots.bots.find((b) => b.combo === 'WTICO/USD|M5');
+    assert.equal(row.strategyName, null, 'detached bot surfaces no strategy, not the resurrected legacy one');
+  });
+});
+
 test('/api/bots serves the read-only activated-bots list; /api/chart carries botState (#49 design)', async () => {
   const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {

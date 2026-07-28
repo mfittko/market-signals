@@ -210,7 +210,15 @@ export function writeSettings(settingsPath, patch) {
           for (const [combo, entry] of Object.entries(bv)) {
             const k2 = normKey(combo);
             if (entry === null) delete bots[k2];
-            else bots[k2] = { ...(bots[k2] ?? {}), ...entry };
+            else {
+              const mergedEntry = { ...(bots[k2] ?? {}), ...entry };
+              // #197: a patch that sets strategyName (string OR explicit null)
+              // heals the entry — drop any legacy strategyId so a later detach
+              // (strategyName: null) can't resurrect it via resolveBotFor's
+              // legacy-id fallback.
+              if ('strategyName' in entry) delete mergedEntry.strategyId;
+              bots[k2] = mergedEntry;
+            }
           }
           merged.bots = bots;
         } else merged[bk] = bv;

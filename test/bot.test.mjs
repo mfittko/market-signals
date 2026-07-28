@@ -366,6 +366,26 @@ test('resolveBotFor + resolvedStrategy (#75): bots follow a NAME\'s active versi
   assert.equal(resolvedStrategy(db, resolveBotFor({ bot: { bots: { [`${WTI}|M5`]: { enabled: true } } } }, WTI, 'M5', db)), null);
 });
 
+test('resolveBotFor (#197): an explicit strategyName:null detach never falls back to a leftover legacy strategyId', async () => {
+  const { resolveBotFor, resolvedStrategy } = await import('../scripts/bot.mjs');
+  const { saveStrategy, activateStrategy } = await import('../scripts/strategies.mjs');
+  const db = fresh();
+  const v1 = saveStrategy(db, { name: 'conservative-supertrend', prompt: 'Open on confirmed flips with a protective stop, hold otherwise.' });
+  activateStrategy(db, v1.id);
+
+  // AC1: a still-present legacy strategyId beside an explicit detach must not
+  // resurrect the old strategy — resolveBotFor resolves to no strategy.
+  const detached = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: v1.id, strategyName: null } } } };
+  const botFor = resolveBotFor(detached, WTI, 'M5', db);
+  assert.equal(botFor.strategyName, null, 'explicit null detach wins over the leftover legacy id');
+  assert.equal(resolvedStrategy(db, botFor), null, 'no ghost fallback — the bot will not trade');
+
+  // AC2 (regression): a genuinely un-migrated entry (strategyId only, key
+  // absent) still resolves by id — legacy migration-on-read is unchanged.
+  const legacyOnly = { bot: { bots: { [`${WTI}|M5`]: { enabled: true, strategyId: v1.id } } } };
+  assert.equal(resolveBotFor(legacyOnly, WTI, 'M5', db).strategyName, 'conservative-supertrend', 'pure-legacy id-only entry still resolves');
+});
+
 test('resolveBotFor: a legacy strategyId pointing at an ARCHIVED version still resolves the name (review fix)', async () => {
   const { resolveBotFor, resolvedStrategy } = await import('../scripts/bot.mjs');
   const { saveStrategy, activateStrategy, archiveStrategy } = await import('../scripts/strategies.mjs');
