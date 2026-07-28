@@ -1097,6 +1097,22 @@ test('fetchCandles: an optional `from` is forwarded as a query param (backward c
   }
 });
 
+test('gapFetchPlan: literal expected {from,count} for a plain in-range gap', async () => {
+  const { gapFetchPlan } = await import('../scripts/supertrend.mjs');
+  const granMs = 5 * 60000; // M5
+  const gap = { start: Date.parse('2026-07-28T06:00:00.000Z'), end: Date.parse('2026-07-28T06:30:00.000Z') };
+  assert.deepEqual(gapFetchPlan(gap, granMs), { from: '2026-07-28T06:00:00.000Z', count: 8 });
+});
+
+test('gapFetchPlan: count is capped at 2500 and clamped to at least 1 for a degenerate (empty/inverted) gap', async () => {
+  const { gapFetchPlan } = await import('../scripts/supertrend.mjs');
+  const granMs = 60000; // M1
+  const huge = { start: 0, end: granMs * 100000 };
+  assert.equal(gapFetchPlan(huge, granMs).count, 2500);
+  const inverted = { start: 1000000000, end: 0 };
+  assert.equal(gapFetchPlan(inverted, granMs).count, 1);
+});
+
 test('repairGap: fetches from the gap start with the right count and upserts the missing rows', async () => {
   const { repairGap } = await import('../scripts/supertrend.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'gap-'));
@@ -1110,7 +1126,7 @@ test('repairGap: fetches from the gap start with the right count and upserts the
     for (let t = gap.start; t < gap.end; t += granMs) rows.push(fxempireCandleFromMs(t));
     return rows.map((r) => ({ ...r, complete: true }));
   };
-  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted: new Set() });
   assert.equal(requests.length, 1);
   assert.equal(requests[0].from, new Date(gap.start).toISOString());
   assert.equal(requests[0].count, Math.ceil((gap.end - gap.start) / granMs) + 2);
@@ -1123,15 +1139,16 @@ function fxempireCandleFromMs(ms) {
   return { time: new Date(ms).toISOString(), open: 70, high: 70.1, low: 69.9, close: 70, volume: 10, complete: true };
 }
 
-test('repairGap: an already-attempted gap is never re-fetched (per dbPath+combo+gapStart, process lifetime)', async () => {
+test('repairGap: an already-attempted gap is never re-fetched (per dbPath+combo+gapStart, injected Set lifetime)', async () => {
   const { repairGap } = await import('../scripts/supertrend.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'gap-'));
   const dbPath = join(dir, 'db.sqlite');
   const gap = { start: Date.parse('2026-07-28T21:00:00.000Z'), end: Date.parse('2026-07-28T22:00:00.000Z') };
   let calls = 0;
   const fetcher = async () => { calls++; return []; };
-  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
-  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  const attempted = new Set();
+  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted });
+  await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted });
   assert.equal(calls, 1, 'second attempt at the same gap is skipped from memory, not a second fetch');
 });
 
@@ -1141,8 +1158,32 @@ test('repairGap: an empty result (e.g. market-closed hole) still marks the gap a
   const dbPath = join(dir, 'db.sqlite');
   const gap = { start: Date.parse('2026-07-29T21:00:00.000Z'), end: Date.parse('2026-07-29T22:00:00.000Z') };
   const fetcher = async () => [];
-  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, log: () => {} });
+  const attempted = new Set();
+  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted });
   assert.equal(stored, 0);
+  assert.equal(attempted.size, 1, 'a legitimately empty result still marks the gap attempted');
   const { n } = withDb(dbPath, (db) => db.prepare('SELECT COUNT(*) AS n FROM candles').get());
   assert.equal(Number(n), 0);
+});
+
+test('repairGap: a THROWING fetch does not poison the gap — a later successful call still repairs it', async () => {
+  const { repairGap } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'gap-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const granMs = 5 * 60000;
+  const gap = { start: Date.parse('2026-07-30T06:00:00.000Z'), end: Date.parse('2026-07-30T06:30:00.000Z') };
+  const attempted = new Set();
+  let calls = 0;
+  const fetcher = async (opts) => {
+    calls++;
+    if (calls === 1) throw new Error('transient network blip');
+    const rows = [];
+    for (let t = gap.start; t < gap.end; t += granMs) rows.push(fxempireCandleFromMs(t));
+    return rows.map((r) => ({ ...r, complete: true }));
+  };
+  await assert.rejects(() => repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted }));
+  assert.equal(attempted.size, 0, 'a throw removes the gap key — it must not be left marked attempted');
+  const stored = await repairGap(dbPath, 'WTICO/USD', 'M5', gap, { fetcher, attempted });
+  assert.equal(calls, 2);
+  assert.equal(stored, (gap.end - gap.start) / granMs, 'the second, successful call repairs the gap');
 });

@@ -1036,7 +1036,8 @@ const GRAN_MINUTES = { M1: 1, M5: 5, M15: 15, M30: 30, H1: 60, H4: 240 };
 // the point immediately after a real gap) but never adds an x the candle
 // series doesn't already have.
 // shared by gapBreakData, contiguousRuns and draw()'s hasGap probe — one
-// definition of "these two adjacent timestamps straddle a feed gap"
+// definition of "these two adjacent timestamps straddle a feed gap". The `3`
+// mirrors GAP_BARS in scripts/supertrend.mjs (server-side findGaps) — keep in sync.
 function isGap(a, b, granMs) { return !!granMs && b - a > 3 * granMs; }
 function gapBreakData(times, ys, granMs) {
   return times.map((x, i) => ({ x, y: (i > 0 && isGap(times[i - 1], x, granMs)) ? null : ys[i] }));

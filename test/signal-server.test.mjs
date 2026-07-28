@@ -1481,6 +1481,53 @@ test('gap backfill: a hole in the stored window is repaired via a deferred range
   assert.equal(requests.length, 1, 'the already-attempted gap is not re-fetched on a second read');
 });
 
+test('gap backfill: a hole OLDER than the served window (outside chartData default count) is still detected and repaired', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const before = series([100, 101, 102], Date.parse('2026-06-01T08:00:00Z'));
+  const after = series([110, 111, 112], Date.parse('2026-06-01T09:00:00Z')); // 55 min gap, far in the past
+  // 200 contiguous candles right after `after` (no interior gap) — well past
+  // the default served window (count=120)
+  const filler = series(Array.from({ length: 200 }, (_, i) => 120 + i), Date.parse('2026-06-01T09:15:00Z'));
+  storeCandles(dbPath, INSTRUMENT, 'M5', [...before, ...after, ...filler]);
+  const gapStart = before[before.length - 1].time;
+  const gapEnd = after[0].time;
+  const requests = [];
+  const fetcher = async (opts) => {
+    if (!opts.from) return []; // the freshness live-tail probe inside chartData — irrelevant here
+    requests.push(opts);
+    const ms = Date.parse(opts.from);
+    const step = 300000;
+    const rows = [];
+    for (let t = ms; t < Date.parse(gapEnd); t += step) {
+      rows.push({ time: new Date(t).toISOString(), open: 105, high: 105.2, low: 104.8, close: 105, volume: 5, complete: true });
+    }
+    return rows;
+  };
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher });
+  assert.ok(!d.candles.some((c) => c.time === gapStart), 'sanity: the gap boundary is outside the served window');
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(requests.length, 1, 'the out-of-window gap was still detected (full stored-span scan) and scheduled for repair');
+  assert.equal(requests[0].from, gapStart);
+  const repaired = withDb(dbPath, (db) => db.prepare(
+    'SELECT COUNT(*) AS n FROM candles WHERE instrument=? AND granularity=? AND time > ? AND time < ?')
+    .get(INSTRUMENT, 'M5', gapStart, gapEnd));
+  assert.ok(Number(repaired.n) > 0, 'the out-of-window gap now has rows persisted');
+});
+
+test('AC3: chartData with fetcher:null over a gappy stored window schedules no repair (a null fetcher must never be called)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const before = series([100, 101, 102], Date.parse('2026-07-22T08:00:00Z'));
+  const after = series([110, 111, 112], Date.parse('2026-07-22T09:00:00Z'));
+  storeCandles(dbPath, INSTRUMENT, 'M5', [...before, ...after]);
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: null });
+  assert.ok(d.candles.length, 'chart still renders with a null fetcher');
+  await new Promise((r) => setTimeout(r, 20));
+  const { n } = withDb(dbPath, (db) => db.prepare('SELECT COUNT(*) AS n FROM candles').get());
+  assert.equal(Number(n), 6, 'no repair rows were inserted');
+});
+
 test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summaries — read-only', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath, settingsPath }) => {
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watchers: `${INSTRUMENT}|M5` }) });
