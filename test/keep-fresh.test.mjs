@@ -344,7 +344,9 @@ test('startKeepFresh: a throwing cycle is isolated — the tick continues to the
   handle.stop();
   assert.equal(sweepCalls, 1, 'a cycle failure never breaks chart serving (the sweep still ran)');
   const status = handle.getCycleStatus();
-  assert.equal(status.lastCycleAt, null, 'a failed cycle does not advance lastCycleAt');
+  // review fix: the ATTEMPT is stamped so a failing cycle waits out the full
+  // interval instead of retrying every 60s tick (the error field carries state)
+  assert.ok(status.lastCycleAt !== null, 'a failed cycle still stamps the attempt time');
   assert.match(status.lastCycleError, /llm boom/);
 });
 
@@ -352,3 +354,21 @@ test('startKeepFresh: the fixture no-fetcher handle exposes a safe getCycleStatu
   const handle = startKeepFresh({ dbPath: tmpDb(), settingsPath: settingsFile(mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-')), {}), fetcher: null });
   assert.deepEqual(handle.getCycleStatus(), { lastCycleAt: null, lastCycleError: null });
 });
+test('watcher cycle (#193 review): settings overrides reach the server-run cycle, and a FAILING cycle still waits out the interval', async () => {
+  const dbPath = tmpDb();
+  const settingsPath = settingsFile(mkdtempSync(join(tmpdir(), 'kf-')), { watcherOwner: 'server', keepFresh: '0', instrument: 'XAG/USD', granularity: 'M15' });
+  const seen = [];
+  let t = 1_000_000;
+  const runCycle = async (opts) => { seen.push({ instrument: opts.instrument, granularity: opts.granularity }); throw new Error('boom'); };
+  const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], now: () => t, runCycle, log: () => {}, lastLiveFetch: new Map(), liveGateMs: 8000 });
+  await handle.tick();
+  assert.equal(seen.length, 1, 'first eligible tick runs the cycle');
+  assert.deepEqual(seen[0], { instrument: 'XAG/USD', granularity: 'M15' }, 'settings instrument/granularity override DEFAULT_ARGS');
+  t += 60_000; await handle.tick();
+  assert.equal(seen.length, 1, 'a failed cycle does NOT retry on the next 60s tick');
+  t += 5 * 60_000; await handle.tick();
+  assert.equal(seen.length, 2, 'retries after the full interval');
+  assert.ok(handle.getCycleStatus().lastCycleError, 'error surfaced');
+  handle.stop();
+});
+

@@ -175,9 +175,18 @@ export function startKeepFresh({
       if (cfg.watcherOwner === 'server') {
         const nowMs = now();
         if (lastCycleAt == null || nowMs - lastCycleAt >= cycleIntervalMs) {
+          // stamp the ATTEMPT (not just success): a failing cycle waits out the
+          // interval like a successful one instead of retrying every 60s tick
+          lastCycleAt = nowMs;
+          // the same settings-over-defaults merge CLI main() applies — without
+          // it an empty `watchers` would fall back to DEFAULT_ARGS' combo and
+          // run the wrong instrument from the server
+          const opts = { ...DEFAULT_ARGS, notify: true, pretty: false, db: dbPath, settings: settingsPath };
+          for (const k of ['instrument', 'granularity', 'freshBars']) {
+            if (cfg[k] !== undefined) opts[k] = cfg[k];
+          }
           try {
-            await runCycle({ ...DEFAULT_ARGS, notify: true, pretty: false, db: dbPath, settings: settingsPath }, cfg);
-            lastCycleAt = nowMs;
+            await runCycle(opts, cfg);
             lastCycleError = null;
           } catch (err) {
             lastCycleError = err.message;
