@@ -13,7 +13,8 @@
 // request-free: whichever one last fetched a combo makes the other a no-op.
 import {
   fetchCandles, findGaps, repairGap, storeCandles, granularityMs, withDb,
-  readSettings, dbg, barsForSpan, parseWatchers,
+  readSettings, dbg, barsForSpan, parseWatchers, runWatcherCycle, DEFAULT_ARGS,
+  applyWatcherSettings, isServerOwned,
 } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
 import { isSettingOn } from './lib/settings-util.mjs';
@@ -25,6 +26,16 @@ const log = (msg) => dbg(`[keep-fresh] ${msg}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const MASTER_TICK_MS = 60000;
+// #193: single scheduled process — the server heartbeat runs the same
+// decision cycle the LaunchAgent's plist runs (StartCalendarInterval minutes
+// 1,6,11,...,56 — one minute after every M5 candle close). Candle-aligned,
+// not a plain 5-minute interval timer: local minute % 5 === 1 is "in phase",
+// and a bucket (floor(epoch ms / 5min)) newer than the last cycle's bucket is
+// "not yet run this bar" — so a restart mid-bucket waits for the next :X1
+// minute instead of firing off-phase immediately (no RunAtLoad-style burst).
+const CYCLE_BUCKET_MS = 5 * 60000;
+const isCyclePhase = (nowMs) => new Date(nowMs).getMinutes() % 5 === 1;
+const cycleBucket = (nowMs) => Math.floor(nowMs / CYCLE_BUCKET_MS);
 const INTER_REQUEST_DELAY_MS = 250; // politeness: serial sweep, small gap between live requests
 export const MAX_GAP_REPAIRS_PER_COMBO = 3; // residual gaps re-detect and repair next sweep
 export const BOOTSTRAP_SEED_BARS = 500; // a never-fetched combo seeds deep, not staleness-derived
@@ -146,29 +157,86 @@ export async function sweepAll(dbPath, settingsPath, {
 // freshness check inside sweepAll is the only suppressor (no cadence table).
 // Fixture safety: no live fetcher (tests/e2e pass `fetcher: null`) → never
 // sweeps, no timer created at all. `keepFresh: false` in settings disables
-// per-tick (checked every tick, so toggling needs no restart). An in-flight
-// guard stops the next tick from overlapping a sweep still running.
+// per-tick (checked every tick, so toggling needs no restart). The cycle and
+// the sweep each have their OWN in-flight guard (#193 review): a stuck LLM
+// cycle spanning multiple 60s ticks must never starve chart freshness, so a
+// sweep still runs on every tick even while a cycle from a prior tick is
+// still in flight.
+// One status-shape source (#193 review): both the no-fetcher fixture path
+// and the real getCycleStatus() build the same {lastCycleAt, lastCycleError}
+// object from the same two closure vars, never two hand-written copies.
+const cycleStatus = (lastCycleAt, lastCycleError) => ({
+  lastCycleAt: lastCycleAt == null ? null : new Date(lastCycleAt).toISOString(),
+  lastCycleError,
+});
+
 export function startKeepFresh({
   dbPath, settingsPath, fetcher, now = Date.now, logFn = log, tickMs = MASTER_TICK_MS,
   attempted = new Set(), lastLiveFetch, liveGateMs,
+  runCycle = runWatcherCycle,
 } = {}) {
-  if (!fetcher) return { stop() {}, tick: async () => {} };
-  let inFlight = false;
+  if (!fetcher) return { stop() {}, tick: async () => {}, getCycleStatus: () => cycleStatus(null, null) };
+  let cycleInFlight = false;
+  let sweepInFlight = false;
+  let lastCycleAt = null; // null = never run
+  let lastCycleBucket = null; // null = never run: the boot case waits for the next :X1 minute, not an immediate off-phase fire
+  let lastCycleError = null;
   const backoff = new Map(); // per-combo never-fresh backoff, lives as long as this loop
   const tick = async () => {
-    if (inFlight) return;
     const cfg = readSettings(settingsPath);
-    if (!isKeepFreshOn(cfg.keepFresh)) return;
-    inFlight = true;
+    // #193: decision cycle FIRST (latency-sensitive, matches the watcher's own
+    // comment) — fired without blocking the sweep below. Read watcherOwner AT
+    // RUN TIME (not at process start) — the single-owner guard's server-side
+    // half. Owner flip hygiene: the moment ownership moves away from the
+    // server, its stamped error clears (nothing else to stamp — the
+    // LaunchAgent's own run, if any, isn't this process's to report on).
+    if (isServerOwned(cfg)) {
+      const nowMs = now();
+      const bucket = cycleBucket(nowMs);
+      if (!cycleInFlight && isCyclePhase(nowMs) && (lastCycleBucket == null || bucket > lastCycleBucket)) {
+        // stamp the ATTEMPT (not just success) and the bucket it belongs to
+        // BEFORE the async call: a failing/slow cycle still claims this bar
+        // instead of retrying every 60s tick within the same bucket.
+        lastCycleAt = nowMs;
+        lastCycleBucket = bucket;
+        cycleInFlight = true;
+        // the same settings-over-defaults merge CLI main() applies — without
+        // it an empty `watchers` would fall back to DEFAULT_ARGS' combo and
+        // run the wrong instrument from the server. #193 review: freshBars
+        // defaults to the plist's operating value (1), not the CLI's looser
+        // default (2), when settings don't say otherwise.
+        const opts = applyWatcherSettings(
+          { ...DEFAULT_ARGS, freshBars: 1, notify: true, pretty: false, db: dbPath, settings: settingsPath },
+          cfg,
+        );
+        runCycle(opts, cfg).then(() => {
+          lastCycleError = null;
+        }).catch((err) => {
+          lastCycleError = err.message;
+          logFn(`[watcher-cycle] failed: ${err.message}`);
+        }).finally(() => { cycleInFlight = false; });
+      }
+    } else {
+      lastCycleError = null;
+    }
+    if (sweepInFlight) return;
+    sweepInFlight = true;
     try {
-      await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs, backoff });
+      if (isKeepFreshOn(cfg.keepFresh)) {
+        await sweepAll(dbPath, settingsPath, { fetcher, now, attempted, logFn, lastLiveFetch, liveGateMs, backoff });
+      }
     } catch (err) {
       logFn(`tick failed: ${err.message}`);
     } finally {
-      inFlight = false;
+      sweepInFlight = false;
     }
   };
   const timer = setInterval(() => { tick().catch((err) => logFn(`tick failed: ${err.message}`)); }, tickMs);
   timer.unref?.(); // never keep the process alive on its own
-  return { stop: () => clearInterval(timer), tick };
+  return {
+    stop: () => clearInterval(timer),
+    tick,
+    // #193: /api/health reads this — a bot/LLM failure never breaks chart serving.
+    getCycleStatus: () => cycleStatus(lastCycleAt, lastCycleError),
+  };
 }

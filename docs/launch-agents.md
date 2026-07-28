@@ -126,6 +126,38 @@ before the completion, so usage can't ride a header there). With the flag off,
 no headers/event are added; `/api/recheck` is byte-identical and the chat SSE
 body carries no usage event.
 
+## Ownership (#193)
+
+Exactly one process should run the decision cycle at a time: the
+LaunchAgent above (`watcherOwner` unset or `launchagent`, the default), or
+the signal-server's own heartbeat (`watcherOwner: 'server'` in
+`data/settings.json`, set from the config page's Advanced tab). Both sides
+read `watcherOwner` **at run time**, not at process start:
+
+- CLI (`scripts/supertrend.mjs` `main()`): if `watcherOwner === 'server'`, a
+  LaunchAgent-triggered run is a no-op (logged to stderr, exits 0) — you do
+  **not** need to `launchctl bootout` the watcher plist before flipping
+  ownership to the server. Do it anyway if you want the LaunchAgent's log
+  file to stop growing with no-op lines.
+- Server heartbeat (`scripts/keep-fresh.mjs`): runs the exact same decision
+  cycle (`runWatcherCycle`) on the same candle-aligned cadence as the
+  plist's `StartCalendarInterval` (local minute % 5 === 1, one bar per
+  cycle) when `watcherOwner === 'server'`.
+
+**Plist flags must be mirrored into settings when the LaunchAgent isn't the
+owner.** The plist above pins `--instrument`, `--granularity`, and
+`--freshBars 1` as CLI flags — those never reach the server heartbeat, which
+only reads `data/settings.json`. In particular, `freshBars` defaults to `1`
+for the server cycle specifically to match the plist's operating value (the
+CLI's own bare default is a looser `2`); if you rely on any *other* flag the
+plist pins, set the matching field in settings before cutting over, or the
+server cycle will silently run with a different value than the LaunchAgent
+did.
+
+Switching `watcherOwner` is a cutover, not a preference — hence its
+`.fieldhint.danger` treatment in the config page (same styling as the
+`port` field, the other setting a UI change can't apply live).
+
 ## Install / manage
 
 ```bash
@@ -144,6 +176,10 @@ tail -f REPO/data/supertrend-launchd.log     # per-run JSON + [supertrend] debug
 # stop / reload
 launchctl bootout gui/$(id -u)/com.market-signals.supertrend
 launchctl bootout gui/$(id -u)/com.market-signals.signal-server
+
+# cutting over to watcherOwner: 'server' (optional but recommended — stops
+# the watcher plist firing no-op runs on its own cron schedule)
+launchctl bootout gui/$(id -u)/com.market-signals.supertrend
 ```
 
 Notes:

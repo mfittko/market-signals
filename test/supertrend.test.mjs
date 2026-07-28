@@ -1187,3 +1187,52 @@ test('repairGap: a THROWING fetch does not poison the gap — a later successful
   assert.equal(calls, 2);
   assert.equal(stored, (gap.end - gap.start) / granMs, 'the second, successful call repairs the gap');
 });
+
+// --- #193: single scheduled process — runWatcherCycle export + CLI single-owner guard ---
+test('runWatcherCycle is exported and returns per-combo results (same shape main() used to inline)', async () => {
+  const { runWatcherCycle, DEFAULT_ARGS } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'cycle-'));
+  const dbPath = join(dir, 'db.sqlite');
+  withDb(dbPath, () => {});
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({}));
+  // runOne has no fetcher injection point (acquireWindow always resolves the
+  // real fetchCandles) — stub the one network seam it goes through, same
+  // pattern the existing fetchCandles test uses for the same reason.
+  const http = await import('node:http');
+  const closes = [...Array(40).fill(100), ...Array.from({ length: 20 }, (_, i) => 100 - (i + 1))];
+  const rows = closes.map((c, i) => ({
+    time: new Date(Date.parse('2026-07-28T00:00:00Z') + i * 300000).toISOString(),
+    mid: { o: c, h: c + 0.2, l: c - 0.2, c }, volume: 10, complete: true,
+  }));
+  const srv = http.createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ candles: rows })); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const realFetch = globalThis.fetch;
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  globalThis.fetch = (url, opts) => realFetch(String(url).replace('https://p.fxempire.com/oanda/candles/latest', base), opts);
+  try {
+    // An instrument with no sentinel/news config entry (unlike WTICO/USD) makes
+    // the best-effort news-cache step a fast no-op instead of a real,
+    // slow-to-timeout GDELT network attempt.
+    const opts = { ...DEFAULT_ARGS, instrument: 'TEST/XYZ', granularity: 'M5', db: dbPath, settings: join(dir, 'settings.json'), count: 30 };
+    const results = await runWatcherCycle(opts, { watchers: '' });
+    assert.ok(Array.isArray(results));
+    assert.equal(results.length, 1);
+    assert.equal(results[0].instrument, 'TEST/XYZ');
+    assert.equal(results[0].ok, true);
+  } finally {
+    globalThis.fetch = realFetch;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('CLI main(): watcherOwner=server no-ops with an empty result and never runs the cycle (single-owner guard, read at run time)', () => {
+  const script = fileURLToPath(new URL('../scripts/supertrend.mjs', import.meta.url));
+  const dir = mkdtempSync(join(tmpdir(), 'st-owner-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ watcherOwner: 'server' }));
+  const res = spawnSync('node', [script, '--settings', settingsPath, '--pretty', 'false'], { encoding: 'utf8', timeout: 20000, cwd: dir });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'no stdout print on the no-op path (stderr dbg suffices)');
+  assert.ok(/watcherOwner=server/.test(res.stderr), 'logs the no-op reason');
+  assert.equal(existsSync(join(dir, 'data')), false, 'no db/network side effects when the CLI no-ops');
+});

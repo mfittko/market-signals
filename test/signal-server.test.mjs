@@ -1544,10 +1544,25 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.equal(typeof h.llm, 'object');
     assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
     assert.ok(Array.isArray(h.bots));
+    // #193: default watcherOwner (unset) reports as launchagent, never-run cycle
+    assert.deepEqual(h.cycle, { owner: 'launchagent', lastCycleAt: null, lastCycleError: null });
 
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
     assert.equal(post.status, 404, 'health only registers a GET route');
+  });
+});
+
+test('#193: watcherOwner is validated and GET /api/health reflects it', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const bad = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'nonsense' }) });
+    assert.equal(bad.status, 400);
+
+    const ok = await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ watcherOwner: 'server' }) });
+    assert.equal(ok.status, 200);
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.cycle.owner, 'server');
+    assert.equal(h.cycle.lastCycleAt, null, 'this fixture uses fetcher:null — no timer, cycle never ran');
   });
 });
 
