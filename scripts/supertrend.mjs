@@ -998,7 +998,9 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
   // treat both kinds identically: a NEW row this run is the event, whether or
   // not the ping itself went out.
   if (suppressReason) {
-    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, 'suppress', suppressReason, 0, 'volume-impulse');
+    // verdict stays null: 'suppress' is the gate-filter vocabulary, and a
+    // coincide-bar row wearing it makes the UI claim a gate evaluated it.
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, suppressReason, 0, 'volume-impulse');
     return { sent: false, reason: suppressReason, impulse };
   }
   if (!opts.notify) {

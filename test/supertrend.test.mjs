@@ -1470,7 +1470,8 @@ test('flip-alert-wins: a real runWatcherCycle where a flip AND a qualifying impu
     const rowsAll = signalOutcomes(dbPath, 'TEST/COINCIDE', 'M5', { kinds: 'all' });
     const imp = rowsAll.find((r) => r.kind === 'volume-impulse');
     assert.ok(rowsAll.some((r) => r.kind === 'supertrend-flip'));
-    assert.equal(imp.verdict, 'suppress');
+    assert.equal(imp.verdict, null, 'gate vocabulary is reserved for rows a gate actually evaluated');
+    assert.equal(imp.reason, 'flip alert already sent');
     assert.equal(imp.notified, 0);
     const rerun = await runWatcherCycle(opts, { watchers: '' });
     assert.equal(rerun[0].impulse.reason, 'already processed', 'the suppressed row dedups the next cycle');
