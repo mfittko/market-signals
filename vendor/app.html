@@ -1980,7 +1980,7 @@ const FIELD_HINTS = {
   NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
   NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
-  cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to 5. Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
+  cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to the bar length capped at 5 (M1 → 1, M5+ → 5). Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',

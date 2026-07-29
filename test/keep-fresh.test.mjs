@@ -450,9 +450,16 @@ test('cycleCadenceMinutes: an explicit map entry wins', () => {
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1, M15: 15 } }, 'M15'), 15);
 });
 
-test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to 5', () => {
+test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to the granularity default', () => {
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 1.5 } }, 'M5'), 5);
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 0 } }, 'M5'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 0 } }, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1.5 } }, 'M1'), 1);
+});
+
+test('cycleCadenceMinutes: unknown or malformed granularity resolves to 5 via the granularityMs fallback', () => {
+  assert.equal(cycleCadenceMinutes({}, 'bogus'), 5);
+  assert.equal(cycleCadenceMinutes({}, undefined), 5);
 });
 
 test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 minutes', () => {
