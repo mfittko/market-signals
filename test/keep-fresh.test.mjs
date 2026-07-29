@@ -436,10 +436,13 @@ test('watcher cycle (#193 review): settings overrides reach the server-run cycle
 });
 
 // --- #195: per-granularity cycleMinutes cadence ---
-test('cycleCadenceMinutes: unset map/key defaults to 5 (exact parity with pre-#195)', () => {
+test('cycleCadenceMinutes: unset map/key defaults to the bar length capped at 5', () => {
   assert.equal(cycleCadenceMinutes({}, 'M5'), 5);
-  assert.equal(cycleCadenceMinutes({ cycleMinutes: {} }, 'M1'), 5);
-  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 5 } }, 'M1'), 5);
+  assert.equal(cycleCadenceMinutes({}, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: {} }, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 5 } }, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({}, 'M15'), 5);
+  assert.equal(cycleCadenceMinutes({}, 'H1'), 5);
 });
 
 test('cycleCadenceMinutes: an explicit map entry wins', () => {
@@ -447,9 +450,17 @@ test('cycleCadenceMinutes: an explicit map entry wins', () => {
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1, M15: 15 } }, 'M15'), 15);
 });
 
-test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to 5', () => {
+test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.json) fall back to the granularity default', () => {
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 1.5 } }, 'M5'), 5);
   assert.equal(cycleCadenceMinutes({ cycleMinutes: { M5: 0 } }, 'M5'), 5);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 0 } }, 'M1'), 1);
+  assert.equal(cycleCadenceMinutes({ cycleMinutes: { M1: 1.5 } }, 'M1'), 1);
+});
+
+test('cycleCadenceMinutes: unknown or malformed granularity resolves to 5 via the granularityMs fallback', () => {
+  assert.equal(cycleCadenceMinutes({}, 'bogus'), 5);
+  assert.equal(cycleCadenceMinutes({}, undefined), 5);
+  assert.equal(cycleCadenceMinutes({}, 'M0'), 1, 'M0 parses to 0ms — the floor keeps it cycling instead of minutes % 0 = NaN never firing');
 });
 
 test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 minutes', () => {
@@ -557,14 +568,14 @@ test('startKeepFresh: co-due granularities run concurrently (both fire on the sa
 test('startKeepFresh: a run-time cycleMinutes settings change takes effect without restart', async () => {
   const dbPath = tmpDb();
   const dir = mkdtempSync(join(tmpdir(), 'keep-fresh-cycle-'));
-  const settingsPath = settingsFile(dir, { watchers: 'BCO/USD|M1' }); // no cycleMinutes yet: default 5
+  const settingsPath = settingsFile(dir, { watchers: 'BCO/USD|M5' }); // no cycleMinutes yet: default 5
   let cycleCalls = 0;
   const runCycle = async () => { cycleCalls++; return []; };
   let nowMs = at(3); // off-phase under the default n=5 cadence
   const handle = startKeepFresh({ dbPath, settingsPath, fetcher: async () => [], runCycle, now: () => nowMs });
   await handle.tick();
   assert.equal(cycleCalls, 0, 'default cadence: off-phase minute never fires');
-  writeFileSync(settingsPath, JSON.stringify({ watchers: 'BCO/USD|M1', cycleMinutes: { M1: 1 } }));
+  writeFileSync(settingsPath, JSON.stringify({ watchers: 'BCO/USD|M5', cycleMinutes: { M5: 1 } }));
   await handle.tick();
   assert.equal(cycleCalls, 1, 'the settings change is read fresh every tick — no restart needed');
   handle.stop();

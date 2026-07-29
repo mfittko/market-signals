@@ -27,7 +27,7 @@ candle fetching, decisions, and alerts (see
 ## The decision cycle — `scripts/keep-fresh.mjs` (server heartbeat)
 
 Runs on each watched combo's own candle-aligned cadence (`cycleMinutes[gran]`,
-default 5 — see #195), owned by the signal-server process. For every
+default: the bar length capped at 5, so M1 cycles every bar — see #195), owned by the signal-server process. For every
 configured watcher combo (`watchers` CSV in settings, e.g.
 `WTICO/USD|M5, XAU/USD|M15`):
 

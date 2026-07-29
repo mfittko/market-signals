@@ -15,7 +15,7 @@ node path (launchd does not read your shell PATH).
 Always-on localhost server (`KeepAlive`) so notification deep links resolve
 the moment an alert arrives. Its heartbeat (`scripts/keep-fresh.mjs`) runs
 the decision cycle (`runWatcherCycle`) on each watched combo's own
-candle-aligned cadence (`cycleMinutes[gran]`, default 5 — see #195), plus:
+candle-aligned cadence (`cycleMinutes[gran]`, default: the bar length capped at 5, so M1 cycles every bar — see #195), plus:
 
 - **per-combo bots** deliberate on a fresh flip or an adverse-move event for
   their combo (paper trades against `data/candles.db`'s virtual portfolio);
