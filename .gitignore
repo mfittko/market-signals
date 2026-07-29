@@ -10,3 +10,4 @@ reports/backtests/cache/
 .env
 .env.*
 .pi/
+test/tmp-*.db
