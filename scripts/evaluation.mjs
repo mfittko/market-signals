@@ -320,7 +320,7 @@ export function gateDisagreementInDb(db, { instrument, granularity, need = GATE_
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
-    sigStmt = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?');
+    sigStmt = db.prepare("SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND (kind='supertrend-flip' OR kind IS NULL)");
   } catch (err) {
     if (/no such table/i.test(String(err.message))) return null; // pre-schema db: nothing recorded yet
     throw err;
@@ -360,7 +360,7 @@ export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_N
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
-    sigStmt = db.prepare('SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=?');
+    sigStmt = db.prepare("SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND (kind='supertrend-flip' OR kind IS NULL)");
   } catch (err) {
     if (/no such table/i.test(String(err.message))) return state; // pre-schema db: nothing recorded yet
     throw err;

@@ -1281,7 +1281,7 @@ test('impulseSettings: valid overrides win, invalid/missing values fall back per
   assert.equal(impulseSettings({ impulseCooldownBars: 'x' }).cooldownBars, 10, 'non-numeric falls back');
 });
 
-test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run is already-processed; notify:false skips', async () => {
+test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run is already-processed; notify:false records without sending (flip parity)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-impulse-'));
   const settingsPath = join(dir, 'settings.json');
   writeFileSync(settingsPath, JSON.stringify({}));
@@ -1290,9 +1290,15 @@ test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run
   const sent = [];
   const sendFn = (msg, deepLink) => sent.push({ msg, deepLink });
 
-  const off = await processImpulseAlert({ db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: false, settings: settingsPath }, c, { sendFn });
-  assert.equal(off.reason, 'notify off');
+  // notify off records the row without a ping — same contract as the flip
+  // path's 'recorded (notify off)', so bot event gating treats kinds alike.
+  const offDb = join(dir, 'off.sqlite');
+  const off = await processImpulseAlert({ db: offDb, instrument: 'WTICO/USD', granularity: 'M5', notify: false, settings: settingsPath }, c, { sendFn });
+  assert.equal(off.reason, 'recorded (notify off)');
   assert.equal(sent.length, 0);
+  const [offRow] = signalOutcomes(offDb, 'WTICO/USD', 'M5', { kinds: 'all' });
+  assert.equal(offRow.kind, 'volume-impulse');
+  assert.equal(offRow.notified, 0);
 
   const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
   const first = await processImpulseAlert(opts, c, { sendFn });
@@ -1514,4 +1520,58 @@ test('kind-PK migration backfills a legacy (pre-kind) DB and preserves its rows'
   // The PK now includes kind: a same-bar impulse must no longer collide.
   assert.equal(recordSignal(dbPath, 'WTICO/USD', 'M5', { time: candles[5].time, signal: 'sell', price: candles[5].close }, null, 'volume-impulse').isNew, true);
   rmSync(dbPath, { force: true });
+});
+
+test('impulse cooldown is kind-scoped: a flip row NEWER than the last impulse does not disable the cooldown', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-kindcool-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ impulseCooldownBars: COOLDOWN_BARS }));
+  const dbPath = join(dir, 'db.sqlite');
+  const sent = [];
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+
+  const first = await processImpulseAlert(opts, impulseCandles(), { sendFn: (m) => sent.push(m) });
+  assert.equal(first.sent, true);
+  // A flip lands on the NEXT bar — newest row in the table is now a flip.
+  // A newest-row-of-any-kind cooldown lookup would see it, find no impulse,
+  // and let the bar after alert straight through the window.
+  const flipTime = new Date(Date.parse(first.impulse.time) + 300000).toISOString();
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: flipTime, signal: 'sell', price: 100 }, null);
+  const second = await processImpulseAlert(opts, shiftedImpulseCandles(2), { sendFn: (m) => sent.push(m) });
+  assert.equal(second.reason, 'impulse cooldown', JSON.stringify(second));
+  assert.equal(sent.length, 1);
+});
+
+test('signalOutcomes adverse join ignores impulse rows: an opposite-direction impulse never closes a flip trade', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-adverse-kind-test.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const flipTime = candles[20].time;
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: flipTime, signal: 'buy', price: candles[20].close }, null);
+  // Opposite-direction impulse two bars later — kind-filtered out of the
+  // adverse lookup; an unfiltered lookup would close the flip trade here.
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: candles[22].time, signal: 'sell', price: candles[22].close }, null, 'volume-impulse');
+  const flip = signalOutcomes(dbPath, 'WTICO/USD', 'M5').find((s) => s.time === flipTime);
+  assert.ok(flip);
+  assert.equal(flip.adverseOpen, true, 'no opposite FLIP exists, so the trade must still be open');
+});
+
+test('updateSignal kind scoping: an impulse alert on a bar carrying a flip row leaves the flip row untouched', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-kindupd-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({}));
+  const dbPath = join(dir, 'db.sqlite');
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+  const c = impulseCandles();
+  const barTime = c[c.length - 1].time;
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: barTime, signal: 'buy', price: 101 }, null);
+  const res = await processImpulseAlert(opts, c, { sendFn: () => {} });
+  assert.equal(res.sent, true, JSON.stringify(res));
+  const rows = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' }).filter((s) => s.time === barTime);
+  const flip = rows.find((s) => s.kind === 'supertrend-flip');
+  const imp = rows.find((s) => s.kind === 'volume-impulse');
+  assert.equal(imp.verdict, 'alert');
+  assert.equal(imp.notified, 1);
+  assert.equal(flip.verdict, null, 'an unscoped UPDATE would have stamped the impulse verdict onto the flip row');
+  assert.equal(flip.notified, 0);
 });

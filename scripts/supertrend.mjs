@@ -66,6 +66,11 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
 // loser blocks on the writer lock, then re-checks and finds the PK already
 // migrated (this function is idempotent by construction — CREATE/DROP/RENAME
 // all target names that only exist mid-migration).
+function signalsKindPkMissing(db) {
+  const cols = db.prepare('PRAGMA table_info(signals)').all();
+  return !cols.some((c) => c.name === 'kind' && c.pk > 0);
+}
+
 function migrateSignalsKindPk(db) {
   const cols = db.prepare('PRAGMA table_info(signals)').all();
   const hasKind = cols.some((c) => c.name === 'kind');
@@ -96,18 +101,21 @@ export function withDb(dbPath, fn) {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(CANDLES_DDL);
     db.exec(SIGNALS_DDL);
-    // kind-in-PK migration: race-safe across processes. BEGIN IMMEDIATE takes
-    // the write lock up front (busy_timeout above governs the wait); a
-    // concurrent opener blocks here rather than racing the ALTER/rebuild, and
-    // migrateSignalsKindPk is a no-op once the PK already includes kind, so
-    // the loser's turn inside the lock does nothing.
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      migrateSignalsKindPk(db);
-      db.exec('COMMIT');
-    } catch (err) {
-      try { db.exec('ROLLBACK'); } catch { /* nothing to roll back */ }
-      throw err;
+    // kind-in-PK migration, double-checked: the lock-free probe keeps every
+    // ordinary open (including pure reads polled every few seconds) off the
+    // write lock — taking BEGIN IMMEDIATE unconditionally made reads contend
+    // with long bot/watcher write transactions and throw 'database is locked'.
+    // Only an unmigrated table takes the write lock, and the re-check inside
+    // it means a process that lost the race commits a no-op.
+    if (signalsKindPkMissing(db)) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if (signalsKindPkMissing(db)) migrateSignalsKindPk(db);
+        db.exec('COMMIT');
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch { /* nothing to roll back */ }
+        throw err;
+      }
     }
     return fn(db);
   } finally {
@@ -959,7 +967,6 @@ export function impulseSettings(settings = {}) {
 // suppressed re-alert. Runs after processSignal each cycle; the caller skips
 // this entirely when a flip alert already fired this run (one ping per event).
 export async function processImpulseAlert(opts, candles, { sendFn = sendNotification } = {}) {
-  if (!opts.notify) return { sent: false, reason: 'notify off' };
   if (!opts.db) return { sent: false, reason: 'requires --db' };
   const settings = readSettings(opts.settings);
   const { mult, period, cooldownBars } = impulseSettings(settings);
@@ -987,6 +994,13 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
   const sig = { time: impulse.time, signal: impulse.direction === 'up' ? 'buy' : 'sell', price: last.close };
   const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, null, 'volume-impulse');
   if (!isNew) return { sent: false, reason: 'already processed', impulse };
+  // Recorded-but-unnotified mirrors the flip path, so bot event gating can
+  // treat both kinds identically: a NEW row this run is the event, whether or
+  // not the ping itself went out.
+  if (!opts.notify) {
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, 'recorded (notify off)', 0, 'volume-impulse');
+    return { sent: false, reason: 'recorded (notify off)', impulse };
+  }
 
   const msg = `${opts.instrument} volume impulse ${impulse.direction.toUpperCase()} @ ${last.close} — 2 bars >=${mult}x avg volume (last ${impulse.volRatio}x), ${localHm(impulse.time)}`;
   const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, impulse.time);
@@ -1516,7 +1530,12 @@ async function runOne(opts) {
         const newThisRun = result.notify?.sent === true
           || /^(suppressed by filter|recorded \(notify off\)|notification failed)/.test(result.notify?.reason || '');
         const freshFlip = result.signal?.fresh && newThisRun ? result.signal : null;
-        const freshImpulse = result.impulse?.sent === true ? result.impulse.impulse : null;
+        // Impulse bot events use the same newly-recorded-this-run rule as
+        // flips: sent, recorded with notify off, or a failed notification all
+        // count; cooldown / 'already processed' re-sightings never do.
+        const impulseNewThisRun = result.impulse?.sent === true
+          || /^(recorded \(notify off\)|notification failed)/.test(result.impulse?.reason || '');
+        const freshImpulse = impulseNewThisRun ? result.impulse.impulse : null;
         let botAxes = result.notify?.gateSnapshot?.axes ?? null; // flip events reuse the signal-time snapshot
         if (!botAxes) {
           try {
