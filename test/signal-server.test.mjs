@@ -2481,3 +2481,22 @@ test('provider footnotes (#116, default flipped ON by #171): toggle round-trips,
     assert.ok((await (await fetch(b + '/')).text()).includes('sentinelSourceFootnotes'), 'rendered as a settings field');
   });
 });
+
+test('chartData: an explicit kind pins the deep-linked signal on a same-bar flip+impulse collision; without it the flip wins', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'srv-kindlink-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const gran = 'M5';
+  const now = Date.now() - (Date.now() % 300000);
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    time: new Date(now - (29 - i) * 300000).toISOString(),
+    open: 100, high: 100.5, low: 99.5, close: 100, volume: 10, complete: true,
+  }));
+  storeCandles(dbPath, 'K/T', gran, rows);
+  const barTime = rows[10].time;
+  recordSignal(dbPath, 'K/T', gran, { time: barTime, signal: 'buy', price: 100 }, null);
+  recordSignal(dbPath, 'K/T', gran, { time: barTime, signal: 'sell', price: 100 }, null, 'volume-impulse');
+  const pinned = await chartData(dbPath, 'K/T', { t: barTime, kind: 'volume-impulse', granularity: gran, fetcher: null });
+  assert.equal(pinned.signal.kind, 'volume-impulse');
+  const dflt = await chartData(dbPath, 'K/T', { t: barTime, granularity: gran, fetcher: null });
+  assert.equal(dflt.signal.kind, 'supertrend-flip');
+});

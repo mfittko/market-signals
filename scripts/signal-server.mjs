@@ -362,7 +362,7 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
   });
 }
 
-export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
+export async function chartData(dbPath, instrument, { t = null, kind = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
@@ -510,7 +510,12 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   if (t) {
     const variants = /\.\d+Z$/.test(t) ? [t] : [t, `${t.slice(0, -1)}.000000000Z`, `${t.slice(0, -1)}.000Z`];
     for (const v of variants) {
-      signal = signals.find((s) => s.time === v) ?? signalOutcomes(dbPath, instrument, granularity, { time: v, kinds: 'all' })[0] ?? null;
+      // an explicit kind pins the row on same-bar flip+impulse collisions;
+      // without one the flip wins (kinds:'all' rows are flip-first)
+      const pool = [...signals, ...signalOutcomes(dbPath, instrument, granularity, { time: v, kinds: 'all' })];
+      signal = (kind ? pool.find((s) => s.time === v && s.kind === kind) : null)
+        ?? pool.find((s) => s.time === v && (s.kind === 'supertrend-flip' || s.kind == null))
+        ?? pool.find((s) => s.time === v) ?? null;
       if (signal) break;
     }
   } else {
@@ -1049,12 +1054,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const cfg = readSettings(settingsPath);
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
+        const kindParam = url.searchParams.get('kind');
         const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
         const parseInd = (v) => (v || '').split(',').map((x) => x.trim()).filter((x) => ['ema', 'rsi', 'macd', 'bb', 'vwap'].includes(x));
         const indParam = parseInd(url.searchParams.get('ind'));
         // no URL selection → the globally-stored selection applies (#49)
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
-        const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
+        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
         data.activeInd = effectiveInd;
         // #163: the one tz pipeline — the trader tz, so the client can format
         // every timestamp (signals, audit, candles) with `timeZone: tz`.
