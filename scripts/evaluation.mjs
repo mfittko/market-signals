@@ -2,7 +2,7 @@
 // Evaluation layer (issue #26, epic #27): per-strategy performance from the
 // trades journal, baselines from the same candle windows, and the decision
 // audit — all read-only, computed on demand from what #22/#23 already record.
-import { withDb, computeSupertrend, detectFlips, backtestFlips, granularityMs } from './supertrend.mjs';
+import { withDb, computeSupertrend, detectFlips, backtestFlips, granularityMs, FLIP_KIND_PREDICATE } from './supertrend.mjs';
 import { normCombo } from './bot.mjs';
 
 function rows(dbPath, sql, args = []) {
@@ -320,7 +320,7 @@ export function gateDisagreementInDb(db, { instrument, granularity, need = GATE_
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
-    sigStmt = db.prepare("SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND (kind='supertrend-flip' OR kind IS NULL)");
+    sigStmt = db.prepare(`SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND ${FLIP_KIND_PREDICATE}`);
   } catch (err) {
     if (/no such table/i.test(String(err.message))) return null; // pre-schema db: nothing recorded yet
     throw err;
@@ -360,7 +360,7 @@ export function decisionRailByComboInDb(db, combos, { need = GATE_DISAGREEMENT_N
   let stmt; let sigStmt;
   try {
     stmt = db.prepare("SELECT at, reason, context FROM bot_journal WHERE action='decision' ORDER BY id DESC");
-    sigStmt = db.prepare("SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND (kind='supertrend-flip' OR kind IS NULL)");
+    sigStmt = db.prepare(`SELECT verdict FROM signals WHERE instrument=? AND granularity=? AND time=? AND ${FLIP_KIND_PREDICATE}`);
   } catch (err) {
     if (/no such table/i.test(String(err.message))) return state; // pre-schema db: nothing recorded yet
     throw err;

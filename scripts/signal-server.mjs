@@ -532,7 +532,7 @@ export async function chartData(dbPath, instrument, { t = null, kind = null, cou
   // (see /api/recheck), so the client must only render it when the shown
   // signal IS that latest one — never on a deep-linked historical view (?t=),
   // where a click would silently re-check a different signal than displayed.
-  out.isLatestSignal = signal ? latest?.time === signal.time : true;
+  out.isLatestSignal = signal ? (signal.kind !== 'volume-impulse' && latest?.time === signal.time) : true;
   // #70: the last re-check for the shown signal rides with the chart so a
   // reload shows it without a POST — the verdict/history rows it read stay untouched.
   if (signal) {

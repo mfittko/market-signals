@@ -13,7 +13,7 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { withDb } from './supertrend.mjs';
+import { withDb, FLIP_KIND_PREDICATE } from './supertrend.mjs';
 
 const NAI = 'newsapi-ai';
 
@@ -88,7 +88,7 @@ export function tradingRelevance(db, instrument, obs, sinceIso, provider = NAI) 
   const naiSeen = obs.filter((o) => o.provider === provider).map((o) => Date.parse(o.first_seen_at)).filter(Number.isFinite);
   const tableExists = (name) => !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name);
   const flips = tableExists('signals')
-    ? db.prepare('SELECT time FROM signals WHERE instrument=? AND time>=?').all(instrument, sinceIso).map((r) => Date.parse(r.time)).filter(Number.isFinite) : [];
+    ? db.prepare(`SELECT time FROM signals WHERE instrument=? AND time>=? AND ${FLIP_KIND_PREDICATE}`).all(instrument, sinceIso).map((r) => Date.parse(r.time)).filter(Number.isFinite) : [];
   // bot_journal is created by the bot pipeline, not by withDb — absent in a fresh
   // candles.db, so guard rather than assume it exists (read-only, never creates).
   // It has no instrument column; the instrument lives in the context JSON, so

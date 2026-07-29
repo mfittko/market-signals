@@ -123,7 +123,13 @@ export function withDb(dbPath, fn) {
   }
 }
 
-// Signal memory: every fresh flip is recorded once (PK doubles as alert dedup).
+// One shared SQL predicate for 'flip rows only' — kind is NOT NULL after the
+// PK migration, but rows written by an OLD binary against a migrated db keep
+// the NULL branch honest (the column default only covers this binary's inserts).
+export const FLIP_KIND_PREDICATE = "(kind='supertrend-flip' OR kind IS NULL)";
+
+// Signal memory: every signal event (flip or impulse) is recorded once per
+// kind — the kind-scoped PK doubles as alert dedup.
 export function recordSignal(dbPath, instrument, granularity, sig, winRatePct, kind = 'supertrend-flip') {
   return withDb(dbPath, (db) => {
     const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate, kind) VALUES (?,?,?,?,?,?,?)')
@@ -153,7 +159,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
     // Default scope is flip statistics: every existing filter/duplicate-detection/
     // outcome caller must keep seeing only supertrend flips (impulse rows never
     // pollute win-rate stats). kinds:'all' is opt-in for history-rendering callers.
-    const kindClause = kinds === 'all' ? '' : " AND (kind='supertrend-flip' OR kind IS NULL)";
+    const kindClause = kinds === 'all' ? '' : ` AND ${FLIP_KIND_PREDICATE}`;
     const sigs = time
       ? db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?${kindClause}`).all(instrument, granularity, time)
       : before != null
@@ -166,7 +172,7 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
     // impulse row, regardless of the `kinds` scope the outer query used: an
     // impulse can carry either direction mid-trend and would otherwise cut a
     // flip's tracked trade short at an unrelated event's price.
-    const nextAdverse = db.prepare("SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? AND (kind='supertrend-flip' OR kind IS NULL) ORDER BY time LIMIT 1");
+    const nextAdverse = db.prepare(`SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? AND ${FLIP_KIND_PREDICATE} ORDER BY time LIMIT 1`);
     const lastClose = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity)?.close ?? null;
     return sigs.map((s) => {
       const dir = s.signal === 'buy' ? 1 : -1;
@@ -965,10 +971,12 @@ export function impulseSettings(settings = {}) {
   };
 }
 
-// Volume-impulse alert path: notification-only (no LLM filter — issue's default
-// pickup for phase 1), DB-backed cooldown so a restart never resurrects a
-// suppressed re-alert. Runs after processSignal each cycle; the caller skips
-// this entirely when a flip alert already fired this run (one ping per event).
+// Volume-impulse alert path: notification-only (no LLM filter — the issue's
+// default pickup for phase 1), DB-backed cooldown so a restart never
+// resurrects a suppressed re-alert. Runs after processSignal each cycle; when
+// a flip alert already fired this run the caller passes suppressReason, so
+// the impulse is recorded ping-less instead of skipped (one ping per event,
+// durable against the next cycle re-seeing the same pair).
 export async function processImpulseAlert(opts, candles, { sendFn = sendNotification, suppressReason = null } = {}) {
   if (!opts.db) return { sent: false, reason: 'requires --db' };
   const settings = readSettings(opts.settings);

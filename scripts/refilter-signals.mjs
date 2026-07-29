@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 import {
   withDb, computeSupertrend, detectFlips, backtestFlips, signalOutcomes,
   buildFilterPayload, llmVerdict, resolveFilterSystem, readSettings, applyProviderDefault,
+  FLIP_KIND_PREDICATE,
 } from './supertrend.mjs';
 
 const dbg = (msg) => process.stderr.write(`[refilter-signals] ${msg}\n`);
@@ -97,7 +98,7 @@ export async function runRefilter(dbPath, settings, {
   if (!where) throw new Error(`unknown --predicate "${predicate}" (supported: ${Object.keys(PREDICATES).join(', ')})`);
 
   const rows = withDb(dbPath, (db) => {
-    let sql = `SELECT * FROM signals WHERE ${where}`;
+    let sql = `SELECT * FROM signals WHERE ${FLIP_KIND_PREDICATE} AND (${where})`;
     const params = [];
     if (since) { sql += ' AND time >= ?'; params.push(since); }
     if (instrument) { sql += ' AND instrument = ?'; params.push(instrument); }
