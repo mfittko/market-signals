@@ -420,13 +420,34 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // below, so the DB read above can miss them on a first request after
   // downtime (gappy chart). Merge them into the in-memory response now —
   // dedupe by time, freshly-fetched wins — while persistence stays deferred.
-  const mergeFetched = (rows) => {
-    if (!pendingComplete.length) return rows;
+  const mergeFetched = (rows, extra = pendingComplete) => {
+    if (!extra.length) return rows;
     const byTime = new Map(rows.map((c) => [c.time, c]));
-    for (const c of pendingComplete) byTime.set(c.time, c);
+    for (const c of extra) byTime.set(c.time, c);
     return [...byTime.values()].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   };
-  candles = mergeFetched(candles);
+  // A deep-link window is historical: merge fetched bars only where they fill
+  // holes inside it or extend it contiguously past its end (within two bars,
+  // the same rule the forming-tail append uses). A live fetch during a
+  // deep-link view returns PRESENT bars that can sit hours past the window —
+  // appending those would render a discontinuous island with a giant gap.
+  // Persistence is unaffected: the full fetched set still reaches
+  // scheduleAcquisition below.
+  let windowMergeable = pendingComplete;
+  if (t && candles.length) {
+    const step = granularityMs(granularity);
+    const firstMs = Date.parse(candles[0].time);
+    let edge = Date.parse(candles[candles.length - 1].time);
+    windowMergeable = [];
+    for (const c of [...pendingComplete].sort((a, b) => (a.time < b.time ? -1 : 1))) {
+      const ms = Date.parse(c.time);
+      if (ms <= edge ? ms >= firstMs : ms - edge <= 2 * step) {
+        windowMergeable.push(c);
+        if (ms > edge) edge = ms;
+      }
+    }
+  }
+  candles = mergeFetched(candles, windowMergeable);
   // #201: clip the merged window back to `count` — a live-fetch tick must not
   // serve MORE bars than a gate-closed tick (120 stored + merged fresh + tail
   // vs 120 stored + tail), or sub-gate poll rates alternate 122↔121 candles

@@ -1487,6 +1487,10 @@ function selectors(d) {
   // would be re-asserted by the boot redirect on reload (dead-UI bug, 27/07)
   const go = () => {
     qs.set('instrument', inst.value); qs.set('granularity', gran.value);
+    // a deep-linked signal (t) belongs to the combo it was clicked on — carrying
+    // it into a different instrument/granularity pins the view to a historical
+    // window there (explicit selection wins over stale URL state)
+    qs.delete('t');
     location.href = location.pathname + '?' + qs.toString(); // no hash — cleared deliberately
   };
   inst.onchange = go; gran.onchange = go;
