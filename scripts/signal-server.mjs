@@ -439,7 +439,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
     const firstMs = Date.parse(candles[0].time);
     let edge = Date.parse(candles[candles.length - 1].time);
     windowMergeable = [];
-    for (const c of [...pendingComplete].sort((a, b) => (a.time < b.time ? -1 : 1))) {
+    for (const c of [...pendingComplete].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0))) {
       const ms = Date.parse(c.time);
       if (ms <= edge ? ms >= firstMs : ms - edge <= 2 * step) {
         windowMergeable.push(c);

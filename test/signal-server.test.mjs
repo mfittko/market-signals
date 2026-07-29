@@ -266,8 +266,6 @@ test('deep-link windows never merge a discontinuous present-day island (renders 
     `historical window must stay contiguous — merged island would show as a ${Math.round(maxDelta / 60000)}min hole`);
   assert.ok(!d.candles.some((c) => c.close >= 300), 'none of the island bars leak into the deep-link window');
   // Contiguous fresh bars still extend the window: bars starting right after its end merge in.
-  const last = d.candles[d.candles.length - 1];
-  const contiguous = series([150, 151], Date.parse(last.time) + granMs);
   const dir2 = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath: db2, sigTime: sig2 } = fixtureDb(dir2);
   const d2pre = await chartData(db2, INSTRUMENT, { t: sig2, fetcher: null });
