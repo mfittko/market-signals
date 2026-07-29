@@ -195,6 +195,23 @@ test('chartData with no t returns the latest signal; empty db yields empty shape
   assert.equal(empty.signal, null);
 });
 
+test('chartData: the windowed history includes a volume-impulse row alongside the flip, but `latest`/`signal` stay flip-only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath, sigTime } = fixtureDb(dir);
+  // An impulse recorded AFTER the flip (newest row of any kind) must not steal
+  // `latest`/`signal`/isLatestSignal — those stay the flip.
+  const closes = [...Array(30).fill(100), ...Array.from({ length: 30 }, (_, i) => 100 - i)];
+  const impulseCandle = series(closes)[45];
+  recordSignal(dbPath, INSTRUMENT, 'M5', { time: impulseCandle.time, signal: 'buy', price: impulseCandle.close }, null, 'volume-impulse');
+
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: null });
+  assert.equal(d.signal.time, sigTime, 'the shown/latest signal is still the flip, not the newer impulse row');
+  assert.equal(d.isLatestSignal, true);
+  // the windowed history table (`signals`) is the kinds:'all' scope — both rows show up
+  const kinds = new Set(d.signals.map((s) => s.kind));
+  assert.ok(kinds.has('supertrend-flip') && kinds.has('volume-impulse'), 'both kinds present in the delivered history');
+});
+
 test('stale data triggers a live refresh through the injected fetcher; fetch failure serves stale', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath } = fixtureDb(dir); // fixture times are hours old -> stale
@@ -2463,4 +2480,23 @@ test('provider footnotes (#116, default flipped ON by #171): toggle round-trips,
     // the toggle ships as a field in the settings modal
     assert.ok((await (await fetch(b + '/')).text()).includes('sentinelSourceFootnotes'), 'rendered as a settings field');
   });
+});
+
+test('chartData: an explicit kind pins the deep-linked signal on a same-bar flip+impulse collision; without it the flip wins', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'srv-kindlink-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const gran = 'M5';
+  const now = Date.now() - (Date.now() % 300000);
+  const rows = Array.from({ length: 30 }, (_, i) => ({
+    time: new Date(now - (29 - i) * 300000).toISOString(),
+    open: 100, high: 100.5, low: 99.5, close: 100, volume: 10, complete: true,
+  }));
+  storeCandles(dbPath, 'K/T', gran, rows);
+  const barTime = rows[10].time;
+  recordSignal(dbPath, 'K/T', gran, { time: barTime, signal: 'buy', price: 100 }, null);
+  recordSignal(dbPath, 'K/T', gran, { time: barTime, signal: 'sell', price: 100 }, null, 'volume-impulse');
+  const pinned = await chartData(dbPath, 'K/T', { t: barTime, kind: 'volume-impulse', granularity: gran, fetcher: null });
+  assert.equal(pinned.signal.kind, 'volume-impulse');
+  const dflt = await chartData(dbPath, 'K/T', { t: barTime, granularity: gran, fetcher: null });
+  assert.equal(dflt.signal.kind, 'supertrend-flip');
 });

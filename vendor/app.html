@@ -460,6 +460,7 @@ async function load() {
   const p = new URLSearchParams();
   if (qs.get('instrument')) p.set('instrument', qs.get('instrument'));
   if (qs.get('t')) p.set('t', qs.get('t'));
+  if (qs.get('kind')) p.set('kind', qs.get('kind'));
   if (qs.get('granularity')) p.set('granularity', qs.get('granularity'));
   if (qs.get('ind')) p.set('ind', qs.get('ind'));
   const d = await (await fetch('/api/chart?' + p)).json();
@@ -1491,6 +1492,8 @@ function selectors(d) {
     // it into a different instrument/granularity pins the view to a historical
     // window there (explicit selection wins over stale URL state)
     qs.delete('t');
+    qs.delete('kind'); // rides with t: only meaningful for the deep-linked signal
+
     location.href = location.pathname + '?' + qs.toString(); // no hash — cleared deliberately
   };
   inst.onchange = go; gran.onchange = go;
@@ -1898,8 +1901,11 @@ function histRow(s, botDecisions) {
   const botNote = bd ? ' · <span data-info="' + esc(INFO.botDecision) + '" title="' + esc(bd.reasoning) + '">bot: ' + esc(BOT_ACTION_LABEL[bd.action] || bd.action.toUpperCase()) + '</span>' : '';
   const badgeNote = badge ? ' · <span class="' + badge.cls + '">' + esc(badge.text) + '</span>' : '';
   // #164 (F3): the signal word stays strictly buy/sell — the badge above carries
-  // the agreement/disagreement signal instead of recolouring it.
-  const mainCells = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(s.signal) + '</td><td>' + esc(s.price) +
+  // the agreement/disagreement signal instead of recolouring it. A volume-impulse
+  // row keeps the same buy/sell coloring but labels itself distinctly from a
+  // supertrend flip, so the two kinds are never confused in the history table.
+  const signalLabel = (s.kind === 'volume-impulse' ? 'impulse ' : '') + s.signal;
+  const mainCells = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(signalLabel) + '</td><td>' + esc(s.price) +
     '</td><td class="mobile-hide">' + esc((s.verdict || '—').toUpperCase()) + '</td><td class="mobile-hide" title="' + esc(gr.title) + '">' + esc(gr.text) + botNote + badgeNote + '</td><td>' + out + '</td><td class="mobile-hide">' + adv + '</td>';
   // #168 F10: gates/reason/MFE-to-flip (already visible on desktop as their own
   // columns) repeat here so the mobile toggle can reach them once those columns
@@ -1909,7 +1915,7 @@ function histRow(s, botDecisions) {
     (bd ? newsHtml(bd) : '') +
     '<div class="lane">MFE to flip: ' + adv + '</div>';
   const [tr, detail] = collapsibleRow(mainCells, detailHtml, 8, 'reason and gates');
-  tr.onclick = () => { qs.set('t', s.time); location.search = '?' + qs.toString(); };
+  tr.onclick = () => { qs.set('t', s.time); if (s.kind === 'volume-impulse') qs.set('kind', s.kind); else qs.delete('kind'); location.search = '?' + qs.toString(); };
   return [tr, detail];
 }
 // renamed from 'history' — a top-level classic-script function declaration
@@ -1959,7 +1965,7 @@ const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -1982,6 +1988,9 @@ const FIELD_HINTS = {
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
   cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to the bar length capped at 5 (M1 → 1, M5+ → 5). Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
+  impulseVolMult: 'volume-impulse alert threshold: each of the 2 most recent bars must be >= this multiple of the average volume over the prior window (default 2)',
+  impulseVolWindow: 'volume-impulse: number of prior bars averaged for the volume-multiple check (default 20)',
+  impulseCooldownBars: 'volume-impulse: bars to wait before another impulse alert for the same combo (default 10). Fires on the close of the second qualifying bar.',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
@@ -2029,7 +2038,7 @@ async function cfg() {
   const hintedLabel = (id, label) =>
     '<label for="f-' + id + '"' + (FIELD_HINTS[id] ? ' title="' + esc(FIELD_HINTS[id]) + '"' : '') + '>' + esc(label) + '</label>';
   const inputRow = (id, kind, label, val, ph) =>
-    hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '" value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
+    hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '"' + (kind === 'number' ? ' step="any"' : '') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
   const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
@@ -2532,7 +2541,7 @@ async function lightTick() {
   if (!document.hidden) { // a background tab does not need a live feed
     try {
       const p = new URLSearchParams();
-      for (const k of ['instrument', 't', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
+      for (const k of ['instrument', 't', 'kind', 'granularity', 'ind']) if (qs.get(k)) p.set(k, qs.get(k));
       const d = await (await fetch('/api/chart?' + p)).json();
       uiRefreshMap = d.uiRefreshSeconds ?? null;
       servedGran = d.granularity || servedGran;

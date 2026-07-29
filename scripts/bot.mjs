@@ -322,8 +322,11 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 // --- per-combo entry point (called from the watcher run) --------------------
 
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
-// fired this run. Returns a summary for logs/tests.
-export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
+// fired this run. freshImpulse: a volume-impulse event newly RECORDED this run
+// (alert sent, notify-off recording, or failed notification), gated by the
+// same rule as flips (deliberation trigger, distinct context label — never a
+// supertrend flip). Returns a summary for logs/tests.
+export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, freshImpulse = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
   const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
   if (!botFor.enabled) return { skipped: 'disabled' };
   const loop = botLoopConfig(settings);
@@ -369,7 +372,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
     const move = p.side === 'long' ? p.entry_price - p.last_mark : p.last_mark - p.entry_price;
     return (move / p.entry_price) * 100 > loop.reviewTriggerPct;
   });
-  const event = freshFlip ? 'flip' : adverse ? 'review' : null;
+  const event = freshFlip ? 'flip' : freshImpulse ? 'impulse' : adverse ? 'review' : null;
   if (!event) return { fills, halted: false, deliberated: false };
 
   // Active strategy scoping: an instruments CSV on the active strategy limits
@@ -394,7 +397,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
 
   const result = await deliberate(dbPath, settings, {
     instrument, granularity, event,
-    ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip },
+    ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip, volumeImpulse: freshImpulse },
     toolDefs, execTool, strategyRow,
   });
   return { fills, halted: false, deliberated: true, ...result };

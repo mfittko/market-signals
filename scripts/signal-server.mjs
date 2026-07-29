@@ -51,7 +51,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -112,6 +112,19 @@ export function writeSettings(settingsPath, patch) {
   // lives in supertrend.mjs's OPENAI_REASONING_FLOOR); operator-tunable here.
   if (patch.maxCompletionTokens !== undefined && patch.maxCompletionTokens !== '' && patch.maxCompletionTokens !== null && (!Number.isInteger(patch.maxCompletionTokens) || patch.maxCompletionTokens <= 0)) {
     throw new Error('maxCompletionTokens must be a positive integer');
+  }
+  // volume-impulse knobs: reject junk loudly at the trust boundary — same
+  // stance as the neighbouring numeric settings above. impulseSettings falls
+  // back to defaults on an invalid stored value, which would otherwise make a
+  // rejected write look silently accepted to the operator.
+  if (patch.impulseVolMult !== undefined && patch.impulseVolMult !== '' && patch.impulseVolMult !== null && (!Number.isFinite(patch.impulseVolMult) || patch.impulseVolMult < 1)) {
+    throw new Error('impulseVolMult must be a finite number >= 1');
+  }
+  if (patch.impulseVolWindow !== undefined && patch.impulseVolWindow !== '' && patch.impulseVolWindow !== null && (!Number.isInteger(patch.impulseVolWindow) || patch.impulseVolWindow < 1)) {
+    throw new Error('impulseVolWindow must be an integer >= 1');
+  }
+  if (patch.impulseCooldownBars !== undefined && patch.impulseCooldownBars !== '' && patch.impulseCooldownBars !== null && (!Number.isInteger(patch.impulseCooldownBars) || patch.impulseCooldownBars < 0)) {
+    throw new Error('impulseCooldownBars must be a non-negative integer');
   }
   if (patch.bot !== undefined && patch.bot !== '' && patch.bot !== null) {
     if (typeof patch.bot !== 'object' || Array.isArray(patch.bot)) throw new Error('bot must be an object');
@@ -335,7 +348,8 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
         if (Date.now() - Date.parse(f.time) <= horizonMs) continue;
         const { isNew } = recordSignal(dbPath, instrument, granularity, { time: f.time, signal: f.signal, price: f.price }, null);
         if (isNew) {
-          withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=?')
+          // flip-specific backfill: scope by kind now that it's part of the PK
+          withDb(dbPath, (db) => db.prepare("UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=? AND kind='supertrend-flip'")
             .run('backfill', instrument, granularity, f.time));
         }
       }
@@ -348,7 +362,7 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
   });
 }
 
-export async function chartData(dbPath, instrument, { t = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
+export async function chartData(dbPath, instrument, { t = null, kind = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
@@ -480,18 +494,28 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // are no candles yet). The current/deep-linked signal is resolved separately.
   const windowFrom = candles.length ? candles[0].time : null;
   const windowTo = candles.length ? candles[candles.length - 1].time : null;
+  // History rendering (chart's signal table): every kind, so volume-impulse
+  // rows show up alongside flips — labeled distinctly by the client.
   const signals = windowFrom != null
-    ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo })
-    : signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
-  // the absolute latest signal — for the shown signal (non-deep-link) and for the
-  // isLatestSignal gate, independent of the window-scoped table above.
+    ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo, kinds: 'all' })
+    : signalOutcomes(dbPath, instrument, granularity, { limit: 50, kinds: 'all' });
+  // the absolute latest FLIP — for the shown signal (non-deep-link) and for the
+  // isLatestSignal gate, independent of the window-scoped table above. Flips-only
+  // (default kinds scope): this feeds the panel's current signal and the
+  // recheck target, both flip concepts — an impulse row must never take over
+  // either just because it's the newest row of any kind.
   const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null;
   // Deep-linked signals older than the history window are looked up directly.
   let signal = null;
   if (t) {
     const variants = /\.\d+Z$/.test(t) ? [t] : [t, `${t.slice(0, -1)}.000000000Z`, `${t.slice(0, -1)}.000Z`];
     for (const v of variants) {
-      signal = signals.find((s) => s.time === v) ?? signalOutcomes(dbPath, instrument, granularity, { time: v })[0] ?? null;
+      // an explicit kind pins the row on same-bar flip+impulse collisions;
+      // without one the flip wins (kinds:'all' rows are flip-first)
+      const pool = [...signals, ...signalOutcomes(dbPath, instrument, granularity, { time: v, kinds: 'all' })];
+      signal = (kind ? pool.find((s) => s.time === v && s.kind === kind) : null)
+        ?? pool.find((s) => s.time === v && (s.kind === 'supertrend-flip' || s.kind == null))
+        ?? pool.find((s) => s.time === v) ?? null;
       if (signal) break;
     }
   } else {
@@ -508,7 +532,7 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // (see /api/recheck), so the client must only render it when the shown
   // signal IS that latest one — never on a deep-linked historical view (?t=),
   // where a click would silently re-check a different signal than displayed.
-  out.isLatestSignal = signal ? latest?.time === signal.time : true;
+  out.isLatestSignal = signal ? (signal.kind !== 'volume-impulse' && latest?.time === signal.time) : true;
   // #70: the last re-check for the shown signal rides with the chart so a
   // reload shows it without a POST — the verdict/history rows it read stay untouched.
   if (signal) {
@@ -1030,12 +1054,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const cfg = readSettings(settingsPath);
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
         const t = url.searchParams.get('t');
+        const kindParam = url.searchParams.get('kind');
         const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
         const parseInd = (v) => (v || '').split(',').map((x) => x.trim()).filter((x) => ['ema', 'rsi', 'macd', 'bb', 'vwap'].includes(x));
         const indParam = parseInd(url.searchParams.get('ind'));
         // no URL selection → the globally-stored selection applies (#49)
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
-        const data = await chartData(dbPath, instrument, { t, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
+        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
         data.activeInd = effectiveInd;
         // #163: the one tz pipeline — the trader tz, so the client can format
         // every timestamp (signals, audit, candles) with `timeZone: tz`.
@@ -1104,7 +1129,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const before = url.searchParams.get('before');
         const n = Number(url.searchParams.get('limit'));
         const limit = Number.isInteger(n) && n > 0 && n <= 100 ? n : 10;
-        const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit } : { limit });
+        const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit, kinds: 'all' } : { limit, kinds: 'all' });
         return json(res, 200, { ok: true, signals });
       }
       // #70: operator-initiated re-check of the LATEST signal of the current
@@ -1125,6 +1150,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           ? (signalOutcomes(dbPath, instrument, granularity, { time: signalParam })[0] ?? null)
           : (signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null);
         if (!signal) {
+          // Recheck is a flip-only concept (validity/played-out/invalidated judges
+          // a trend thesis, which an impulse never asserted) — a time that
+          // resolves to an impulse row under kinds:'all' must say so plainly,
+          // not surface as an indistinguishable "unknown signal" 404.
+          if (signalParam && signalOutcomes(dbPath, instrument, granularity, { time: signalParam, kinds: 'all' })[0]) {
+            return json(res, 400, { ok: false, error: 'impulse signals are not recheckable' });
+          }
           return json(res, 404, { ok: false, error: signalParam ? `unknown signal '${signalParam}' for this view` : 'no signal recorded for this view yet' });
         }
         try {

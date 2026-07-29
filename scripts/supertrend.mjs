@@ -42,11 +42,15 @@ cycle owner. Running this CLI while the server is up can double-execute a
 cycle (duplicate notify/store) — that's on you, not guarded against.
 `;
 
+// kind is part of the PK: a flip and an impulse can land on the same bar
+// (same instrument/granularity/time) and must never collide/overwrite each
+// other — they're distinct events sharing a timeline, not one row per bar.
 const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
   instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
   signal TEXT NOT NULL, price REAL, win_rate REAL,
   verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
-  PRIMARY KEY (instrument, granularity, time)
+  kind TEXT NOT NULL DEFAULT 'supertrend-flip',
+  PRIMARY KEY (instrument, granularity, time, kind)
 )`;
 
 const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
@@ -54,6 +58,37 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
   open REAL, high REAL, low REAL, close REAL, volume REAL,
   PRIMARY KEY (instrument, granularity, time)
 )`;
+
+// Rebuilds `signals` so `kind` joins the primary key (a flip and an impulse on
+// the same bar must never collide). Only runs when the PK doesn't already
+// include kind — cheap no-op after the first open. Wrapped by the caller in a
+// BEGIN IMMEDIATE so two processes racing this never corrupt the table: the
+// loser blocks on the writer lock, then re-checks and finds the PK already
+// migrated (this function is idempotent by construction — CREATE/DROP/RENAME
+// all target names that only exist mid-migration).
+function signalsKindPkMissing(db) {
+  const cols = db.prepare('PRAGMA table_info(signals)').all();
+  return !cols.some((c) => c.name === 'kind' && c.pk > 0);
+}
+
+function migrateSignalsKindPk(db) {
+  const cols = db.prepare('PRAGMA table_info(signals)').all();
+  const hasKind = cols.some((c) => c.name === 'kind');
+  const pkCols = cols.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+  if (hasKind && pkCols.includes('kind')) return; // already migrated
+  if (!hasKind) db.exec('ALTER TABLE signals ADD COLUMN kind TEXT');
+  db.exec(`CREATE TABLE signals_new (
+    instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+    signal TEXT NOT NULL, price REAL, win_rate REAL,
+    verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'supertrend-flip',
+    PRIMARY KEY (instrument, granularity, time, kind)
+  )`);
+  db.exec(`INSERT INTO signals_new (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified, kind)
+    SELECT instrument, granularity, time, signal, price, win_rate, verdict, reason, notified, COALESCE(kind, 'supertrend-flip') FROM signals`);
+  db.exec('DROP TABLE signals');
+  db.exec('ALTER TABLE signals_new RENAME TO signals');
+}
 
 // Every DB access goes through here: schema ensured on open, handle always closed.
 export function withDb(dbPath, fn) {
@@ -66,24 +101,46 @@ export function withDb(dbPath, fn) {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(CANDLES_DDL);
     db.exec(SIGNALS_DDL);
+    // kind-in-PK migration, double-checked: the lock-free probe keeps every
+    // ordinary open (including pure reads polled every few seconds) off the
+    // write lock — taking BEGIN IMMEDIATE unconditionally made reads contend
+    // with long bot/watcher write transactions and throw 'database is locked'.
+    // Only an unmigrated table takes the write lock, and the re-check inside
+    // it means a process that lost the race commits a no-op.
+    if (signalsKindPkMissing(db)) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if (signalsKindPkMissing(db)) migrateSignalsKindPk(db);
+        db.exec('COMMIT');
+      } catch (err) {
+        try { db.exec('ROLLBACK'); } catch { /* nothing to roll back */ }
+        throw err;
+      }
+    }
     return fn(db);
   } finally {
     db.close();
   }
 }
 
-// Signal memory: every fresh flip is recorded once (PK doubles as alert dedup).
-export function recordSignal(dbPath, instrument, granularity, sig, winRatePct) {
+// One shared SQL predicate for 'flip rows only' — kind is NOT NULL after the
+// PK migration, but rows written by an OLD binary against a migrated db keep
+// the NULL branch honest (the column default only covers this binary's inserts).
+export const FLIP_KIND_PREDICATE = "(kind='supertrend-flip' OR kind IS NULL)";
+
+// Signal memory: every signal event (flip or impulse) is recorded once per
+// kind — the kind-scoped PK doubles as alert dedup.
+export function recordSignal(dbPath, instrument, granularity, sig, winRatePct, kind = 'supertrend-flip') {
   return withDb(dbPath, (db) => {
-    const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate) VALUES (?,?,?,?,?,?)')
-      .run(instrument, granularity, sig.time, sig.signal, sig.price, winRatePct);
+    const r = db.prepare('INSERT OR IGNORE INTO signals (instrument, granularity, time, signal, price, win_rate, kind) VALUES (?,?,?,?,?,?,?)')
+      .run(instrument, granularity, sig.time, sig.signal, sig.price, winRatePct, kind);
     return { isNew: r.changes > 0 };
   });
 }
 
-function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified) {
-  withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=?')
-    .run(verdict, reason, notified, instrument, granularity, time));
+function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified, kind = 'supertrend-flip') {
+  withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=? AND kind=?')
+    .run(verdict, reason, notified, instrument, granularity, time, kind));
 }
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
@@ -97,17 +154,25 @@ function updateSignal(dbPath, instrument, granularity, time, verdict, reason, no
 //    latest close with adverseOpen=true.
 // `from`/`to` (inclusive ISO bounds) scope the set to the viewed chart window;
 // otherwise the latest `limit` signals are returned. `time` fetches one signal.
-export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null, from = null, to = null, before = null } = {}) {
+export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 6, limit = 20, time = null, from = null, to = null, before = null, kinds = 'flips' } = {}) {
   return withDb(dbPath, (db) => {
+    // Default scope is flip statistics: every existing filter/duplicate-detection/
+    // outcome caller must keep seeing only supertrend flips (impulse rows never
+    // pollute win-rate stats). kinds:'all' is opt-in for history-rendering callers.
+    const kindClause = kinds === 'all' ? '' : ` AND ${FLIP_KIND_PREDICATE}`;
     const sigs = time
-      ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?').all(instrument, granularity, time)
+      ? db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=? AND time=?${kindClause}`).all(instrument, granularity, time)
       : before != null
-        ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time < ? ORDER BY time DESC LIMIT ?').all(instrument, granularity, before, limit)
+        ? db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=? AND time < ?${kindClause} ORDER BY time DESC LIMIT ?`).all(instrument, granularity, before, limit)
         : (from != null && to != null)
-          ? db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? AND time >= ? AND time <= ? ORDER BY time DESC').all(instrument, granularity, from, to)
-          : db.prepare('SELECT * FROM signals WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT ?').all(instrument, granularity, limit);
+          ? db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=? AND time >= ? AND time <= ?${kindClause} ORDER BY time DESC`).all(instrument, granularity, from, to)
+          : db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=?${kindClause} ORDER BY time DESC LIMIT ?`).all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
-    const nextAdverse = db.prepare('SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? ORDER BY time LIMIT 1');
+    // "Adverse" always means the next opposite FLIP (trend reversal) — never an
+    // impulse row, regardless of the `kinds` scope the outer query used: an
+    // impulse can carry either direction mid-trend and would otherwise cut a
+    // flip's tracked trade short at an unrelated event's price.
+    const nextAdverse = db.prepare(`SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? AND ${FLIP_KIND_PREDICATE} ORDER BY time LIMIT 1`);
     const lastClose = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity)?.close ?? null;
     return sigs.map((s) => {
       const dir = s.signal === 'buy' ? 1 : -1;
@@ -738,6 +803,17 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
   };
 }
 
+// One deep-link URL shape for every alert (flip or impulse): opens the chart
+// at the signal's instrument/granularity/time.
+function chartDeepLink(settings, instrument, granularity, time, kind = 'supertrend-flip') {
+  const portNum = Number(settings.port);
+  const port = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 8787;
+  // kind disambiguates same-bar rows (the PK allows a flip AND an impulse on
+  // one bar); flip links stay unchanged so nothing bookmarked breaks.
+  const kindParam = kind && kind !== 'supertrend-flip' ? `&kind=${encodeURIComponent(kind)}` : '';
+  return `http://127.0.0.1:${port}/?instrument=${encodeURIComponent(instrument)}&granularity=${encodeURIComponent(granularity)}&t=${encodeURIComponent(time)}${kindParam}`;
+}
+
 export async function processSignal(opts, result, candles) {
   const sig = result.signal;
   if (!sig?.fresh) return { sent: false, reason: 'no fresh flip' };
@@ -843,9 +919,7 @@ export async function processSignal(opts, result, candles) {
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${localHm(sig.time)}, win rate ${wr ?? '?'}%${lowConf}${extra}`;
-  const portNum = Number(settings.port);
-  const port = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 8787;
-  const deepLink = `http://127.0.0.1:${port}/?instrument=${encodeURIComponent(opts.instrument)}&granularity=${encodeURIComponent(opts.granularity)}&t=${encodeURIComponent(sig.time)}`;
+  const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, sig.time);
   try {
     sendNotification(msg, deepLink, settings);
   } catch (err) {
@@ -859,6 +933,102 @@ export async function processSignal(opts, result, candles) {
   dbg(`notification sent: ${msg}`);
   await recordGate();
   return { sent: true, message: msg, verdictSource, gateSnapshot };
+}
+
+// Continuation-move detector: alerts on a same-direction volume surge even
+// mid-trend, where a flip-only pipeline emits nothing (no flip has occurred).
+// Pure/no IO — the two most recently CLOSED candles must each carry volume
+// >= mult x the average of the `period` bars immediately before the pair, and
+// share a same-direction (nonzero) body. Fires on the second bar's close.
+export function detectVolumeImpulse(candles, { mult = 2, period = 20 } = {}) {
+  const n = candles.length;
+  if (n < period + 2) return null;
+  const [prev, last] = [candles[n - 2], candles[n - 1]];
+  const window = candles.slice(n - 2 - period, n - 2);
+  const avg = window.reduce((s, c) => s + (c.volume || 0), 0) / window.length;
+  if (!(avg > 0)) return null;
+  const dirOf = (c) => Math.sign(c.close - c.open);
+  const dir = dirOf(prev);
+  if (dir === 0 || dir !== dirOf(last)) return null;
+  if ((prev.volume || 0) < mult * avg || (last.volume || 0) < mult * avg) return null;
+  return {
+    time: last.time,
+    direction: dir > 0 ? 'up' : 'down',
+    volRatio: Number(((last.volume || 0) / avg).toFixed(2)),
+  };
+}
+
+// Settings-tunable thresholds (defaults 2x / 20 bars / 10 bars cooldown);
+// each knob falls back independently on an invalid value.
+export function impulseSettings(settings = {}) {
+  const mult = Number(settings.impulseVolMult);
+  const window = Number(settings.impulseVolWindow);
+  const cooldownBars = Number(settings.impulseCooldownBars);
+  return {
+    mult: Number.isFinite(mult) && mult >= 1 ? mult : 2,
+    period: Number.isInteger(window) && window >= 1 ? window : 20,
+    cooldownBars: Number.isInteger(cooldownBars) && cooldownBars >= 0 ? cooldownBars : 10,
+  };
+}
+
+// Volume-impulse alert path: notification-only (no LLM filter — the issue's
+// default pickup for phase 1), DB-backed cooldown so a restart never
+// resurrects a suppressed re-alert. Runs after processSignal each cycle; when
+// a flip alert already fired this run the caller passes suppressReason, so
+// the impulse is recorded ping-less instead of skipped (one ping per event,
+// durable against the next cycle re-seeing the same pair).
+export async function processImpulseAlert(opts, candles, { sendFn = sendNotification, suppressReason = null } = {}) {
+  if (!opts.db) return { sent: false, reason: 'requires --db' };
+  const settings = readSettings(opts.settings);
+  const { mult, period, cooldownBars } = impulseSettings(settings);
+  // A misconfigured impulseVolWindow (larger than the fetched candle count)
+  // disables the detector every cycle, indistinguishable from "no impulse
+  // right now" — surface it distinctly so it's observable instead of a
+  // permanently-silent feature.
+  if (candles.length < period + 2) return { sent: false, reason: 'insufficient history' };
+  const impulse = detectVolumeImpulse(candles, { mult, period });
+  if (!impulse) return { sent: false, reason: 'no impulse' };
+
+  const granMs = granularityMs(opts.granularity);
+  const impulseMs = Date.parse(impulse.time);
+  // Direct query for the latest row of THIS kind — signalOutcomes({limit:1})
+  // returns the single newest row of any kind, so a newer flip row would
+  // silently disable the cooldown by post-filtering an empty page.
+  const latest = withDb(opts.db, (db) => db.prepare(
+    "SELECT time, notified FROM signals WHERE instrument=? AND granularity=? AND kind='volume-impulse' ORDER BY time DESC LIMIT 1",
+  ).get(opts.instrument, opts.granularity));
+  if (latest && latest.time !== impulse.time && impulseMs - Date.parse(latest.time) <= cooldownBars * granMs) {
+    return { sent: false, reason: 'impulse cooldown', impulse };
+  }
+
+  const last = candles[candles.length - 1];
+  const sig = { time: impulse.time, signal: impulse.direction === 'up' ? 'buy' : 'sell', price: last.close };
+  const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, null, 'volume-impulse');
+  if (!isNew) return { sent: false, reason: 'already processed', impulse };
+  // Recorded-but-unnotified mirrors the flip path, so bot event gating can
+  // treat both kinds identically: a NEW row this run is the event, whether or
+  // not the ping itself went out.
+  if (suppressReason) {
+    // verdict stays null: 'suppress' is the gate-filter vocabulary, and a
+    // coincide-bar row wearing it makes the UI claim a gate evaluated it.
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, suppressReason, 0, 'volume-impulse');
+    return { sent: false, reason: suppressReason, impulse };
+  }
+  if (!opts.notify) {
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, 'recorded (notify off)', 0, 'volume-impulse');
+    return { sent: false, reason: 'recorded (notify off)', impulse };
+  }
+
+  const msg = `${opts.instrument} volume impulse ${impulse.direction.toUpperCase()} @ ${last.close} — 2 bars >=${mult}x avg volume (last ${impulse.volRatio}x), ${localHm(impulse.time)}`;
+  const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, impulse.time, 'volume-impulse');
+  try {
+    await sendFn(msg, deepLink, settings);
+  } catch (err) {
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, `notification failed: ${err.message}`, 0, 'volume-impulse');
+    return { sent: false, reason: `notification failed: ${err.message}`, impulse };
+  }
+  updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, 'alert', 'volume impulse', 1, 'volume-impulse');
+  return { sent: true, message: msg, impulse };
 }
 
 // Direction-adjusted excursion since a signal, from the candles path itself
@@ -1357,6 +1527,13 @@ async function runOne(opts) {
     store,
   };
   result.notify = await processSignal(opts, result, candles);
+  // One ping per event: an already-sent flip alert takes the run's one
+  // notification, but the impulse is still RECORDED (suppressed) — skipping
+  // the check entirely would just defer the ping to a later cycle that sees
+  // the same pair, since no row would exist to dedup against.
+  result.impulse = await processImpulseAlert(opts, candles, result.notify?.sent === true
+    ? { suppressReason: 'flip alert already sent' }
+    : {});
 
   // Trading bot (issue #23): deterministic fills every run, LLM only on events.
   // Lazy imports avoid a static cycle (bot/server both import from this module).
@@ -1372,6 +1549,12 @@ async function runOne(opts) {
         const newThisRun = result.notify?.sent === true
           || /^(suppressed by filter|recorded \(notify off\)|notification failed)/.test(result.notify?.reason || '');
         const freshFlip = result.signal?.fresh && newThisRun ? result.signal : null;
+        // Impulse bot events use the same newly-recorded-this-run rule as
+        // flips: sent, recorded with notify off, or a failed notification all
+        // count; cooldown / 'already processed' re-sightings never do.
+        const impulseNewThisRun = result.impulse?.sent === true
+          || /^(recorded \(notify off\)|notification failed)/.test(result.impulse?.reason || '');
+        const freshImpulse = impulseNewThisRun ? result.impulse.impulse : null;
         let botAxes = result.notify?.gateSnapshot?.axes ?? null; // flip events reuse the signal-time snapshot
         if (!botAxes) {
           try {
@@ -1381,7 +1564,7 @@ async function runOne(opts) {
         }
         result.bot = await runBot(opts.db, settings, {
           instrument: opts.instrument, granularity: opts.granularity,
-          candle: last, quote: { last: last.close }, freshFlip,
+          candle: last, quote: { last: last.close }, freshFlip, freshImpulse,
           // lazy: only pulls decision-point news when runBot actually deliberates
           // (a fresh flip or an adverse move) — not on every quiet tick.
           buildCtx: () => buildBotContext(opts.db, opts.instrument, { supertrend: result.supertrend, trend: result.trend, backtest: result.backtest, axisGate: botAxes, settings }),
