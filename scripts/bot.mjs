@@ -322,9 +322,10 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
 // --- per-combo entry point (called from the watcher run) --------------------
 
 // candle: the last COMPLETE candle. freshFlip: sig object when a lock-in flip
-// fired this run. freshImpulse: a volume-impulse event that sent its alert this
-// run, gated the same way (deliberation trigger, distinct context label — never
-// a supertrend flip). Returns a summary for logs/tests.
+// fired this run. freshImpulse: a volume-impulse event newly RECORDED this run
+// (alert sent, notify-off recording, or failed notification), gated by the
+// same rule as flips (deliberation trigger, distinct context label — never a
+// supertrend flip). Returns a summary for logs/tests.
 export async function runBot(dbPath, settings, { instrument, granularity, candle, quote, freshFlip = null, freshImpulse = null, ctx = {}, buildCtx = null, toolDefs = null, execTool = null }) {
   const botFor = resolveBotFor(settings, instrument, granularity, dbPath);
   if (!botFor.enabled) return { skipped: 'disabled' };

@@ -966,7 +966,7 @@ export function impulseSettings(settings = {}) {
 // pickup for phase 1), DB-backed cooldown so a restart never resurrects a
 // suppressed re-alert. Runs after processSignal each cycle; the caller skips
 // this entirely when a flip alert already fired this run (one ping per event).
-export async function processImpulseAlert(opts, candles, { sendFn = sendNotification } = {}) {
+export async function processImpulseAlert(opts, candles, { sendFn = sendNotification, suppressReason = null } = {}) {
   if (!opts.db) return { sent: false, reason: 'requires --db' };
   const settings = readSettings(opts.settings);
   const { mult, period, cooldownBars } = impulseSettings(settings);
@@ -997,6 +997,10 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
   // Recorded-but-unnotified mirrors the flip path, so bot event gating can
   // treat both kinds identically: a NEW row this run is the event, whether or
   // not the ping itself went out.
+  if (suppressReason) {
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, 'suppress', suppressReason, 0, 'volume-impulse');
+    return { sent: false, reason: suppressReason, impulse };
+  }
   if (!opts.notify) {
     updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, 'recorded (notify off)', 0, 'volume-impulse');
     return { sent: false, reason: 'recorded (notify off)', impulse };
@@ -1511,10 +1515,12 @@ async function runOne(opts) {
   };
   result.notify = await processSignal(opts, result, candles);
   // One ping per event: an already-sent flip alert takes the run's one
-  // notification, the impulse check is skipped entirely.
-  result.impulse = result.notify?.sent === true
-    ? { sent: false, reason: 'flip alert already sent' }
-    : await processImpulseAlert(opts, candles);
+  // notification, but the impulse is still RECORDED (suppressed) — skipping
+  // the check entirely would just defer the ping to a later cycle that sees
+  // the same pair, since no row would exist to dedup against.
+  result.impulse = await processImpulseAlert(opts, candles, result.notify?.sent === true
+    ? { suppressReason: 'flip alert already sent' }
+    : {});
 
   // Trading bot (issue #23): deterministic fills every run, LLM only on events.
   // Lazy imports avoid a static cycle (bot/server both import from this module).

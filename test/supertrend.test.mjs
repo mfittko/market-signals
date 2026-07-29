@@ -1465,10 +1465,15 @@ test('flip-alert-wins: a real runWatcherCycle where a flip AND a qualifying impu
     assert.equal(results[0].impulse.sent, false);
     assert.equal(results[0].impulse.reason, 'flip alert already sent');
 
-    // Same-bar PK collision (kind now in the PK): the flip row is recorded,
-    // NO volume-impulse row is ever written for this bar (the check never ran).
+    // The impulse is RECORDED suppressed (not skipped): a later cycle seeing
+    // the same pair dedups against this row instead of pinging one cycle late.
     const rowsAll = signalOutcomes(dbPath, 'TEST/COINCIDE', 'M5', { kinds: 'all' });
-    assert.deepEqual(rowsAll.map((r) => r.kind), ['supertrend-flip']);
+    const imp = rowsAll.find((r) => r.kind === 'volume-impulse');
+    assert.ok(rowsAll.some((r) => r.kind === 'supertrend-flip'));
+    assert.equal(imp.verdict, 'suppress');
+    assert.equal(imp.notified, 0);
+    const rerun = await runWatcherCycle(opts, { watchers: '' });
+    assert.equal(rerun[0].impulse.reason, 'already processed', 'the suppressed row dedups the next cycle');
 
     const notified = readFileSync(recorderLog, 'utf8').trim().split('\n').filter(Boolean);
     assert.equal(notified.length, 1, 'exactly one notification for the coinciding bar');
@@ -1540,6 +1545,15 @@ test('impulse cooldown is kind-scoped: a flip row NEWER than the last impulse do
   const second = await processImpulseAlert(opts, shiftedImpulseCandles(2), { sendFn: (m) => sent.push(m) });
   assert.equal(second.reason, 'impulse cooldown', JSON.stringify(second));
   assert.equal(sent.length, 1);
+
+  // The under-suppression direction: once the last impulse has aged OUT of
+  // the window, a recent flip inside it must NOT anchor the cooldown — an
+  // any-kind lookup would treat that flip as the floor and wrongly suppress.
+  const lateFlipTime = new Date(Date.parse(first.impulse.time) + (COOLDOWN_BARS + 3) * 300000).toISOString();
+  recordSignal(dbPath, 'WTICO/USD', 'M5', { time: lateFlipTime, signal: 'sell', price: 100 }, null);
+  const expired = await processImpulseAlert(opts, shiftedImpulseCandles(COOLDOWN_BARS + 4), { sendFn: (m) => sent.push(m) });
+  assert.equal(expired.sent, true, `a flip inside the window must not suppress an impulse whose own cooldown expired: ${JSON.stringify(expired)}`);
+  assert.equal(sent.length, 2);
 });
 
 test('signalOutcomes adverse join ignores impulse rows: an opposite-direction impulse never closes a flip trade', () => {
