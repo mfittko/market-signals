@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, detectHistoricalImpulses, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -317,8 +317,8 @@ export const LIVE_TAIL_GATE_MS = 8000;
 // (fetcher() + the in-memory lastLiveFetch cache) is untouched — that's an
 // upstream HTTP read, not a local mutation, so chart freshness is unaffected;
 // only the persistence of what it read is deferred.
-function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips, gaps, fetcher }) {
-  if (!complete.length && !flips.length && !gaps.length) return;
+function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips, impulses = [], gaps, fetcher }) {
+  if (!complete.length && !flips.length && !impulses.length && !gaps.length) return;
   const key = `${dbPath}|${instrument}|${granularity}`;
   setImmediate(() => {
     try {
@@ -353,6 +353,18 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
             .run('backfill', instrument, granularity, f.time));
         }
       }
+      // Same lazy backfill for volume impulses: history views show the impulse
+      // events live alerting would have produced, under the same live-horizon
+      // guard so the watcher's own dedup/cooldown never fights a backfill row.
+      for (const im of impulses.slice(-20)) {
+        if (Date.now() - Date.parse(im.time) <= horizonMs) continue;
+        const sig = { time: im.time, signal: im.direction === 'up' ? 'buy' : 'sell', price: im.price };
+        const { isNew } = recordSignal(dbPath, instrument, granularity, sig, null, 'volume-impulse');
+        if (isNew) {
+          withDb(dbPath, (db) => db.prepare("UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=? AND kind='volume-impulse'")
+            .run('backfill', instrument, granularity, im.time));
+        }
+      }
     } catch (err) {
       // Fire-and-forget: the GET already returned 200, so a write failure here
       // (storeCandles/recordSignal/SQL) must never surface as an unhandled
@@ -362,7 +374,7 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
   });
 }
 
-export async function chartData(dbPath, instrument, { t = null, kind = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null } = {}) {
+export async function chartData(dbPath, instrument, { t = null, kind = null, count = 120, granularity = 'M5', fetcher = fetchCandles, indicators = null, impulse = null } = {}) {
   // Freshness on load: when the stored data is older than one candle period,
   // pull live candles and upsert before serving (shared db gets richer too).
   // Serve stale data if the live fetch fails — availability over freshness.
@@ -471,10 +483,14 @@ export async function chartData(dbPath, instrument, { t = null, kind = null, cou
   recent = mergeFetched(recent);
   let supertrend = [];
   let flips = [];
+  let impulses = [];
   if (candles.length >= 15) {
     const st = computeSupertrend(candles, {});
     supertrend = st.map((s, i) => s && { time: candles[i].time, value: Number(s.supertrend.toFixed(4)), trend: s.trend }).filter(Boolean);
     flips = detectFlips(candles, st);
+    // impulse knobs come from settings when the route passes them; bare
+    // chartData callers (tests, tools) fall back to the shipped defaults
+    impulses = detectHistoricalImpulses(candles, impulse ?? impulseSettings({}));
   }
   if (liveTail) {
     const tail = { ...liveTail, partial: true };
@@ -488,7 +504,7 @@ export async function chartData(dbPath, instrument, { t = null, kind = null, cou
   // deferred out of this GET — see scheduleAcquisition above.
   // #201: gate-closed ticks reuse gate.pending for the RESPONSE only — never
   // re-persist the same bars on every sub-gate poll (idempotent but wasteful).
-  scheduleAcquisition(dbPath, instrument, granularity, { complete: fetchedThisTick ? pendingComplete : [], flips, gaps, fetcher });
+  scheduleAcquisition(dbPath, instrument, granularity, { complete: fetchedThisTick ? pendingComplete : [], flips, impulses, gaps, fetcher });
   // The history table is scoped to the visible chart window: only signals whose
   // time falls within the shown candles (falls back to the latest 50 when there
   // are no candles yet). The current/deep-linked signal is resolved separately.
@@ -1060,7 +1076,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const indParam = parseInd(url.searchParams.get('ind'));
         // no URL selection → the globally-stored selection applies (#49)
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
-        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null });
+        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null, impulse: impulseSettings(cfg) });
         data.activeInd = effectiveInd;
         // #163: the one tz pipeline — the trader tz, so the client can format
         // every timestamp (signals, audit, candles) with `timeZone: tz`.

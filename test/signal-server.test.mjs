@@ -2500,3 +2500,50 @@ test('chartData: an explicit kind pins the deep-linked signal on a same-bar flip
   const dflt = await chartData(dbPath, 'K/T', { t: barTime, granularity: gran, fetcher: null });
   assert.equal(dflt.signal.kind, 'supertrend-flip');
 });
+
+test('detectHistoricalImpulses: finds spaced impulse events over a window, honoring the cooldown', async () => {
+  const { detectHistoricalImpulses } = await import('../scripts/supertrend.mjs');
+  const period = 20;
+  const bar = (i, vol) => ({
+    time: new Date(Date.parse('2026-07-28T00:00:00Z') + i * 60000).toISOString(),
+    open: 100, high: 100.6, low: 99.8, close: 100.4, volume: vol,
+  });
+  // baseline 10-vol bars with two qualifying pairs 15 bars apart (cooldown 10)
+  const vols = Array(60).fill(10);
+  vols[25] = 30; vols[26] = 30; // pair 1
+  vols[40] = 30; vols[41] = 30; // pair 2
+  const candles = vols.map((v, i) => bar(i, v));
+  const events = detectHistoricalImpulses(candles, { mult: 2, period, cooldownBars: 10 });
+  assert.equal(events.length, 2, JSON.stringify(events));
+  assert.equal(events[0].time, candles[26].time);
+  assert.equal(events[1].time, candles[41].time);
+  assert.equal(events[0].direction, 'up');
+  // within-cooldown second pair collapses to one event
+  const tight = Array(60).fill(10); tight[25] = 30; tight[26] = 30; tight[30] = 30; tight[31] = 30;
+  const one = detectHistoricalImpulses(tight.map((v, i) => bar(i, v)), { mult: 2, period, cooldownBars: 10 });
+  assert.equal(one.length, 1);
+});
+
+test('viewing a combo lazily backfills historical volume impulses with kind + backfill verdict', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    // Flat closes: no supertrend flip fires, only the volume impulse pair.
+    const start = Date.now() - 60 * 900000;
+    const rows = Array.from({ length: 40 }, (_, i) => ({
+      time: new Date(start + i * 900000).toISOString(),
+      open: 50, high: 50.6, low: 49.9, close: 50.4,
+      volume: i === 25 || i === 26 ? 40 : 10, complete: true,
+    }));
+    storeCandles(dbPath, INSTRUMENT, 'M15', rows);
+    let d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    for (let i = 0; i < 20 && !d.signals.some((s) => s.kind === 'volume-impulse'); i++) {
+      await new Promise((r) => setTimeout(r, 25));
+      d = await (await fetch(`${base}/api/chart?granularity=M15`)).json();
+    }
+    const imp = d.signals.find((s) => s.kind === 'volume-impulse');
+    assert.ok(imp, 'impulse backfilled into signal history');
+    assert.equal(imp.verdict, 'backfill');
+    assert.equal(imp.time, rows[26].time, 'second bar of the qualifying pair');
+    assert.equal(imp.signal, 'buy');
+    assert.equal(imp.notified, 0);
+  });
+});

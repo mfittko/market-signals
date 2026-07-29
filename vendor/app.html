@@ -1905,7 +1905,8 @@ function histRow(s, botDecisions) {
   // row keeps the same buy/sell coloring but labels itself distinctly from a
   // supertrend flip, so the two kinds are never confused in the history table.
   const signalLabel = (s.kind === 'volume-impulse' ? 'impulse ' : '') + s.signal;
-  const mainCells = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(signalLabel) + '</td><td>' + esc(s.price) +
+  const kindTitle = s.kind === 'volume-impulse' ? 'volume impulse: two consecutive bars over the volume threshold' : 'supertrend flip';
+  const mainCells = '<td title="candle time">' + esc(localFull(s.time)) + '</td><td title="' + esc(kindTitle) + '" class="' + (s.signal === 'buy' ? 'buy' : 'sell') + '">' + esc(signalLabel) + '</td><td>' + esc(s.price) +
     '</td><td class="mobile-hide">' + esc((s.verdict || '—').toUpperCase()) + '</td><td class="mobile-hide" title="' + esc(gr.title) + '">' + esc(gr.text) + botNote + badgeNote + '</td><td>' + out + '</td><td class="mobile-hide">' + adv + '</td>';
   // #168 F10: gates/reason/MFE-to-flip (already visible on desktop as their own
   // columns) repeat here so the mobile toggle can reach them once those columns

@@ -971,6 +971,21 @@ export function impulseSettings(settings = {}) {
   };
 }
 
+// Historical impulse scan for lazy backfill: replays detectVolumeImpulse over
+// every closed bar of a candle window, spacing events by the same cooldown the
+// live path enforces so backfilled history matches what live alerting would
+// have produced.
+export function detectHistoricalImpulses(candles, { mult = 2, period = 20, cooldownBars = 10 } = {}) {
+  const out = [];
+  let lastIdx = -Infinity;
+  for (let i = period + 1; i < candles.length; i++) {
+    if (i - lastIdx <= cooldownBars) continue;
+    const imp = detectVolumeImpulse(candles.slice(i - period - 1, i + 1), { mult, period });
+    if (imp) { out.push({ ...imp, price: candles[i].close }); lastIdx = i; }
+  }
+  return out;
+}
+
 // Volume-impulse alert path: notification-only (no LLM filter — the issue's
 // default pickup for phase 1), DB-backed cooldown so a restart never
 // resurrects a suppressed re-alert. Runs after processSignal each cycle; when
