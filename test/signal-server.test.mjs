@@ -195,6 +195,23 @@ test('chartData with no t returns the latest signal; empty db yields empty shape
   assert.equal(empty.signal, null);
 });
 
+test('chartData: the windowed history includes a volume-impulse row alongside the flip, but `latest`/`signal` stay flip-only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath, sigTime } = fixtureDb(dir);
+  // An impulse recorded AFTER the flip (newest row of any kind) must not steal
+  // `latest`/`signal`/isLatestSignal — those stay the flip.
+  const closes = [...Array(30).fill(100), ...Array.from({ length: 30 }, (_, i) => 100 - i)];
+  const impulseCandle = series(closes)[45];
+  recordSignal(dbPath, INSTRUMENT, 'M5', { time: impulseCandle.time, signal: 'buy', price: impulseCandle.close }, null, 'volume-impulse');
+
+  const d = await chartData(dbPath, INSTRUMENT, { fetcher: null });
+  assert.equal(d.signal.time, sigTime, 'the shown/latest signal is still the flip, not the newer impulse row');
+  assert.equal(d.isLatestSignal, true);
+  // the windowed history table (`signals`) is the kinds:'all' scope — both rows show up
+  const kinds = new Set(d.signals.map((s) => s.kind));
+  assert.ok(kinds.has('supertrend-flip') && kinds.has('volume-impulse'), 'both kinds present in the delivered history');
+});
+
 test('stale data triggers a live refresh through the injected fetcher; fetch failure serves stale', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath } = fixtureDb(dir); // fixture times are hours old -> stale

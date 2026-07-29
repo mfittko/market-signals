@@ -2035,7 +2035,7 @@ async function cfg() {
   const hintedLabel = (id, label) =>
     '<label for="f-' + id + '"' + (FIELD_HINTS[id] ? ' title="' + esc(FIELD_HINTS[id]) + '"' : '') + '>' + esc(label) + '</label>';
   const inputRow = (id, kind, label, val, ph) =>
-    hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '" value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
+    hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '"' + (kind === 'number' ? ' step="any"' : '') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
   const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
     inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]

@@ -98,6 +98,39 @@ test('no LLM call without an event; flip and adverse review both trigger exactly
   void calls; void spyTools;
 });
 
+test('runBot: a fresh volume-impulse event deliberates like a flip, carries ctx.volumeImpulse distinct from ctx.flip, and a plain flip still wins the event label', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-'));
+  const db = join(dir, 'bot.sqlite');
+  const settings = fakeProvider(dir, '{"action":"hold","reasoning":"idle"}');
+  await withActiveSeed(db);
+
+  // (a) impulse alone triggers deliberation like a flip
+  const r1 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshImpulse: { time: 'x', direction: 'up' } });
+  assert.equal(r1.deliberated, true, 'a fresh impulse deliberates');
+
+  // (b) ctx carries volumeImpulse, distinct from a (null) flip — read back
+  // from the journaled instrumentContext (runBot's own audit trail).
+  await runBot(db, settings, {
+    instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 },
+    freshImpulse: { time: 'y', direction: 'down' },
+  });
+  const journal = portfolioView(db, botConfig(settings)).journal.filter((j) => j.action === 'decision');
+  const lastCtx = JSON.parse(journal[0].context).instrumentContext;
+  assert.deepEqual(lastCtx.volumeImpulse, { time: 'y', direction: 'down' });
+  assert.equal(lastCtx.flip, null, 'flip and volumeImpulse are distinct ctx fields');
+
+  // (c) no impulse, no flip → no trigger
+  const r3 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 } });
+  assert.equal(r3.deliberated, false, 'no impulse, no flip, no adverse move: idle');
+
+  // (d) a flip still takes the event label over a coincident impulse
+  const r4 = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.1, 86.9, 87), quote: { last: 87 }, freshFlip: { signal: 'buy', time: 'z' }, freshImpulse: { time: 'z', direction: 'up' } });
+  assert.equal(r4.deliberated, true);
+  const lastJournal = portfolioView(db, botConfig(settings)).journal.filter((j) => j.action === 'decision');
+  const lastEvent = JSON.parse(lastJournal[0].context).event;
+  assert.equal(lastEvent, 'flip', 'flip beats a coincident impulse for the event label');
+});
+
 test('runBot: buildCtx (news/decision context) is only built when it deliberates — not on quiet ticks', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'bot-'));
   const db = join(dir, 'bot.sqlite');

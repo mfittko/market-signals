@@ -138,7 +138,7 @@ export async function runRefilter(dbPath, settings, {
         // NOT overwritten — the WHERE evaluates the CURRENT reason (pre-SET). A
         // 0-row update means it was already fixed: skip, never clobber the newer
         // verdict. (`where` is a fixed internal constant, not user input.)
-        const changes = withDb(dbPath, (db) => db.prepare(`UPDATE signals SET verdict=?, reason=? WHERE instrument=? AND granularity=? AND time=? AND (${where})`)
+        const changes = withDb(dbPath, (db) => db.prepare(`UPDATE signals SET verdict=?, reason=? WHERE instrument=? AND granularity=? AND time=? AND kind='supertrend-flip' AND (${where})`)
           .run(verdictLabel, verdict.reason ?? null, row.instrument, row.granularity, row.time).changes);
         if (changes === 0) {
           skipped.push({ instrument: row.instrument, granularity: row.granularity, time: row.time, reason: 'no longer matches predicate (fixed concurrently)' });

@@ -113,6 +113,19 @@ export function writeSettings(settingsPath, patch) {
   if (patch.maxCompletionTokens !== undefined && patch.maxCompletionTokens !== '' && patch.maxCompletionTokens !== null && (!Number.isInteger(patch.maxCompletionTokens) || patch.maxCompletionTokens <= 0)) {
     throw new Error('maxCompletionTokens must be a positive integer');
   }
+  // volume-impulse knobs: reject junk loudly at the trust boundary — same
+  // stance as the neighbouring numeric settings above. impulseSettings falls
+  // back to defaults on an invalid stored value, which would otherwise make a
+  // rejected write look silently accepted to the operator.
+  if (patch.impulseVolMult !== undefined && patch.impulseVolMult !== '' && patch.impulseVolMult !== null && (!Number.isFinite(patch.impulseVolMult) || patch.impulseVolMult < 1)) {
+    throw new Error('impulseVolMult must be a finite number >= 1');
+  }
+  if (patch.impulseVolWindow !== undefined && patch.impulseVolWindow !== '' && patch.impulseVolWindow !== null && (!Number.isInteger(patch.impulseVolWindow) || patch.impulseVolWindow < 1)) {
+    throw new Error('impulseVolWindow must be an integer >= 1');
+  }
+  if (patch.impulseCooldownBars !== undefined && patch.impulseCooldownBars !== '' && patch.impulseCooldownBars !== null && (!Number.isInteger(patch.impulseCooldownBars) || patch.impulseCooldownBars < 0)) {
+    throw new Error('impulseCooldownBars must be a non-negative integer');
+  }
   if (patch.bot !== undefined && patch.bot !== '' && patch.bot !== null) {
     if (typeof patch.bot !== 'object' || Array.isArray(patch.bot)) throw new Error('bot must be an object');
     const unknownBot = Object.keys(patch.bot).filter((k) => !BOT_SETTING_KEYS.includes(k));
@@ -335,7 +348,8 @@ function scheduleAcquisition(dbPath, instrument, granularity, { complete, flips,
         if (Date.now() - Date.parse(f.time) <= horizonMs) continue;
         const { isNew } = recordSignal(dbPath, instrument, granularity, { time: f.time, signal: f.signal, price: f.price }, null);
         if (isNew) {
-          withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=?')
+          // flip-specific backfill: scope by kind now that it's part of the PK
+          withDb(dbPath, (db) => db.prepare("UPDATE signals SET verdict=? WHERE instrument=? AND granularity=? AND time=? AND kind='supertrend-flip'")
             .run('backfill', instrument, granularity, f.time));
         }
       }
@@ -485,9 +499,12 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   const signals = windowFrom != null
     ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo, kinds: 'all' })
     : signalOutcomes(dbPath, instrument, granularity, { limit: 50, kinds: 'all' });
-  // the absolute latest signal — for the shown signal (non-deep-link) and for the
-  // isLatestSignal gate, independent of the window-scoped table above.
-  const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1, kinds: 'all' })[0] ?? null;
+  // the absolute latest FLIP — for the shown signal (non-deep-link) and for the
+  // isLatestSignal gate, independent of the window-scoped table above. Flips-only
+  // (default kinds scope): this feeds the panel's current signal and the
+  // recheck target, both flip concepts — an impulse row must never take over
+  // either just because it's the newest row of any kind.
+  const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null;
   // Deep-linked signals older than the history window are looked up directly.
   let signal = null;
   if (t) {
@@ -1127,6 +1144,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           ? (signalOutcomes(dbPath, instrument, granularity, { time: signalParam })[0] ?? null)
           : (signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null);
         if (!signal) {
+          // Recheck is a flip-only concept (validity/played-out/invalidated judges
+          // a trend thesis, which an impulse never asserted) — a time that
+          // resolves to an impulse row under kinds:'all' must say so plainly,
+          // not surface as an indistinguishable "unknown signal" 404.
+          if (signalParam && signalOutcomes(dbPath, instrument, granularity, { time: signalParam, kinds: 'all' })[0]) {
+            return json(res, 400, { ok: false, error: 'impulse signals are not recheckable' });
+          }
           return json(res, 404, { ok: false, error: signalParam ? `unknown signal '${signalParam}' for this view` : 'no signal recorded for this view yet' });
         }
         try {

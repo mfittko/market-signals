@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince } from '../scripts/supertrend.mjs';
@@ -1308,10 +1309,20 @@ test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run
   assert.equal(sent.length, 1, 'no second notification for the same bar');
 });
 
-test('processImpulseAlert: DB-backed cooldown holds across a fresh process instance (restart-safe)', async () => {
+// Deliberately a NON-default cooldown (10 is impulseSettings' own fallback,
+// so a wiring bug that drops the setting entirely would still pass at 10) —
+// this proves settings.json actually reaches processImpulseAlert, not just
+// that impulseSettings itself parses it (that's covered separately above).
+const COOLDOWN_BARS = 3;
+
+function shiftedImpulseCandles(barsLater) {
+  return impulseCandles().map((c) => ({ ...c, time: new Date(Date.parse(c.time) + barsLater * 300000).toISOString() }));
+}
+
+test('processImpulseAlert: DB-backed cooldown holds across a fresh process instance (restart-safe), non-default cooldownBars actually wired', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-impulse-cooldown-'));
   const settingsPath = join(dir, 'settings.json');
-  writeFileSync(settingsPath, JSON.stringify({ impulseCooldownBars: 10 }));
+  writeFileSync(settingsPath, JSON.stringify({ impulseCooldownBars: COOLDOWN_BARS }));
   const dbPath = join(dir, 'db.sqlite');
   const sent = [];
   const sendFn = (msg) => sent.push(msg);
@@ -1320,12 +1331,47 @@ test('processImpulseAlert: DB-backed cooldown holds across a fresh process insta
   const first = await processImpulseAlert(opts, impulseCandles(), { sendFn });
   assert.equal(first.sent, true);
 
-  // One bar later, still hot: within the 10-bar cooldown window of the first alert.
-  const later = impulseCandles();
-  const shifted = later.map((c) => ({ ...c, time: new Date(Date.parse(c.time) + 300000).toISOString() }));
-  const second = await processImpulseAlert(opts, shifted, { sendFn });
+  // One bar later, still hot: within the (non-default) 3-bar cooldown window.
+  const second = await processImpulseAlert(opts, shiftedImpulseCandles(1), { sendFn });
   assert.equal(second.reason, 'impulse cooldown');
   assert.equal(sent.length, 1, 'cooldown holds even against a brand-new process/module instance');
+});
+
+test('processImpulseAlert: cooldown window expires — a qualifying pair cooldownBars+1 bars later alerts again', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-cooldown-expiry-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ impulseCooldownBars: COOLDOWN_BARS }));
+  const dbPath = join(dir, 'db.sqlite');
+  const sent = [];
+  const sendFn = (msg) => sent.push(msg);
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+
+  const first = await processImpulseAlert(opts, impulseCandles(), { sendFn });
+  assert.equal(first.sent, true);
+
+  // exactly cooldownBars bars later — still suppressed (the <= boundary)
+  const stillCold = await processImpulseAlert(opts, shiftedImpulseCandles(COOLDOWN_BARS), { sendFn });
+  assert.equal(stillCold.reason, 'impulse cooldown');
+
+  // cooldownBars+1 bars later — the window has expired, a fresh qualifying pair alerts again
+  const expired = await processImpulseAlert(opts, shiftedImpulseCandles(COOLDOWN_BARS + 1), { sendFn });
+  assert.equal(expired.sent, true, JSON.stringify(expired));
+  assert.equal(sent.length, 2);
+});
+
+test('processImpulseAlert: a non-default impulseVolMult actually changes detection (wiring, not just impulseSettings parsing)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-mult-'));
+  const settingsPath = join(dir, 'settings.json');
+  // 5x pair (volRatio 5) must NOT fire once the required multiple is raised past it.
+  writeFileSync(settingsPath, JSON.stringify({ impulseVolMult: 6 }));
+  const dbPath = join(dir, 'db.sqlite');
+  const sent = [];
+  const sendFn = (msg) => sent.push(msg);
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+
+  const result = await processImpulseAlert(opts, impulseCandles(), { sendFn });
+  assert.equal(result.reason, 'no impulse', 'a 5x pair does not qualify at impulseVolMult:6');
+  assert.equal(sent.length, 0);
 });
 
 test('per-kind separation: signalOutcomes defaults to flips only; kinds:"all" returns both flip and impulse rows', () => {
@@ -1381,17 +1427,91 @@ test('runWatcherCycle: fixture candles with a qualifying impulse pair and no fli
   }
 });
 
-test('flip-alert-wins: a run where processSignal sends skips the impulse check entirely (one ping per event)', async () => {
+test('flip-alert-wins: a real runWatcherCycle where a flip AND a qualifying impulse coincide on the same bar sends only the flip, no impulse row/notification', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-flip-wins-'));
-  // provider:'none' — deterministic unfiltered alert, no real/fake pi call.
-  const { opts, result, candles: c } = fixture(dir, { notify: true, candleCount: candles.length, settings: { provider: 'none' } });
-  const flipResult = await processSignal(opts, result, c);
-  assert.equal(flipResult.sent, true, flipResult.reason);
-  // Mirrors runOne's wiring rule exactly: a sent flip alert takes the run's one
-  // notification, the impulse check never even runs.
-  const impulseResult = flipResult.sent === true
-    ? { sent: false, reason: 'flip alert already sent' }
-    : await processImpulseAlert(opts, c);
-  assert.equal(impulseResult.sent, false);
-  assert.equal(impulseResult.reason, 'flip alert already sent');
+  const dbPath = join(dir, 'db.sqlite');
+  withDb(dbPath, () => {});
+  const settingsPath = join(dir, 'settings.json');
+  const recorderLog = join(dir, 'notify.log');
+  const notifierBin = fakeBin(dir, 'notifier', `echo "$@" >> ${recorderLog}`);
+  writeFileSync(settingsPath, JSON.stringify({ notifierBin, provider: 'none' }));
+
+  // Two flat-volume bars (period=20) then a 2-bar crash pair whose volume
+  // qualifies as an impulse AND whose price move flips supertrend(10,3) to
+  // sell on the very same tail bar — the exact coincidence the AC covers.
+  const pair = impulseCandles({ pairOpenClose: [[100, 97], [97, 94]] });
+  const rows = pair.map((c) => ({
+    time: c.time, mid: { o: c.open, h: c.high, l: c.low, c: c.close }, volume: c.volume, complete: true,
+  }));
+  const http = await import('node:http');
+  const srv = http.createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ candles: rows })); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const realFetch = globalThis.fetch;
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  globalThis.fetch = (url, opts) => realFetch(String(url).replace('https://p.fxempire.com/oanda/candles/latest', base), opts);
+  try {
+    const { DEFAULT_ARGS, runWatcherCycle } = await import('../scripts/supertrend.mjs');
+    const opts = { ...DEFAULT_ARGS, instrument: 'TEST/COINCIDE', granularity: 'M5', db: dbPath, settings: settingsPath, count: rows.length, notify: true };
+    const results = await runWatcherCycle(opts, { watchers: '' });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, true, results[0].error);
+    assert.equal(results[0].notify.sent, true, JSON.stringify(results[0].notify));
+    assert.equal(results[0].impulse.sent, false);
+    assert.equal(results[0].impulse.reason, 'flip alert already sent');
+
+    // Same-bar PK collision (kind now in the PK): the flip row is recorded,
+    // NO volume-impulse row is ever written for this bar (the check never ran).
+    const rowsAll = signalOutcomes(dbPath, 'TEST/COINCIDE', 'M5', { kinds: 'all' });
+    assert.deepEqual(rowsAll.map((r) => r.kind), ['supertrend-flip']);
+
+    const notified = readFileSync(recorderLog, 'utf8').trim().split('\n').filter(Boolean);
+    assert.equal(notified.length, 1, 'exactly one notification for the coinciding bar');
+  } finally {
+    globalThis.fetch = realFetch;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('same-bar coexistence: a flip and an impulse recorded independently on the same instrument/granularity/time both persist (kind-scoped PK)', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-same-bar-test.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const t = candles[15].time;
+  const flip = { time: t, signal: 'buy', price: candles[15].close };
+  const impulse = { time: t, signal: 'sell', price: candles[15].close };
+  assert.equal(recordSignal(dbPath, 'WTICO/USD', 'M5', flip, 50).isNew, true);
+  assert.equal(recordSignal(dbPath, 'WTICO/USD', 'M5', impulse, null, 'volume-impulse').isNew, true, 'same bar, different kind — no PK collision');
+  const rows = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { time: t, kinds: 'all' });
+  assert.equal(rows.length, 2);
+  assert.deepEqual(new Set(rows.map((r) => r.kind)), new Set(['supertrend-flip', 'volume-impulse']));
+  rmSync(dbPath, { force: true });
+});
+
+test('kind-PK migration backfills a legacy (pre-kind) DB and preserves its rows', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-legacy-kind-test.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // Build the OLD schema by hand (no kind column, PK without kind) — what any
+  // DB created before volume-impulse existed looks like on disk. Raw open
+  // (never through withDb) so the migration hasn't run yet.
+  {
+    const raw = new DatabaseSync(dbPath);
+    raw.exec(`CREATE TABLE signals (
+      instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+      signal TEXT NOT NULL, price REAL, win_rate REAL,
+      verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
+      PRIMARY KEY (instrument, granularity, time)
+    )`);
+    raw.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, notified) VALUES (?,?,?,?,?,?,?,?)')
+      .run('WTICO/USD', 'M5', candles[5].time, 'buy', candles[5].close, 40, 'alert', 1);
+    raw.close();
+  }
+  // Opening through withDb (any real caller) must migrate: backfill kind AND
+  // rebuild the PK to include it, without losing the pre-existing row.
+  const rows = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' });
+  assert.equal(rows.length, 1, 'the legacy row survived the rebuild');
+  assert.equal(rows[0].kind, 'supertrend-flip', 'legacy rows backfill to supertrend-flip');
+  assert.equal(rows[0].verdict, 'alert', 'non-kind columns preserved');
+  // The PK now includes kind: a same-bar impulse must no longer collide.
+  assert.equal(recordSignal(dbPath, 'WTICO/USD', 'M5', { time: candles[5].time, signal: 'sell', price: candles[5].close }, null, 'volume-impulse').isNew, true);
+  rmSync(dbPath, { force: true });
 });

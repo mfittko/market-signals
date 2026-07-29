@@ -42,11 +42,15 @@ cycle owner. Running this CLI while the server is up can double-execute a
 cycle (duplicate notify/store) — that's on you, not guarded against.
 `;
 
+// kind is part of the PK: a flip and an impulse can land on the same bar
+// (same instrument/granularity/time) and must never collide/overwrite each
+// other — they're distinct events sharing a timeline, not one row per bar.
 const SIGNALS_DDL = `CREATE TABLE IF NOT EXISTS signals (
   instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
   signal TEXT NOT NULL, price REAL, win_rate REAL,
   verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
-  PRIMARY KEY (instrument, granularity, time)
+  kind TEXT NOT NULL DEFAULT 'supertrend-flip',
+  PRIMARY KEY (instrument, granularity, time, kind)
 )`;
 
 const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
@@ -54,6 +58,32 @@ const CANDLES_DDL = `CREATE TABLE IF NOT EXISTS candles (
   open REAL, high REAL, low REAL, close REAL, volume REAL,
   PRIMARY KEY (instrument, granularity, time)
 )`;
+
+// Rebuilds `signals` so `kind` joins the primary key (a flip and an impulse on
+// the same bar must never collide). Only runs when the PK doesn't already
+// include kind — cheap no-op after the first open. Wrapped by the caller in a
+// BEGIN IMMEDIATE so two processes racing this never corrupt the table: the
+// loser blocks on the writer lock, then re-checks and finds the PK already
+// migrated (this function is idempotent by construction — CREATE/DROP/RENAME
+// all target names that only exist mid-migration).
+function migrateSignalsKindPk(db) {
+  const cols = db.prepare('PRAGMA table_info(signals)').all();
+  const hasKind = cols.some((c) => c.name === 'kind');
+  const pkCols = cols.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+  if (hasKind && pkCols.includes('kind')) return; // already migrated
+  if (!hasKind) db.exec('ALTER TABLE signals ADD COLUMN kind TEXT');
+  db.exec(`CREATE TABLE signals_new (
+    instrument TEXT NOT NULL, granularity TEXT NOT NULL, time TEXT NOT NULL,
+    signal TEXT NOT NULL, price REAL, win_rate REAL,
+    verdict TEXT, reason TEXT, notified INTEGER DEFAULT 0,
+    kind TEXT NOT NULL DEFAULT 'supertrend-flip',
+    PRIMARY KEY (instrument, granularity, time, kind)
+  )`);
+  db.exec(`INSERT INTO signals_new (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified, kind)
+    SELECT instrument, granularity, time, signal, price, win_rate, verdict, reason, notified, COALESCE(kind, 'supertrend-flip') FROM signals`);
+  db.exec('DROP TABLE signals');
+  db.exec('ALTER TABLE signals_new RENAME TO signals');
+}
 
 // Every DB access goes through here: schema ensured on open, handle always closed.
 export function withDb(dbPath, fn) {
@@ -66,12 +96,18 @@ export function withDb(dbPath, fn) {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(CANDLES_DDL);
     db.exec(SIGNALS_DDL);
-    // kind migration (existing rows are supertrend flips — the only kind
-    // before volume-impulse existed): idempotent, cheap, checked every open.
-    const hasKind = db.prepare("PRAGMA table_info(signals)").all().some((c) => c.name === 'kind');
-    if (!hasKind) {
-      db.exec('ALTER TABLE signals ADD COLUMN kind TEXT');
-      db.exec("UPDATE signals SET kind='supertrend-flip' WHERE kind IS NULL");
+    // kind-in-PK migration: race-safe across processes. BEGIN IMMEDIATE takes
+    // the write lock up front (busy_timeout above governs the wait); a
+    // concurrent opener blocks here rather than racing the ALTER/rebuild, and
+    // migrateSignalsKindPk is a no-op once the PK already includes kind, so
+    // the loser's turn inside the lock does nothing.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      migrateSignalsKindPk(db);
+      db.exec('COMMIT');
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* nothing to roll back */ }
+      throw err;
     }
     return fn(db);
   } finally {
@@ -88,9 +124,9 @@ export function recordSignal(dbPath, instrument, granularity, sig, winRatePct, k
   });
 }
 
-function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified) {
-  withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=?')
-    .run(verdict, reason, notified, instrument, granularity, time));
+function updateSignal(dbPath, instrument, granularity, time, verdict, reason, notified, kind = 'supertrend-flip') {
+  withDb(dbPath, (db) => db.prepare('UPDATE signals SET verdict=?, reason=?, notified=? WHERE instrument=? AND granularity=? AND time=? AND kind=?')
+    .run(verdict, reason, notified, instrument, granularity, time, kind));
 }
 
 // Past signals with their realized direction-adjusted move `horizonBars` later,
@@ -118,7 +154,11 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
           ? db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=? AND time >= ? AND time <= ?${kindClause} ORDER BY time DESC`).all(instrument, granularity, from, to)
           : db.prepare(`SELECT * FROM signals WHERE instrument=? AND granularity=?${kindClause} ORDER BY time DESC LIMIT ?`).all(instrument, granularity, limit);
     const after = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? AND time > ? ORDER BY time LIMIT 1 OFFSET ?');
-    const nextAdverse = db.prepare('SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? ORDER BY time LIMIT 1');
+    // "Adverse" always means the next opposite FLIP (trend reversal) — never an
+    // impulse row, regardless of the `kinds` scope the outer query used: an
+    // impulse can carry either direction mid-trend and would otherwise cut a
+    // flip's tracked trade short at an unrelated event's price.
+    const nextAdverse = db.prepare("SELECT price FROM signals WHERE instrument=? AND granularity=? AND time > ? AND signal != ? AND (kind='supertrend-flip' OR kind IS NULL) ORDER BY time LIMIT 1");
     const lastClose = db.prepare('SELECT close FROM candles WHERE instrument=? AND granularity=? ORDER BY time DESC LIMIT 1').get(instrument, granularity)?.close ?? null;
     return sigs.map((s) => {
       const dir = s.signal === 'buy' ? 1 : -1;
@@ -923,13 +963,22 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
   if (!opts.db) return { sent: false, reason: 'requires --db' };
   const settings = readSettings(opts.settings);
   const { mult, period, cooldownBars } = impulseSettings(settings);
+  // A misconfigured impulseVolWindow (larger than the fetched candle count)
+  // disables the detector every cycle, indistinguishable from "no impulse
+  // right now" — surface it distinctly so it's observable instead of a
+  // permanently-silent feature.
+  if (candles.length < period + 2) return { sent: false, reason: 'insufficient history' };
   const impulse = detectVolumeImpulse(candles, { mult, period });
   if (!impulse) return { sent: false, reason: 'no impulse' };
 
   const granMs = granularityMs(opts.granularity);
   const impulseMs = Date.parse(impulse.time);
-  const latest = signalOutcomes(opts.db, opts.instrument, opts.granularity, { limit: 1, kinds: 'all' })
-    .find((s) => s.kind === 'volume-impulse');
+  // Direct query for the latest row of THIS kind — signalOutcomes({limit:1})
+  // returns the single newest row of any kind, so a newer flip row would
+  // silently disable the cooldown by post-filtering an empty page.
+  const latest = withDb(opts.db, (db) => db.prepare(
+    "SELECT time, notified FROM signals WHERE instrument=? AND granularity=? AND kind='volume-impulse' ORDER BY time DESC LIMIT 1",
+  ).get(opts.instrument, opts.granularity));
   if (latest && latest.time !== impulse.time && impulseMs - Date.parse(latest.time) <= cooldownBars * granMs) {
     return { sent: false, reason: 'impulse cooldown', impulse };
   }
@@ -944,10 +993,10 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
   try {
     await sendFn(msg, deepLink, settings);
   } catch (err) {
-    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, `notification failed: ${err.message}`, 0);
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, `notification failed: ${err.message}`, 0, 'volume-impulse');
     return { sent: false, reason: `notification failed: ${err.message}`, impulse };
   }
-  updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, 'alert', 'volume impulse', 1);
+  updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, 'alert', 'volume impulse', 1, 'volume-impulse');
   return { sent: true, message: msg, impulse };
 }
 
