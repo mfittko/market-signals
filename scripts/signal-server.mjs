@@ -51,7 +51,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -480,18 +480,20 @@ export async function chartData(dbPath, instrument, { t = null, count = 120, gra
   // are no candles yet). The current/deep-linked signal is resolved separately.
   const windowFrom = candles.length ? candles[0].time : null;
   const windowTo = candles.length ? candles[candles.length - 1].time : null;
+  // History rendering (chart's signal table): every kind, so volume-impulse
+  // rows show up alongside flips — labeled distinctly by the client.
   const signals = windowFrom != null
-    ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo })
-    : signalOutcomes(dbPath, instrument, granularity, { limit: 50 });
+    ? signalOutcomes(dbPath, instrument, granularity, { from: windowFrom, to: windowTo, kinds: 'all' })
+    : signalOutcomes(dbPath, instrument, granularity, { limit: 50, kinds: 'all' });
   // the absolute latest signal — for the shown signal (non-deep-link) and for the
   // isLatestSignal gate, independent of the window-scoped table above.
-  const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1 })[0] ?? null;
+  const latest = signalOutcomes(dbPath, instrument, granularity, { limit: 1, kinds: 'all' })[0] ?? null;
   // Deep-linked signals older than the history window are looked up directly.
   let signal = null;
   if (t) {
     const variants = /\.\d+Z$/.test(t) ? [t] : [t, `${t.slice(0, -1)}.000000000Z`, `${t.slice(0, -1)}.000Z`];
     for (const v of variants) {
-      signal = signals.find((s) => s.time === v) ?? signalOutcomes(dbPath, instrument, granularity, { time: v })[0] ?? null;
+      signal = signals.find((s) => s.time === v) ?? signalOutcomes(dbPath, instrument, granularity, { time: v, kinds: 'all' })[0] ?? null;
       if (signal) break;
     }
   } else {
@@ -1104,7 +1106,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const before = url.searchParams.get('before');
         const n = Number(url.searchParams.get('limit'));
         const limit = Number.isInteger(n) && n > 0 && n <= 100 ? n : 10;
-        const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit } : { limit });
+        const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit, kinds: 'all' } : { limit, kinds: 'all' });
         return json(res, 200, { ok: true, signals });
       }
       // #70: operator-initiated re-check of the LATEST signal of the current

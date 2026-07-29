@@ -56,6 +56,14 @@ configured watcher combo (`watchers` CSV in settings, e.g.
   live on the signal
   path.
 
+The cycle emits two signal kinds: **supertrend flips** (LLM-filtered, above)
+and **volume impulses** — two consecutive same-direction bars each carrying
+volume ≥ `impulseVolMult`× the average of the preceding `impulseVolWindow` bars
+(defaults 2× / 20 / 10-bar cooldown), notification-only with no LLM filter,
+so continuation moves mid-trend still alert even when no flip occurs. Impulse
+rows are labeled distinctly in the signal-history table and excluded from
+flip win-rate statistics.
+
 Set `MS_DEBUG_LLM=1` in the environment to log a one-line
 provider/model/token-usage summary per LLM completion (filter and bot) to
 stderr — a local dev flag, not a persisted setting.

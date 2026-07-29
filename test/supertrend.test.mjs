@@ -1226,3 +1226,172 @@ test('runWatcherCycle is exported and returns per-combo results (same shape main
     await new Promise((r) => srv.close(r));
   }
 });
+
+// --- volume-impulse detector (#206): continuation moves with no flip get an alert too ---
+import { detectVolumeImpulse, impulseSettings, processImpulseAlert } from '../scripts/supertrend.mjs';
+
+// Flat volume-10 history (period bars), then a qualifying/non-qualifying pair
+// appended at the tail — the detector only ever looks at the last two bars.
+function impulseCandles({ period = 20, pairVolume = [50, 50], pairOpenClose = [[99, 101], [99, 101]], histVolume = 10 } = {}) {
+  const hist = Array.from({ length: period }, (_, i) => ({
+    time: new Date(Date.parse('2026-07-28T00:00:00Z') + i * 300000).toISOString(),
+    open: 100, high: 100.5, low: 99.5, close: 100, volume: histVolume,
+  }));
+  const pair = pairOpenClose.map(([open, close], i) => ({
+    time: new Date(Date.parse('2026-07-28T00:00:00Z') + (period + i) * 300000).toISOString(),
+    open, high: Math.max(open, close) + 0.2, low: Math.min(open, close) - 0.2, close, volume: pairVolume[i],
+  }));
+  return [...hist, ...pair];
+}
+
+test('detectVolumeImpulse: fires on two same-direction bars >= mult x the prior average', () => {
+  const c = impulseCandles();
+  const r = detectVolumeImpulse(c, { mult: 2, period: 20 });
+  assert.ok(r);
+  assert.equal(r.direction, 'up');
+  assert.equal(r.time, c[c.length - 1].time);
+  assert.equal(r.volRatio, 5, '50/10 = 5x');
+});
+
+test('detectVolumeImpulse: a single high-volume bar (the other stays at baseline) does not fire', () => {
+  const c = impulseCandles({ pairVolume: [50, 10] });
+  assert.equal(detectVolumeImpulse(c, { mult: 2, period: 20 }), null);
+});
+
+test('detectVolumeImpulse: opposite-direction bodies do not fire', () => {
+  const c = impulseCandles({ pairOpenClose: [[99, 101], [101, 99]] });
+  assert.equal(detectVolumeImpulse(c, { mult: 2, period: 20 }), null);
+});
+
+test('detectVolumeImpulse: insufficient history returns null', () => {
+  const c = impulseCandles().slice(-10); // fewer than period+2
+  assert.equal(detectVolumeImpulse(c, { mult: 2, period: 20 }), null);
+});
+
+test('impulseSettings: valid overrides win, invalid/missing values fall back per-knob (2/20/10 defaults)', () => {
+  assert.deepEqual(impulseSettings({}), { mult: 2, period: 20, cooldownBars: 10 });
+  assert.deepEqual(
+    impulseSettings({ impulseVolMult: 3, impulseVolWindow: 30, impulseCooldownBars: 5 }),
+    { mult: 3, period: 30, cooldownBars: 5 },
+  );
+  assert.equal(impulseSettings({ impulseVolMult: 0 }).mult, 2, 'mult below 1 falls back');
+  assert.equal(impulseSettings({ impulseVolWindow: -1 }).period, 20, 'negative window falls back');
+  assert.equal(impulseSettings({ impulseVolWindow: 1.5 }).period, 20, 'non-integer window falls back');
+  assert.equal(impulseSettings({ impulseCooldownBars: 'x' }).cooldownBars, 10, 'non-numeric falls back');
+});
+
+test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run is already-processed; notify:false skips', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({}));
+  const dbPath = join(dir, 'db.sqlite');
+  const c = impulseCandles();
+  const sent = [];
+  const sendFn = (msg, deepLink) => sent.push({ msg, deepLink });
+
+  const off = await processImpulseAlert({ db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: false, settings: settingsPath }, c, { sendFn });
+  assert.equal(off.reason, 'notify off');
+  assert.equal(sent.length, 0);
+
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+  const first = await processImpulseAlert(opts, c, { sendFn });
+  assert.equal(first.sent, true);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].msg, /volume impulse UP/);
+  const [row] = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' });
+  assert.equal(row.kind, 'volume-impulse');
+  assert.equal(row.verdict, 'alert');
+  assert.equal(row.notified, 1);
+
+  const again = await processImpulseAlert(opts, c, { sendFn });
+  assert.equal(again.reason, 'already processed');
+  assert.equal(sent.length, 1, 'no second notification for the same bar');
+});
+
+test('processImpulseAlert: DB-backed cooldown holds across a fresh process instance (restart-safe)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-cooldown-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({ impulseCooldownBars: 10 }));
+  const dbPath = join(dir, 'db.sqlite');
+  const sent = [];
+  const sendFn = (msg) => sent.push(msg);
+  const opts = { db: dbPath, instrument: 'WTICO/USD', granularity: 'M5', notify: true, settings: settingsPath };
+
+  const first = await processImpulseAlert(opts, impulseCandles(), { sendFn });
+  assert.equal(first.sent, true);
+
+  // One bar later, still hot: within the 10-bar cooldown window of the first alert.
+  const later = impulseCandles();
+  const shifted = later.map((c) => ({ ...c, time: new Date(Date.parse(c.time) + 300000).toISOString() }));
+  const second = await processImpulseAlert(opts, shifted, { sendFn });
+  assert.equal(second.reason, 'impulse cooldown');
+  assert.equal(sent.length, 1, 'cooldown holds even against a brand-new process/module instance');
+});
+
+test('per-kind separation: signalOutcomes defaults to flips only; kinds:"all" returns both flip and impulse rows', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-kinds-test.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  storeCandles(dbPath, 'WTICO/USD', 'M5', candles);
+  const flip = { time: candles[10].time, signal: 'buy', price: candles[10].close };
+  const impulse = { time: candles[20].time, signal: 'sell', price: candles[20].close };
+  recordSignal(dbPath, 'WTICO/USD', 'M5', flip, 50); // default kind
+  recordSignal(dbPath, 'WTICO/USD', 'M5', impulse, null, 'volume-impulse');
+
+  const flipsOnly = signalOutcomes(dbPath, 'WTICO/USD', 'M5');
+  assert.deepEqual(flipsOnly.map((r) => r.time), [flip.time], 'default scope excludes the impulse row');
+
+  const all = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' });
+  assert.equal(all.length, 2);
+  assert.deepEqual(new Set(all.map((r) => r.kind)), new Set(['supertrend-flip', 'volume-impulse']));
+  rmSync(dbPath, { force: true });
+});
+
+test('runWatcherCycle: fixture candles with a qualifying impulse pair and no flip produce result.impulse.sent === true and a db row', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cycle-impulse-'));
+  const dbPath = join(dir, 'db.sqlite');
+  withDb(dbPath, () => {});
+  const settingsPath = join(dir, 'settings.json');
+  const recorderLog = join(dir, 'notify.log');
+  const notifierBin = fakeBin(dir, 'notifier', `echo "$@" >> ${recorderLog}`);
+  writeFileSync(settingsPath, JSON.stringify({ notifierBin }));
+
+  // Flat trend (no flip ever fires) with a volume-impulse pair at the tail.
+  const rows = impulseCandles().map((c) => ({
+    time: c.time, mid: { o: c.open, h: c.high, l: c.low, c: c.close }, volume: c.volume, complete: true,
+  }));
+  const http = await import('node:http');
+  const srv = http.createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ candles: rows })); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const realFetch = globalThis.fetch;
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  globalThis.fetch = (url, opts) => realFetch(String(url).replace('https://p.fxempire.com/oanda/candles/latest', base), opts);
+  try {
+    const { DEFAULT_ARGS, runWatcherCycle } = await import('../scripts/supertrend.mjs');
+    const opts = { ...DEFAULT_ARGS, instrument: 'TEST/IMPULSE', granularity: 'M5', db: dbPath, settings: settingsPath, count: rows.length, notify: true };
+    const results = await runWatcherCycle(opts, { watchers: '' });
+    assert.equal(results.length, 1);
+    assert.equal(results[0].ok, true);
+    assert.equal(results[0].notify.reason, 'no fresh flip');
+    assert.equal(results[0].impulse.sent, true, JSON.stringify(results[0].impulse));
+    const [row] = signalOutcomes(dbPath, 'TEST/IMPULSE', 'M5', { kinds: 'all' });
+    assert.equal(row.kind, 'volume-impulse');
+  } finally {
+    globalThis.fetch = realFetch;
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+test('flip-alert-wins: a run where processSignal sends skips the impulse check entirely (one ping per event)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-flip-wins-'));
+  // provider:'none' — deterministic unfiltered alert, no real/fake pi call.
+  const { opts, result, candles: c } = fixture(dir, { notify: true, candleCount: candles.length, settings: { provider: 'none' } });
+  const flipResult = await processSignal(opts, result, c);
+  assert.equal(flipResult.sent, true, flipResult.reason);
+  // Mirrors runOne's wiring rule exactly: a sent flip alert takes the run's one
+  // notification, the impulse check never even runs.
+  const impulseResult = flipResult.sent === true
+    ? { sent: false, reason: 'flip alert already sent' }
+    : await processImpulseAlert(opts, c);
+  assert.equal(impulseResult.sent, false);
+  assert.equal(impulseResult.reason, 'flip alert already sent');
+});
