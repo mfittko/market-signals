@@ -29,14 +29,18 @@ const MASTER_TICK_MS = 60000;
 // #193/#195: single scheduled process — the server heartbeat runs a
 // candle-aligned decision cycle one minute after every M5 candle close by
 // default (minutes 1,6,11,...,56), but now PER WATCHED GRANULARITY:
-// `cycleMinutes[gran]` (default 5) sets that granularity's own cadence —
+// `cycleMinutes[gran]` (default: bar length capped at 5) sets that
+// granularity's own cadence —
 // minute % n === 1 % n is "in phase", and a bucket (floor(epoch ms / n min))
 // newer than that granularity's last cycle bucket is "not yet run this bar",
 // so a restart mid-bucket waits for the next in-phase minute instead of
 // firing off-phase immediately. n=1 (M1) is in-phase every tick.
 export const cycleCadenceMinutes = (cfg, gran) => {
   const n = Number(cfg?.cycleMinutes?.[gran]);
-  return Number.isInteger(n) && n >= 1 ? n : 5;
+  if (Number.isInteger(n) && n >= 1) return n;
+  // default: the granularity's own bar length, capped at 5 — a sub-M5 watcher
+  // must cycle every bar or most of its flips age past freshBars unseen.
+  return Math.max(1, Math.min(5, Math.round(granularityMs(gran) / 60000)));
 };
 export const cycleBucketFor = (nowMs, n) => Math.floor(nowMs / (n * 60000));
 export const isCycleDue = (nowMs, n) => new Date(nowMs).getMinutes() % n === 1 % n;
