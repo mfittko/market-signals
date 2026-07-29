@@ -460,6 +460,7 @@ test('cycleCadenceMinutes: non-integer or sub-1 values (hand-edited settings.jso
 test('cycleCadenceMinutes: unknown or malformed granularity resolves to 5 via the granularityMs fallback', () => {
   assert.equal(cycleCadenceMinutes({}, 'bogus'), 5);
   assert.equal(cycleCadenceMinutes({}, undefined), 5);
+  assert.equal(cycleCadenceMinutes({}, 'M0'), 1, 'M0 parses to 0ms — the floor keeps it cycling instead of minutes % 0 = NaN never firing');
 });
 
 test('isCycleDue: n=1 (M1) is in-phase every minute; n=5/n=15 only at their :X1 minutes', () => {
