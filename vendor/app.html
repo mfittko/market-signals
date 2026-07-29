@@ -1487,6 +1487,10 @@ function selectors(d) {
   // would be re-asserted by the boot redirect on reload (dead-UI bug, 27/07)
   const go = () => {
     qs.set('instrument', inst.value); qs.set('granularity', gran.value);
+    // a deep-linked signal (t) belongs to the combo it was clicked on — carrying
+    // it into a different instrument/granularity pins the view to a historical
+    // window there (explicit selection wins over stale URL state)
+    qs.delete('t');
     location.href = location.pathname + '?' + qs.toString(); // no hash — cleared deliberately
   };
   inst.onchange = go; gran.onchange = go;
@@ -1563,6 +1567,9 @@ function navigateToCombo(inst, gran) {
   // hash and assign it once.
   const p = new URLSearchParams(location.search);
   p.set('instrument', inst); p.set('granularity', gran);
+  // a deep-linked signal belongs to the combo it was clicked on — switching
+  // combos from the rail must not pin the new view to that historical window
+  p.delete('t');
   location.href = location.pathname + '?' + p.toString() + hash;
 }
 // review fix: a granularity must be one of GRANULARITIES (and instrument

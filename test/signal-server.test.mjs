@@ -250,6 +250,31 @@ test('chartData (#201): live-fetch and gate-closed ticks serve the SAME candle c
     'fetch and gated ticks serve the identical window, edge to edge');
 });
 
+test('deep-link windows never merge a discontinuous present-day island (renders as a giant gap)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath, sigTime } = fixtureDb(dir); // 60 stored M5 bars around sigTime, hours old -> stale, live fetch fires
+  const granMs = 300000;
+  // Live fetch returns PRESENT bars hours past the deep-linked window, plus a forming one.
+  const island = series([300, 301, 302], Date.now() - 3 * granMs);
+  island[2] = { ...island[2], complete: false };
+  const d = await chartData(dbPath, INSTRUMENT, { t: sigTime, fetcher: async () => island });
+  let maxDelta = 0;
+  for (let i = 1; i < d.candles.length; i++) {
+    maxDelta = Math.max(maxDelta, Date.parse(d.candles[i].time) - Date.parse(d.candles[i - 1].time));
+  }
+  assert.ok(maxDelta <= 2 * granMs,
+    `historical window must stay contiguous — merged island would show as a ${Math.round(maxDelta / 60000)}min hole`);
+  assert.ok(!d.candles.some((c) => c.close >= 300), 'none of the island bars leak into the deep-link window');
+  // Contiguous fresh bars still extend the window: bars starting right after its end merge in.
+  const dir2 = mkdtempSync(join(tmpdir(), 'ss-'));
+  const { dbPath: db2, sigTime: sig2 } = fixtureDb(dir2);
+  const d2pre = await chartData(db2, INSTRUMENT, { t: sig2, fetcher: null });
+  const end2 = Date.parse(d2pre.candles[d2pre.candles.length - 1].time);
+  const ext = series([150, 151], end2 + granMs);
+  const d2 = await chartData(db2, INSTRUMENT, { t: sig2, fetcher: async () => ext });
+  assert.ok(d2.candles.some((c) => c.close === 151), 'contiguous fresh bars still extend a deep-link window');
+});
+
 test('writeSettings validates directly (unit)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const p = join(dir, 's.json');
