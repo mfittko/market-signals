@@ -1433,7 +1433,7 @@ test('runWatcherCycle: fixture candles with a qualifying impulse pair and no fli
   }
 });
 
-test('flip-alert-wins: a real runWatcherCycle where a flip AND a qualifying impulse coincide on the same bar sends only the flip, no impulse row/notification', async () => {
+test('flip-alert-wins: a real runWatcherCycle where a flip AND a qualifying impulse coincide on the same bar sends only the flip; the impulse is recorded suppressed for next-cycle dedup', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-flip-wins-'));
   const dbPath = join(dir, 'db.sqlite');
   withDb(dbPath, () => {});
