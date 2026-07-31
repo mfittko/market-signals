@@ -299,7 +299,8 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 3. Open `http://127.0.0.1:8787`, hit ⚙ to configure the provider, and 🔔 the
    combos you want alerts for.
 4. Optional: keep trading notes in `data/notes.md`, arm a bot for a watched
-   combo in the 🤖 Bot modal, and add standing rules in the 🧠 Memories tab (settings).
+   combo in the 🤖 Bot modal, and add standing rules in the ⚙ settings modal's
+   **Gates & notes** tab.
 
 `npm test` runs the full unit suite (fixture db, fake provider binaries,
 served-page assertions — no live network, zero deps). `npm run test:e2e` runs the

@@ -351,6 +351,9 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="adv"]').click());
           await p.waitForTimeout(150);
           assert.equal(await p.evaluate(() => document.querySelector('#cfg .cfgfoot').hidden), false, 'batched Save footer returns on a field tab');
+          // the panel's own [hidden] rule is what keeps it out of the field tabs
+          // (its display:block would otherwise defeat the attribute)
+          assert.equal(await p.evaluate(() => document.getElementById('cfgGlobal').offsetParent), null, 'gates/notes panel is not rendered while a field tab is active');
           await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'draft in progress — do not lose me', 'switching tabs away and back preserves an in-progress gate draft');
