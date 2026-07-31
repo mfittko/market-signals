@@ -2109,8 +2109,10 @@ async function cfg() {
     flatPanel('adv', ADV_FIELDS) +
     '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
   // the gates/notes panel lives outside the form (see #cfgdlg markup), so this
-  // re-render leaves it — and any in-progress gate draft — untouched
-  document.getElementById('cfgGlobal').hidden = !CFG_MGMT_TABS.includes(active);
+  // re-render leaves it — and any in-progress gate draft — untouched. Its
+  // visibility comes from the same data-driven sweep the tab click uses, so
+  // there is one rule for which panel is showing, not two.
+  for (const p of document.querySelectorAll('#cfgdlg .cfgpanel')) p.hidden = p.dataset.panel !== active;
   // swap the LLM panel's fields when the provider changes (client-side, from s)
   f.querySelector('#f-provider').onchange = (e) => {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
