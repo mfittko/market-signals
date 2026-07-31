@@ -190,6 +190,27 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
   });
 });
 
+test('settings round-trip: GNEWS_KEY is masked write-only, GNEWS_MODE/INSTRUMENTS/REQUEST_BUDGET persist (issue #212)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
+    let res = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      body: JSON.stringify({ GNEWS_KEY: 'gnews-secret', GNEWS_MODE: 'shadow', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_REQUEST_BUDGET: 2500 }),
+    });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.GNEWS_KEY, '•••', 'GNews key is a secret — masked on read (write-only)');
+    assert.equal(got.GNEWS_MODE, 'shadow');
+    assert.equal(got.GNEWS_INSTRUMENTS, 'WTICO/USD');
+    assert.equal(got.GNEWS_REQUEST_BUDGET, 2500);
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_KEY, 'gnews-secret', 'GNews key stored');
+
+    // Re-saving the masked value must not clobber the stored secret.
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ GNEWS_KEY: '•••', GNEWS_MODE: 'auto' }) });
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_KEY, 'gnews-secret', 'masked re-save keeps the stored GNews key');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_MODE, 'auto', 'a non-masked field in the same request still updates');
+  });
+});
+
 test('chartData with no t returns the latest signal; empty db yields empty shapes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   const { dbPath } = fixtureDb(dir);
@@ -783,8 +804,9 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
   // Clear any ambient NEWSAPI_AI_* so the injection assertions below are
   // deterministic (the tool spawns with {...process.env, ...settings}); restored below.
   const naiKeys = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
-  const prevNai = Object.fromEntries(naiKeys.map((k) => [k, process.env[k]]));
-  for (const k of naiKeys) delete process.env[k];
+  const gnewsKeys = ['GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET'];
+  const prevNai = Object.fromEntries([...naiKeys, ...gnewsKeys].map((k) => [k, process.env[k]]));
+  for (const k of [...naiKeys, ...gnewsKeys]) delete process.env[k];
   try {
     const out = JSON.parse(execChatTool('sentinel_news', {}, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
     assert.equal(out.meta.instrument, 'XAU/USD', 'defaults to the current view instrument when none is given');
@@ -799,6 +821,13 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
     assert.equal(withKey.meta.newsApiAiEnabled, true, 'a settings key enables the provider in the spawned tool');
     const noKey = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
     assert.equal(noKey.meta.newsApiAiEnabled, false, 'no settings key => provider disabled in the spawned tool');
+
+    // #212: the tool injects settings-derived GNEWS_* too, same wiring as NAI.
+    const withGnews = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: { GNEWS_KEY: 'from-settings', GNEWS_MODE: 'shadow' } }));
+    assert.equal(withGnews.meta.gnewsMode, 'shadow', 'settings GNEWS_MODE reaches the spawned tool');
+    assert.equal(withGnews.meta.gnewsEnabled, true, 'a settings key enables gnews in the spawned tool');
+    const noGnews = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
+    assert.equal(noGnews.meta.gnewsEnabled, false, 'no settings key => gnews disabled in the spawned tool');
   } finally {
     if (prevOffline === undefined) delete process.env.SENTINEL_NEWS_OFFLINE;
     else process.env.SENTINEL_NEWS_OFFLINE = prevOffline;
@@ -1663,6 +1692,7 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.equal(h.feed[0].granularity, 'M5');
     assert.equal(typeof h.feed[0].ageSec, 'number');
     assert.equal(h.news.mode, 'free', 'no NEWSAPI_AI_KEY configured');
+    assert.equal(h.news.gnewsMode, 'off', 'no GNEWS_KEY configured (issue #212)');
     assert.equal(typeof h.llm, 'object');
     assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
     assert.ok(Array.isArray(h.bots));
@@ -1672,6 +1702,14 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
     assert.equal(post.status, 404, 'health only registers a GET route');
+  });
+});
+
+test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode (issue #212)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ GNEWS_KEY: 'gk-secret', GNEWS_MODE: 'shadow' }) });
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.news.gnewsMode, 'shadow');
   });
 });
 

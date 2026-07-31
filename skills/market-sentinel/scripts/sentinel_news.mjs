@@ -300,6 +300,161 @@ export function dedupeItems(items) {
   return out;
 }
 
+// --- GNews provider (issue #212) --------------------------------------------
+// A second, opt-in commercial provider layered onto the free stack + NewsAPI.ai
+// (default off — it costs money/quota). Same normalized item shape, same
+// failure-isolation contract as NewsAPI.ai. Endpoint: the `search` endpoint,
+// query-filtered, sorted newest-first, lookback enforced locally.
+export const GNEWS_SEARCH_URL = 'https://gnews.io/api/v4/search';
+export const GNEWS_MAX_QUERY_LEN = 200; // GNews's documented query cap
+export const DEFAULT_GNEWS_BUDGET = 2500;
+
+// GNews takes a boolean query nearly verbatim (AND/OR/NOT, parens, quoted
+// phrases) — no keyword-array translation needed like NewsAPI.ai. The one gap:
+// an unquoted multi-word term (`natural gas`) is read as an implicit AND of two
+// words, so every such term must be quoted. Operators/parens/already-quoted
+// phrases pass through unchanged. Throws (non-chargeable — no network attempt
+// yet) if the result exceeds the 200-char cap; the longest query committed
+// today is 99 chars, so this is a guard against a future addition, not a live path.
+export function buildGnewsQuery(sentinelQuery) {
+  const raw = String(sentinelQuery || '').trim();
+  if (!raw) throw new Error('empty sentinel query');
+  const parts = raw.split(/(\(|\)|\bOR\b|\bAND\b|\bNOT\b)/gi);
+  const rebuilt = parts.map((part) => {
+    if (/^(\(|\)|OR|AND|NOT)$/i.test(part)) return part;
+    const t = part.trim();
+    if (!t) return '';
+    if (/^".*"$/.test(t)) return t; // already quoted, leave as-is
+    return /\s/.test(t) ? `"${t}"` : t;
+  }).filter((p) => p !== '');
+  const query = rebuilt.join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
+  if (query.length > GNEWS_MAX_QUERY_LEN) {
+    throw new Error(`gnews query is ${query.length} chars, exceeds the ${GNEWS_MAX_QUERY_LEN}-char cap`);
+  }
+  return query;
+}
+
+// Normalize a GNews article (search.articles[]) into the common item shape.
+// description is preferred over content: on the free tier content truncates
+// to ~266 chars mid-sentence, while description is a complete sentence on both
+// tiers. GNews has no event clustering/sentiment/concepts, so those stay null
+// — nothing in this repo reads them for gnews besides the benchmark's
+// uniqueEvents metric, which already degrades gracefully for a null event_uri.
+export function normalizeGnewsArticle(article) {
+  const title = article?.title || '';
+  const summary = article?.description || article?.content || null;
+  return {
+    provider: 'gnews',
+    providerItemId: article?.id || null,
+    source: article?.source?.name || 'unknown',
+    sourceUri: article?.source?.url || null,
+    title,
+    timeIso: parseFeedDate(article?.publishedAt),
+    summary,
+    url: article?.url || null,
+    eventUri: null,
+    sentiment: null,
+    concepts: null,
+    isDuplicate: false, // flipped true for a later sighting by markGnewsDuplicates
+    tone: null,
+    themes: null,
+    escalation: computeEscalation({ title, summary }),
+  };
+}
+
+// GNews's word-overlap threshold for "same story, different outlet" within one
+// response: GNews has no event clustering, and real same-story headlines from
+// different outlets vary in wording (e.g. "BP puts UK North Sea oil and gas
+// assets up for sale as CEO pushes overhaul" vs "BP puts North Sea business up
+// for sale") — an exact-title match (dedupeItems' fallback) would miss them.
+// Overlap coefficient (shared words / smaller title's word count) is robust to
+// one headline being a longer/shorter rewrite of the other.
+export const GNEWS_DUPLICATE_OVERLAP_THRESHOLD = 0.7;
+
+function titleWordOverlap(a, b) {
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / Math.min(a.size, b.size);
+}
+
+// Marks (does not drop — provenance keeps every sighting) items whose
+// normalized title overlaps an EARLIER item (array order, i.e. GNews's own
+// newest-first order) above the threshold. Mutates items in place.
+export function markGnewsDuplicates(items) {
+  const seen = [];
+  for (const it of items) {
+    const words = new Set(normTitle(it.title).split(/\s+/).filter(Boolean));
+    const isDup = words.size > 0 && seen.some((s) => titleWordOverlap(words, s) >= GNEWS_DUPLICATE_OVERLAP_THRESHOLD);
+    if (isDup) it.isDuplicate = true;
+    else seen.push(words);
+  }
+  return items;
+}
+
+// The provider adapter: GET search, with the requested lookback enforced
+// locally. Security: GNews takes the key as a QUERY PARAMETER (unlike NewsAPI.ai's
+// body), so the built URL must never be logged, and any thrown error must have
+// the key redacted before it can reach a log line or diagnostic.
+export async function fetchGnewsArticles({
+  query, hours = DEFAULT_HOURS, maxItems = PER_SOURCE_CAP,
+  apiKey, fetcher = defaultFetcher, timeoutMs = FETCH_TIMEOUT_MS, now = Date.now(),
+} = {}) {
+  if (!apiKey) throw new Error('fetchGnewsArticles requires an apiKey');
+  const q = buildGnewsQuery(query); // throws on the char cap — non-chargeable, no network yet
+  const fromIso = new Date(now - hours * 3600000).toISOString();
+  const params = new URLSearchParams({
+    q, lang: 'en', sortby: 'publishedAt', max: String(Math.min(maxItems, 100)), from: fromIso, apikey: apiKey,
+  });
+  const url = `${GNEWS_SEARCH_URL}?${params.toString()}`;
+  let json;
+  try {
+    const res = await fetcher(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    json = JSON.parse(await res.text());
+  } catch (err) {
+    // Redact the key out of ANY thrown message (HTTP status errors never carry
+    // it, but a network-layer error from the fetcher itself might echo the url).
+    const msg = (err && err.message ? err.message : String(err)).split(apiKey).join('[redacted]');
+    const sanitized = new Error(msg);
+    if (err?.status) sanitized.status = err.status;
+    throw sanitized;
+  }
+  const arr = Array.isArray(json?.articles) ? json.articles : [];
+  const cutoffMs = now - hours * 3600000;
+  const items = arr.map(normalizeGnewsArticle)
+    .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs); // locally enforce --hours
+  markGnewsDuplicates(items);
+  return { items, endpoint: 'search' };
+}
+
+// The settings-first GNEWS_* resolver lives in a tiny standalone lib so
+// consumers (signal-server) don't take a hard startup dependency on this skill
+// module (same #114 boundary as NewsAPI.ai); re-exported here for existing importers.
+export { GNEWS_SETTING_KEYS, resolveGnewsSource, GNEWS_MODES } from '../../../scripts/lib/gnews-source.mjs';
+import { GNEWS_MODES } from '../../../scripts/lib/gnews-source.mjs';
+
+// Resolve GNews config from env into a single enabled/shadow verdict. Default
+// mode 'off'. Deliberately fails CLOSED on an unknown mode string (unlike
+// resolveNewsApiAiConfig's fallback to 'auto'): GNews is opt-in and spends
+// quota/money, so an unrecognized mode must never silently start spending —
+// NewsAPI.ai's fallback predates this provider and carries an accepted risk
+// this one should not inherit.
+export function resolveGnewsConfig(env = process.env, { instrument = null } = {}) {
+  const apiKey = env.GNEWS_KEY || null;
+  let mode = String(env.GNEWS_MODE || 'off').toLowerCase();
+  if (!GNEWS_MODES.includes(mode)) mode = 'off';
+  const parsedBudget = Number.parseInt(env.GNEWS_REQUEST_BUDGET, 10);
+  const requestBudget = Number.isFinite(parsedBudget) && parsedBudget > 0 ? parsedBudget : DEFAULT_GNEWS_BUDGET;
+  const allow = String(env.GNEWS_INSTRUMENTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const instrumentAllowed = !allow.length || !instrument || allow.includes(instrument);
+  const enabled = mode !== 'off' && !!apiKey && instrumentAllowed;
+  return { apiKey, mode, enabled, shadow: enabled && mode === 'shadow', requestBudget, allow, instrumentAllowed };
+}
+
 // --- fetch plumbing: bounded, failure-isolated ------------------------------
 async function defaultFetcher(url, opts) {
   return fetch(url, opts);
@@ -387,6 +542,7 @@ export async function fetchSentinelNews({
   log = (m) => process.stderr.write(`[sentinel-news] ${m}\n`),
   gdeltThrottle = null,
   newsApiAi = null, // resolveNewsApiAiConfig() verdict; null => free stack only (today's behavior)
+  gnews = null, // resolveGnewsConfig() verdict; null => no gnews (today's behavior, issue #212)
 } = {}) {
   if (!query) throw new Error('fetchSentinelNews requires a query');
   const opts = { fetcher, timeoutMs, perSourceCap, hours };
@@ -437,15 +593,49 @@ export async function fetchSentinelNews({
     log(newsApiAi.warn);
   }
 
+  // GNews (issue #212): mirrors the NewsAPI.ai isolation pattern above — a
+  // local query-cap failure is non-chargeable, a network failure is
+  // chargeable but never breaks the free stack, NewsAPI.ai, or each other.
+  // shadow mode records but never merges; auto merges into the same union.
+  let gnewsItems = [];
+  let gnewsShadowItems = [];
+  let gnewsOutcome = null;
+  if (gnews?.enabled) {
+    providersAttempted.push('gnews');
+    let gnewsQuery = null;
+    try {
+      gnewsQuery = buildGnewsQuery(query);
+    } catch (err) {
+      gnewsOutcome = { ok: false, requestMade: false, status: null, items: [], error: err?.message || String(err) };
+      log(`gnews query unsupported, using free stack: ${gnewsOutcome.error}`);
+    }
+    if (gnewsQuery) {
+      try {
+        const r = await fetchGnewsArticles({ query, hours, maxItems: perSourceCap, apiKey: gnews.apiKey, fetcher, timeoutMs, now });
+        gnewsOutcome = { ok: true, requestMade: true, status: 200, items: r.items };
+      } catch (err) {
+        // A network attempt WAS made (chargeable): requestMade stays true.
+        gnewsOutcome = { ok: false, requestMade: true, status: err?.status ?? null, error: err?.message || String(err) };
+        log(`gnews failed: ${gnewsOutcome.error}`);
+      }
+    }
+    const fetched = gnewsOutcome.items || [];
+    if (gnews.shadow) gnewsShadowItems = fetched; else gnewsItems = fetched;
+  }
+
   const cutoffMs = now - hours * 3600000;
   const inWin = (it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs;
   const naiInWindow = newsApiItems.filter(inWin);
+  // gnews's own intra-response duplicates are marked, not dropped, above — but
+  // they must not pollute the merged/prompt-facing union (that's the point of
+  // marking them); provenance (out.observed below) keeps every sighting.
+  const gnewsInWindow = gnewsItems.filter(inWin).filter((it) => !it.isDuplicate);
   const freeInWindow = results.flat().filter(inWin);
-  // Union both stacks (#115 revisited): paid MIGHT be faster, but we want
-  // COMPLETE results — so merge NewsAPI.ai + free rather than suppressing free
-  // when paid returns. NewsAPI.ai items go FIRST, so on a canonical (url/fuzzy-
-  // title) collision the richer NewsAPI.ai item wins the dedup below.
-  const merged = [...naiInWindow, ...freeInWindow];
+  // Union every stack (#115 revisited): paid MIGHT be faster, but we want
+  // COMPLETE results — so merge rather than suppressing free when paid
+  // returns. Paid items go FIRST, so on a canonical (url/fuzzy-title)
+  // collision the richer paid item wins the dedup below.
+  const merged = [...naiInWindow, ...gnewsInWindow, ...freeInWindow];
   // Retained for diagnostics: paid provider had in-window results AND is not in
   // shadow mode (shadow can return in-window items yet stays false by design).
   const naiAuthoritative = newsApiAi?.enabled === true && newsApiAi.shadow !== true && naiInWindow.length > 0;
@@ -457,8 +647,8 @@ export async function fetchSentinelNews({
     asOf: new Date(now).toISOString(),
   };
   // Diagnostics attach ONLY when the provider actually ran (enabled). Without a
-  // key — or in primary-mode-without-a-key (disabled + warn) — the output shape
-  // stays byte-for-byte the free stack, per the #104 acceptance criteria.
+  // key the output shape stays byte-for-byte the free stack, per each
+  // provider's own acceptance criteria (#104 / #212 AC3c).
   if (newsApiAi?.enabled) {
     out.newsApiAi = {
       mode: newsApiAi.mode,
@@ -470,12 +660,30 @@ export async function fetchSentinelNews({
       // true => paid returned in-window items and is not in shadow mode (now merged WITH free, not instead of it).
       authoritative: naiAuthoritative,
     };
+  }
+  if (gnews?.enabled) {
+    out.gnews = {
+      mode: gnews.mode,
+      requestMade: gnewsOutcome?.requestMade === true,
+      ok: gnewsOutcome ? gnewsOutcome.ok : null,
+      status: gnewsOutcome ? gnewsOutcome.status : null,
+      shadow: gnews.shadow === true,
+      itemsReturned: gnews.shadow ? gnewsShadowItems.length : gnewsItems.length,
+    };
+  }
+  if (newsApiAi?.enabled || gnews?.enabled) {
     out.providersAttempted = providersAttempted;
     // Pre-dedup, in-window, provider-tagged items for provenance recording:
-    // every provider's sighting is kept (dedup would drop the free-source twin).
-    out.observed = [...(newsApiAi.shadow ? shadowItems : newsApiItems), ...results.flat()]
-      .filter((it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs);
-    if (newsApiAi.shadow) out.shadowItems = shadowItems;
+    // every provider's sighting is kept (dedup would drop the free-source twin,
+    // and gnews's OWN intra-response duplicates are kept here too — marked,
+    // not dropped, so the trial benchmark can see them).
+    out.observed = [
+      ...(newsApiAi?.shadow ? shadowItems : newsApiItems),
+      ...(gnews?.shadow ? gnewsShadowItems : gnewsItems),
+      ...results.flat(),
+    ].filter(inWin);
+    if (newsApiAi?.shadow) out.shadowItems = shadowItems;
+    if (gnews?.shadow) out.gnewsShadowItems = gnewsShadowItems;
   }
   return out;
 }
@@ -552,9 +760,10 @@ async function main() {
   // ponytail: hermetic escape hatch for the offline --json shape smoke check
   // (scripts/smoke-skills.mjs) — never set by real usage, no live sources hit.
   const newsApiAi = resolveNewsApiAiConfig(process.env, { instrument });
+  const gnews = resolveGnewsConfig(process.env, { instrument });
   const result = process.env.SENTINEL_NEWS_OFFLINE === '1'
     ? { items: [], escalation: false, asOf: new Date().toISOString() }
-    : await fetchSentinelNews({ query, yahooSymbol, hours: args.hours, totalCap: args.maxItems, newsApiAi });
+    : await fetchSentinelNews({ query, yahooSymbol, hours: args.hours, totalCap: args.maxItems, newsApiAi, gnews });
 
   if (args.json) {
     const meta = { instrument, query, yahooSymbol, hours: args.hours };
@@ -563,7 +772,11 @@ async function main() {
     // settings.json into the spawn env (issue #114); observable even offline.
     meta.newsApiAiMode = newsApiAi.mode;
     meta.newsApiAiEnabled = newsApiAi.enabled;
-    if (result.newsApiAi) { meta.primaryProvider = result.newsApiAi.requestMade ? 'newsapi-ai' : null; meta.newsApiAi = result.newsApiAi; meta.providersAttempted = result.providersAttempted; }
+    meta.gnewsMode = gnews.mode;
+    meta.gnewsEnabled = gnews.enabled;
+    if (result.newsApiAi) { meta.primaryProvider = result.newsApiAi.requestMade ? 'newsapi-ai' : null; meta.newsApiAi = result.newsApiAi; }
+    if (result.gnews) meta.gnews = result.gnews;
+    if (result.providersAttempted) meta.providersAttempted = result.providersAttempted;
     process.stdout.write(JSON.stringify({ ...result, meta }, null, 2));
     return;
   }

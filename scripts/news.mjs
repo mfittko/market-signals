@@ -12,7 +12,7 @@
 import { withDb, trackedInstruments } from './supertrend.mjs';
 import { sentinelConfigForInstrument, loadInstrumentsConfig } from './lib/instruments.mjs';
 import {
-  fetchSentinelNews, createGdeltThrottle, resolveNewsApiAiConfig, normTitle,
+  fetchSentinelNews, createGdeltThrottle, resolveNewsApiAiConfig, resolveGnewsConfig, normTitle,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 // NewsAPI.ai provider persistence (issue #104), kept separate from the canonical
@@ -35,6 +35,10 @@ const PROVIDER_OBS_DDL = `CREATE TABLE IF NOT EXISTS news_provider_observations 
   PRIMARY KEY (instrument, provider, provider_item_id)
 )`;
 export const NEWSAPI_AI_PROVIDER = 'newsapi-ai';
+// GNews (issue #212): a second opt-in commercial provider, same persistence
+// substrate (news_provider_state/news_provider_observations are already
+// provider-keyed) — additive, no new tables or bespoke budget/circuit logic.
+export const GNEWS_PROVIDER = 'gnews';
 
 // Keyed on (instrument, url), NOT url alone: two instruments can share a
 // sentinel query (e.g. WTI + Brent both query oil/OPEC/Hormuz, per
@@ -268,6 +272,19 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return { cfg: c, active: true };
   };
 
+  // GNews (issue #212): unlike NewsAPI.ai's continuous-poll experiment, there is
+  // no separate background opt-in flag — shadow/auto simply ride the existing
+  // per-instrument poll cadence (opt-in is GNEWS_MODE != off + the instrument
+  // allowlist), per the issue's own resolved open question.
+  let gnewsBudgetUsed = providerRequestsUsed(dbPath, GNEWS_PROVIDER);
+  const gnewsFor = (instrument) => {
+    const c = resolveGnewsConfig(env, { instrument });
+    if (!c.enabled) return { cfg: c, active: false };
+    if (gnewsBudgetUsed >= c.requestBudget) return { cfg: c, active: false, budgetExhausted: true };
+    if (providerCircuitOpen(dbPath, GNEWS_PROVIDER, instrument, now)) return { cfg: c, active: false, circuitOpen: true };
+    return { cfg: c, active: true };
+  };
+
   const newest = newsDb(dbPath, (db) => {
     const stmt = db.prepare('SELECT MAX(fetched_at) AS t FROM news WHERE instrument=?');
     const out = {};
@@ -275,11 +292,12 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return out;
   });
 
-  const due = withConfig.map((x) => ({ ...x, nai: naiFor(x.instrument) })).filter(({ instrument, nai }) => {
+  const due = withConfig.map((x) => ({ ...x, nai: naiFor(x.instrument), gnews: gnewsFor(x.instrument) })).filter(({ instrument, nai }) => {
     const t = newest[instrument];
     const parsed = t ? Date.parse(t) : NaN;
     const ageMs = Number.isNaN(parsed) ? Infinity : now - parsed;
-    // Shorter interval when NewsAPI.ai will actually run this tick, else free cadence.
+    // Shorter interval when NewsAPI.ai will actually run this tick, else free
+    // cadence — gnews rides whichever cadence the tick already resolved to.
     return ageMs > (nai.active ? NEWSAPI_AI_POLL_INTERVAL_MS : NEWS_POLL_INTERVAL_MS);
   });
 
@@ -292,16 +310,18 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
   // One throttle shared across this tick's GDELT calls (≥5s apart per IP).
   const gdeltThrottle = createGdeltThrottle(sleep ? { sleep, now: () => now } : {});
   const refreshed = [];
-  for (const { instrument, sentinel, nai } of toFetch) {
+  for (const { instrument, sentinel, nai, gnews } of toFetch) {
     // Re-check the budget against the LIVE budgetUsed right before the call, not
     // the tick-start snapshot: when several instruments are eligible in one tick,
     // an earlier one may have spent the last budgeted request, and the global cap
     // must hold across all of them.
     const naiActiveNow = nai.active && budgetUsed < nai.cfg.requestBudget;
+    const gnewsActiveNow = gnews.active && gnewsBudgetUsed < gnews.cfg.requestBudget;
     try {
       const result = await fetchSentinelNews({
         query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, gdeltThrottle,
         newsApiAi: naiActiveNow ? nai.cfg : null,
+        gnews: gnewsActiveNow ? gnews.cfg : null,
       });
       const fetchedAt = new Date(now).toISOString();
       const { added } = upsertNews(dbPath, instrument, result.items, fetchedAt);
@@ -311,9 +331,13 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
         recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: result.newsApiAi.ok, status: result.newsApiAi.status, now });
         budgetUsed += 1;
       }
+      if (result.gnews?.requestMade) {
+        recordProviderCall(dbPath, GNEWS_PROVIDER, instrument, { ok: result.gnews.ok, status: result.gnews.status, now });
+        gnewsBudgetUsed += 1;
+      }
       // Provenance for the trial benchmark: every provider's in-window sighting.
-      if (naiActiveNow && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
-      refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null });
+      if ((naiActiveNow || gnewsActiveNow) && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+      refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null, gnews: result.gnews ?? null });
     } catch (err) {
       log(`refresh failed for ${instrument}: ${err.message}`);
     }
@@ -334,28 +358,51 @@ export const DECISION_PULL_THROTTLE_MS = 5 * 60 * 1000;
 // default 15s per-source timeout — the decision falls back to the cache if a
 // source stalls, per the filter/bot fail-open contract.
 export const DECISION_FETCH_TIMEOUT_MS = 5000;
+
+// Shared usability check for a decision-point provider pull (issue #212
+// generalized this from the NewsAPI.ai-only original so a second provider can
+// share the same disabled/budget/circuit/throttle precedence, in that order).
+function providerUsable(dbPath, provider, cfg, instrument, now) {
+  if (!cfg.enabled) return { usable: false, reason: 'disabled' };
+  if (providerRequestsUsed(dbPath, provider) >= cfg.requestBudget) return { usable: false, reason: 'budget-exhausted' };
+  if (providerCircuitOpen(dbPath, provider, instrument, now)) return { usable: false, reason: 'circuit-open' };
+  const lastAttempt = newsDb(dbPath, (db) =>
+    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(provider, instrument)?.t ?? null);
+  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { usable: false, reason: 'throttled' };
+  return { usable: true, reason: null };
+}
+
 export async function refreshNewsForDecision(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {} } = {}) {
   const sentinel = sentinelConfigForInstrument(instrument);
   if (!sentinel) return { pulled: false, reason: 'no-sentinel-config' };
-  const c = resolveNewsApiAiConfig(env, { instrument });
-  if (!c.enabled) return { pulled: false, reason: 'disabled' };
-  if (providerRequestsUsed(dbPath) >= c.requestBudget) return { pulled: false, reason: 'budget-exhausted' };
-  if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { pulled: false, reason: 'circuit-open' };
-  const lastAttempt = newsDb(dbPath, (db) =>
-    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(NEWSAPI_AI_PROVIDER, instrument)?.t ?? null);
-  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { pulled: false, reason: 'throttled' };
+  const naiCfg = resolveNewsApiAiConfig(env, { instrument });
+  const gnewsCfg = resolveGnewsConfig(env, { instrument });
+  const naiCheck = providerUsable(dbPath, NEWSAPI_AI_PROVIDER, naiCfg, instrument, now);
+  const gnewsCheck = providerUsable(dbPath, GNEWS_PROVIDER, gnewsCfg, instrument, now);
+  // Neither provider usable this call: preserve the pre-#212 reason precedence
+  // via NAI's check (GNews is off by default, so this is byte-identical to the
+  // original single-provider behavior until an operator opts GNews in too).
+  if (!naiCheck.usable && !gnewsCheck.usable) return { pulled: false, reason: naiCheck.reason };
   try {
-    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log, newsApiAi: c });
+    const result = await fetchSentinelNews({
+      query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log,
+      newsApiAi: naiCheck.usable ? naiCfg : null,
+      gnews: gnewsCheck.usable ? gnewsCfg : null,
+    });
     const fetchedAt = new Date(now).toISOString();
     upsertNews(dbPath, instrument, result.items, fetchedAt);
     recordPollMarker(dbPath, instrument, fetchedAt);
     const nai = result.newsApiAi ?? null;
+    const gnews = result.gnews ?? null;
     if (nai?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: nai.ok, status: nai.status, now });
+    if (gnews?.requestMade) recordProviderCall(dbPath, GNEWS_PROVIDER, instrument, { ok: gnews.ok, status: gnews.status, now });
     if (Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
     // Accurate reason: distinguish a real spent request from a non-chargeable
-    // local skip (parse/keyword-limit) and from a network failure.
-    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed') : 'not-made';
-    return { pulled: nai?.requestMade === true, reason, newsApiAi: nai };
+    // local skip (parse/query-cap) and from a network failure. NAI takes
+    // precedence when both providers ran, preserving pre-#212 reporting.
+    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed')
+      : gnews?.requestMade ? (gnews.ok ? 'ok' : 'request-failed') : 'not-made';
+    return { pulled: nai?.requestMade === true || gnews?.requestMade === true, reason, newsApiAi: nai, gnews };
   } catch (err) {
     log(`decision news pull failed for ${instrument}: ${err.message}`);
     return { pulled: false, reason: 'error' };
