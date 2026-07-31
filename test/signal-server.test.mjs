@@ -82,7 +82,7 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
     // the panel's controls auto-save per action, so the panel is a SIBLING of the
     // batched-Save form — inside it, its min/max weight inputs would gate the
     // form's constraint validation and silently abort a settings Save
-    assert.match(page, /<\/form>\s*<!--[\s\S]*?-->\s*<div id="cfgGlobal"/, 'the gates/notes panel renders outside <form id="cfg">');
+    assert.match(page, /<form id="cfg"><\/form>[\s\S]*?<div id="cfgGlobal"/, 'the gates/notes panel markup follows the closed <form id="cfg">, not nested in it');
     assert.ok(!page.includes("['bot', 'Bot']"), 'bot is NOT a global settings tab (per-view modal)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
     assert.match(page, /flatPanel\('adv', ADV_FIELDS\)/, 'plumbing lives in the Advanced tab');

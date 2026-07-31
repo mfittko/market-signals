@@ -344,8 +344,8 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(150);
           assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'recheck', 'gatesTabs ArrowRight moves focus to the next gate tab');
           assert.ok(await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="recheck"]').classList.contains('on')), 'gatesTabs ArrowRight also activates the tab it moved to');
-          // mounted at most once per modal render: leaving the tab and coming back
-          // must not remount and wipe an in-progress gate draft
+          // mounted at most once per ⚙ open: leaving the tab and coming back must
+          // not remount and wipe an in-progress gate draft
           await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').click());
           await p.evaluate(() => { document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt').value = 'draft in progress — do not lose me'; });
           await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="adv"]').click());
@@ -386,6 +386,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateSaveDraft').click());
           await p.waitForTimeout(600);
           assert.equal(await p.evaluate(() => document.querySelectorAll('#gatesList .gaterow[data-gate="filter"] .gatedraft').length), draftsBefore + 1, 'save-as-draft from the settings modal adds a draft row');
+          // activate/deactivate go through the same re-render this PR changed, so
+          // drive both rather than asserting the wiring by inspection
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft .gateactivate').click());
+          await p.waitForTimeout(600);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft b')), 'activating a draft from the settings modal marks it active');
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft .gatedeactivate').click());
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => !!document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft b')), false, 'deactivating it from the settings modal drops the active marker');
           await p.evaluate(() => document.querySelector('#memList .memrow .memarchive').click());
           await p.waitForTimeout(600);
           assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'archiving a note from the settings modal drops it from the list');
