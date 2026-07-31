@@ -1979,10 +1979,14 @@ function renderHistory(list, botDecisions, view) {
 // the two client uses (the select + the validation below) in sync via this one
 // const. The old primary mode was dropped (byte-identical to auto).
 const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
+// Client-side copy of the GNews modes: same reason as NEWSAPI_AI_MODE_VALUES
+// above — this browser code can't import the server's GNEWS_MODES from
+// lib/gnews-source.mjs, so keep this const in sync with that list by hand.
+const GNEWS_MODE_VALUES = ['off', 'shadow', 'auto'];
 // #171 review item 5: an untouched setting's default lives on ITS OWN
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['GNEWS_KEY', 'password'], ['GNEWS_MODE', 'select', GNEWS_MODE_VALUES.map((m) => [m, m]), 'off'], ['GNEWS_INSTRUMENTS', 'text'], ['GNEWS_REQUEST_BUDGET', 'number'], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
@@ -2003,6 +2007,10 @@ const FIELD_HINTS = {
   NEWSAPI_AI_INSTRUMENTS: 'comma-separated instruments NewsAPI.ai should fetch for (defaults to all watched)',
   NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
   NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
+  GNEWS_KEY: 'API key for GNews, a second opt-in news provider (leave blank to leave it off)',
+  GNEWS_MODE: 'off disables GNews; shadow fetches and records for comparison but never feeds a prompt; auto merges its articles into the news feed. The free key is 12-hour delayed and licensed for non-commercial use only — auto on a free key is a stale feed, not a live one; a paid key is required before it can inform a real decision',
+  GNEWS_INSTRUMENTS: 'comma-separated instruments GNews should fetch for (defaults to all watched)',
+  GNEWS_REQUEST_BUDGET: 'max GNews requests allowed per day',
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
   cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to the bar length capped at 5 (M1 → 1, M5+ → 5). Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',

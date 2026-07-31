@@ -117,7 +117,8 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
 - **Settings modal** (⚙, #108): one tabbed modal of **global** config (reopens on
   the last-used tab), four tabs:
   - **LLM provider** — contextual provider/model/key panel (masked keys, atomic writes);
-  - **News provider** — every `NEWSAPI_AI_*` setting (masked key);
+  - **News provider** — every `NEWSAPI_AI_*` setting (masked key) plus the
+    `GNEWS_*` fields for the second opt-in provider (masked key);
   - **Gates & notes** — per-gate transparency (filter/recheck/bot/chat): effective
     system prompt + declared toolset, drafted overrides, human-only activation for
     the filter and recheck gates; plus the standing notes (add, reweight, edit,
@@ -247,6 +248,30 @@ poller is opt-in (`NEWSAPI_AI_BACKGROUND=1`, for the latency benchmark only).
 reports coverage, latency, and trading relevance from the provenance log. Without
 a key, behavior is byte-for-byte the free stack. See
 `skills/market-sentinel/SKILL.md`.
+
+**GNews — a second, independent opt-in provider (off by default, nothing
+removed):** add `GNEWS_KEY` in the ⚙ settings modal's News provider tab (masked,
+write-only) and it starts alongside NewsAPI.ai, not instead of it — the choice
+between the two is made later, on measured coverage/precision/latency, not up
+front. Modes, `GNEWS_MODE` (default `off`): `off` disables it; `shadow` fetches
+and records to the same provider-observations log purely for comparison and
+never reaches a prompt; `auto` additionally merges its articles into the same
+deduped news union every other source feeds. The free developer key is **not**
+a live feed — every article arrives 12 hours after publication and the key is
+licensed for non-commercial/evaluation use only, so `auto` on a free key is a
+stale feed dressed up as a live one; a paid/trial key is required before `auto`
+can inform a real decision. `shadow` is what the free key is actually good
+for: building and measuring the adapter without spending real money.
+Like NewsAPI.ai, `GNEWS_REQUEST_BUDGET` hard-caps daily spend and the fetch is
+**on-demand at decision points** by default. A background poller exists
+(`GNEWS_BACKGROUND=1`, env-only for now — not yet a settings-modal field) but
+stays opt-in for the same reason NewsAPI.ai's does: the watcher's ~8-minute
+background cadence visits every tracked instrument, which across seven
+instruments is roughly 1,260 requests/day against GNews's 100/day free-tier
+cap — leaving it off keeps spend scoped to actual decisions instead of clock
+ticks. Activation, either provider: the key set in the ⚙ modal persists to
+`data/settings.json`, which is what the long-lived server reads (the
+LaunchAgent never loads `.env`); `.env` covers CLI and test runs only.
 
 ## Provider configuration — `data/settings.json`
 
