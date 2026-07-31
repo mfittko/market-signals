@@ -735,7 +735,7 @@ export const CHAT_TOOLS = [
         : validInstrument(ctx?.view?.instrument) ? ctx.view.instrument
         : DEFAULT_INSTRUMENT;
       // Inject the NewsAPI.ai + GNews config from settings.json into the subprocess
-      // env (issue #114, extended #212): the CLI resolves each provider from
+      // env (issue #114): the CLI resolves each provider from
       // process.env, but the keys live in settings (the LaunchAgent never loads
       // .env), so without this the chat/bot sentinel tool silently falls back to
       // whatever a bare .env carries (nothing, on the deployed server).

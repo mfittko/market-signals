@@ -64,14 +64,17 @@ test('news-provider-report: parseArgs requires nothing crazy, defaults provider 
   assert.equal(a.json, true);
 });
 
-test('news-provider-report: --provider threads through (report a free provider vs the rest)', () => {
+test('news-provider-report: --provider threads through, and "free" means the free stack — not "every other provider"', () => {
   const dir = mkdtempSync(join(tmpdir(), 'rep-'));
   const dbPath = join(dir, 'c.db'); rmSync(dbPath, { force: true });
   seed(dbPath);
   const report = withDb(dbPath, (db) => buildReport(db, { instrument: 'WTICO/USD', sinceIso: '2026-07-23T00:00:00.000Z', provider: 'google-news' }));
   assert.equal(report.provider, 'google-news');
   assert.equal(report.coverage.newsApiAi, 1, 'the target provider (google-news) has 1 observation');
-  assert.equal(report.coverage.free, 2, 'the rest (2 newsapi-ai obs) are "the rest"');
+  // The seeded newsapi-ai rows are PAID, so they are not free-stack rows. Counting
+  // them as "free" is what would silently corrupt a paid-vs-free comparison the
+  // moment a second paid provider starts recording.
+  assert.equal(report.coverage.free, 0, 'paid providers are never counted into the free bucket');
 });
 
 test('pct: nearest-rank on n-1 base — p90 of 10 items is the 9th value, not the max', () => {
@@ -84,7 +87,7 @@ test('pct: nearest-rank on n-1 base — p90 of 10 items is the 9th value, not th
   assert.equal(pct([42], 90), 42, 'single sample');
 });
 
-// --- on-topic rate + gnews degradation (issue #212) -------------------------
+// --- on-topic rate + gnews degradation --------------------------------------
 test('onTopicRate: rows matching the instrument\'s sentinel terms count as on-topic; off-topic rows do not', () => {
   const obs = [
     { provider: 'gdelt', normalized_title: 'iran strikes tanker near hormuz' }, // matches "iran"/"tanker"/"hormuz"

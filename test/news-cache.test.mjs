@@ -7,7 +7,7 @@ import { withDb } from '../scripts/supertrend.mjs';
 import {
   refreshNewsCache, newsContextFor, upsertNews, NEWS_POLL_INTERVAL_MS, migrateNewsUniqueKey, migrateNewsProviderColumn,
   NEWSAPI_AI_POLL_INTERVAL_MS, NEWSAPI_AI_PROVIDER, GNEWS_PROVIDER, providerRequestsUsed, providerCircuitOpen,
-  recordProviderCall, recordProviderObservations,
+  recordProviderCall, recordProviderObservations, GNEWS_RATE_LIMIT_POLICY,
   refreshNewsForDecision, sentinelDecisionContext, DECISION_PULL_THROTTLE_MS, DECISION_FETCH_TIMEOUT_MS,
 } from '../scripts/news.mjs';
 
@@ -31,8 +31,8 @@ function naiFetcher({ googleXml = EMPTY_RSS, nai = naiJson(), naiStatus = 200 } 
 // NEWSAPI_AI_BACKGROUND opts the poller in — it is OFF by default (the primary
 // path is the on-demand decision pull); these poller tests exercise the opt-in.
 const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800', NEWSAPI_AI_BACKGROUND: '1' };
-// GNews (issue #212) has no background opt-in flag — shadow/auto ride the
-// existing per-instrument poll cadence, so GNEWS_MODE alone activates it.
+// GNews polls in the background only when GNEWS_BACKGROUND is opted into, so
+// these poller tests set it; GNEWS_MODE alone reaches only the decision path.
 const GNEWS_ENV = { GNEWS_KEY: 'GK', GNEWS_MODE: 'auto', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_REQUEST_BUDGET: '2500', GNEWS_BACKGROUND: '1' };
 // same provider, background polling NOT opted into — the default an operator gets
 const GNEWS_ENV_NO_BG = { ...GNEWS_ENV, GNEWS_BACKGROUND: '' };
@@ -342,7 +342,7 @@ test('refreshNewsCache: no NEWSAPI_AI_KEY => byte-for-byte free behavior, no pro
   const dbPath = dbPathIn(dir);
   const now = Date.parse('2026-07-23T10:00:00Z');
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: {} });
-  assert.equal(providerRequestsUsed(dbPath), 0, 'no chargeable requests without a key');
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 0, 'no chargeable requests without a key');
   withDb(dbPath, (db) => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_state').get().n, 0);
     assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations').get().n, 0);
@@ -355,7 +355,7 @@ test('refreshNewsCache: with a key, charges the budget once per tick and records
   const now = Date.parse('2026-07-23T10:00:00Z');
   const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: naiFetcher(), now, log: () => {}, env: NAI_ENV });
   assert.equal(r.refreshed[0].newsApiAi.requestMade, true);
-  assert.equal(providerRequestsUsed(dbPath), 1, 'exactly one chargeable request this tick');
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 1, 'exactly one chargeable request this tick');
   withDb(dbPath, (db) => {
     const obs = db.prepare("SELECT provider, provider_item_id, event_uri, sentiment FROM news_provider_observations WHERE provider=?").all(NEWSAPI_AI_PROVIDER);
     assert.equal(obs.length, 1, 'the newsapi-ai sighting is logged');
@@ -374,7 +374,7 @@ test('refreshNewsCache: budget survives restart and, once exhausted, falls back 
   // Tick 1 spends the single budgeted request.
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now, log: () => {}, env });
   assert.equal(calledGetArticles, 1);
-  assert.equal(providerRequestsUsed(dbPath), 1);
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 1);
   // Tick 2 (a fresh call = simulated restart, budget read from disk) must NOT hit the API.
   const later = now + NEWS_POLL_INTERVAL_MS + 60000;
   const r2 = await refreshNewsCache(dbPath, WTI, {}, { fetcher: countingFetcher(naiFetcher()), now: later, log: () => {}, env });
@@ -422,10 +422,10 @@ test('refreshNewsCache: mode=off ignores a present key entirely', async () => {
   const f = async (url, opts) => { if (url.includes('getArticles')) calls++; return naiFetcher()(url, opts); };
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env: { ...NAI_ENV, NEWSAPI_AI_MODE: 'off' } });
   assert.equal(calls, 0, 'off => no NewsAPI.ai call even with a key');
-  assert.equal(providerRequestsUsed(dbPath), 0);
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 0);
 });
 
-// --- GNews provider persistence (issue #212) --------------------------------
+// --- GNews provider persistence --------------------------------------------
 test('refreshNewsCache: no GNEWS_KEY => byte-for-byte free behavior, no gnews provider rows written', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));
   const dbPath = dbPathIn(dir);
@@ -530,7 +530,7 @@ test('refreshNewsForDecision: with a key, pulls once, charges budget, records ob
   const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
   const r = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
   assert.equal(r.pulled, true);
-  assert.equal(providerRequestsUsed(dbPath), 1);
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 1);
   withDb(dbPath, (db) => {
     assert.equal(db.prepare('SELECT COUNT(*) n FROM news_provider_observations WHERE provider=?').get(NEWSAPI_AI_PROVIDER).n, 1);
   });
@@ -544,11 +544,11 @@ test('refreshNewsForDecision: a second call within the throttle window does not 
   await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now, log: () => {} });
   const r2 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + 60000, log: () => {} });
   assert.equal(r2.reason, 'throttled');
-  assert.equal(providerRequestsUsed(dbPath), 1, 'still just one chargeable request');
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 1, 'still just one chargeable request');
   // Past the throttle window it pulls again.
   const r3 = await refreshNewsForDecision(dbPath, 'WTICO/USD', { env, fetcher: naiFetcher(), now: now + DECISION_PULL_THROTTLE_MS + 60000, log: () => {} });
   assert.equal(r3.pulled, true);
-  assert.equal(providerRequestsUsed(dbPath), 2);
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 2);
 });
 
 test('sentinelDecisionContext: returns the fresh headline after the pull', async () => {
@@ -560,7 +560,7 @@ test('sentinelDecisionContext: returns the fresh headline after the pull', async
   assert.ok(ctx && ctx.headlines.some((h) => /Hormuz/.test(h.title)), 'freshly-pulled headline is in the decision context');
 });
 
-// --- on-demand decision-point pull: gnews (issue #212) ----------------------
+// --- on-demand decision-point pull: gnews -----------------------------------
 test('refreshNewsForDecision: no gnews key => no gnews network call, NewsAPI.ai path unaffected (both off)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));
   const dbPath = dbPathIn(dir);
@@ -619,7 +619,7 @@ test('refreshNewsCache: background poller is OFF by default (no NEWSAPI_AI_BACKG
   const env = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800' };
   await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env });
   assert.equal(calls, 0, 'poller does not call NewsAPI.ai unless NEWSAPI_AI_BACKGROUND is set');
-  assert.equal(providerRequestsUsed(dbPath), 0);
+  assert.equal(providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER), 0);
 });
 
 // --- decision-pull reason accuracy + bounded timeout (Copilot round 4) ------
@@ -727,15 +727,25 @@ test('refreshNewsCache: gnews does NOT poll in the background unless GNEWS_BACKG
   assert.equal(r.refreshed[0].gnews, null, 'no gnews diagnostics when it did not run');
 });
 
-test('recordProviderCall: a 429 opens a bounded circuit instead of retrying every tick', () => {
+test('recordProviderCall: a 429 pauses only the providers that ask for it, and 5xx never does', () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));
   const dbPath = dbPathIn(dir);
   const now = Date.parse('2026-07-23T10:00:00Z');
-  recordProviderCall(dbPath, GNEWS_PROVIDER, 'WTICO/USD', { ok: false, status: 429, now });
-  const reason = providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 60_000);
-  assert.match(String(reason), /429/, 'a daily rate limit does not clear next tick, so the circuit holds');
+  // the paid provider passes no rate-limit policy: 429 stays transient, as before
+  recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, 'WTICO/USD', { ok: false, status: 429, now });
+  assert.equal(providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, 'WTICO/USD', now + 60_000), null,
+    'a provider that meters per month must keep retrying — no circuit from one 429');
+  // GNews meters per day, so it opts into a bounded pause
+  recordProviderCall(dbPath, GNEWS_PROVIDER, 'WTICO/USD', { ok: false, status: 429, now, ...GNEWS_RATE_LIMIT_POLICY });
+  assert.match(String(providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 60_000)), /429/,
+    'a daily allowance does not clear next tick, so the circuit holds');
   assert.equal(providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 61 * 60 * 1000), null,
     'and it is bounded — the provider recovers on its own without a restart');
+  // ...and because that quota belongs to the KEY, every other instrument is parked
+  assert.match(String(providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'XAU/USD', now + 60_000)), /429/,
+    'a per-key quota is spent for every instrument, not just the one that hit the wall');
+  assert.equal(providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, 'XAU/USD', now + 60_000), null,
+    'and the pause never crosses provider boundaries');
 });
 
 // Regression: a provider configured in the settings dialog must actually reach the

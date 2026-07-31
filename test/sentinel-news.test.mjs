@@ -481,7 +481,7 @@ test('fetchSentinelNews: NewsAPI.ai + free are unioned — paid items lead, free
   assert.ok(res.observed.some((it) => it.provider === 'newsapi-ai'), 'paid story recorded in observed');
 });
 
-// --- GNews provider (issue #212) --------------------------------------------
+// --- GNews provider --------------------------------------------------------
 test('buildGnewsQuery: quotes unquoted multi-word terms, leaves single words and already-quoted phrases alone', () => {
   assert.equal(
     buildGnewsQuery('(natural gas OR LNG OR gas pipeline OR gas supply OR Freeport LNG OR Nord Stream)'),
@@ -558,8 +558,14 @@ test('fetchGnewsArticles: parses the fixture, marks intra-response duplicates, e
   assert.ok(r.items.every((it) => it.provider === 'gnews'));
   assert.ok(r.items.some((it) => it.isDuplicate === true), 'the BP/British-man near-duplicates got marked');
   assert.match(calls[0].url, /apikey=SECRET/, 'key travels as a query param (GNews API shape)');
-  const older = await fetchGnewsArticles({ query: '(oil)', apiKey: 'SECRET', fetcher: mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]).fetcher, hours: 1, now });
-  assert.equal(older.items.length, 0, 'a 1h lookback excludes every 12h-delayed fixture article');
+  // The window is widened by the free tier's 12h publication delay, so a 1h
+  // lookback still admits these 12h-old articles — without that widening the
+  // provider would look empty rather than delayed.
+  const shortWindow = await fetchGnewsArticles({ query: '(oil)', apiKey: 'SECRET', fetcher: mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]).fetcher, hours: 1, now });
+  assert.equal(shortWindow.items.length, 10, 'a 1h lookback still sees 12h-delayed articles (window widened by the delay)');
+  // genuinely stale items are still excluded: 48h on, even the widened window drops them
+  const stale = await fetchGnewsArticles({ query: '(oil)', apiKey: 'SECRET', fetcher: mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]).fetcher, hours: 1, now: now + 48 * 3600000 });
+  assert.equal(stale.items.length, 0, 'the widened window is still a window — 48h-old articles are dropped');
 });
 test('fetchGnewsArticles: requires an apiKey', async () => {
   await assert.rejects(() => fetchGnewsArticles({ query: '(oil)' }), /requires an apiKey/);
@@ -607,7 +613,7 @@ test('resolveGnewsSource: settings.json wins over env; empty settings + empty en
   assert.deepEqual(resolveGnewsSource({}, {}), {});
 });
 
-// --- fetchSentinelNews: gnews wiring (issue #212) ---------------------------
+// --- fetchSentinelNews: gnews wiring ---------------------------------------
 function gnewsFetchOnly(fixtureName) {
   return async (url) => {
     if (/gnews\.io/.test(url)) return { ok: true, status: 200, text: async () => fixture(fixtureName) };
@@ -647,13 +653,18 @@ test('fetchSentinelNews: auto mode merges gnews items into the same deduped/orde
     query: '(oil)', now, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
     gnews: { enabled: true, shadow: false, mode: 'auto', apiKey: 'K' },
   });
-  assert.ok(res.items.some((it) => it.provider === 'gnews'), 'gnews items present in the merged union');
+  const gnewsItems = res.items.filter((it) => it.provider === 'gnews');
+  assert.ok(gnewsItems.length >= 8, `the whole delay-widened fixture page reaches the union, got ${gnewsItems.length}`);
   assert.equal(res.gnews.mode, 'auto');
   assert.equal(res.gnews.requestMade, true);
   const times = res.items.map((i) => Date.parse(i.timeIso));
   assert.deepEqual(times, [...times].sort((a, b) => b - a), 'still newest-first after merging gnews');
   assert.ok(res.items.length <= TOTAL_CAP, 'still capped');
-  assert.ok(!res.items.some((it) => it.isDuplicate === true), 'gnews\' own marked duplicates never reach the merged union');
+  // The duplicate mark is provenance, NOT a filter: word overlap cannot tell
+  // "OPEC agrees to raise output" from "...to cut output", so filtering on it
+  // would hide the contradicting event from the model. Marked items must arrive.
+  assert.ok(gnewsItems.some((it) => it.isDuplicate === true),
+    'items the overlap heuristic marked still reach the union — the mark never filters the prompt');
 });
 
 test('fetchSentinelNews: a gnews network failure never aborts the aggregate (free stack + other providers carry)', async () => {
@@ -741,4 +752,26 @@ test('fetchSentinelNews: a gnews item marked duplicate still reaches the merged 
   const titles = out.items.map((i) => i.title);
   assert.ok(titles.includes('OPEC agrees to raise output'), 'first sighting present');
   assert.ok(titles.includes('OPEC agrees to cut output'), 'the contradicting headline is NOT dropped by the duplicate mark');
+});
+
+// The lowercase `and` inside a term used to be treated as an operator, so the
+// term was emitted unquoted and GNews read it as an implicit AND — the exact
+// failure the quoting exists to prevent.
+test('buildGnewsQuery: a term containing "and" stays one quoted phrase, not an implicit AND', () => {
+  assert.equal(buildGnewsQuery('(oil OR supply and demand OR crude)'), '(oil OR "supply and demand" OR crude)');
+});
+
+// Shadow mode's promise is that nothing it fetched reaches a reader. The CLI's
+// --json payload is returned verbatim by the sentinel_news chat tool, so the
+// shadow items and the raw provenance list must not ride along in it.
+test('sentinel_news --json: shadow items and the provenance list never appear in the CLI payload', () => {
+  const res = spawnSync(process.execPath, [
+    fileURLToPath(new URL('../skills/market-sentinel/scripts/sentinel_news.mjs', import.meta.url)),
+    '--query', '(oil)', '--hours', '6', '--json',
+  ], { encoding: 'utf8', env: { ...process.env, GNEWS_KEY: '', NEWSAPI_AI_KEY: '' }, timeout: 30000 });
+  const payload = JSON.parse(res.stdout);
+  assert.equal('gnewsShadowItems' in payload, false, 'no gnews shadow items in the tool payload');
+  assert.equal('shadowItems' in payload, false, 'no paid-provider shadow items in the tool payload');
+  assert.equal('observed' in payload, false, 'no raw provenance list in the tool payload');
+  assert.ok(Array.isArray(payload.items), 'the prompt-facing items array is still there');
 });

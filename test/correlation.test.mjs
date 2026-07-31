@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { recordProviderCall, providerRequestsUsed } from '../scripts/news.mjs';
+import { recordProviderCall, providerRequestsUsed, NEWSAPI_AI_PROVIDER } from '../scripts/news.mjs';
 import {
   qualifiesAsMove, correlationConfig, CORRELATION_DEFAULTS,
   openOrExtendWindow, getActiveWindow, cancelWindow, pollWindow,
@@ -63,7 +63,7 @@ test('pollWindow: a novel credible incident confirms and attaches evidence; prov
   assert.equal(r.evidence.length, 1);
   assert.equal(r.evidence[0].providerItemId, 'inc1');
   assert.equal(getActiveWindow(p, INST), null, 'window closed');
-  assert.equal(providerRequestsUsed(p), 1, 'one chargeable getArticles recorded');
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 1, 'one chargeable getArticles recorded');
   rmSync(p, { force: true });
 });
 
@@ -123,7 +123,7 @@ test('pollWindow: expired/unexplained past the deadline; no call made', async ()
   assert.equal(r.state, 'expired');
   assert.equal(r.stopReason, 'expired/unexplained');
   assert.equal(called, false, 'no provider call after the deadline');
-  assert.equal(providerRequestsUsed(p), 0, 'no budget spent on an expired window');
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 0, 'no budget spent on an expired window');
   rmSync(p, { force: true });
 });
 
@@ -153,7 +153,7 @@ test('pollWindow: a local query-parse error never spends budget or a poll', asyn
   const r = await pollWindow(p, { instrument: INST, query: tooMany, apiKey: 'k', cfg, now: NOW + 1000, fetcher: async () => { called = true; return { ok: true, status: 200, text: async () => '{}' }; } });
   assert.equal(r.action, 'bad-query');
   assert.equal(called, false, 'no HTTP attempt for a config error');
-  assert.equal(providerRequestsUsed(p), 0, 'no budget spent');
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 0, 'no budget spent');
   assert.equal(getActiveWindow(p, INST).poll_count, 0, 'no poll counted');
   rmSync(p, { force: true });
 });
@@ -162,11 +162,11 @@ test('pollWindow: a concurrent poll within the claim debounce is skipped (no dou
   const p = db('claim'); rmSync(p, { force: true });
   openOrExtendWindow(p, { instrument: INST, direction: 'up', cfg, now: NOW });
   await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: fetcherFor([rawArticle()]) }); // routine → open, last_poll_at set
-  assert.equal(providerRequestsUsed(p), 1);
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 1);
   // a second poll 5s later (inside the 30s debounce) must not call the provider again
   const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 6000, fetcher: fetcherFor([rawArticle()]) });
   assert.equal(r.action, 'already-claimed');
-  assert.equal(providerRequestsUsed(p), 1, 'budget not double-spent');
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 1, 'budget not double-spent');
   rmSync(p, { force: true });
 });
 
@@ -186,7 +186,7 @@ test('pollWindow: a provider error is charged, bumps poll_count, and never throw
   const r = await pollWindow(p, { instrument: INST, query: QUERY, apiKey: 'k', cfg, now: NOW + 1000, fetcher: boom });
   assert.equal(r.action, 'poll-error');
   assert.equal(getActiveWindow(p, INST).poll_count, 1, 'poll counted even on error');
-  assert.equal(providerRequestsUsed(p), 1, 'the failed attempt is still charged (transient, circuit stays closed)');
+  assert.equal(providerRequestsUsed(p, NEWSAPI_AI_PROVIDER), 1, 'the failed attempt is still charged (transient, circuit stays closed)');
   rmSync(p, { force: true });
 });
 

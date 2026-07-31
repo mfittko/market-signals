@@ -1,4 +1,4 @@
-// The GNEWS_* config keys (issue #212), read from settings.json first, then the
+// The GNEWS_* config keys, read from settings.json first, then the
 // process env. Mirrors scripts/lib/newsapi-ai-source.mjs: a tiny standalone lib
 // (no heavy deps) so the signal-server can resolve the key without a hard
 // startup dependency on the market-sentinel skill CLI module.

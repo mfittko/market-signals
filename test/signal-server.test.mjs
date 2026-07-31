@@ -190,7 +190,7 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
   });
 });
 
-test('settings round-trip: GNEWS_KEY is masked write-only, GNEWS_MODE/INSTRUMENTS/REQUEST_BUDGET persist (issue #212)', async () => {
+test('settings round-trip: GNEWS_KEY is masked write-only, GNEWS_MODE/INSTRUMENTS/REQUEST_BUDGET persist', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
     let res = await fetch(`${base}/api/settings`, {
       method: 'POST',
@@ -822,7 +822,7 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
     const noKey = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
     assert.equal(noKey.meta.newsApiAiEnabled, false, 'no settings key => provider disabled in the spawned tool');
 
-    // #212: the tool injects settings-derived GNEWS_* too, same wiring as NAI.
+    // the tool injects settings-derived GNEWS_* too, same wiring as NAI.
     const withGnews = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: { GNEWS_KEY: 'from-settings', GNEWS_MODE: 'shadow' } }));
     assert.equal(withGnews.meta.gnewsMode, 'shadow', 'settings GNEWS_MODE reaches the spawned tool');
     assert.equal(withGnews.meta.gnewsEnabled, true, 'a settings key enables gnews in the spawned tool');
@@ -1692,7 +1692,7 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.equal(h.feed[0].granularity, 'M5');
     assert.equal(typeof h.feed[0].ageSec, 'number');
     assert.equal(h.news.mode, 'free', 'no NEWSAPI_AI_KEY configured');
-    assert.equal(h.news.gnewsMode, 'off', 'no GNEWS_KEY configured (issue #212)');
+    assert.equal(h.news.gnewsMode, 'off', 'no GNEWS_KEY configured');
     assert.equal(typeof h.llm, 'object');
     assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
     assert.ok(Array.isArray(h.bots));
@@ -1705,7 +1705,7 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
   });
 });
 
-test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode (issue #212)', async () => {
+test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ GNEWS_KEY: 'gk-secret', GNEWS_MODE: 'shadow' }) });
     const h = await (await fetch(base + '/api/health')).json();
@@ -2586,5 +2586,22 @@ test('viewing a combo lazily backfills historical volume impulses with kind + ba
     assert.equal(imp.time, rows[26].time, 'second bar of the qualifying pair');
     assert.equal(imp.signal, 'buy');
     assert.equal(imp.notified, 0);
+  });
+});
+
+// The served page hand-mirrors the server's mode list because browser code cannot
+// import a server module. Nothing else keeps the two honest, so pin them against
+// each other: a mode added on one side and forgotten on the other would render a
+// select whose options the server rejects (or hide one it accepts).
+test('GNews modes: the served page\'s client-side list matches the server\'s GNEWS_MODES exactly', async () => {
+  const { GNEWS_MODES } = await import('../scripts/lib/gnews-source.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    const m = /const\s+GNEWS_MODE_VALUES\s*=\s*\[([^\]]*)\]/.exec(page);
+    assert.ok(m, 'the page ships a client-side GNEWS_MODE_VALUES const');
+    const clientModes = m[1].split(',').map((t) => t.trim().replace(/^'|'$/g, '')).filter(Boolean);
+    assert.deepEqual(clientModes, GNEWS_MODES, 'client select options match the server mode list');
+    // and the server-only symbol must never be dereferenced in browser code
+    assert.ok(!/GNEWS_MODES\s*[.[]/.test(page), 'no server-only GNEWS_MODES.<...> leaked into the page');
   });
 });
