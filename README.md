@@ -115,17 +115,18 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   strategy tab for drafting or activating that combo's strategy. Stays a
   per-view modal — bot config is instrument-specific, not global settings.
 - **Settings modal** (⚙, #108): one tabbed modal of **global** config (reopens on
-  the last-used tab), five tabs:
+  the last-used tab), four tabs:
   - **LLM provider** — contextual provider/model/key panel (masked keys, atomic writes);
   - **News provider** — every `NEWSAPI_AI_*` setting (masked key);
-  - **Gates** — per-gate transparency (filter/recheck/bot/chat): effective system
-    prompt + declared toolset, drafted overrides, human-only activation for the
-    filter and recheck gates;
-  - **Memories** — add, reweight, edit, and archive trader memories;
+  - **Gates & notes** — per-gate transparency (filter/recheck/bot/chat): effective
+    system prompt + declared toolset, drafted overrides, human-only activation for
+    the filter and recheck gates; plus the standing notes (add, reweight, edit,
+    archive). Both stores are global, hence this tab rather than the bot modal;
   - **Advanced** — watcher fields, launch plumbing, and the info-overlays toggle.
 
-  LLM/News/Advanced commit together via one **Save** (per-tab dirty dot);
-  Gates/Memories auto-save each edit.
+  LLM/News/Advanced commit together via one **Save** (per-tab dirty dot); the
+  gates/notes panel auto-saves each edit, so it renders outside that form and
+  keeps no Save button of its own.
 - **Chat sidebar** (💬, collapsible — collapsed by default so the chart claims
   the full width; the toggle reveals it and remembers your choice): a trading
   copilot on the configured provider with persistent threads
@@ -196,8 +197,8 @@ trigger), and any malformed output, timeout, or provider error is a journaled
 Durable, trader-scoped standing rules (`memories` table) ride along as
 advisory context in the filter, bot deliberation, and chat prompts — never a
 substitute for the fail-safe clamps above. Chat can save a memory as a
-conversational side effect (`save_memory` tool); the memories tab (settings) is the
-manual add/edit/reweight/archive surface. Archiving hides a memory from
+conversational side effect (`save_memory` tool); the settings modal's **Gates &
+notes** tab is the manual add/edit/reweight/archive surface. Archiving hides a memory from
 context but never deletes the row.
 
 ## Gates & prompts
@@ -208,10 +209,10 @@ revisions:
 
 | Gate | What it does | Overridable? |
 |------|---------------|---------------|
-| **Filter** | Single-shot sanity check on every fresh flip; no tools. | Yes — draft via chat or the gates tab, human-activated. |
+| **Filter** | Single-shot sanity check on every fresh flip; no tools. | Yes — draft via chat or the Gates & notes tab, human-activated. |
 | **Bot** | Tool-loop deliberation (fxempire articles, sentinel news, Truth Social posts, live rates; plus Anthropic-only server-side web search) that opens/closes/holds. | No — strategy-owned, not gate-owned. |
 | **Chat** | The copilot; full tool loop including the save-draft tools. | No — constant system prompt. |
-| **Recheck** | Operator-initiated 🔁 re-check of a past signal's verdict. | Yes — draft via chat or the gates tab, human-activated. |
+| **Recheck** | Operator-initiated 🔁 re-check of a past signal's verdict. | Yes — draft via chat or the Gates & notes tab, human-activated. |
 
 Overridable gates store versioned drafts in `gate_prompts` (append-only,
 `draft` is chat- or manual-created, `active` flips on a human act). The gates
@@ -298,7 +299,8 @@ Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 3. Open `http://127.0.0.1:8787`, hit ⚙ to configure the provider, and 🔔 the
    combos you want alerts for.
 4. Optional: keep trading notes in `data/notes.md`, arm a bot for a watched
-   combo in the 🤖 Bot modal, and add standing rules in the 🧠 Memories tab (settings).
+   combo in the 🤖 Bot modal, and add standing rules in the ⚙ settings modal's
+   **Gates & notes** tab.
 
 `npm test` runs the full unit suite (fixture db, fake provider binaries,
 served-page assertions — no live network, zero deps). `npm run test:e2e` runs the

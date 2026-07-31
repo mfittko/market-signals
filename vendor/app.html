@@ -105,6 +105,11 @@
      label/input grid; the [hidden] override (higher specificity) still hides a tab. */
   .cfgpanel { display: contents; }
   .cfgpanel[hidden] { display: none; }
+  /* the gates/notes panel is a self-contained block, not label/input pairs — it
+     renders as one column outside the form's grid. Its own [hidden] rule is
+     required: equal specificity to .cfgpanel[hidden] would lose on source order. */
+  .cfgpanel.mgmt { display: block; }
+  .cfgpanel.mgmt[hidden] { display: none; }
   .cfgfoot { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
   .cfgfoot[hidden] { display: none; } /* author display:flex would otherwise defeat [hidden] */
   #histMore { display: block; margin: 10px auto; }
@@ -119,7 +124,7 @@
   .fieldhint.danger { color: #f85149; }
   #cfg .fieldhint { grid-column: 2; margin: -6px 0 4px; }
   @media (max-width: 900px) { #cfg .fieldhint { grid-column: 1; } }
-  #botBody .fieldhint { display: block; margin: 0 0 6px; }
+  #botBody .fieldhint, #cfgGlobal .fieldhint { display: block; margin: 0 0 6px; }
   #cfgTabs .dirty { color: #d29922; font-weight: bold; }
   /* long field keys (e.g. NEWSAPI_AI_REQUEST_BUDGET) wrap in the label column instead of clipping */
   #cfg label { overflow-wrap: anywhere; align-self: center; }
@@ -199,9 +204,10 @@
   #topbar h1 { margin: 0; }
   #hdr2 { display: flex; flex-basis: 100%; gap: 14px; align-items: center; flex-wrap: wrap; }
   #pfMini { display: inline-flex; gap: 8px; align-items: baseline; font-size: 12px; font-weight: 400; color: #8b949e; padding-left: 4px; margin-left: auto; }
-  /* #167/#189: scope-explicit bot-modal fieldsets (this bot / instrument / global) */
-  #botBody fieldset { border: 1px solid #30363d; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
-  #botBody legend { color: #8b949e; font-size: 12px; padding: 0 4px; }
+  /* #167: scope-explicit fieldsets — bot modal (this bot / instrument), settings
+     modal (global — affects every bot) */
+  #botBody fieldset, #cfgGlobal fieldset { border: 1px solid #30363d; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+  #botBody legend, #cfgGlobal legend { color: #8b949e; font-size: 12px; padding: 0 4px; }
   #healthStrip { font-size: 12px; color: #8b949e; margin-left: 8px; }
   #healthStrip .warn { color: #d29922; }
   #watchBtn.on { color: #3fb950; }
@@ -356,10 +362,18 @@
 <h2 id="cfgDlgTitle">Settings</h2>
 <div id="cfgTabs" class="cfgtabs" role="tablist" aria-label="settings sections"></div>
 <form id="cfg"></form>
+<!-- the gates/notes panel is a SIBLING of the settings form, not a panel inside
+     it: its controls auto-save per action, so they must not be form-associated.
+     Inside the form, its min/max weight inputs would gate the form's constraint
+     validation (an out-of-range weight silently aborting the batched Save), Enter
+     in its inputs would submit that form, and the post-Save cfg() re-render would
+     wipe an in-progress gate draft. Mounted lazily by mountGlobalTab. -->
+<div id="cfgGlobal" class="cfgpanel mgmt" data-panel="global" hidden></div>
 </dialog>
-<!-- #189: the workspace tab strip ([tape][trades][tuning]) is gone — trades/tuning
-     were redundant with the ⚙ bot modal's trades/global tabs (#188). Signal
-     history renders directly under the verdict banner, no tab chrome. -->
+<!-- #189: the workspace tab strip ([tape][trades][tuning]) is gone — trades was
+     redundant with the bot modal's own trades tab (#188) and tuning duplicated
+     that modal wholesale. Signal history renders directly under the verdict
+     banner, no tab chrome. -->
 <h2>Signal history <small id="histWindowLabel">· current chart window</small></h2>
 <p class="lane">Gates are a mechanical filter on the signal. The bot reads them as context and may act anyway — disagreement is expected, not a bug.</p>
 <table id="hist" class="collapsible"><thead><tr><th>time</th><th>signal</th><th>price</th><th class="mobile-hide">gates</th><th class="mobile-hide">reason</th><th title="+30min move (signal direction): directional return 30 minutes after the signal">+30min move</th><th class="mobile-hide" title="MFE to flip: directional return held until the next opposite signal (open = no reversal yet)">MFE to flip</th><th class="rowExpandCell"></th></tr></thead><tbody></tbody></table>
@@ -507,7 +521,7 @@ function tabStrip(container) {
     btns[next].click();
   });
 }
-// gatesTabs is bound in mountBotConfig's global tab (below) — it doesn't exist in the DOM until that render runs.
+// gatesTabs is bound in mountGlobalTab (below) — it doesn't exist in the DOM until that render runs.
 for (const id of ['pfTabs', 'cfgTabs']) tabStrip(document.getElementById(id));
 const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
 const pnlCls = (v) => v >= 0 ? 'buy' : 'sell';
@@ -662,14 +676,14 @@ let botStateCache = null;
 // NAME, version list w/ per-version activate, inline draft/edit). A single
 // shared save() drives both tabs and repaints them both, so the setup tab's
 // "no strategy assigned" warning always reflects a strategy-tab assignment.
-// #166/#189: bot config (setup/strategy/trades/audit/global tabs) is ONE
-// render path, mountBotConfig(containerId, inst, gran, prefix) — prefix
-// namespaces every element id. This mount is single-instance-only: only
-// openBotModal calls it, into one container, one at a time. The prefix
-// isn't collision-safety machinery for a second concurrent mount (there
-// isn't one) — it's kept because it's how this function's ids stay out of
-// the way of everything else on the page. This modal is now THE bot surface
-// (#189 — the workspace tuning tab that used to duplicate it is gone).
+// #166: bot config (setup/strategy/trades/audit tabs) is ONE render path,
+// mountBotConfig(containerId, inst, gran, prefix) — prefix namespaces every
+// element id. This mount is single-instance-only: only openBotModal calls it,
+// into one container, one at a time. The prefix isn't collision-safety
+// machinery for a second concurrent mount (there isn't one) — it's kept
+// because it's how this function's ids stay out of the way of everything else
+// on the page. Every tab here is combo-scoped; anything global (gates,
+// standing notes) belongs in the settings modal instead.
 const bid = (p, s) => p + s;
 async function mountBotConfig(containerId, inst, gran, prefix) {
   const combo = inst + '|' + gran;
@@ -681,10 +695,10 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
   const isViewedCombo = () => (qs.get('instrument') || document.getElementById('instSel').value) === inst &&
     (qs.get('granularity') || document.getElementById('granSel').value || 'M5') === gran;
   let activeTab = 'setup';
-  // #187/#189: trades/audit/global are lazy — fetched (or, for global,
-  // mounted) only once each tab is first clicked, tracked in loadedTabs below
-  // — so opening the modal for config-only use costs zero extra requests.
-  const TAB_NAMES = ['setup', 'strategy', 'trades', 'audit', 'global'];
+  // #187: trades/audit are lazy — fetched only once each tab is first clicked,
+  // tracked in loadedTabs below — so opening the modal for config-only use
+  // costs zero extra requests.
+  const TAB_NAMES = ['setup', 'strategy', 'trades', 'audit'];
   const loadedTabs = new Set();
   container.innerHTML =
     '<div id="' + bid(prefix, 'Tabs') + '" class="bmtabs" role="tablist" aria-label="bot config sections">' +
@@ -719,7 +733,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
     for (const b of document.querySelectorAll('#' + bid(prefix, 'Tabs') + ' button')) { b.classList.toggle('on', b === e.target); b.setAttribute('aria-selected', String(b === e.target)); }
     for (const t of TAB_NAMES) document.getElementById(bid(prefix, '-' + t)).hidden = t !== tab;
     if (tab === 'strategy') await paint();
-    // #187/#189: one map drives both the "is this tab lazy?" guard and the
+    // #187: one map drives both the "is this tab lazy?" guard and the
     // dispatch — no bare else fall-through to keep in sync as tabs are added.
     const LAZY = {
       trades: async () => {
@@ -727,7 +741,6 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
         renderTrades(document.getElementById(bid(prefix, '-trades-head')), document.getElementById(bid(prefix, '-trades-rows')), trades, { showInstrument: false });
       },
       audit: () => renderBotAuditTab(bid(prefix, '-audit'), inst, gran),
-      global: () => mountGlobalTab(bid(prefix, '-global'), () => document.querySelector('#' + bid(prefix, 'Tabs') + ' button[data-tab="strategy"]')?.click()),
     };
     if (LAZY[tab] && !loadedTabs.has(tab)) {
       // cache only on SUCCESS — a failed fetch must retry on the next click,
@@ -744,7 +757,7 @@ async function mountBotConfig(containerId, inst, gran, prefix) {
   await refreshModalState();
   await paint();
 }
-async function openBotModal(instArg, granArg) {
+async function openBotModal(instArg, granArg, tab) {
   // #165: the rail row's configure (⚙) affordance opens this for ITS combo,
   // falling back to the current view when called with no args.
   const inst = instArg || qs.get('instrument') || document.getElementById('instSel').value;
@@ -753,14 +766,20 @@ async function openBotModal(instArg, granArg) {
   document.getElementById('botTitle').dataset.info = INFO.botModal;
   await mountBotConfig('botBody', inst, gran, 'bm');
   document.getElementById('botdlg').showModal();
+  // opening on a given tab is this function's job, not its callers': the 'bm'
+  // prefix above is chosen here, so the tab-button ids stay owned here too.
+  // No optional-call: a drifted id should fail loudly, not open on setup silently.
+  if (tab) document.querySelector('#bmTabs button[data-tab="' + tab + '"]').click();
 }
-// #189: the modal's 5th tab (global) — gates + memories, moved here verbatim
-// from the now-deleted workspace tuning tab (#166/#167). Mounted lazily, once
-// per modal open (tracked in mountBotConfig's loadedTabs), NOT inside
-// renderBotSetupTab — that function repaints on every bot-field save(), which
-// would wipe an in-progress gate draft or memory input mid-keystroke.
-async function mountGlobalTab(containerId, goToStrategy) {
-  document.getElementById(containerId).innerHTML =
+// gates + standing notes: one settings-modal tab (⚙). They're genuinely global
+// (one settings.gates/memories store, no per-combo or per-instrument scoping),
+// so they belong in the global settings modal, not in a combo-scoped bot modal.
+// Mounted lazily (see mountGlobal in cfg()) into the panel that sits OUTSIDE the
+// settings form, and never from renderBotSetupTab — that function repaints on
+// every bot-field save(), which would wipe a gate draft mid-keystroke.
+// Single-mount only: every child id below is fixed, so one panel at a time.
+async function mountGlobalTab(goToStrategy) {
+  document.getElementById('cfgGlobal').innerHTML =
     '<fieldset><legend>global — affects every bot</legend>' +
     '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
     '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
@@ -776,10 +795,7 @@ async function mountGlobalTab(containerId, goToStrategy) {
 // (lockedHere sums positions by instrument, not combo) — same real-world scope
 // as leverage (settings.bot.leverage[inst]), hence both live in the instrument
 // fieldset (pre-existing label already said so; this just makes the grouping
-// visual). Gates/memories are genuinely global (one settings.gates/memories
-// store, no per-combo or per-instrument scoping) — mounted by mountGlobalTab,
-// NOT here: this function repaints on every bot-field save() (see mountBotConfig's
-// save/paint), which would otherwise wipe an in-progress gate draft or memory input.
+// visual). Nothing global renders here — see mountGlobalTab.
 function renderBotSetupTab(p, inst, gran, entry, settings, save, savedMsg, modalState) {
   const body = document.getElementById(bid(p, '-setup'));
   // blast-radius: other combos already configured on this instrument share the
@@ -1626,10 +1642,11 @@ function renderHealthStrip() {
 function renderRail(ok) {
   const el = document.getElementById('rail');
   if (ok === false) {
-    // global gates/memories must never depend on /api/bots succeeding — keep
-    // a config affordance reachable even when the rail itself can't render.
+    // the rail row's ⚙ is the only way into the viewed combo's bot config, so a
+    // failed /api/bots must still leave that reachable (global settings have
+    // their own topbar ⚙ and never depended on this fetch).
     el.innerHTML = '<div class="railrow" role="listitem"><span class="railstat warn">⚠ bots unavailable</span></div>' +
-      '<div class="railrow" role="listitem"><button type="button" id="railCfgOnly">bot &amp; global config</button></div>';
+      '<div class="railrow" role="listitem"><button type="button" id="railCfgOnly">bot config</button></div>';
     el.onclick = (e) => {
       if (e.target.closest('#railCfgOnly')) { const vc = viewedCombo(); openBotModal(vc.inst, vc.gran); }
     };
@@ -1948,10 +1965,10 @@ function renderHistory(list, botDecisions, view) {
     } finally { more.disabled = false; }
   };
 }
-// Settings modal tabs (#108 phase 1): one dialog, one global Save, fields grouped
-// per section. LLM provider / News provider / Advanced (launch-config plumbing).
-// Gates/Memories moved out of this modal (#167 — see below); Bot config stays
-// its own per-combo modal (never global, since it's instrument-specific).
+// Settings modal tabs (#108 phase 1): one dialog, one Save for the field tabs,
+// fields grouped per section. LLM provider / News provider / Gates & notes /
+// Advanced (launch-config plumbing). Bot config stays its own per-combo modal
+// (never global, since it's instrument-specific).
 // #99: the LLM tab is a contextual provider panel — a provider select plus ONLY
 // the fields that provider uses (rendered client-side in cfg()). News/Advanced
 // stay flat field lists. Provider-specific keys (model, base URL, keys,
@@ -1999,16 +2016,32 @@ const FIELD_HINTS = {
   maxCompletionTokens: 'cap on tokens the model may generate per call',
   __model: 'model name/id to request from the provider',
 };
-// tabs whose fields are flat (LLM is rendered contextually, handled separately)
-const CFG_FLAT_TABS = [['news', 'News provider', NEWS_FIELDS], ['adv', 'Advanced', ADV_FIELDS]];
-// #108/#167/#189: one modal for GLOBAL provider config — three tabs, all
-// batched-Save. Gates/Memories moved into the bot (🤖) modal's "global" tab
-// (#189 — they're bot-wide config, reached from that combo-scoped modal now).
-// Per-combo bot config is instrument-specific, so it stays in its own
-// per-view modal (🤖), NOT a global settings tab.
-const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['adv', 'Advanced']];
+// #108: one modal for everything GLOBAL — provider config (batched-Save) plus
+// the gates/standing-notes panel, which auto-saves per action. Per-combo bot
+// config is instrument-specific, so it stays in its own per-view modal (🤖),
+// NOT a tab here.
+const CFG_TABS = [['llm', 'LLM provider'], ['news', 'News provider'], ['global', 'Gates & notes'], ['adv', 'Advanced']];
 const CFG_TAB_IDS = CFG_TABS.map(([id]) => id);
-const CFG_DIRTY_TABS = ['llm', 'news', 'adv']; // all batched-Save now (no mgmt tabs left here)
+// auto-saving management panels, mounted outside the form; everything else is a
+// batched-Save field tab — derived, so a new field tab can't silently ship
+// without its Save footer by being forgotten in a second hand-written list.
+const CFG_MGMT_TABS = ['global'];
+const CFG_DIRTY_TABS = CFG_TAB_IDS.filter((id) => !CFG_MGMT_TABS.includes(id));
+// the gates/notes panel is fetched only when its tab is first opened, and the
+// in-flight promise is reused so a double-click can't start two mounts. Reset on
+// each modal open (openCfg) so reopening ⚙ shows current gates/notes.
+let globalMountP = null;
+const mountGlobal = () => (globalMountP ||= mountGlobalTab(async () => {
+  // strategies are per-combo, so "view strategy" leaves this global surface
+  document.getElementById('cfgdlg').close();
+  const vc = viewedCombo();
+  await openBotModal(vc.inst, vc.gran, 'strategy');
+}).catch((e) => {
+  // a failed mount must retry on the next click, and say so instead of leaving a blank panel
+  globalMountP = null;
+  document.getElementById('cfgGlobal').innerHTML = '<p><small>gates &amp; notes unavailable — click the tab to retry</small></p>';
+  throw e;
+}));
 async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
@@ -2075,6 +2108,11 @@ async function cfg() {
     flatPanel('news', NEWS_FIELDS) +
     flatPanel('adv', ADV_FIELDS) +
     '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
+  // the gates/notes panel lives outside the form (see #cfgdlg markup), so this
+  // re-render leaves it — and any in-progress gate draft — untouched. Its
+  // visibility comes from the same data-driven sweep the tab click uses, so
+  // there is one rule for which panel is showing, not two.
+  for (const p of document.querySelectorAll('#cfgdlg .cfgpanel')) p.hidden = p.dataset.panel !== active;
   // swap the LLM panel's fields when the provider changes (client-side, from s)
   f.querySelector('#f-provider').onchange = (e) => {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
@@ -2084,8 +2122,11 @@ async function cfg() {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);
     for (const b of document.querySelectorAll('#cfgTabs button')) { b.classList.toggle('on', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); }
-    for (const p of f.querySelectorAll('.cfgpanel')) p.hidden = p.dataset.panel !== tab;
+    // the mgmt panel is a sibling of the form, so the sweep spans the dialog
+    for (const p of document.querySelectorAll('#cfgdlg .cfgpanel')) p.hidden = p.dataset.panel !== tab;
     foot.hidden = !CFG_DIRTY_TABS.includes(tab); // Save applies only to field tabs
+    // never awaited: an unreachable gate endpoint must not block the tab switch
+    if (CFG_MGMT_TABS.includes(tab)) mountGlobal().catch(() => {});
   };
   // dirty dot on the owning tab whenever a saved field changes (cleared on save re-render).
   // Excluded: the info-overlay toggle (own POST).
@@ -2132,6 +2173,9 @@ async function cfg() {
     if (r.ok) await cfg();
     document.getElementById('saved').textContent = r.ok ? 'saved' : r.error;
   };
+  // remembered tab: same non-blocking call as the tab click — awaiting it here
+  // would make an unreachable gate endpoint keep the whole modal from opening
+  if (CFG_MGMT_TABS.includes(active)) mountGlobal().catch(() => {});
 }
 // #58/#90: per-gate transparency + the overridable gates' (filter, recheck)
 // draft list (activate/deactivate) AND an inline draft editor — reuses the
@@ -2185,8 +2229,10 @@ async function renderGates(goToStrategy) {
     const id = Number(row.dataset.id);
     const act = row.querySelector('.gateactivate');
     const deact = row.querySelector('.gatedeactivate');
-    act.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: id }) }); renderGates(); };
-    deact.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'deactivate', id: id }) }); renderGates(); };
+    // every self-re-render passes goToStrategy back in — dropping it would leave
+    // the rebuilt "view strategy" button with no handler (a silently dead button)
+    act.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'activate', id: id }) }); renderGates(goToStrategy); };
+    deact.onclick = async () => { await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'deactivate', id: id }) }); renderGates(goToStrategy); };
   });
   list.querySelectorAll('.gaterow[data-gate]').forEach((row) => {
     const gate = row.dataset.gate;
@@ -2195,14 +2241,13 @@ async function renderGates(goToStrategy) {
       const err = row.querySelector('.gateEditErr');
       const r2 = await (await fetch('/api/gate-prompts', { method: 'POST', body: JSON.stringify({ action: 'save', gate: gate, prompt: prompt }) })).json();
       if (!r2.ok) { err.textContent = r2.error; return; }
-      renderGates();
+      renderGates(goToStrategy);
     };
   });
-  // #189: gates now render inside the bot modal's own global tab, so "view
-  // strategy" just switches to the strategy tab of the SAME, already-open
-  // dialog — no navigation/close/reopen needed. renderGates stays a pure
-  // renderer: it takes the switch-to-strategy-tab callback from its caller
-  // rather than naming the modal's own tab ids itself.
+  // strategies are per-combo and gates are global, so "view strategy" has to
+  // leave this panel for a bot modal. renderGates stays a pure renderer: the
+  // caller owns that navigation and passes it in, so this function never names
+  // another surface's dialog or tab ids.
   const toBot = document.getElementById('gateToBot');
   if (toBot && goToStrategy) toBot.onclick = goToStrategy;
 }
@@ -2244,6 +2289,13 @@ async function renderMemories() {
     const r2 = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content, weight }) })).json();
     if (r2.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
   };
+  // Enter in either add-row input adds the note — wired next to the button it
+  // triggers, so the panel keeps this behavior wherever it is mounted. Inputs
+  // only: the add button is inside this row and already acts on Enter itself,
+  // so matching it here would add the note twice. No preventDefault needed —
+  // the panel renders outside the settings form, so there is nothing to submit.
+  const addRow = document.getElementById('memAddRow');
+  if (addRow && addBtn) addRow.onkeydown = (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') addBtn.click(); };
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
@@ -2553,11 +2605,12 @@ async function lightTick() {
 }
 scheduleLightTick();
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-// #108: one tabbed settings modal (llm/news/adv only — #167/#189 moved
-// gates/memories into the bot modal's global tab, see mountGlobalTab).
-// openCfg(tab) opens it on a given tab.
+// #108: one tabbed settings modal for everything global — llm/news/adv fields
+// plus the gates/standing-notes panel (see mountGlobalTab). openCfg(tab) opens
+// it on a given tab.
 async function openCfg(tab) {
   if (tab) localStorage.setItem('cfgTab', tab);
+  globalMountP = null; // each open re-fetches gates/notes; within one open they persist
   await cfg();
   document.getElementById('cfgdlg').showModal();
 }

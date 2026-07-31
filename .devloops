@@ -41,13 +41,22 @@ uiReview:
         - { action: goto, path: "/?ind=ema%2Cbb%2Cvwap%2Crsi", name: indicators-on }
         - { action: goto, path: "/", name: indicators-off }
     - name: settings-roundtrip
-      pathPatterns: ["scripts/signal-server.mjs"]
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html"]
       steps:
         - { action: goto, path: "/", name: open-config }
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
+    # the gates/standing-notes panel is global config: it lives in the ⚙ modal,
+    # lazy-mounted on first open of its tab.
+    - name: settings-gates-notes
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html", "scripts/gate-prompts.mjs", "scripts/memories.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: click, selector: "#cfgTabs button[data-tab=global]", name: gates-notes-tab }
+        - { action: click, selector: "#gatesTabs button[data-tab=recheck]", name: recheck-gate-panel }
 
 # Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
 queue:

@@ -74,13 +74,18 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
     assert.ok(page.includes('<dialog id="botdlg"'), 'per-view bot modal stays (instrument-specific, not a global tab)');
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
     assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
-    // #167/#189: gates/memories moved OUT of the settings modal into the bot
-    // modal's "global" tab (reusing renderGates/renderMemories verbatim).
-    assert.ok(!page.includes("['gates', 'Gates']") && !page.includes("['mem', 'Memories']"), 'gates/memories are no longer settings tabs (#167)');
-    assert.ok(page.includes('id="gatesTabs"') && page.includes('id="memAddBtn"'), 'gates/memories render inside the bot modal global tab (#167/#189)');
+    // one pin for the whole settings-tab set (gates + notes share ONE tab; the
+    // pre-#167 separate Gates/Memories pair stays collapsed), so a tab change
+    // has exactly one assertion to update
+    assert.match(page, /const CFG_TABS = \[\['llm', 'LLM provider'\], \['news', 'News provider'\], \['global', 'Gates & notes'\], \['adv', 'Advanced'\]\]/, 'settings tabs: llm, news, gates & notes, adv');
+    assert.ok(page.includes('id="gatesTabs"') && page.includes('id="memAddBtn"'), 'gates/notes markup ships in the page');
+    // the panel's controls auto-save per action, so the panel is a SIBLING of the
+    // batched-Save form — inside it, its min/max weight inputs would gate the
+    // form's constraint validation and silently abort a settings Save
+    assert.match(page, /<form id="cfg"><\/form>[\s\S]*?<div id="cfgGlobal"/, 'the gates/notes panel markup follows the closed <form id="cfg">, not nested in it');
     assert.ok(!page.includes("['bot', 'Bot']"), 'bot is NOT a global settings tab (per-view modal)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
-    assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
+    assert.match(page, /flatPanel\('adv', ADV_FIELDS\)/, 'plumbing lives in the Advanced tab');
     assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
     assert.ok(page.includes("['NEWSAPI_AI_KEY', 'password']"), 'NewsAPI.ai key is a masked field in the News tab');
     assert.ok(page.includes("['watchers'"), 'watchers stays a settings field');
@@ -1115,7 +1120,7 @@ test('bot modal ships setup + strategy tabs (#75 structural)', async () => {
     assert.ok(html.includes('id="botdlg"'), 'per-combo bot modal shipped (per-view, instrument-specific)');
     // #187 review: buttons are generated from TAB_NAMES (one source of truth),
     // so pin the array literal's order instead of literal button markup.
-    assert.match(html, /'setup', 'strategy', 'trades', 'audit', 'global'/, 'bot modal tab set derives from TAB_NAMES, setup first, history + global tabs present');
+    assert.match(html, /'setup', 'strategy', 'trades', 'audit'\]/, 'bot modal tab set derives from TAB_NAMES, setup first, history tabs present, nothing global');
     // #166: setup/strategy bodies + control ids are namespaced (bid(p, ...)) —
     // this modal is single-instance-only (only openBotModal mounts it), the
     // namespacing just keeps its own ids out of the way of every other id on
@@ -1328,9 +1333,8 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.ok(!html.includes('<dialog id="memdlg"'), 'standalone memories dialog removed');
     assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'memories tab ships list + archived count');
     assert.ok(html.includes('id="memNewContent"') && html.includes('id="memAddBtn"'), 'memories tab ships an add affordance (new memory input + button)');
-    // #167/#189: memories moved OUT of settings into the bot modal's global tab
-    assert.ok(!html.includes("['mem', 'Memories']"), 'memories is no longer a settings tab (#167)');
-    assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the bot modal global tab');
+    // (the settings-tab set itself is pinned once in the modal-chrome test above)
+    assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the settings modal');
   });
 });
 
@@ -1385,9 +1389,8 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('<dialog id="gatedlg"'), 'standalone gates dialog removed');
     assert.ok(html.includes('id="gatesTabs"') && html.includes('id="gatesList"'), 'gates tab ships the gates transparency section');
-    // #167/#189: gates moved OUT of settings into the bot modal's global tab
-    assert.ok(!html.includes("['gates', 'Gates']"), 'gates is no longer a settings tab (#167)');
-    assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the bot modal global tab');
+    // (the settings-tab set itself is pinned once in the modal-chrome test above)
+    assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the settings modal');
   });
 });
 

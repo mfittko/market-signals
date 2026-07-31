@@ -194,17 +194,25 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
 
-        // #187/#189 AC3 (mobile): the bot modal's 5-tab strip renders and the
-        // history tabs are tappable on phones (collapse inherited via .bmtabs
+        // #187 AC3 (mobile): the bot modal's tab strip renders and the history
+        // tabs are tappable on phones (collapse inherited via .bmtabs
         // flex-wrap — pin reachability, not pixels).
         if (vname === 'phone-portrait') {
           await p.waitForFunction(() => !!document.querySelector('#rail .railcfg'), { timeout: 5000 });
           await p.evaluate(() => document.querySelector('#rail .railcfg').click());
           await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.querySelectorAll('#bmTabs button').length), 5, 'bot modal shows 5 tabs on phone');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#bmTabs button').length), 4, 'bot modal shows its 4 combo-scoped tabs on phone');
           await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(400);
           assert.ok(await p.evaluate(() => !document.getElementById('bm-trades').hidden), 'trades tab opens on phone');
+          await p.evaluate(() => document.querySelector('dialog[open]')?.close());
+          // the gates/notes panel is only in the DOM once its tab is opened, so
+          // the generic modal-overflow sweep above can't see it — check it here
+          await p.evaluate(() => document.getElementById('cfgbtn').click());
+          await p.waitForTimeout(300);
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
+          await p.waitForTimeout(500);
+          assert.equal(await p.evaluate(() => { const d = document.getElementById('cfgdlg'); return d.scrollWidth > d.clientWidth + 1; }), false, 'gates/notes panel has no horizontal overflow on phone');
           await p.evaluate(() => document.querySelector('dialog[open]')?.close());
         }
 
@@ -284,6 +292,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // functional deep-checks (one representative viewport keeps the matrix fast)
         if (vname === 'desktop-landscape') {
           // settings: the contextual provider panel swaps fields
+          // the gates/notes counter is attached BEFORE the modal opens — a fetch
+          // fired during cfg() itself (the laziness bug this guards) must be seen
+          let gatesReqs = 0;
+          const onCfgReq = (req) => {
+            const u = req.url();
+            if (u.includes('/api/gate-prompts') || u.includes('/api/memories')) gatesReqs++;
+          };
+          p.on('request', onCfgReq);
           await p.evaluate(() => document.getElementById('cfgbtn').click());
           await p.waitForTimeout(300);
           await p.evaluate(() => { const s = document.getElementById('f-provider'); s.value = 'openai-compatible'; s.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -296,9 +312,119 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // #171: sentinelSourceFootnotes default flips to ON — an untouched
           // settings.json (this fresh e2e db) must render the 'on' option selected.
           assert.equal(await p.evaluate(() => document.getElementById('f-sentinelSourceFootnotes').value), '1', 'sentinelSourceFootnotes defaults on when never explicitly set');
-          // #167/#189: three GLOBAL-config tabs, in order (gates/memories moved into
-          // the bot modal's global tab; bot stays per-view, not here)
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'adv'], 'three settings tabs in order (no gates/mem/bot)');
+          // four GLOBAL-config tabs, in order: gates + standing notes are global
+          // config, so they live here; per-combo bot config stays in its own modal
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'global', 'adv'], 'four settings tabs in order (gates/notes here, no per-combo bot tab)');
+          // the gates/notes panel is lazy — opening the modal on any other tab
+          // must not fetch its two endpoints; opening its tab must fetch both
+          assert.equal(gatesReqs, 0, 'no /api/gate-prompts or /api/memories requests before the gates/notes tab is opened');
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
+          await p.waitForTimeout(400);
+          assert.ok(gatesReqs > 0, 'opening the gates/notes tab fires the lazy gate-prompts/memories fetch');
+          p.off('request', onCfgReq);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#cfgGlobal #gatesTabs') && !!document.querySelector('#cfgGlobal #memAddBtn')), 'gates + standing notes render inside the settings modal panel');
+          assert.equal(await p.evaluate(() => document.querySelector('#cfgGlobal legend').textContent), 'global — affects every bot', 'the panel names its own scope');
+          // the panel's controls auto-save per action, so they must not be
+          // form-associated at all: inside the form, its min/max weight inputs
+          // would gate constraint validation and silently abort the batched Save
+          assert.equal(await p.evaluate(() => !!document.getElementById('cfgGlobal').closest('form')), false, 'gates/notes panel is not inside the settings form');
+          assert.equal(await p.evaluate(() => document.getElementById('cfg').elements.length > 0 && [...document.getElementById('cfg').elements].some((el) => el.closest('#cfgGlobal'))), false, 'no panel control is form-associated with the batched-Save form');
+          // no Save footer on this tab (auto-saves) — and it must come back for the field tabs
+          assert.equal(await p.evaluate(() => document.querySelector('#cfg .cfgfoot').hidden), true, 'batched Save footer is hidden on the gates/notes tab');
+          // the panel is a self-contained block, not label/input pairs: full width
+          assert.ok(await p.evaluate(() => {
+            const panel = document.getElementById('cfgGlobal');
+            return panel.getBoundingClientRect().width > document.getElementById('cfg').getBoundingClientRect().width * 0.9;
+          }), 'gates/notes panel spans the full settings width');
+          // #168: gatesTabs is created by mountGlobalTab, AFTER boot — tabStrip
+          // used to be bound at boot against a not-yet-existing element (a no-op),
+          // leaving gates without arrow-key nav. Pin it here.
+          await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').focus());
+          await p.keyboard.press('ArrowRight');
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'recheck', 'gatesTabs ArrowRight moves focus to the next gate tab');
+          assert.ok(await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="recheck"]').classList.contains('on')), 'gatesTabs ArrowRight also activates the tab it moved to');
+          // mounted at most once per ⚙ open: leaving the tab and coming back must
+          // not remount and wipe an in-progress gate draft
+          await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').click());
+          await p.evaluate(() => { document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt').value = 'draft in progress — do not lose me'; });
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="adv"]').click());
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.querySelector('#cfg .cfgfoot').hidden), false, 'batched Save footer returns on a field tab');
+          // the panel's own [hidden] rule is what keeps it out of the field tabs
+          // (its display:block would otherwise defeat the attribute)
+          assert.equal(await p.evaluate(() => document.getElementById('cfgGlobal').offsetParent), null, 'gates/notes panel is not rendered while a field tab is active');
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
+          await p.waitForTimeout(300);
+          assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'draft in progress — do not lose me', 'switching tabs away and back preserves an in-progress gate draft');
+          // keyboard: Enter in a note input must not reach the batched Save (the
+          // panel is outside that form), and Enter must still activate the
+          // panel's own buttons and disclosures — a form-level Enter guard here
+          // once broke both in WebKit.
+          const notesBefore = await p.evaluate(() => document.querySelectorAll('#memList .memrow').length);
+          await p.evaluate(() => { document.getElementById('memNewContent').value = 'e2e note via Enter'; document.getElementById('memNewContent').focus(); });
+          await p.keyboard.press('Enter');
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.getElementById('saved').textContent), '', 'Enter in a note input does not trigger the batched settings Save');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'Enter in the add row adds the note');
+          await p.evaluate(() => { document.getElementById('memNewContent').value = 'e2e note via the add button'; });
+          await p.evaluate(() => document.getElementById('memAddBtn').focus());
+          await p.keyboard.press('Enter');
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 2, 'Enter activates the panel\'s add button (keyboard reach preserved)');
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] details summary').focus());
+          await p.keyboard.press('Enter');
+          await p.waitForTimeout(200);
+          assert.ok(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] details').open), 'Enter still toggles a prompt disclosure inside the panel');
+          // AC4 round-trip: a gate draft and a note edit genuinely persist from
+          // the new location (the renderers moved verbatim — pin the wiring)
+          const draftsBefore = await p.evaluate(() => document.querySelectorAll('#gatesList .gaterow[data-gate="filter"] .gatedraft').length);
+          // the draft editor sits behind its own disclosure — open it first, the
+          // way a user reaches that button
+          await p.evaluate(() => { document.querySelector('#gatesList .gaterow[data-gate="filter"] details:last-of-type').open = true; });
+          await p.evaluate(() => { document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt').value = 'e2e draft from the settings modal'; });
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateSaveDraft').click());
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#gatesList .gaterow[data-gate="filter"] .gatedraft').length), draftsBefore + 1, 'save-as-draft from the settings modal adds a draft row');
+          // activate/deactivate go through the same re-render this PR changed, so
+          // drive both rather than asserting the wiring by inspection
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft .gateactivate').click());
+          await p.waitForTimeout(600);
+          assert.ok(await p.evaluate(() => !!document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft b')), 'activating a draft from the settings modal marks it active');
+          await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft .gatedeactivate').click());
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => !!document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft b')), false, 'deactivating it from the settings modal drops the active marker');
+          await p.evaluate(() => document.querySelector('#memList .memrow .memarchive').click());
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'archiving a note from the settings modal drops it from the list');
+          // a gate mutation re-renders #gatesList — the rebuilt "view strategy"
+          // button must not lose its handler (it is the only nav out of this panel)
+          await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="bot"]').click());
+          await p.waitForTimeout(200);
+          await p.evaluate(() => document.getElementById('gateToBot').click());
+          await p.waitForTimeout(700);
+          assert.equal(await p.evaluate(() => document.getElementById('cfgdlg').open), false, 'view strategy closes the settings modal');
+          assert.ok(await p.evaluate(() => document.getElementById('botdlg').open && document.querySelector('#bmTabs button.on')?.dataset.tab === 'strategy'), 'view strategy opens the bot modal on its strategy tab');
+          await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+          // a batched Save on a field tab re-renders the form — the panel lives
+          // outside it, so an in-progress draft must survive that too
+          await p.evaluate(() => document.getElementById('cfgbtn').click());
+          await p.waitForTimeout(400);
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
+          await p.waitForTimeout(600);
+          await p.evaluate(() => { document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt').value = 'survives a settings save'; });
+          // an out-of-range weight in the panel must not block the batched Save:
+          // inside the form its min/max would fail constraint validation and
+          // silently abort submission before the handler ever ran
+          await p.evaluate(() => { document.getElementById('memNewWeight').value = '6'; });
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="adv"]').click());
+          await p.waitForTimeout(150);
+          await p.evaluate(() => document.querySelector('#cfg .cfgfoot button').click());
+          await p.waitForTimeout(800);
+          assert.equal(await p.evaluate(() => document.getElementById('saved').textContent), 'saved', 'the batched Save completes even with an out-of-range weight typed in the panel');
+          await p.evaluate(() => document.querySelector('#cfgTabs button[data-tab="global"]').click());
+          await p.waitForTimeout(200);
+          assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'survives a settings save', 'a batched Save does not wipe an in-progress gate draft');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
           // per-view bot modal opens from a rail row's ⚙ (railcfg) and carries its tabs
           await p.waitForFunction(() => document.querySelectorAll('#rail .railcfg').length > 0, { timeout: 5000 });
@@ -324,19 +450,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           const onReq = (req) => {
             const u = req.url();
             if ((u.includes('/api/trades') && u.includes('limit=500')) || (u.includes('/api/evaluation') && u.includes('granularity=M15'))) historyReqs++;
-            if (u.includes('/api/gate-prompts') || u.includes('/api/memories')) globalTabReqs++;
           };
-          let globalTabReqs = 0;
           p.on('request', onReq);
           await p.evaluate(() => document.querySelector('#rail .railcfg[data-combo="WTICO/USD|M15"]').click());
           await p.waitForTimeout(300);
-          // #187/#189: bot modal gains trades/audit/global tabs, lazy-loaded —
-          // config-only modal use (setup/strategy) must fire zero /api/trades,
-          // /api/evaluation, /api/gate-prompts, or /api/memories requests until
-          // one of those tabs is actually opened.
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit', 'global'], 'bot modal tab strip includes trades + audit + global');
+          // #187: bot modal's trades/audit tabs are lazy — config-only modal use
+          // (setup/strategy) must fire zero /api/trades or /api/evaluation
+          // requests until one of those tabs is actually opened. Every tab here
+          // is combo-scoped: global config (gates/notes) lives in the ⚙ modal.
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#bmTabs button')].map((b) => b.dataset.tab)), ['setup', 'strategy', 'trades', 'audit'], 'bot modal tab strip is combo-scoped: setup/strategy/trades/audit, no global tab');
           assert.equal(historyReqs, 0, 'no /api/trades or /api/evaluation requests from opening the modal (incl. mountBotConfig) before the trades/audit tabs are opened');
-          assert.equal(globalTabReqs, 0, 'no /api/gate-prompts or /api/memories requests before the global tab is opened');
           await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="trades"]').click());
           await p.waitForTimeout(300);
           assert.ok(historyReqs >= 1, 'opening the trades tab fires the lazy /api/trades fetch');
@@ -348,38 +471,11 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           const bmAuditHtml = await p.evaluate(() => document.getElementById('bm-audit').innerHTML);
           assert.ok(bmAuditHtml.includes('e2e gate-disagreement seed'), 'bot modal audit tab renders the seeded WTICO/USD|M15 decisions via the shared audit renderer');
           assert.ok(!bmAuditHtml.includes('e2e seeded headline'), 'audit tab is combo-scoped — the M5 combo\'s seeded news does not leak into the M15 combo\'s audit');
-
-          // #189: the modal's global tab hosts gates + memories (moved here
-          // wholesale from the now-deleted workspace tuning tab) — reused verbatim.
-          await p.evaluate(() => document.querySelector('#bmTabs button[data-tab="global"]').click());
-          await p.waitForTimeout(300);
-          assert.ok(globalTabReqs > 0, 'opening the global tab fires the lazy gate-prompts/memories fetch');
-          assert.ok(await p.evaluate(() => !!document.getElementById('gatesTabs') && !!document.getElementById('memAddBtn')), 'gates/memories embedded in the bot modal global tab');
           p.off('request', onReq);
-          // #167 (F18): scope-explicit fieldsets — this bot / instrument / global
-          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#botBody fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD', 'global'], 'bot modal groups fields into scope-explicit fieldsets');
-          // #168: gatesTabs is created by mountGlobalTab, AFTER boot — tabStrip
-          // used to be bound at boot against a not-yet-existing element (a no-op),
-          // leaving gates without arrow-key nav. Pin it here.
-          await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="filter"]').focus());
-          await p.keyboard.press('ArrowRight');
-          await p.waitForTimeout(150);
-          assert.equal(await p.evaluate(() => document.activeElement.dataset.tab), 'recheck', 'gatesTabs ArrowRight moves focus to the next gate tab');
-          assert.ok(await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="recheck"]').classList.contains('on')), 'gatesTabs ArrowRight also activates the tab it moved to');
-          // #167: the gates/memories mount moved OUT of renderBotSetupTab (which
-          // repaints on every bot-field save()) into mountGlobalTab (mounted once)
-          // — a bot-field save must never wipe an in-progress gate draft or memory input.
-          await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'bot'); t && t.click(); });
-          await p.evaluate(() => { const t = [...document.querySelectorAll('#gatesTabs button')].find((b) => b.dataset.tab === 'filter'); t && t.click(); });
-          await p.evaluate(() => { const ta = document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt'); ta.value = 'draft in progress — do not lose me'; });
-          // toggling the (hidden, since 'global' is the active tab) setup panel's
-          // bmEnabled checkbox still fires a save()/repaint — the pin is that this
-          // must never wipe the still-open global tab's in-progress gate draft.
-          await p.evaluate(() => { const cb = document.getElementById('bmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
-          await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gateEditPrompt')?.value), 'draft in progress — do not lose me', 'toggling a bot field preserves an in-progress gate draft');
-          await p.evaluate(() => { const cb = document.getElementById('bmEnabled'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); });
-          await p.waitForTimeout(300);
+          // #167 (F18): scope-explicit fieldsets — this bot / instrument. Nothing
+          // global renders here; the ⚙ modal owns that scope.
+          assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#botBody fieldset legend')].map((l) => l.textContent.split(' (')[0].split(' —')[0])), ['this bot', 'WTICO/USD'], 'bot modal groups fields into scope-explicit fieldsets, all combo/instrument-scoped');
+          assert.ok(await p.evaluate(() => !document.querySelector('#botBody #gatesTabs') && !document.querySelector('#botBody #memAddBtn')), 'no gates/notes surface inside the per-combo bot modal');
           await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
 
           // #166/#168: portfolio overlay — equity/all trades/scoreboard/audit (the "ledger" rename was reverted on operator feedback: plain words win)
