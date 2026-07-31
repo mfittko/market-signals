@@ -358,15 +358,17 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // panel is outside that form), and Enter must still activate the
           // panel's own buttons and disclosures — a form-level Enter guard here
           // once broke both in WebKit.
-          await p.evaluate(() => { document.getElementById('memNewContent').value = 'e2e typed, never saved'; document.getElementById('memNewContent').focus(); });
-          await p.keyboard.press('Enter');
-          await p.waitForTimeout(300);
-          assert.equal(await p.evaluate(() => document.getElementById('saved').textContent), '', 'Enter in a note input does not trigger the batched settings Save');
           const notesBefore = await p.evaluate(() => document.querySelectorAll('#memList .memrow').length);
+          await p.evaluate(() => { document.getElementById('memNewContent').value = 'e2e note via Enter'; document.getElementById('memNewContent').focus(); });
+          await p.keyboard.press('Enter');
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.getElementById('saved').textContent), '', 'Enter in a note input does not trigger the batched settings Save');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'Enter in the add row adds the note');
+          await p.evaluate(() => { document.getElementById('memNewContent').value = 'e2e note via the add button'; });
           await p.evaluate(() => document.getElementById('memAddBtn').focus());
           await p.keyboard.press('Enter');
-          await p.waitForTimeout(500);
-          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'Enter activates the panel\'s add button (keyboard reach preserved)');
+          await p.waitForTimeout(600);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 2, 'Enter activates the panel\'s add button (keyboard reach preserved)');
           await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] details summary').focus());
           await p.keyboard.press('Enter');
           await p.waitForTimeout(200);
@@ -383,7 +385,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           assert.equal(await p.evaluate(() => document.querySelectorAll('#gatesList .gaterow[data-gate="filter"] .gatedraft').length), draftsBefore + 1, 'save-as-draft from the settings modal adds a draft row');
           await p.evaluate(() => document.querySelector('#memList .memrow .memarchive').click());
           await p.waitForTimeout(600);
-          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore, 'archiving a note from the settings modal re-renders the list');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'archiving a note from the settings modal drops it from the list');
           // a gate mutation re-renders #gatesList — the rebuilt "view strategy"
           // button must not lose its handler (it is the only nav out of this panel)
           await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="bot"]').click());

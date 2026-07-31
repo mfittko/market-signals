@@ -2110,7 +2110,7 @@ async function cfg() {
     '<div class="cfgfoot"' + (CFG_DIRTY_TABS.includes(active) ? '' : ' hidden') + '><button>Save</button><span id="saved"></span></div>';
   // the gates/notes panel lives outside the form (see #cfgdlg markup), so this
   // re-render leaves it — and any in-progress gate draft — untouched
-  document.getElementById('cfgGlobal').hidden = active !== 'global';
+  document.getElementById('cfgGlobal').hidden = !CFG_MGMT_TABS.includes(active);
   // swap the LLM panel's fields when the provider changes (client-side, from s)
   f.querySelector('#f-provider').onchange = (e) => {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
@@ -2287,6 +2287,13 @@ async function renderMemories() {
     const r2 = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content, weight }) })).json();
     if (r2.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
   };
+  // Enter in either add-row input adds the note — wired next to the button it
+  // triggers, so the panel keeps this behavior wherever it is mounted. Inputs
+  // only: the add button is inside this row and already acts on Enter itself,
+  // so matching it here would add the note twice. No preventDefault needed —
+  // the panel renders outside the settings form, so there is nothing to submit.
+  const addRow = document.getElementById('memAddRow');
+  if (addRow && addBtn) addRow.onkeydown = (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') addBtn.click(); };
 }
 const chat = { threadId: null, pending: false };
 async function loadThreads() {
