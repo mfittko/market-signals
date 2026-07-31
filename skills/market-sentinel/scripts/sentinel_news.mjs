@@ -325,18 +325,23 @@ const DEFAULT_GNEWS_BUDGET = 2500;
 // result exceeds the 200-char cap; the longest query committed today builds to 109
 // chars, so this is a guard against a future addition, not a live path.
 //
-// Splits on OR only, deliberately. Every committed sentinel query is a pure OR
-// list, and treating AND/NOT as operators here backfired: the case-insensitive
-// match fired on the lowercase `and` INSIDE a term, so `supply and demand` came
-// out unquoted and GNews read it as an implicit AND — precisely the failure this
-// function exists to prevent. A query that genuinely needs AND/NOT can be
-// hand-quoted in config; that is a smaller cost than silently mangling a term.
+// Splits on an UPPERCASE ` OR ` only. Every committed sentinel query writes its
+// operators in caps and its terms in prose, and matching case-insensitively broke
+// exactly that: the lowercase `and` inside `supply and demand` was read as an
+// operator and the term shipped unquoted, for GNews to treat as an implicit AND.
+// Lowercase `or` inside a term (`this or that`) would fail the same way, so the
+// `i` flag is gone too. AND/NOT are rejected outright rather than quoted into one
+// literal phrase — silently searching for the string "oil AND OPEC" is the same
+// class of mangling, just moved, so it fails loud and non-chargeably instead.
 export function buildGnewsQuery(sentinelQuery) {
   const raw = String(sentinelQuery || '').trim();
   if (!raw) throw new Error('empty sentinel query');
-  const parts = raw.split(/(\(|\)|\bOR\b)/gi);
+  if (/\b(AND|NOT)\b/.test(raw)) {
+    throw new Error('gnews query builder supports OR lists only; rewrite the AND/NOT query as quoted phrases');
+  }
+  const parts = raw.split(/(\(|\)|\bOR\b)/g);
   const rebuilt = parts.map((part) => {
-    if (/^(\(|\)|OR)$/i.test(part)) return part;
+    if (/^(\(|\)|OR)$/.test(part)) return part;
     const t = part.trim();
     if (!t) return '';
     if (/^".*"$/.test(t)) return t; // already quoted, leave as-is
@@ -726,11 +731,15 @@ export async function fetchSentinelNews({
     // every provider's sighting is kept (dedup would drop the free-source twin,
     // and gnews's OWN intra-response duplicates are kept here too — marked,
     // not dropped, so the trial benchmark can see them).
+    // Each provider's sightings are filtered by ITS OWN window: gnews gets the
+    // delay-widened one, or shadow mode would log ~1 of every 10 articles it just
+    // paid for and the comparison this provider exists to enable would read empty.
+    const inGnewsWin = (it) => !it.timeIso || Date.parse(it.timeIso) >= gnewsCutoffMs;
     out.observed = [
-      ...(newsApiAi?.shadow ? shadowItems : newsApiItems),
-      ...(gnews?.shadow ? gnewsShadowItems : gnewsItems),
-      ...results.flat(),
-    ].filter(inWin);
+      ...(newsApiAi?.shadow ? shadowItems : newsApiItems).filter(inWin),
+      ...(gnews?.shadow ? gnewsShadowItems : gnewsItems).filter(inGnewsWin),
+      ...results.flat().filter(inWin),
+    ];
     if (newsApiAi?.shadow) out.shadowItems = shadowItems;
     if (gnews?.shadow) out.gnewsShadowItems = gnewsShadowItems;
   }

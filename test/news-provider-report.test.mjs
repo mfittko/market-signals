@@ -133,3 +133,27 @@ test('buildReport: onTopic is reported alongside coverage/latency for a gnews-st
   assert.equal(report.onTopic.onTopic, 1, 'only the Iran/tanker/Hormuz headline matches the WTI sentinel terms');
   assert.equal(report.coverage.uniqueEvents, null, 'gnews has no event clustering');
 });
+
+// coverage() and latency() must bucket "free" the same way, or the report
+// contradicts itself: one section counts the other paid provider as free, the
+// other does not.
+test('news-provider-report: latency buckets the free stack the same way coverage does', async () => {
+  const { latency, PAID_PROVIDERS } = await import('../scripts/news-provider-report.mjs');
+  assert.ok(PAID_PROVIDERS.includes('gnews') && PAID_PROVIDERS.includes('newsapi-ai'), 'both paid providers are named');
+  const obs = [
+    { provider: 'newsapi-ai', normalized_title: 'iran strikes tanker', first_seen_at: '2026-07-23T09:41:00Z', published_at: '2026-07-23T09:40:00Z' },
+    { provider: 'gnews', normalized_title: 'iran strikes tanker', first_seen_at: '2026-07-23T09:30:00Z', published_at: '2026-07-23T09:40:00Z' },
+  ];
+  const l = latency(obs, 'newsapi-ai');
+  assert.equal(l.matchedStories, 0, 'the other PAID provider is not a free-stack counterparty, so there is no free match to score');
+});
+
+test('onTopicRate: a pluralised headline still counts (terms are committed in the singular)', async () => {
+  const { onTopicRate } = await import('../scripts/news-provider-report.mjs');
+  const obs = [
+    { provider: 'gnews', normalized_title: 'iran seizes two tankers near hormuz' },
+    { provider: 'gnews', normalized_title: 'goldman raises its forecast' },
+  ];
+  const r = onTopicRate(obs, 'WTICO/USD', 'gnews');
+  assert.equal(r.onTopic, 1, '"tankers" matches the committed "tanker"; "goldman" must not match "gold"');
+});

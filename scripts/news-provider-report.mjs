@@ -48,21 +48,15 @@ export function onTopicRate(obs, instrument, provider = NAI) {
   if (!terms.length) return { onTopic: null, total: rows.length, rate: null };
   // Whole-word, not bare substring: the short terms in these queries are exactly
   // the ones that over-fire ("gold" inside "Goldman", "oil" inside "toil"), and
-  // this is the metric the report leads with — a false positive here would
-  // flatter a noisy provider on the one number meant to expose it. Multi-word
-  // phrases keep their internal spacing and are bounded at both ends.
-  const patterns = terms.map((t) => new RegExp(`(^|\\W)${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\W|$)`));
+  // this is the metric the report leads with — a false positive here would flatter
+  // a noisy provider on the one number meant to expose it. An optional plural
+  // suffix is allowed, because the committed terms are singular and headlines
+  // pluralise them ("tanker"/"tankers", "rate cut"/"rate cuts") — without it the
+  // metric would under-count instead, which flatters nothing but is just as wrong.
+  const patterns = terms.map((t) => new RegExp(`(^|\\W)${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(s|es)?(\\W|$)`));
   const onTopic = rows.filter((o) => patterns.some((re) => re.test(o.normalized_title || ''))).length;
   return { onTopic, total: rows.length, rate: rows.length ? Number((onTopic / rows.length).toFixed(3)) : null };
 }
-
-// The free stack, named explicitly. Defining "free" as "not the target provider"
-// silently reclassifies one paid provider's rows as free rows the moment a second
-// paid provider starts recording, which would corrupt the very comparison this
-// report exists to make. The target is excluded from the free bucket too, so
-// pointing --provider at a free source compares it against the REST of the free
-// stack rather than against itself.
-export const PAID_PROVIDERS = ['newsapi-ai', 'gnews'];
 
 // Coverage: totals, unique canonical articles, unique events, duplicate ratio,
 // articles unique to the target provider vs the free stack (matched on
@@ -92,12 +86,23 @@ export function coverage(obs, provider = NAI) {
   };
 }
 
+// The free stack, named explicitly. Defining "free" as "not the target provider"
+// silently reclassifies one paid provider's rows as free rows the moment a second
+// paid provider starts recording, which would corrupt the very comparison this
+// report exists to make. The target is excluded from the free bucket too, so
+// pointing --provider at a free source compares it against the REST of the free
+// stack rather than against itself.
+export const PAID_PROVIDERS = ['newsapi-ai', 'gnews'];
+
 // Latency: for stories BOTH stacks saw (matched on normalized title), compare
-// first_seen_at. Positive lead(min) = NewsAPI.ai saw it earlier.
+// first_seen_at. Positive lead(min) = the target provider saw it earlier.
 export function latency(obs, provider = NAI) {
   const firstSeen = (rows) => { const m = new Map(); for (const o of rows) { const t = Date.parse(o.first_seen_at); if (!o.normalized_title || !Number.isFinite(t)) continue; if (!m.has(o.normalized_title) || t < m.get(o.normalized_title)) m.set(o.normalized_title, t); } return m; };
   const naiSeen = firstSeen(obs.filter((o) => o.provider === provider));
-  const freeSeen = firstSeen(obs.filter((o) => o.provider !== provider));
+  // same bucketing rule as coverage(): the free stack is named, never inferred as
+  // "everything that isn't the target" — otherwise the OTHER paid provider's
+  // first-seen times score as free-stack wins and the two sections disagree
+  const freeSeen = firstSeen(obs.filter((o) => !PAID_PROVIDERS.includes(o.provider) && o.provider !== provider));
   const leads = []; let naiWins = 0; let freeWins = 0;
   for (const [title, naiT] of naiSeen) {
     if (!freeSeen.has(title)) continue;
@@ -215,7 +220,7 @@ function render(r) {
   L.push(`- median lead: ${l.medianLeadMin ?? '—'} min · acquisition median/p90/p95: ${l.acquisitionMedianMin ?? '—'}/${l.acquisitionP90Min ?? '—'}/${l.acquisitionP95Min ?? '—'} min`);
   const c = r.coverage;
   L.push(`\n## Unique coverage`);
-  L.push(`- observations: ${c.observations} (newsapi-ai ${c.newsApiAi}, free ${c.free})`);
+  L.push(`- observations: ${c.observations} (${provider} ${c.newsApiAi}, free stack ${c.free}; the rest are other paid providers)`);
   L.push(`- unique canonical articles: ${c.uniqueCanonical} · unique events: ${c.uniqueEvents ?? '— (provider has no event clustering)'}`);
   L.push(`- unique to ${provider}: ${c.articlesUniqueToNewsApiAi} · unique to free: ${c.articlesUniqueToFree}`);
   L.push(`- distinct publisher domains: ${c.distinctPublisherDomains} · duplicate ratio: ${c.duplicateRatio}`);

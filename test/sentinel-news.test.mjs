@@ -775,3 +775,26 @@ test('sentinel_news --json: shadow items and the provenance list never appear in
   assert.equal('observed' in payload, false, 'no raw provenance list in the tool payload');
   assert.ok(Array.isArray(payload.items), 'the prompt-facing items array is still there');
 });
+
+// Shadow mode's whole purpose is the provenance log the provider report reads.
+// Filtering it by the narrow window recorded ~1 of every 10 articles just paid
+// for, leaving the comparison empty in exactly the mode the free key supports.
+test('fetchSentinelNews: shadow records every in-window gnews sighting, using the delay-widened window', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const res = await fetchSentinelNews({
+    query: '(oil)', now, hours: 6, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
+    gnews: { enabled: true, shadow: true, mode: 'shadow', apiKey: 'K' },
+  });
+  const observedGnews = (res.observed || []).filter((it) => it.provider === 'gnews');
+  assert.equal(observedGnews.length, 10, `all 10 fetched articles are recorded, got ${observedGnews.length}`);
+  assert.equal(res.items.some((it) => it.provider === 'gnews'), false, 'and none of them reaches the prompt-facing items');
+});
+
+test('buildGnewsQuery: operators must be uppercase, and AND/NOT is rejected rather than quoted into a phrase', () => {
+  // a lowercase `or` inside a term is part of the term, not an operator
+  assert.equal(buildGnewsQuery('(rate cut or hike OR crude)'), '("rate cut or hike" OR crude)');
+  // silently searching for the literal string "oil AND OPEC" is the same class of
+  // mangling as an unquoted phrase — fail loud, and non-chargeably
+  assert.throws(() => buildGnewsQuery('(oil AND OPEC)'), /OR lists only/);
+  assert.throws(() => buildGnewsQuery('(oil NOT shale)'), /OR lists only/);
+});
