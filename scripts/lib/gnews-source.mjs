@@ -2,7 +2,7 @@
 // process env. Mirrors scripts/lib/newsapi-ai-source.mjs: a tiny standalone lib
 // (no heavy deps) so the signal-server can resolve the key without a hard
 // startup dependency on the market-sentinel skill CLI module.
-export const GNEWS_SETTING_KEYS = ['GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET'];
+export const GNEWS_SETTING_KEYS = ['GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND'];
 
 // Merge settings over env into a flat { GNEWS_*: string } object, omitting
 // empty/absent keys. Settings.json wins (the LaunchAgent never loads .env);

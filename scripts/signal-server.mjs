@@ -24,6 +24,7 @@ import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
 import { resolveGnewsSource } from './lib/gnews-source.mjs';
+import { resolveNewsProviderEnv } from './lib/news-provider-env.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -52,7 +53,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -738,7 +739,7 @@ export const CHAT_TOOLS = [
       // process.env, but the keys live in settings (the LaunchAgent never loads
       // .env), so without this the chat/bot sentinel tool silently falls back to
       // whatever a bare .env carries (nothing, on the deployed server).
-      const env = { ...process.env, ...resolveNewsApiAiSource(ctx?.settings || {}), ...resolveGnewsSource(ctx?.settings || {}) };
+      const env = { ...process.env, ...resolveNewsProviderEnv(ctx?.settings || {}) };
       return execFileSync(process.execPath, ['skills/market-sentinel/scripts/sentinel_news.mjs', '--instrument', instrument, '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 30, 15)), '--json'], { encoding: 'utf8', timeout: 45000, env });
     },
   },

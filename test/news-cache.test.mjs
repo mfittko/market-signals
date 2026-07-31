@@ -737,3 +737,37 @@ test('recordProviderCall: a 429 opens a bounded circuit instead of retrying ever
   assert.equal(providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 61 * 60 * 1000), null,
     'and it is bounded — the provider recovers on its own without a restart');
 });
+
+// Regression: a provider configured in the settings dialog must actually reach the
+// watcher's fetch paths. Each provider ships a resolver returning only its own
+// keys, so a call site using one of them silently disables every other provider —
+// the settings would persist and then do nothing, with no error to notice.
+test('resolveNewsProviderEnv: carries EVERY provider\'s settings keys, not just one provider\'s', async () => {
+  const { resolveNewsProviderEnv } = await import('../scripts/lib/news-provider-env.mjs');
+  const settings = {
+    NEWSAPI_AI_KEY: 'NK', NEWSAPI_AI_MODE: 'auto',
+    GNEWS_KEY: 'GK', GNEWS_MODE: 'shadow', GNEWS_BACKGROUND: '1', GNEWS_REQUEST_BUDGET: '2500',
+  };
+  const env = resolveNewsProviderEnv(settings, {});
+  assert.equal(env.NEWSAPI_AI_KEY, 'NK');
+  assert.equal(env.GNEWS_KEY, 'GK', 'gnews key survives the merge');
+  assert.equal(env.GNEWS_MODE, 'shadow');
+  assert.equal(env.GNEWS_BACKGROUND, '1', 'the background opt-in is settings-configurable, not env-only');
+});
+
+test('resolveNewsProviderEnv: settings win over env, and the resolved env drives a real refresh', async () => {
+  const { resolveNewsProviderEnv } = await import('../scripts/lib/news-provider-env.mjs');
+  const env = resolveNewsProviderEnv({ GNEWS_KEY: 'from-settings' }, { GNEWS_KEY: 'from-env', GNEWS_MODE: 'auto' });
+  assert.equal(env.GNEWS_KEY, 'from-settings', 'settings.json wins — it is what the long-lived server reads');
+  assert.equal(env.GNEWS_MODE, 'auto', 'env still fills what settings omit (CLI/dev fallback)');
+
+  // and the resolved shape is what refreshNewsCache accepts: settings-only config
+  // (no process.env involvement) is enough to make the provider poll
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  const settingsEnv = resolveNewsProviderEnv(
+    { GNEWS_KEY: 'GK', GNEWS_MODE: 'auto', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_BACKGROUND: '1' }, {});
+  const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: gnewsFetcher(), now, log: () => {}, env: settingsEnv });
+  assert.equal(r.refreshed[0].gnews.requestMade, true, 'dialog-configured settings alone activate the provider');
+});
