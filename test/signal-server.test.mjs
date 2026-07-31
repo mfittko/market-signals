@@ -74,15 +74,18 @@ test('modal chrome (#56): every dialog closes via a top-right X; settings render
     assert.ok(page.includes('<dialog id="botdlg"'), 'per-view bot modal stays (instrument-specific, not a global tab)');
     assert.ok(!page.includes('dlg-close'), 'legacy bottom close style gone');
     assert.match(page, /const CFG_TABS = /, 'settings render as tabbed sections (#108)');
-    // gates + standing notes are one settings tab (the pre-#167 pair of separate
-    // Gates/Memories tabs stays collapsed), reusing renderGates/renderMemories.
-    assert.ok(!page.includes("['gates', 'Gates']") && !page.includes("['mem', 'Memories']"), 'gates/notes are ONE settings tab, not the old separate pair');
-    assert.match(page, /\['global', 'Gates & notes'\]/, 'gates/notes are a global settings tab');
+    // one pin for the whole settings-tab set (gates + notes share ONE tab; the
+    // pre-#167 separate Gates/Memories pair stays collapsed), so a tab change
+    // has exactly one assertion to update
+    assert.match(page, /const CFG_TABS = \[\['llm', 'LLM provider'\], \['news', 'News provider'\], \['global', 'Gates & notes'\], \['adv', 'Advanced'\]\]/, 'settings tabs: llm, news, gates & notes, adv');
     assert.ok(page.includes('id="gatesTabs"') && page.includes('id="memAddBtn"'), 'gates/notes markup ships in the page');
-    assert.ok(page.includes("mountGlobalTab('cfgGlobal'"), 'the gates/notes panel mounts into the settings modal, not the per-combo bot modal');
+    // the panel's controls auto-save per action, so the panel is a SIBLING of the
+    // batched-Save form — inside it, its min/max weight inputs would gate the
+    // form's constraint validation and silently abort a settings Save
+    assert.match(page, /<\/form>\s*<!--[\s\S]*?-->\s*<div id="cfgGlobal"/, 'the gates/notes panel renders outside <form id="cfg">');
     assert.ok(!page.includes("['bot', 'Bot']"), 'bot is NOT a global settings tab (per-view modal)');
     assert.match(page, /\['news', 'News provider'/, 'News provider tab exists');
-    assert.match(page, /\['adv', 'Advanced', ADV_FIELDS\]/, 'plumbing lives in the Advanced tab');
+    assert.match(page, /flatPanel\('adv', ADV_FIELDS\)/, 'plumbing lives in the Advanced tab');
     assert.ok(page.includes("['port'") && page.includes("['instrument'"), 'launch-config plumbing present in ADV_FIELDS');
     assert.ok(page.includes("['NEWSAPI_AI_KEY', 'password']"), 'NewsAPI.ai key is a masked field in the News tab');
     assert.ok(page.includes("['watchers'"), 'watchers stays a settings field');
@@ -1330,8 +1333,7 @@ test('trader memories (#44): /api/memories CRUD over HTTP, cross-origin POST rej
     assert.ok(!html.includes('<dialog id="memdlg"'), 'standalone memories dialog removed');
     assert.ok(html.includes('id="memList"') && html.includes('id="memArchivedWrap"'), 'memories tab ships list + archived count');
     assert.ok(html.includes('id="memNewContent"') && html.includes('id="memAddBtn"'), 'memories tab ships an add affordance (new memory input + button)');
-    // notes share the gates tab rather than owning one of their own
-    assert.ok(!html.includes("['mem', 'Memories']"), 'notes have no separate settings tab — they share the gates/notes tab');
+    // (the settings-tab set itself is pinned once in the modal-chrome test above)
     assert.ok(!html.includes('id="memBtn"'), 'redundant header memories button removed — reached via the settings modal');
   });
 });
@@ -1387,8 +1389,7 @@ test('gate prompts (#58): save_gate_prompt chat tool stores INACTIVE drafts, exc
     const html = await (await fetch(base + '/')).text();
     assert.ok(!html.includes('<dialog id="gatedlg"'), 'standalone gates dialog removed');
     assert.ok(html.includes('id="gatesTabs"') && html.includes('id="gatesList"'), 'gates tab ships the gates transparency section');
-    // gates share their settings tab with the standing notes
-    assert.ok(!html.includes("['gates', 'Gates']"), 'gates have no tab of their own — they share the gates/notes tab');
+    // (the settings-tab set itself is pinned once in the modal-chrome test above)
     assert.ok(!html.includes('id="gateBtn"'), 'redundant header gates button removed — reached via the settings modal');
   });
 });

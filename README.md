@@ -115,17 +115,18 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
   strategy tab for drafting or activating that combo's strategy. Stays a
   per-view modal — bot config is instrument-specific, not global settings.
 - **Settings modal** (⚙, #108): one tabbed modal of **global** config (reopens on
-  the last-used tab), five tabs:
+  the last-used tab), four tabs:
   - **LLM provider** — contextual provider/model/key panel (masked keys, atomic writes);
   - **News provider** — every `NEWSAPI_AI_*` setting (masked key);
-  - **Gates** — per-gate transparency (filter/recheck/bot/chat): effective system
-    prompt + declared toolset, drafted overrides, human-only activation for the
-    filter and recheck gates;
-  - **Memories** — add, reweight, edit, and archive trader memories;
+  - **Gates & notes** — per-gate transparency (filter/recheck/bot/chat): effective
+    system prompt + declared toolset, drafted overrides, human-only activation for
+    the filter and recheck gates; plus the standing notes (add, reweight, edit,
+    archive). Both stores are global, hence this tab rather than the bot modal;
   - **Advanced** — watcher fields, launch plumbing, and the info-overlays toggle.
 
-  LLM/News/Advanced commit together via one **Save** (per-tab dirty dot);
-  Gates/Memories auto-save each edit.
+  LLM/News/Advanced commit together via one **Save** (per-tab dirty dot); the
+  gates/notes panel auto-saves each edit, so it renders outside that form and
+  keeps no Save button of its own.
 - **Chat sidebar** (💬, collapsible — collapsed by default so the chart claims
   the full width; the toggle reveals it and remembers your choice): a trading
   copilot on the configured provider with persistent threads
