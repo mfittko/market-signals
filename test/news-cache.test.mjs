@@ -33,7 +33,9 @@ function naiFetcher({ googleXml = EMPTY_RSS, nai = naiJson(), naiStatus = 200 } 
 const NAI_ENV = { NEWSAPI_AI_KEY: 'K', NEWSAPI_AI_MODE: 'auto', NEWSAPI_AI_INSTRUMENTS: 'WTICO/USD', NEWSAPI_AI_REQUEST_BUDGET: '1800', NEWSAPI_AI_BACKGROUND: '1' };
 // GNews (issue #212) has no background opt-in flag — shadow/auto ride the
 // existing per-instrument poll cadence, so GNEWS_MODE alone activates it.
-const GNEWS_ENV = { GNEWS_KEY: 'GK', GNEWS_MODE: 'auto', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_REQUEST_BUDGET: '2500' };
+const GNEWS_ENV = { GNEWS_KEY: 'GK', GNEWS_MODE: 'auto', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_REQUEST_BUDGET: '2500', GNEWS_BACKGROUND: '1' };
+// same provider, background polling NOT opted into — the default an operator gets
+const GNEWS_ENV_NO_BG = { ...GNEWS_ENV, GNEWS_BACKGROUND: '' };
 const WTI = [{ instrument: 'WTICO/USD', granularity: 'M5' }];
 
 // GNews search JSON body for the WTI oil query — one article, newest-first.
@@ -446,12 +448,12 @@ test('refreshNewsCache: mode=off ignores a present gnews key entirely (default o
   assert.equal(providerRequestsUsed(dbPath, GNEWS_PROVIDER), 0);
 });
 
-test('refreshNewsCache: gnews auto mode (no background flag needed) charges the budget once per tick and records observations', async () => {
+test('refreshNewsCache: gnews with background opted in charges the budget once per tick and records observations', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'news-'));
   const dbPath = dbPathIn(dir);
   const now = Date.parse('2026-07-23T10:00:00Z');
   const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: gnewsFetcher(), now, log: () => {}, env: GNEWS_ENV });
-  assert.equal(r.refreshed[0].gnews.requestMade, true, 'gnews activates with just GNEWS_MODE — no separate background opt-in');
+  assert.equal(r.refreshed[0].gnews.requestMade, true, 'gnews polls in the background once GNEWS_BACKGROUND is on');
   assert.equal(providerRequestsUsed(dbPath, GNEWS_PROVIDER), 1, 'exactly one chargeable request this tick');
   withDb(dbPath, (db) => {
     const obs = db.prepare('SELECT provider FROM news_provider_observations WHERE provider=?').all(GNEWS_PROVIDER);
@@ -706,4 +708,32 @@ test('migrateNewsProviderColumn: adds provider to a pre-#116 table, idempotent (
     migrateNewsProviderColumn(db); // idempotent second run must not throw
     assert.ok(db.prepare('PRAGMA table_info(news)').all().some((c) => c.name === 'provider'), 'provider added');
   });
+});
+
+// The background refresh visits each tracked instrument every 8 minutes. GNews
+// meters per DAY (100/day free), so riding that cadence would spend a day's quota
+// in a couple of hours — background polling is therefore its own opt-in, off by
+// default, and a keyed+enabled provider still makes zero background calls without
+// it. Decision-point pulls (refreshNewsForDecision) are unaffected.
+test('refreshNewsCache: gnews does NOT poll in the background unless GNEWS_BACKGROUND is opted into', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  let calls = 0;
+  const f = async (url, opts) => { if (url.includes('gnews.io')) calls++; return gnewsFetcher()(url, opts); };
+  const r = await refreshNewsCache(dbPath, WTI, {}, { fetcher: f, now, log: () => {}, env: GNEWS_ENV_NO_BG });
+  assert.equal(calls, 0, 'enabled + keyed, but background off => no background gnews call');
+  assert.equal(providerRequestsUsed(dbPath, GNEWS_PROVIDER), 0, 'and nothing charged to the budget');
+  assert.equal(r.refreshed[0].gnews, null, 'no gnews diagnostics when it did not run');
+});
+
+test('recordProviderCall: a 429 opens a bounded circuit instead of retrying every tick', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'news-'));
+  const dbPath = dbPathIn(dir);
+  const now = Date.parse('2026-07-23T10:00:00Z');
+  recordProviderCall(dbPath, GNEWS_PROVIDER, 'WTICO/USD', { ok: false, status: 429, now });
+  const reason = providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 60_000);
+  assert.match(String(reason), /429/, 'a daily rate limit does not clear next tick, so the circuit holds');
+  assert.equal(providerCircuitOpen(dbPath, GNEWS_PROVIDER, 'WTICO/USD', now + 61 * 60 * 1000), null,
+    'and it is bounded — the provider recovers on its own without a restart');
 });

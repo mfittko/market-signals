@@ -713,3 +713,32 @@ test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative 
   assert.equal(res.newsApiAi.authoritative, false, 'NewsAPI.ai empty => not authoritative');
   assert.ok(res.items.some((it) => it.title === 'Free fallback story'), 'free stack used as fallback when NewsAPI.ai is empty');
 });
+
+// The duplicate mark is provenance only and must never gate what the model sees:
+// word overlap is blind to the words that carry the meaning, so an
+// opposite-direction pair on one subject scores as a single story. Dropping the
+// second of such a pair would hide the contradicting — often newer and more
+// tradeable — event.
+test('markGnewsDuplicates: opposite-direction headlines on one subject DO collide (the heuristic ceiling, documented)', () => {
+  const items = [{ title: 'OPEC agrees to raise output', isDuplicate: false }, { title: 'OPEC agrees to cut output', isDuplicate: false }];
+  markGnewsDuplicates(items);
+  assert.equal(items[1].isDuplicate, true, 'word overlap cannot tell raise from cut — this is why the mark must not gate the prompt');
+});
+
+test('fetchSentinelNews: a gnews item marked duplicate still reaches the merged union (marks are provenance, not a filter)', async () => {
+  const dupPair = JSON.stringify({ articles: [
+    { id: 'g-a', title: 'OPEC agrees to raise output', description: 'a', url: 'https://gnews.example/a', publishedAt: '2026-07-23T09:50:00Z', source: { name: 'Reuters', url: 'reuters.com' } },
+    { id: 'g-b', title: 'OPEC agrees to cut output', description: 'b', url: 'https://gnews.example/b', publishedAt: '2026-07-23T09:49:00Z', source: { name: 'AP', url: 'ap.org' } },
+  ] });
+  const fetcher = async (url) => {
+    if (/gnews\.io/.test(url)) return { ok: true, status: 200, text: async () => dupPair };
+    throw new Error('offline'); // every free source fails => only gnews contributes
+  };
+  const out = await fetchSentinelNews({
+    query: '(oil OR crude)', hours: 24, fetcher, timeoutMs: 5000, now: Date.parse('2026-07-23T10:00:00Z'), log: () => {},
+    gnews: { apiKey: 'GK', mode: 'auto', enabled: true, shadow: false, requestBudget: 100, allow: [], instrumentAllowed: true, background: false },
+  });
+  const titles = out.items.map((i) => i.title);
+  assert.ok(titles.includes('OPEC agrees to raise output'), 'first sighting present');
+  assert.ok(titles.includes('OPEC agrees to cut output'), 'the contradicting headline is NOT dropped by the duplicate mark');
+});

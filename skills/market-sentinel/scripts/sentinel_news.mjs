@@ -369,6 +369,14 @@ export function normalizeGnewsArticle(article) {
 // for sale") — an exact-title match (dedupeItems' fallback) would miss them.
 // Overlap coefficient (shared words / smaller title's word count) is robust to
 // one headline being a longer/shorter rewrite of the other.
+//
+// ponytail: known ceiling — word overlap cannot see the words that carry the
+// meaning, so an opposite-direction pair on the same subject scores as one story
+// ("OPEC agrees to raise output" vs "...to cut output" = 0.86). That is why this
+// mark is provenance only and never gates the prompt-facing union (see
+// fetchSentinelNews). Upgrade path if it should ever gate anything: cluster on
+// the provider's own event id (GNews has none today) or require the
+// distinguishing tokens to agree, not just the shared ones.
 export const GNEWS_DUPLICATE_OVERLAP_THRESHOLD = 0.7;
 
 function titleWordOverlap(a, b) {
@@ -452,7 +460,16 @@ export function resolveGnewsConfig(env = process.env, { instrument = null } = {}
   const allow = String(env.GNEWS_INSTRUMENTS || '').split(',').map((s) => s.trim()).filter(Boolean);
   const instrumentAllowed = !allow.length || !instrument || allow.includes(instrument);
   const enabled = mode !== 'off' && !!apiKey && instrumentAllowed;
-  return { apiKey, mode, enabled, shadow: enabled && mode === 'shadow', requestBudget, allow, instrumentAllowed };
+  // Background polling is its own opt-in, off by default — the same shape the
+  // paid provider settled on, and here the arithmetic forces it: GNews meters
+  // per DAY (100/day on the free key), while the background refresh visits each
+  // tracked instrument every 8 minutes. Seven instruments on that cadence is
+  // ~1,260 requests/day, so riding it would spend a free day's quota before
+  // breakfast and then wall for the rest of it. Off, the provider spends only at
+  // decision points — the same moments the paid provider spends, which is also
+  // what makes the two comparable in the provider report.
+  const background = ['1', 'true', 'yes', 'on'].includes(String(env.GNEWS_BACKGROUND || '').toLowerCase());
+  return { apiKey, mode, enabled, shadow: enabled && mode === 'shadow', requestBudget, allow, instrumentAllowed, background };
 }
 
 // --- fetch plumbing: bounded, failure-isolated ------------------------------
@@ -626,10 +643,17 @@ export async function fetchSentinelNews({
   const cutoffMs = now - hours * 3600000;
   const inWin = (it) => !it.timeIso || Date.parse(it.timeIso) >= cutoffMs;
   const naiInWindow = newsApiItems.filter(inWin);
-  // gnews's own intra-response duplicates are marked, not dropped, above — but
-  // they must not pollute the merged/prompt-facing union (that's the point of
-  // marking them); provenance (out.observed below) keeps every sighting.
-  const gnewsInWindow = gnewsItems.filter(inWin).filter((it) => !it.isDuplicate);
+  // gnews's intra-response duplicate marks are PROVENANCE ONLY and deliberately
+  // do not gate this union. The mark comes from a word-overlap heuristic, and
+  // overlap on a short headline is blind to the words that carry the meaning:
+  // "OPEC agrees to raise output" vs "OPEC agrees to cut output" scores as one
+  // story, as do "Iran seizes tanker in Strait of Hormuz" vs "Iran releases
+  // tanker...". Dropping the second of such a pair would hide the contradicting
+  // — often the newer and more tradeable — event from the model, so every
+  // in-window item goes into the union and the shared dedupeItems below (exact
+  // url, else publisher-stripped exact title) decides what collapses, on the
+  // same conservative rule every other source gets.
+  const gnewsInWindow = gnewsItems.filter(inWin);
   const freeInWindow = results.flat().filter(inWin);
   // Union every stack (#115 revisited): paid MIGHT be faster, but we want
   // COMPLETE results — so merge rather than suppressing free when paid

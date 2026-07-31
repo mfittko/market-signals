@@ -134,11 +134,14 @@ export function providerCircuitOpen(dbPath, provider, instrument, now = Date.now
 }
 
 // Record one chargeable attempt + its outcome in a single transaction: bump
-// requests_used and last_attempt_at always; on success stamp last_success_at
-// and clear any circuit; on 401/403 open a persistent circuit; on 429/5xx/etc
-// leave the circuit closed (transient — retried next tick). `disabledForMs`
-// bounds the 401/403 circuit so a rotated key can recover without a restart.
-export function recordProviderCall(dbPath, provider, instrument, { ok, status, now = Date.now(), disabledForMs = 6 * 60 * 60 * 1000 } = {}) {
+// requests_used and last_attempt_at always; on success stamp last_success_at and
+// clear any circuit; on 401/403 open a circuit bounded by `disabledForMs` so a
+// rotated key recovers without a restart; on 429 open a SHORTER circuit
+// (`rateLimitedForMs`) instead of retrying next tick — a rate limit metered per
+// day (GNews: 100/day) does not clear in a minute, so hammering it just burns
+// attempts and log noise for the rest of the day. 5xx and the rest stay
+// closed/transient, since those really do clear on their own.
+export function recordProviderCall(dbPath, provider, instrument, { ok, status, now = Date.now(), disabledForMs = 6 * 60 * 60 * 1000, rateLimitedForMs = 60 * 60 * 1000 } = {}) {
   return newsDb(dbPath, (db) => {
     const at = new Date(now).toISOString();
     db.prepare(`INSERT INTO news_provider_state (provider, instrument, requests_used, last_attempt_at)
@@ -151,6 +154,9 @@ export function recordProviderCall(dbPath, provider, instrument, { ok, status, n
     } else if (status === 401 || status === 403) {
       db.prepare('UPDATE news_provider_state SET disabled_reason=?, disabled_until=? WHERE provider=? AND instrument=?')
         .run(`auth/quota HTTP ${status}`, new Date(now + disabledForMs).toISOString(), provider, instrument);
+    } else if (status === 429) {
+      db.prepare('UPDATE news_provider_state SET disabled_reason=?, disabled_until=? WHERE provider=? AND instrument=?')
+        .run('rate limited HTTP 429', new Date(now + rateLimitedForMs).toISOString(), provider, instrument);
     }
   });
 }
@@ -272,14 +278,16 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return { cfg: c, active: true };
   };
 
-  // GNews (issue #212): unlike NewsAPI.ai's continuous-poll experiment, there is
-  // no separate background opt-in flag — shadow/auto simply ride the existing
-  // per-instrument poll cadence (opt-in is GNEWS_MODE != off + the instrument
-  // allowlist), per the issue's own resolved open question.
+  // GNews on the background cadence is a second opt-in (GNEWS_BACKGROUND), off by
+  // default, for the same reason the paid provider's is: this loop visits each
+  // tracked instrument every 8 minutes, which on seven instruments is ~1,260
+  // requests/day against a provider that meters 100/day on its free key. Left
+  // off, GNews spends only at decision points (refreshNewsForDecision) — the same
+  // moments the paid provider spends, which is what makes the two comparable.
   let gnewsBudgetUsed = providerRequestsUsed(dbPath, GNEWS_PROVIDER);
   const gnewsFor = (instrument) => {
     const c = resolveGnewsConfig(env, { instrument });
-    if (!c.enabled) return { cfg: c, active: false };
+    if (!c.enabled || !c.background) return { cfg: c, active: false };
     if (gnewsBudgetUsed >= c.requestBudget) return { cfg: c, active: false, budgetExhausted: true };
     if (providerCircuitOpen(dbPath, GNEWS_PROVIDER, instrument, now)) return { cfg: c, active: false, circuitOpen: true };
     return { cfg: c, active: true };
