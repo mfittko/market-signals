@@ -4,17 +4,15 @@
 // construction (buildPushoverPayload) and transport (sendPushover) are
 // deliberately separate functions for the same reason.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { isSettingOn } from './settings-util.mjs';
 
 export const PUSHOVER_SETTING_KEYS = ['PUSHOVER_ENABLED', 'PUSHOVER_TOKEN', 'PUSHOVER_USER'];
 
-// Settings-first, env fallback (data/settings.json is what the LaunchAgent
-// loads; .env is the CLI/test convenience only) — resolve all three keys
-// together so a half-migrated config can't mix a settings.json toggle with an
-// .env key or vice versa.
+// Settings-first, env fallback, PER FIELD: data/settings.json is what the
+// long-lived server reads (the LaunchAgent never loads .env), and .env is the
+// CLI/test convenience. Mixing is allowed on purpose — a toggle in settings.json
+// with the key still in .env is a normal state while migrating one into the UI,
+// and matches how the news providers resolve.
 export function resolvePushoverConfig(settings = {}, env = process.env) {
   const enabled = isSettingOn(settings.PUSHOVER_ENABLED ?? env?.PUSHOVER_ENABLED);
   const token = settings.PUSHOVER_TOKEN || env?.PUSHOVER_TOKEN || '';
@@ -26,7 +24,9 @@ export function resolvePushoverConfig(settings = {}, env = process.env) {
 // message concatenated some other way in the future) must never turn into a
 // rejected 4xx instead of a delivered, slightly-shortened push.
 const CAPS = { message: 1024, title: 250, url: 512, url_title: 100 };
-const truncate = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
+// Cut on code points, not UTF-16 code units: Pushover counts characters, and
+// slicing by units can sever a surrogate pair and ship a lone surrogate.
+const truncate = (s, n) => (typeof s === 'string' && s.length > n ? [...s].slice(0, n).join('') : s);
 
 // Pure: no network, no secrets — safe to unit-test directly. deepLink is
 // optional (the bot kill-switch halt has none).
@@ -46,30 +46,15 @@ const PUSHOVER_URL = 'https://api.pushover.net/1/messages.json';
 // sendNotification) is the one place that must never let a Pushover failure
 // propagate, so swallowing lives there, not here.
 //
-// token/user are written to a scratch dir and referenced as `field@path`
-// rather than `field=value` in argv: argv is visible to any `ps` snapshot on a
-// shared machine, a file this process just wrote and deletes is not. Message/
-// title/url are not secret and pass as plain argv values (execFileSync never
-// goes through a shell, so no quoting/injection risk either way).
+// The whole body goes in on stdin (`-d @-`), so NOTHING sensitive reaches argv:
+// argv is visible to any `ps` snapshot on a shared machine, and that covers the
+// token and user key as well as the alert text itself. Passing secrets via files
+// would work too but is strictly worse — it leaves 0600 files to clean up, and the
+// cleanup cannot run when the process is SIGKILLed, which under a LaunchAgent is a
+// normal way to die. URLSearchParams gives exactly the form encoding curl's
+// --data-urlencode produced (spaces as `+`, everything else percent-encoded).
 export function sendPushover(payload, { token, user }, { timeoutMs = 5000 } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'ms-po-'));
-  try {
-    const tokenFile = join(dir, 't');
-    const userFile = join(dir, 'u');
-    writeFileSync(tokenFile, token, { mode: 0o600 });
-    writeFileSync(userFile, user, { mode: 0o600 });
-    const args = [
-      '-sS', '-f', '--max-time', String(Math.max(1, Math.ceil(timeoutMs / 1000))),
-      PUSHOVER_URL,
-      '--data-urlencode', `token@${tokenFile}`,
-      '--data-urlencode', `user@${userFile}`,
-      '--data-urlencode', `message=${payload.message}`,
-      '--data-urlencode', `title=${payload.title}`,
-    ];
-    if (payload.url) args.push('--data-urlencode', `url=${payload.url}`);
-    if (payload.url_title) args.push('--data-urlencode', `url_title=${payload.url_title}`);
-    execFileSync('curl', args, { timeout: timeoutMs, stdio: 'pipe' });
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const body = new URLSearchParams({ token, user, ...payload }).toString();
+  const args = ['-sS', '-f', '--max-time', String(Math.max(1, Math.ceil(timeoutMs / 1000))), PUSHOVER_URL, '-d', '@-'];
+  execFileSync('curl', args, { input: body, timeout: timeoutMs, stdio: ['pipe', 'pipe', 'pipe'] });
 }

@@ -276,7 +276,7 @@ test('kill-switch halt also pushes via Pushover when configured — the second s
   settings.PUSHOVER_USER = 'usr';
   const curlLog = join(dir, 'curl.log');
   const curlDir = mkdtempSync(join(tmpdir(), 'bot-po-curl-'));
-  writeFileSync(join(curlDir, 'curl'), `#!/bin/sh\necho "$@" >> ${curlLog}\nexit 0\n`);
+  writeFileSync(join(curlDir, 'curl'), `#!/bin/sh\necho "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0\n`);
   chmodSync(join(curlDir, 'curl'), 0o755);
   const prevPath = process.env.PATH;
   const prevGuard = process.env.MS_NO_NOTIFY;

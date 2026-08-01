@@ -421,7 +421,7 @@ test('sendNotification + Pushover: MS_NO_NOTIFY suppresses it structurally, even
   assert.equal(process.env.MS_NO_NOTIFY, '1', 'the whole suite runs under MS_NO_NOTIFY — sanity-check the premise');
   const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
   const curlLog = join(dir, 'curl.log');
-  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
   try {
     sendNotification('WTI SELL @ 88.0', 'http://x', {
       notifierBin: join(dir, 'missing-notifier'),
@@ -434,7 +434,7 @@ test('sendNotification + Pushover: MS_NO_NOTIFY suppresses it structurally, even
 test('sendNotification + Pushover: disabled is byte-identical to today — no curl call (AC1)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
   const curlLog = join(dir, 'curl.log');
-  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
   const prevGuard = process.env.MS_NO_NOTIFY;
   delete process.env.MS_NO_NOTIFY; // prove the OFF-by-default behavior itself, not the structural guard
   try {
@@ -449,7 +449,7 @@ test('sendNotification + Pushover: disabled is byte-identical to today — no cu
 test('sendNotification + Pushover: enabled+configured posts the field shape AND the local notification still fires (AC2/AC3)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
   const curlLog = join(dir, 'curl.log');
-  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
   const prevGuard = process.env.MS_NO_NOTIFY;
   delete process.env.MS_NO_NOTIFY;
   try {
@@ -461,11 +461,13 @@ test('sendNotification + Pushover: enabled+configured posts the field shape AND 
     });
     assert.ok(readFileSync(notifierArgs, 'utf8').includes('WTI SELL @ 88.0'), 'the local notification still fires — push is additive, not a replacement');
     const curlArgv = readFileSync(curlLog, 'utf8');
-    assert.match(curlArgv, /--data-urlencode token@/);
-    assert.match(curlArgv, /--data-urlencode user@/);
-    assert.match(curlArgv, /--data-urlencode message=WTI SELL @ 88\.0/);
-    assert.match(curlArgv, /--data-urlencode title=market-signals/);
-    assert.match(curlArgv, /--data-urlencode url=http:\/\/127\.0\.0\.1:8787\/\?t=x/);
+    // the body arrives on stdin (form-encoded), so argv carries no payload at all
+    assert.match(curlArgv, /-d @-/, 'body posted on stdin, nothing sensitive in argv');
+    assert.match(curlArgv, /token=tok\b/, 'token reached curl (via the recorded stdin body)');
+    assert.match(curlArgv, /user=usr\b/);
+    assert.match(curlArgv, /message=WTI\+SELL\+%40\+88\.0/);
+    assert.match(curlArgv, /title=market-signals/);
+    assert.match(curlArgv, /url=http%3A%2F%2F127\.0\.0\.1%3A8787%2F%3Ft%3Dx/);
   } finally {
     restorePath();
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
@@ -500,7 +502,7 @@ test('sendNotification + Pushover: a curl failure never throws, never blocks the
 test('sendNotification + Pushover: enabled but missing a key is inert — no curl call, warns once not per alert (AC5)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
   const curlLog = join(dir, 'curl.log');
-  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
   const prevGuard = process.env.MS_NO_NOTIFY;
   delete process.env.MS_NO_NOTIFY;
   const stderrChunks = [];

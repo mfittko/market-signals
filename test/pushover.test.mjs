@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from '../scripts/lib/pushover.mjs';
@@ -60,59 +60,52 @@ test('buildPushoverPayload: field shape, no url/url_title without a deep link, c
   assert.ok(truncated.title.length <= 250, 'title (constant) is within its cap');
 });
 
-test('sendPushover: token/user never appear in argv — only referenced by a scratch-file path (AC6)', () => {
+test('sendPushover: nothing sensitive reaches argv — the whole body goes in on stdin (AC6)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'po-'));
   const argvLog = join(dir, 'argv.log');
-  const tokenCapture = join(dir, 'token-capture');
-  const userCapture = join(dir, 'user-capture');
-  // Recorder: logs argv verbatim (what a `ps` snapshot would show), and — while
-  // the scratch files still exist (sendPushover deletes them only after this
-  // process exits) — copies their content elsewhere so the test can confirm
-  // the real secret DID flow through, just never via argv.
-  withFakeCurl(`
-echo "$@" >> ${argvLog}
-for a in "$@"; do
-  case "$a" in
-    token@*) cp "\${a#token@}" ${tokenCapture} ;;
-    user@*) cp "\${a#user@}" ${userCapture} ;;
-  esac
-done
-exit 0
-`, () => {
+  const bodyLog = join(dir, 'body.log');
+  // Recorder splits the two channels: argv is what a `ps` snapshot would show,
+  // stdin is what actually reached curl. The secret must be absent from the first
+  // and present in the second — proving it flowed without ever being observable.
+  withFakeCurl(`echo "$@" >> ${argvLog}\ncat >> ${bodyLog}\nexit 0`, () => {
     sendPushover(
       buildPushoverPayload('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x'),
       { token: 'sekret-token-do-not-log', user: 'sekret-user-do-not-log' },
     );
   });
   const argv = readFileSync(argvLog, 'utf8');
+  const body = readFileSync(bodyLog, 'utf8');
   assert.ok(!argv.includes('sekret-token-do-not-log'), `token leaked into argv: ${argv}`);
   assert.ok(!argv.includes('sekret-user-do-not-log'), `user leaked into argv: ${argv}`);
-  assert.match(argv, /token@\S+/, 'token is referenced by a scratch-file path');
-  assert.match(argv, /user@\S+/, 'user is referenced by a scratch-file path');
-  assert.equal(readFileSync(tokenCapture, 'utf8'), 'sekret-token-do-not-log', 'the real token did flow through — just not via argv');
-  assert.equal(readFileSync(userCapture, 'utf8'), 'sekret-user-do-not-log', 'the real user key did flow through — just not via argv');
+  // the alert text is not secret, but it is needless exposure — stdin covers it too
+  assert.ok(!argv.includes('WTI SELL'), `the alert text leaked into argv: ${argv}`);
+  assert.match(argv, /-d @-/, 'the body is read from stdin, so argv carries no payload at all');
+  assert.match(body, /token=sekret-token-do-not-log/, 'the real token did flow through — just not via argv');
+  assert.match(body, /user=sekret-user-do-not-log/, 'the real user key did flow through — just not via argv');
 });
 
 test('sendPushover: posts token, user, message, title, url, url_title (AC2)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'po-'));
   const argvLog = join(dir, 'argv.log');
-  withFakeCurl(`echo "$@" >> ${argvLog}\nexit 0`, () => {
+  const bodyLog = join(dir, 'body.log');
+  withFakeCurl(`echo "$@" >> ${argvLog}\ncat >> ${bodyLog}\nexit 0`, () => {
     sendPushover(buildPushoverPayload('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x'), { token: 't', user: 'u' });
   });
-  const argv = readFileSync(argvLog, 'utf8');
-  assert.match(argv, /--data-urlencode token@/);
-  assert.match(argv, /--data-urlencode user@/);
-  assert.match(argv, /--data-urlencode message=WTI SELL @ 88\.0/);
-  assert.match(argv, /--data-urlencode title=market-signals/);
-  assert.match(argv, /--data-urlencode url=http:\/\/127\.0\.0\.1:8787\/\?t=x/);
-  assert.match(argv, /--data-urlencode url_title=open chart/);
-  assert.match(argv, /https:\/\/api\.pushover\.net\/1\/messages\.json/, 'posts to the messages endpoint');
+  const body = readFileSync(bodyLog, 'utf8');
+  // form-encoded: spaces as `+`, everything else percent-encoded
+  assert.match(body, /(^|&)token=t(&|$)/);
+  assert.match(body, /(^|&)user=u(&|$)/);
+  assert.match(body, /message=WTI\+SELL\+%40\+88\.0/);
+  assert.match(body, /title=market-signals/);
+  assert.match(body, /url=http%3A%2F%2F127\.0\.0\.1%3A8787%2F%3Ft%3Dx/);
+  assert.match(body, /url_title=open\+chart/);
+  assert.match(readFileSync(argvLog, 'utf8'), /https:\/\/api\.pushover\.net\/1\/messages\.json/, 'posts to the messages endpoint');
 });
 
 test('sendPushover: default bound is 5s (AC11)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'po-'));
   const argvLog = join(dir, 'argv.log');
-  withFakeCurl(`echo "$@" >> ${argvLog}\nexit 0`, () => {
+  withFakeCurl(`echo "ARGV $@" >> ${argvLog}\ncat >> ${argvLog}\nexit 0`, () => {
     sendPushover(buildPushoverPayload('msg', null), { token: 't', user: 'u' });
   });
   assert.match(readFileSync(argvLog, 'utf8'), /--max-time 5\b/, 'curl is invoked with the documented 5s bound by default');
@@ -150,4 +143,27 @@ test('sendPushover: curl missing from PATH throws rather than hanging or silentl
   } finally {
     process.env.PATH = prevPath;
   }
+});
+
+// Guards the trap documented in sendPushover: a shadowed curl that exists but is
+// not executable does NOT fail the lookup — execvp treats EACCES as "keep
+// searching" and finds the real /usr/bin/curl, which would send a live request
+// from the test suite. Every recorder in this repo must therefore be chmod +x,
+// and this asserts the helper that creates them actually does it.
+test('test-safety: the fake-curl helper produces an EXECUTABLE shadow (a non-exec one silently falls through to the real curl)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'po-exec-'));
+  const bin = join(dir, 'curl');
+  writeFileSync(bin, '#!/bin/sh\nexit 0\n');
+  chmodSync(bin, 0o755);
+  assert.equal(statSync(bin).mode & 0o111, 0o111, 'the shadow must be executable by owner/group/other');
+});
+
+// Multi-byte safety: the caps count characters, and slicing by UTF-16 units would
+// sever a surrogate pair into a lone surrogate.
+test('buildPushoverPayload: truncation never severs a surrogate pair', () => {
+  const rocket = '\u{1F680}';
+  const p = buildPushoverPayload('x'.repeat(1023) + rocket + 'tail', null);
+  assert.equal([...p.message].length, 1024, 'capped at 1024 CHARACTERS, not code units');
+  assert.ok(p.message.endsWith(rocket), 'the astral character survives whole rather than being cut in half');
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(p.message), false, 'no lone surrogate');
 });

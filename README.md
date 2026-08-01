@@ -279,7 +279,7 @@ alert (a supertrend flip, a volume-impulse alert, the bot's kill-switch halt)
 is pushed to your phone via [Pushover](https://pushover.net), **in addition
 to** the existing desktop notification — not instead of it, so the desktop one
 still fires as a safety net if a push fails or the monthly quota is hit. A
-one-off ~$5 iOS licence covers iPhone/iPad/Apple Watch; free tier is 10,000
+one-off ~$5 iOS licence covers iPhone/iPad/Apple Watch; the free allowance is 10,000
 messages/month. The alert text (instrument, direction, price) leaves this
 machine over Pushover's hosted service — that's inherent to any hosted push
 target, so weigh it before enabling.

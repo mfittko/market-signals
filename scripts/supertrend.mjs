@@ -783,8 +783,12 @@ let pushoverWarnedIncomplete = false;
 // here, never reaching the caller — a Pushover outage must not corrupt the
 // recorded alert outcome), and MS_NO_NOTIFY suppresses it UNCONDITIONALLY.
 // Unlike the local notifier, Pushover has no fixture equivalent an
-// explicitly-configured test could point at, so this guard is structural, not
-// a convention: no test can ever reach the network through this function.
+// explicitly-configured test could point at, so under MS_NO_NOTIFY this returns
+// before any config is even resolved. That is what makes the suite safe by
+// default. The handful of tests that DO exercise this path opt out deliberately —
+// they delete MS_NO_NOTIFY and shadow `curl` on PATH with a recorder — so the
+// guarantee is "nothing reaches the network unless a test explicitly builds a
+// fake endpoint for it", not "the code cannot make a request".
 function deliverPushover(msg, deepLink, settings) {
   if (process.env.MS_NO_NOTIFY) return;
   try {
@@ -799,9 +803,21 @@ function deliverPushover(msg, deepLink, settings) {
     }
     sendPushover(buildPushoverPayload(msg, deepLink), { token, user });
   } catch (err) {
-    // Sanitised: err.message never carries the token/user (sendPushover routes
-    // them through a scratch file, never argv or an interpolated string).
-    dbg(`pushover notification failed: ${err.message.split('\n')[0]}`);
+    // String(...) rather than err.message.split(...): a non-Error throw would make
+    // the handler itself raise a TypeError, and since this call sits in a `finally`
+    // that error would REPLACE any pending local-delivery error and escape to the
+    // caller — which records a failed alert. The whole point of this catch is that
+    // a push failure can never do that.
+    // Sanitised by construction: the token and user never reach argv or a message
+    // (sendPushover posts them on stdin), so an error string cannot carry them.
+    // Prefer curl's own diagnostic: execFileSync's err.message is a constant echo
+    // of the argv, identical for every failure, so on its own it cannot tell a
+    // rejected token from a DNS failure from a quota wall — and a push that has
+    // quietly stopped working is exactly what needs diagnosing. `-sS` keeps curl
+    // quiet on success and explanatory on failure. Safe to log: the body (and so
+    // both secrets) goes in on stdin, never argv, so curl cannot echo them back.
+    const detail = String(err?.stderr || '').trim() || String(err?.message ?? err);
+    dbg(`pushover notification failed: ${detail.split('\n')[0]}`);
   }
 }
 
