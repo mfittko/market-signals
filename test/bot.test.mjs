@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { botConfig, openPosition, portfolioView } from '../scripts/portfolio.mjs';
@@ -263,6 +263,37 @@ test('kill-switch: drawdown past threshold halts, notifies once, stays halted un
   assert.notEqual(r3.skipped, 'halted', 'reset clears the halt');
   assert.equal(r3.halted, false, 'peak re-baselined: same drawdown does not instantly re-halt');
   assert.ok(portfolioView(db, cfg).journal.some((j) => j.action === 'reset'));
+});
+
+test('kill-switch halt also pushes via Pushover when configured — the second sendNotification producer (AC7)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bot-po-'));
+  const db = join(dir, 'bot.sqlite');
+  const settings = fakeProvider(dir, '{"action":"hold"}');
+  settings.bot.killSwitchDrawdownPct = 10;
+  settings.notifierBin = join(dir, 'missing-notifier'); // never fire a real local notification
+  settings.PUSHOVER_ENABLED = '1';
+  settings.PUSHOVER_TOKEN = 'tok';
+  settings.PUSHOVER_USER = 'usr';
+  const curlLog = join(dir, 'curl.log');
+  const curlDir = mkdtempSync(join(tmpdir(), 'bot-po-curl-'));
+  writeFileSync(join(curlDir, 'curl'), `#!/bin/sh\necho "$@" >> ${curlLog}\nexit 0\n`);
+  chmodSync(join(curlDir, 'curl'), 0o755);
+  const prevPath = process.env.PATH;
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  process.env.PATH = `${curlDir}:${prevPath}`;
+  delete process.env.MS_NO_NOTIFY; // this test proves the real wiring fires, not the structural guard
+  try {
+    const cfg = botConfig(settings);
+    openPosition(db, cfg, { instrument: WTI, side: 'long', notional: 9000, price: 87 });
+    await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(87, 87.2, 86.9, 87), quote: { last: 87 } });
+    const r = await runBot(db, settings, { instrument: WTI, granularity: 'M5', candle: candle(75, 75.2, 74.9, 75), quote: { last: 75 } });
+    assert.equal(r.halted, true, 'kill-switch fired');
+    const argv = existsSync(curlLog) ? readFileSync(curlLog, 'utf8') : '';
+    assert.match(argv, /drawdown/, 'the kill-switch halt message was pushed via curl');
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
 });
 
 test('bot disabled: runBot is a no-op and deliberate is never reached', async () => {

@@ -164,7 +164,7 @@ test('signal history: /api/signals paginates older signals; page ships the load-
 
 test('settings round-trip: unknown keys rejected, secrets masked and preserved, atomic file', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
-    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', NEWSAPI_AI_KEY: 'nai-secret', port: 9000 }) });
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', NEWSAPI_AI_KEY: 'nai-secret', port: 9000, PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'po-tok-secret', PUSHOVER_USER: 'po-user-secret' }) });
     assert.equal(res.status, 200);
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
@@ -172,13 +172,20 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');
+    assert.equal(got.PUSHOVER_ENABLED, '1', 'PUSHOVER_ENABLED is a plain toggle, not a secret — not masked (AC10)');
+    assert.equal(got.PUSHOVER_TOKEN, '•••', 'Pushover token masked on read — never echoed back (AC10)');
+    assert.equal(got.PUSHOVER_USER, '•••', 'Pushover user key masked on read — never echoed back (AC10)');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret', 'secret stored');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'NewsAPI.ai key stored');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_TOKEN, 'po-tok-secret', 'Pushover token stored');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_USER, 'po-user-secret', 'Pushover user key stored');
 
     // Re-saving the masked value must not clobber the stored secret.
-    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', NEWSAPI_AI_KEY: '•••', model: 'x' }) });
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', NEWSAPI_AI_KEY: '•••', PUSHOVER_TOKEN: '•••', PUSHOVER_USER: '•••', model: 'x' }) });
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'masked re-save keeps the stored NewsAPI.ai key');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_TOKEN, 'po-tok-secret', 'masked re-save keeps the stored Pushover token round-trip (AC10)');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_USER, 'po-user-secret', 'masked re-save keeps the stored Pushover user key round-trip (AC10)');
 
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ nope: 1 }) });
     assert.equal(res.status, 400);
@@ -388,6 +395,127 @@ test('sendNotification: MS_NO_NOTIFY suppresses unconfigured fallbacks but not a
     assert.ok(readFileSync(argsFile, 'utf8').includes('WTI SELL @ 88.0'), 'a configured, existing notifierBin still delivers under MS_NO_NOTIFY');
   } finally {
     process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+function fakeBin(dir, name, script) {
+  const p = join(dir, name);
+  writeFileSync(p, `#!/bin/sh\n${script}\n`);
+  chmodSync(p, 0o755);
+  return p;
+}
+
+// Pushover settings that would otherwise fire a real curl POST: a missing
+// notifierBin (defense in depth — no local notification either), and a
+// shadowed `curl` recorder on PATH so sendNotification's real
+// execFileSync('curl', …) call never reaches a real binary of that name.
+function pushoverFixture(dir, curlScript) {
+  fakeBin(dir, 'curl', curlScript);
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  return () => { process.env.PATH = prevPath; };
+}
+
+test('sendNotification + Pushover: MS_NO_NOTIFY suppresses it structurally, even fully configured (AC9) — this is how every other test in the suite proves no test ever pushes', () => {
+  assert.equal(process.env.MS_NO_NOTIFY, '1', 'the whole suite runs under MS_NO_NOTIFY — sanity-check the premise');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  try {
+    sendNotification('WTI SELL @ 88.0', 'http://x', {
+      notifierBin: join(dir, 'missing-notifier'),
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
+    });
+    assert.ok(!existsSync(curlLog), 'curl is never invoked under MS_NO_NOTIFY, regardless of Pushover config');
+  } finally { restorePath(); }
+});
+
+test('sendNotification + Pushover: disabled is byte-identical to today — no curl call (AC1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY; // prove the OFF-by-default behavior itself, not the structural guard
+  try {
+    sendNotification('WTI SELL @ 88.0', 'http://x', { notifierBin: join(dir, 'missing-notifier') }); // PUSHOVER_ENABLED unset
+    assert.ok(!existsSync(curlLog), 'no PUSHOVER_ENABLED means no HTTP call at all');
+  } finally {
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: enabled+configured posts the field shape AND the local notification still fires (AC2/AC3)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  try {
+    const notifierArgs = join(dir, 'notifier-args.txt');
+    const notifier = fakeBin(dir, 'terminal-notifier', `echo "$@" > ${notifierArgs}`);
+    sendNotification('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x', {
+      notifierBin: notifier,
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
+    });
+    assert.ok(readFileSync(notifierArgs, 'utf8').includes('WTI SELL @ 88.0'), 'the local notification still fires — push is additive, not a replacement');
+    const curlArgv = readFileSync(curlLog, 'utf8');
+    assert.match(curlArgv, /--data-urlencode token@/);
+    assert.match(curlArgv, /--data-urlencode user@/);
+    assert.match(curlArgv, /--data-urlencode message=WTI SELL @ 88\.0/);
+    assert.match(curlArgv, /--data-urlencode title=market-signals/);
+    assert.match(curlArgv, /--data-urlencode url=http:\/\/127\.0\.0\.1:8787\/\?t=x/);
+  } finally {
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: a curl failure never throws, never blocks the local notification, and the token/user never leak into the caught error (AC4/AC6)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const restorePath = pushoverFixture(dir, 'exit 22'); // curl -f treats a non-2xx as failure
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  const stderrChunks = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => { stderrChunks.push(String(chunk)); return realWrite(chunk, ...rest); };
+  try {
+    const notifierArgs = join(dir, 'notifier-args.txt');
+    const notifier = fakeBin(dir, 'terminal-notifier', `echo "$@" > ${notifierArgs}`);
+    assert.doesNotThrow(() => sendNotification('WTI SELL @ 88.0', 'http://x', {
+      notifierBin: notifier,
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'sekret-token-do-not-log', PUSHOVER_USER: 'sekret-user-do-not-log',
+    }));
+    assert.ok(readFileSync(notifierArgs, 'utf8').includes('WTI SELL @ 88.0'), 'a Pushover failure does not suppress the local notification');
+    const logged = stderrChunks.join('');
+    assert.ok(!logged.includes('sekret-token-do-not-log') && !logged.includes('sekret-user-do-not-log'), `token/user leaked into a log line: ${logged}`);
+  } finally {
+    process.stderr.write = realWrite;
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: enabled but missing a key is inert — no curl call, warns once not per alert (AC5)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "$@" >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  const stderrChunks = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => { stderrChunks.push(String(chunk)); return realWrite(chunk, ...rest); };
+  try {
+    const opts = { notifierBin: join(dir, 'missing-notifier'), PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok' }; // no PUSHOVER_USER
+    sendNotification('alert one', 'http://x', opts);
+    sendNotification('alert two', 'http://x', opts);
+    assert.ok(!existsSync(curlLog), 'half-configured Pushover never attempts a call');
+    const warnings = stderrChunks.join('').split('\n').filter((l) => l.includes('PUSHOVER_TOKEN/PUSHOVER_USER is missing'));
+    assert.equal(warnings.length, 1, `warns once across two alerts, not per alert: ${JSON.stringify(warnings)}`);
+  } finally {
+    process.stderr.write = realWrite;
+    restorePath();
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
   }
 });

@@ -169,6 +169,30 @@ test('processSignal records fresh flips with notify off, and dedups', async () =
   assert.equal(again.reason, 'already processed');
 });
 
+test('processSignal pushes via Pushover on a fresh alerted flip — the first sendNotification producer (AC7)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const curlDir = mkdtempSync(join(tmpdir(), 'st-po-curl-'));
+  writeFileSync(join(curlDir, 'curl'), `#!/bin/sh\necho "$@" >> ${curlLog}\nexit 0\n`);
+  chmodSync(join(curlDir, 'curl'), 0o755);
+  const prevPath = process.env.PATH;
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  process.env.PATH = `${curlDir}:${prevPath}`;
+  delete process.env.MS_NO_NOTIFY; // proves the real wiring fires, not the structural guard (that's covered separately)
+  try {
+    const { opts, result, candles: c } = fixture(dir, {
+      settings: { PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr' },
+    });
+    const res = await processSignal(opts, result, c);
+    assert.equal(res.sent, true, res.reason);
+    const argv = readFileSync(curlLog, 'utf8');
+    assert.match(argv, /--data-urlencode message=WTICO\/USD SELL/, 'the flip alert message was pushed via curl');
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
 test('processSignal suppresses when the filter says no (fake pi), no notification', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'st-'));
   const piBin = fakeBin(dir, 'pi', `echo "$@" > ${join(dir, 'pi-args.txt')}\necho '{"alert": false, "reason": "test suppress"}'`);

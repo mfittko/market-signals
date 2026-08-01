@@ -18,6 +18,7 @@ export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from './lib/pushover.mjs';
 
 const USAGE = `supertrend — Supertrend flip signals + inline backtest.
 
@@ -714,8 +715,16 @@ export function readSettings(settingsPath) {
 
 // Delivery: terminal-notifier when installed (the notification itself opens the
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
+// Pushover is delivered AFTER the local notification, additively — it
+// never replaces it and a slow/hanging push can't delay the notification that
+// already works.
 export function sendNotification(msg, deepLink, settings = {}) {
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  deliverLocalNotification(clean, deepLink, settings);
+  deliverPushover(msg, deepLink, settings);
+}
+
+function deliverLocalNotification(clean, deepLink, settings) {
   // An EXPLICITLY configured notifierBin is authoritative: if it does not
   // exist, notifications are deliberately suppressed (tests pin a missing path
   // for exactly this) — the osascript fallback applies only when nothing was
@@ -750,6 +759,39 @@ export function sendNotification(msg, deepLink, settings = {}) {
     }
   }
   execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+}
+
+// Half-configured (enabled but missing a key) warns ONCE per process, not per
+// alert — a watcher that pushes every few minutes must not spam the log for a
+// config mistake it can't fix on its own. Process-lifetime only (ponytail: no
+// persistence to settings.json, so a restarted watcher warns again — that's
+// fine, restarts are rare and settings.json is operator config, not runtime state).
+let pushoverWarnedIncomplete = false;
+
+// Additive push target: never throws (any failure is caught and swallowed
+// here, never reaching the caller — a Pushover outage must not corrupt the
+// recorded alert outcome), and MS_NO_NOTIFY suppresses it UNCONDITIONALLY.
+// Unlike the local notifier, Pushover has no fixture equivalent an
+// explicitly-configured test could point at, so this guard is structural, not
+// a convention: no test can ever reach the network through this function.
+function deliverPushover(msg, deepLink, settings) {
+  if (process.env.MS_NO_NOTIFY) return;
+  try {
+    const { enabled, token, user } = resolvePushoverConfig(settings);
+    if (!enabled) return;
+    if (!token || !user) {
+      if (!pushoverWarnedIncomplete) {
+        pushoverWarnedIncomplete = true;
+        dbg('PUSHOVER_ENABLED is on but PUSHOVER_TOKEN/PUSHOVER_USER is missing — push disabled until both are set');
+      }
+      return;
+    }
+    sendPushover(buildPushoverPayload(msg, deepLink), { token, user });
+  } catch (err) {
+    // Sanitised: err.message never carries the token/user (sendPushover routes
+    // them through a scratch file, never argv or an interpolated string).
+    dbg(`pushover notification failed: ${err.message.split('\n')[0]}`);
+  }
 }
 
 // Default: pi coding agent if installed, else env API keys, else no filter.
