@@ -719,9 +719,20 @@ export function readSettings(settingsPath) {
 // never replaces it and a slow/hanging push can't delay the notification that
 // already works.
 export function sendNotification(msg, deepLink, settings = {}) {
+  // `clean` exists for the AppleScript fallback's string literal; the push
+  // carries the unmangled text, since nothing about its transport needs it
+  // stripped.
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
-  deliverLocalNotification(clean, deepLink, settings);
-  deliverPushover(msg, deepLink, settings);
+  // Local first (it is the channel that always exists and must not wait on a
+  // network call), but in a `finally` so the push is attempted even when the
+  // local delivery throws — a machine with no osascript, or a broken notifier
+  // binary, is exactly when the phone matters most. The local error still
+  // propagates afterwards, so the caller's recorded outcome is unchanged.
+  try {
+    deliverLocalNotification(clean, deepLink, settings);
+  } finally {
+    deliverPushover(msg, deepLink, settings);
+  }
 }
 
 function deliverLocalNotification(clean, deepLink, settings) {

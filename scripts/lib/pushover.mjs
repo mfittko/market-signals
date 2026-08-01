@@ -25,7 +25,7 @@ export function resolvePushoverConfig(settings = {}, env = process.env) {
 // Pushover's documented per-field caps; a long LLM verdict reason (or a
 // message concatenated some other way in the future) must never turn into a
 // rejected 4xx instead of a delivered, slightly-shortened push.
-const CAPS = { message: 1024, title: 250, url: 512 };
+const CAPS = { message: 1024, title: 250, url: 512, url_title: 100 };
 const truncate = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n) : s);
 
 // Pure: no network, no secrets — safe to unit-test directly. deepLink is
@@ -34,7 +34,7 @@ export function buildPushoverPayload(msg, deepLink) {
   const payload = { title: truncate('market-signals', CAPS.title), message: truncate(String(msg), CAPS.message) };
   if (deepLink) {
     payload.url = truncate(String(deepLink), CAPS.url);
-    payload.url_title = truncate('open chart', CAPS.url); // well under the url cap; truncated on principle, not need
+    payload.url_title = truncate('open chart', CAPS.url_title); // its own cap is 100, not the url's 512
   }
   return payload;
 }

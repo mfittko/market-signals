@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -1613,4 +1613,43 @@ test('updateSignal kind scoping: an impulse alert on a bar carrying a flip row l
   assert.equal(imp.notified, 1);
   assert.equal(flip.verdict, null, 'an unscoped UPDATE would have stamped the impulse verdict onto the flip row');
   assert.equal(flip.notified, 0);
+});
+
+// The push is the channel that matters when the local one is broken. Delivering
+// local first must not mean "local failure cancels the push", and the local error
+// must still propagate so the caller's recorded outcome is unchanged.
+//
+// Note how the local failure has to be staged: sendNotification resolves
+// terminal-notifier by ABSOLUTE path, so a PATH shadow cannot make it fail (and
+// would run the real one, popping a desktop notification). An explicitly
+// configured notifierBin that exists but exits non-zero is the sanctioned way in,
+// and it then falls through to osascript — which IS invoked by bare name, so that
+// one shadows fine.
+test('sendNotification: a failing local notifier still lets the Pushover push go out, and still throws', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-po-fail-'));
+  const curlLog = join(dir, 'curl.log');
+  const failingNotifier = fakeBin(dir, 'failing-notifier', 'exit 1');
+  const shadow = mkdtempSync(join(tmpdir(), 'st-po-shadow-'));
+  writeFileSync(join(shadow, 'curl'), `#!/bin/sh\necho "$@" >> ${curlLog}\nexit 0\n`);
+  chmodSync(join(shadow, 'curl'), 0o755);
+  writeFileSync(join(shadow, 'osascript'), '#!/bin/sh\nexit 1\n');
+  chmodSync(join(shadow, 'osascript'), 0o755);
+  const prevPath = process.env.PATH;
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  process.env.PATH = `${shadow}:${prevPath}`;
+  delete process.env.MS_NO_NOTIFY;
+  try {
+    assert.throws(
+      () => sendNotification('WTICO/USD SELL @ 88.35', 'http://127.0.0.1:8787/?t=1', {
+        notifierBin: failingNotifier, PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
+      }),
+      /Command failed|exit/i,
+      'the local failure still propagates, so the alert records as it did before',
+    );
+    assert.match(readFileSync(curlLog, 'utf8'), /--data-urlencode message=WTICO\/USD SELL/,
+      'the push went out anyway — a broken local notifier must not silence the phone');
+  } finally {
+    process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
 });
