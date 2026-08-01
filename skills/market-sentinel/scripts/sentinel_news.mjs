@@ -330,9 +330,16 @@ const DEFAULT_GNEWS_BUDGET = 2500;
 // exactly that: the lowercase `and` inside `supply and demand` was read as an
 // operator and the term shipped unquoted, for GNews to treat as an implicit AND.
 // Lowercase `or` inside a term (`this or that`) would fail the same way, so the
-// `i` flag is gone too. AND/NOT are rejected outright rather than quoted into one
-// literal phrase — silently searching for the string "oil AND OPEC" is the same
-// class of mangling, just moved, so it fails loud and non-chargeably instead.
+// `i` flag is gone too — a lowercase operator word is treated as part of the term,
+// which is the right default because it is genuinely ambiguous prose.
+//
+// AND/NOT are rejected outright rather than quoted into one literal phrase. Note
+// the deliberate asymmetry with the line above: `(oil or crude)` becomes the
+// phrase search `"oil or crude"` — quietly, and it costs a request — while
+// `(oil AND OPEC)` throws for free. Uppercase operators are unambiguous authoring
+// intent, so mis-serving them should be loud; lowercase ones are just words. The
+// authoring-time guard is the test that runs every committed sentinel query
+// through this function, so an AND/NOT query cannot reach production unnoticed.
 export function buildGnewsQuery(sentinelQuery) {
   const raw = String(sentinelQuery || '').trim();
   if (!raw) throw new Error('empty sentinel query');

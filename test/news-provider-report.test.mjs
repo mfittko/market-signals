@@ -150,10 +150,13 @@ test('news-provider-report: latency buckets the free stack the same way coverage
 
 test('onTopicRate: a pluralised headline still counts (terms are committed in the singular)', async () => {
   const { onTopicRate } = await import('../scripts/news-provider-report.mjs');
+  // The positive row must hit ONLY via the plural suffix, or the test passes with
+  // or without it and pins nothing: "tankers" is the only committed WTI term this
+  // headline can match — no "iran", no "hormuz", no "oil" to carry it.
   const obs = [
-    { provider: 'gnews', normalized_title: 'iran seizes two tankers near hormuz' },
+    { provider: 'gnews', normalized_title: 'two tankers idle off singapore' },
     { provider: 'gnews', normalized_title: 'goldman raises its forecast' },
   ];
   const r = onTopicRate(obs, 'WTICO/USD', 'gnews');
-  assert.equal(r.onTopic, 1, '"tankers" matches the committed "tanker"; "goldman" must not match "gold"');
+  assert.equal(r.onTopic, 1, '"tankers" matches the committed singular "tanker"; "goldman" must still not match "gold"');
 });
