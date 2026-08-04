@@ -223,15 +223,17 @@ export const FILTER_HEALTH_WARN_RATE = 0.2;
 // came from the fail-open error fallback rather than a real provider answer.
 // Two conditions together define "the filter ran and recorded a verdict", and
 // both are load-bearing. verdict IN ('alert','suppress') drops the duplicate,
-// cooldown and backfill rows. The kind predicate drops the detectors that never
+// cooldown and backfill rows. FLIP_KIND_PREDICATE drops the detectors that never
 // consult the filter at all: a volume impulse records verdict='alert'
 // unconditionally, so leaving those rows in the denominator dilutes the rate and
-// hides exactly the degradation this is here to catch. Add another kind only
-// once that kind is genuinely filter-judged. No new LLM or network call: this
-// only reads rows the filter already wrote.
+// hides exactly the degradation this is here to catch. It is the shared
+// predicate rather than a literal kind match so legacy NULL-kind rows — written
+// by an older binary against a migrated db — still count as the genuine flips
+// they are. Add another kind only once that kind is genuinely filter-judged.
+// No new LLM or network call: this only reads rows the filter already wrote.
 export function filterHealth(dbPath, { window = FILTER_HEALTH_WINDOW } = {}) {
   return withDb(dbPath, (db) => {
-    const rows = db.prepare("SELECT reason FROM signals WHERE kind='supertrend-flip' AND verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?").all(window);
+    const rows = db.prepare(`SELECT reason FROM signals WHERE ${FLIP_KIND_PREDICATE} AND verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?`).all(window);
     const checked = rows.length;
     const errorReasons = rows.map((r) => r.reason).filter((r) => /filter error:/i.test(r || ''));
     const errors = errorReasons.length;

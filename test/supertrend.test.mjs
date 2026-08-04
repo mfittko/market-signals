@@ -1768,6 +1768,10 @@ test('filterHealth: rows from detectors that never run the filter are excluded, 
   for (let i = 4; i < 12; i++) {
     seedFilteredSignal(dbPath, tAt(i), { verdict: 'alert', reason: 'volume impulse', kind: 'volume-impulse' });
   }
+  // The scope uses FLIP_KIND_PREDICATE, which also admits legacy kind IS NULL
+  // flips. That branch is deliberately unexercised here: the current DDL declares
+  // kind NOT NULL, so such a row cannot be inserted at all — it only exists in a
+  // database whose schema predates the primary-key rebuild.
   const h = filterHealth(dbPath);
   assert.equal(h.checked, 4, 'only filter-judged rows enter the window');
   assert.equal(h.errors, 1);
