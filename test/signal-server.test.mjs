@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
+import { PROVIDER_DEFAULT_MODEL, storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
 import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor, warnLegacyLaunchAgent } from '../scripts/signal-server.mjs';
 import { mkdirSync } from 'node:fs';
 
@@ -169,6 +169,16 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
     assert.equal(got.activeProvider, 'pi', 'resolved provider surfaced');
+    // The settings UI labels the model field with each provider's default. It
+    // used to hold its own copy of that table, which silently went stale the
+    // moment a default changed — telling the operator the wrong model would be
+    // used. Serving the real table is what keeps the two from disagreeing.
+    assert.deepEqual(got.providerDefaultModels, PROVIDER_DEFAULT_MODEL, 'provider defaults served from the source table, never a UI-side duplicate');
+    // A stray double comma in the SETTINGS_KEYS literal leaves an array hole,
+    // and the read/write loops iterate it with for...of, which yields undefined
+    // for a hole and then probes s[undefined]. Cheap to leave, invisible to
+    // every other test, so assert the shape directly.
+    assert.ok(!Object.prototype.hasOwnProperty.call(got, 'undefined'), 'no key named "undefined" leaks from an array hole in SETTINGS_KEYS');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');
@@ -618,6 +628,35 @@ test('maxCompletionTokens (#98): round-trips as a positive integer, rejects non-
     // clearing it back out (empty string deletes) is still valid
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ maxCompletionTokens: '' }) });
     assert.equal(res.status, 200);
+  });
+});
+
+test('filterMaxCompletionTokens (#216): round-trips as a positive integer, rejects non-positive/non-integer values, independent of maxCompletionTokens', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 20000, maxCompletionTokens: 9000 }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.filterMaxCompletionTokens, 20000);
+    assert.equal(got.maxCompletionTokens, 9000, 'the two budgets are independent settings keys');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 0 }) });
+    assert.equal(res.status, 400, 'zero is not a positive integer');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 1.5 }) });
+    assert.equal(res.status, 400, 'must be an integer');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: '' }) });
+    assert.equal(res.status, 200, 'clearing it back out (empty string deletes) is still valid');
+  });
+});
+
+test('llmFallbackProvider (#216): round-trips as a known provider name, rejects unknown values, not a secret (unmasked on read)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: 'anthropic' }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.llmFallbackProvider, 'anthropic', 'not in SECRET_KEYS — round-trips unmasked, unlike API keys');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: 'made-up-vendor' }) });
+    assert.equal(res.status, 400, 'must be one of the known PROVIDERS');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: '' }) });
+    assert.equal(res.status, 200, "'' (the UI's off entry) clears it back to unset");
   });
 });
 

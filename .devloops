@@ -45,6 +45,10 @@ uiReview:
       steps:
         - { action: goto, path: "/", name: open-config }
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        # the modal reopens on the LAST-USED tab (persisted in localStorage), so a
+        # sibling flow that visited another tab would leave the model field absent —
+        # every settings flow names its own tab rather than trusting the default.
+        - { action: click, selector: "#cfgTabs button[data-tab=llm]", name: llm-provider-tab }
         - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
@@ -81,8 +85,26 @@ uiReview:
         - { action: click, selector: "#cfgTabs button[data-tab=adv]", name: advanced-tab }
         - { action: fill, selector: "input[name=PUSHOVER_TOKEN]", value: "ui-review-token", name: fill-pushover-token }
         - { action: fill, selector: "input[name=PUSHOVER_USER]", value: "ui-review-user", name: fill-pushover-user }
+    # verdict-budget + fallback-provider fields: NOT contextual on the
+    # provider select, so they render regardless of which provider is active.
+    - name: settings-llm-fallback
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html", "scripts/supertrend.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: fill, selector: "#f-filterMaxCompletionTokens", value: "20000", name: fill-verdict-budget }
+        - { action: select, selector: "#f-llmFallbackProvider", value: "anthropic", name: select-fallback-provider }
+        - { action: click, selector: "#cfg button", name: save-llm-fallback }
 
 # Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
 queue:
   board:
     number: 5
+
+# Gate evidence policy (operator, 2026-08-04): fan-out evidence is NOT required.
+# Gates on this repo run as a single inline reviewer, which the shipped default
+# rejects at the pre-merge evidence check. Each inline verdict still records a
+# reason, so the audit trail says plainly that one perspective reviewed it
+# rather than several independent ones — that is the tradeoff being accepted.
+gates:
+  requireFanoutEvidence: false
