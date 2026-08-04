@@ -263,7 +263,11 @@ export function startKeepFresh({
         }
         try {
           const { refreshNewsCache } = await import('./news.mjs');
-          await refreshNewsCache(dbPath, allCombos, cfg);
+          const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
+          // cfg IS the settings object; resolve every provider's keys from it, or
+          // this path sees process.env only and a provider configured in the
+          // settings dialog never polls (the LaunchAgent never loads .env).
+          await refreshNewsCache(dbPath, allCombos, cfg, { env: resolveNewsProviderEnv(cfg) });
         } catch (err) {
           logFn(`news cache refresh failed: ${err.message}`);
         }
