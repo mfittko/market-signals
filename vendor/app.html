@@ -1991,7 +1991,7 @@ const GNEWS_MODE_VALUES = ['off', 'shadow', 'auto'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['GNEWS_KEY', 'password'], ['GNEWS_MODE', 'select', GNEWS_MODE_VALUES.map((m) => [m, m]), 'off'], ['GNEWS_INSTRUMENTS', 'text'], ['GNEWS_REQUEST_BUDGET', 'number'], ['GNEWS_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['PUSHOVER_ENABLED', 'select', [['', 'off'], ['1', 'on']]], ['PUSHOVER_TOKEN', 'password'], ['PUSHOVER_USER', 'password'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -2022,6 +2022,9 @@ const FIELD_HINTS = {
   impulseVolMult: 'volume-impulse alert threshold: each of the 2 most recent bars must be >= this multiple of the average volume over the prior window (default 2)',
   impulseVolWindow: 'volume-impulse: number of prior bars averaged for the volume-multiple check (default 20)',
   impulseCooldownBars: 'volume-impulse: bars to wait before another impulse alert for the same combo (default 10). Fires on the close of the second qualifying bar.',
+  PUSHOVER_ENABLED: 'send alerts to your phone via Pushover, IN ADDITION to the desktop notification (opt-in; off changes nothing). The alert text (instrument, direction, price) leaves this machine over Pushover\'s hosted service. Requires PUSHOVER_TOKEN and PUSHOVER_USER below. The free allowance is 10,000 messages/month per application token, and the desktop notification still carries the alert if a push is rejected.',
+  PUSHOVER_TOKEN: 'Pushover application API token (from pushover.net) — required with PUSHOVER_USER for push to fire',
+  PUSHOVER_USER: 'Pushover user key (from pushover.net) — required with PUSHOVER_TOKEN for push to fire',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',

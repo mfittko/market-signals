@@ -18,6 +18,7 @@ export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from './lib/pushover.mjs';
 
 const USAGE = `supertrend — Supertrend flip signals + inline backtest.
 
@@ -714,8 +715,27 @@ export function readSettings(settingsPath) {
 
 // Delivery: terminal-notifier when installed (the notification itself opens the
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
+// Pushover is delivered AFTER the local notification, additively — it
+// never replaces it and a slow/hanging push can't delay the notification that
+// already works.
 export function sendNotification(msg, deepLink, settings = {}) {
+  // `clean` exists for the AppleScript fallback's string literal; the push
+  // carries the unmangled text, since nothing about its transport needs it
+  // stripped.
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  // Local first (it is the channel that always exists and must not wait on a
+  // network call), but in a `finally` so the push is attempted even when the
+  // local delivery throws — a machine with no osascript, or a broken notifier
+  // binary, is exactly when the phone matters most. The local error still
+  // propagates afterwards, so the caller's recorded outcome is unchanged.
+  try {
+    deliverLocalNotification(clean, deepLink, settings);
+  } finally {
+    deliverPushover(msg, deepLink, settings);
+  }
+}
+
+function deliverLocalNotification(clean, deepLink, settings) {
   // An EXPLICITLY configured notifierBin is authoritative: if it does not
   // exist, notifications are deliberately suppressed (tests pin a missing path
   // for exactly this) — the osascript fallback applies only when nothing was
@@ -750,6 +770,55 @@ export function sendNotification(msg, deepLink, settings = {}) {
     }
   }
   execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
+}
+
+// Half-configured (enabled but missing a key) warns ONCE per process, not per
+// alert — a watcher that pushes every few minutes must not spam the log for a
+// config mistake it can't fix on its own. Process-lifetime only (ponytail: no
+// persistence to settings.json, so a restarted watcher warns again — that's
+// fine, restarts are rare and settings.json is operator config, not runtime state).
+let pushoverWarnedIncomplete = false;
+
+// Additive push target: never throws (any failure is caught and swallowed
+// here, never reaching the caller — a Pushover outage must not corrupt the
+// recorded alert outcome), and MS_NO_NOTIFY suppresses it UNCONDITIONALLY.
+// Unlike the local notifier, Pushover has no fixture equivalent an
+// explicitly-configured test could point at, so under MS_NO_NOTIFY this returns
+// before any config is even resolved. That is what makes the suite safe by
+// default. The handful of tests that DO exercise this path opt out deliberately —
+// they delete MS_NO_NOTIFY and shadow `curl` on PATH with a recorder — so the
+// guarantee is "nothing reaches the network unless a test explicitly builds a
+// fake endpoint for it", not "the code cannot make a request".
+function deliverPushover(msg, deepLink, settings) {
+  if (process.env.MS_NO_NOTIFY) return;
+  try {
+    const { enabled, token, user } = resolvePushoverConfig(settings);
+    if (!enabled) return;
+    if (!token || !user) {
+      if (!pushoverWarnedIncomplete) {
+        pushoverWarnedIncomplete = true;
+        dbg('PUSHOVER_ENABLED is on but PUSHOVER_TOKEN/PUSHOVER_USER is missing — push disabled until both are set');
+      }
+      return;
+    }
+    sendPushover(buildPushoverPayload(msg, deepLink), { token, user });
+  } catch (err) {
+    // String(...) rather than err.message.split(...): a non-Error throw would make
+    // the handler itself raise a TypeError, and since this call sits in a `finally`
+    // that error would REPLACE any pending local-delivery error and escape to the
+    // caller — which records a failed alert. The whole point of this catch is that
+    // a push failure can never do that.
+    // Sanitised by construction: the token and user never reach argv or a message
+    // (sendPushover posts them on stdin), so an error string cannot carry them.
+    // Prefer curl's own diagnostic: execFileSync's err.message is a constant echo
+    // of the argv, identical for every failure, so on its own it cannot tell a
+    // rejected token from a DNS failure from a quota wall — and a push that has
+    // quietly stopped working is exactly what needs diagnosing. `-sS` keeps curl
+    // quiet on success and explanatory on failure. Safe to log: the body (and so
+    // both secrets) goes in on stdin, never argv, so curl cannot echo them back.
+    const detail = String(err?.stderr || '').trim() || String(err?.message ?? err);
+    dbg(`pushover notification failed: ${detail.split('\n')[0]}`);
+  }
 }
 
 // Default: pi coding agent if installed, else env API keys, else no filter.

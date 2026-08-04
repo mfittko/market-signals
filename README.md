@@ -299,6 +299,26 @@ chat-only proxy with no transcription endpoint), `sttOpenaiBaseUrl` (default
 (a local command invoked as `sttBin <audiofile>` printing the transcript to
 stdout — wrap whisper.cpp here for a fully-offline backend).
 
+### Pushover push notifications (opt-in)
+
+Off by default; nothing changes until you configure it. When enabled, every
+alert (a supertrend flip, a volume-impulse alert, the bot's kill-switch halt)
+is pushed to your phone via [Pushover](https://pushover.net), **in addition
+to** the existing desktop notification — not instead of it, so the desktop one
+still fires as a safety net if a push fails or the monthly quota is hit. A
+one-off ~$5 iOS licence covers iPhone/iPad/Apple Watch; the free allowance is 10,000
+messages/month. The alert text (instrument, direction, price) leaves this
+machine over Pushover's hosted service — that's inherent to any hosted push
+target, so weigh it before enabling.
+
+To activate: ⚙ settings modal → **Advanced** tab → set `PUSHOVER_ENABLED` on
+and fill in `PUSHOVER_TOKEN` (your Pushover application API token) and
+`PUSHOVER_USER` (your user key), then Save. This writes to `data/settings.json`,
+**not** `.env` — the LaunchAgent never loads `.env`, so that's the only place
+that reaches the live watcher/bot. Both fields are masked write-only secrets,
+same as the LLM API keys. Enabling the toggle without both keys set is inert
+(no call attempted, a one-time log line) rather than erroring on every alert.
+
 Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 
 ## `data/` layout

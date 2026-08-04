@@ -71,6 +71,16 @@ uiReview:
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         - { action: click, selector: "#cfgTabs button[data-tab=global]", name: gates-notes-tab }
         - { action: click, selector: "#gatesTabs button[data-tab=recheck]", name: recheck-gate-panel }
+    # Pushover fields (opt-in push target) live in the Advanced tab,
+    # next to notifierBin — never a real Pushover request, just the fields render.
+    - name: settings-advanced-pushover
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html", "scripts/lib/pushover.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: click, selector: "#cfgTabs button[data-tab=adv]", name: advanced-tab }
+        - { action: fill, selector: "input[name=PUSHOVER_TOKEN]", value: "ui-review-token", name: fill-pushover-token }
+        - { action: fill, selector: "input[name=PUSHOVER_USER]", value: "ui-review-user", name: fill-pushover-user }
 
 # Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
 queue:
