@@ -41,11 +41,16 @@
   #app.chat-collapsed { grid-template-columns: 1fr; }
   #app.chat-collapsed > aside, #app.chat-collapsed > #asideResize { display: none; }
   #chatToggle.on { background: #1f6feb33; border-color: #1f6feb; }
-  /* default: expand toggle + detail row hidden until the <900px media query
-     below opts them in (must come BEFORE that query — equal specificity,
-     source order decides, and this rule used to be declared after it,
-     permanently hiding detail rows at every width). */
-  .rowExpandCell, table.collapsible tr.rowDetail { display: none; }
+  /* one collapse mechanism at every width: the expand toggle + detail row are
+     always part of a .collapsible table, at every width, so a signal's news
+     (built only into the detail row) stays reachable on desktop too — the
+     [hidden] attribute is the single source of truth for open/closed, same
+     contract as #histMore/.cfgfoot/.cfgpanel.mgmt below. Author display would
+     otherwise defeat [hidden] (equal-or-higher specificity), so the [hidden]
+     override must win explicitly, same trap as those three. */
+  table.collapsible .rowExpandCell { display: table-cell; }
+  table.collapsible tr.rowDetail { display: table-row; }
+  table.collapsible tr.rowDetail[hidden] { display: none; }
   @media (max-width: 900px) {
     #app { grid-template-columns: 1fr; }
     #asideResize { display: none; }
@@ -57,8 +62,6 @@
        columns to hide with .mobile-hide; the hidden cells surface in the
        row's expand toggle instead. */
     table.collapsible th.mobile-hide, table.collapsible td.mobile-hide { display: none; }
-    table.collapsible .rowExpandCell { display: table-cell; }
-    table.collapsible tr.rowDetail { display: table-row; }
     dialog form, dialog .advgrid { grid-template-columns: 1fr; }
     dialog form button { grid-column: auto; }
 
@@ -156,16 +159,28 @@
   /* #171 3.6: gray/informational — a tuning signal (bot vs. gate divergence), never a health warning */
   /* full-width wrapped line BELOW the jump/cfg buttons — as a middle flex item it squeezed the row */
   .railnote { color: #8b949e; }
-  /* #172 wfn: the full-width wrap is scoped to >=900px — the <900px chip strip
+  /* #172 wfn: the full-width wrap is scoped to the desktop side of the shared
+     900px breakpoint (same constant the table collapses at, so the two never
+     disagree on which mode a given width is in) — the mobile chip strip below
      lays rail rows out horizontally (flex-basis:100% there would blow the
      strip up vertically); the note stays muted inline text there instead. */
-  @media (min-width: 900px) { .railnote { display: block; flex-basis: 100%; order: 1; } }
-  @media (max-width: 1099px) and (min-width: 900px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
-  @media (max-width: 899px) {
+  @media (min-width: 901px) { .railnote { display: block; flex-basis: 100%; order: 1; } }
+  @media (max-width: 1099px) and (min-width: 901px) { #rail { flex-basis: 160px; } .railstrat { display: none; } }
+  @media (max-width: 900px) {
     #mainGrid { flex-direction: column; }
-    #rail { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; width: 100%; max-height: none; }
-    .railrow { flex: 0 0 auto; }
-    .railjump { flex-direction: row; gap: 8px; white-space: nowrap; }
+    /* #mainGrid's main axis turns vertical here, so the desktop "flex: 0 0
+       220px" above (a width, for the row layout) would otherwise become a
+       220px-tall forced height instead — reset the basis so #rail's height
+       tracks its actual content. flex-wrap:wrap wins over overflow-x:auto (no
+       row is a whole viewport-width wide unless one chip's content alone is)
+       so the rest of the fleet lands on visible extra lines instead of behind
+       a hidden horizontal scroll. */
+    #rail { flex: 0 0 auto; flex-direction: row; flex-wrap: wrap; overflow-x: auto; width: 100%; max-height: none; }
+    /* each row claims the strip's full width so its own content (combo,
+       strategy, age, note, the ⚙ button) wraps onto a second line instead of
+       forcing the whole rail to scroll horizontally when a row runs long */
+    .railrow { flex: 0 0 auto; width: 100%; }
+    .railjump { flex-direction: row; flex-wrap: wrap; gap: 8px; white-space: nowrap; }
     /* the only bot-creation affordance must not hide behind horizontal
        scroll once a few bots exist — first chip on the strip */
     .railrow:has(.railadd) { order: -1; }
@@ -1892,8 +1907,10 @@ function fmtOutcome(v, open) {
     (open ? ' <span style="color:#8b949e" title="still open — no opposite signal yet">open</span>' : '');
 }
 // #168 F10: pairs a compact row with a hidden detail row, toggled by a
-// button — CSS (table.collapsible) only shows the toggle + detail row
-// <900px; desktop already shows every column directly, nothing to expand.
+// button — CSS (table.collapsible) shows the toggle + detail row at every
+// width now: below 900px it is the only way back to the columns that hide
+// there, and on desktop it is the only way to reach detailHtml content
+// (e.g. a signal's news) that never got its own column.
 function collapsibleRow(mainCellsHtml, detailHtml, colspan, label) {
   const tr = document.createElement('tr');
   const btnId = 'rowExpand' + Math.random().toString(36).slice(2);
