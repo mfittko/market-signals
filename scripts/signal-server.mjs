@@ -890,12 +890,13 @@ export function lastNewsFetch(messages, { now = Date.now() } = {}) {
 const TITLE_ANNOTATION = /\r?\n?[ \t]*<!--[ \t]*title:[ \t]*([^\r\n]{0,120}?)[ \t]*-->[ \t]*/;
 export function extractThreadTitle(reply) {
   const text = String(reply);
-  const m = text.match(TITLE_ANNOTATION);
-  if (!m) return { text, title: null };
-  // The annotation and its own surrounding padding go; everything else — including
-  // trailing whitespace elsewhere, which is a markdown hard break — is content.
-  const stripped = text.slice(0, m.index) + text.slice(m.index + m[0].length);
-  return { text: stripped, title: m[1].slice(0, 48).trim() || null };
+  // EVERY annotation is removed, not just the first: a model that self-corrects
+  // emits more than one, and leaving the rest behind renders them verbatim (md()
+  // escapes '<', so an HTML comment shows as text rather than disappearing). The
+  // LAST one wins as the title — it is the model's latest word on the thread.
+  let title = null;
+  const stripped = text.replace(new RegExp(TITLE_ANNOTATION.source, 'g'), (...args) => { title = args[1]; return ''; });
+  return { text: stripped, title: title?.slice(0, 48).trim() || null };
 }
 
 const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; a gatePrompts block carries the alert filter's current effective rules text (its note explains the bot/chat prompts) — use it if the trader wants to discuss or draft a revision (save_gate_prompt saves a draft; activation is a human act in settings); prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, sentinel_news for breaking geopolitical/macro news with an escalation flag, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. When you cite a headline from any news tool, link it: write [headline](url) using that item's own \`url\` field, so the trader can open the source. Omit the link only when the item carries no url. When the context contains a newsAlreadyFetched block, news for this thread was ALREADY fetched at the time it names and its headlines are in the thread above — reuse them and do NOT call a news tool again, unless the trader is asking for news now or explicitly wants something newer. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
@@ -1647,8 +1648,21 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const discardIds = Array.isArray(body.discard) ? body.discard.filter(Number.isInteger).slice(0, 20) : [];
         if (discardIds.length) {
           chatDb(dbPath, (db) => {
-            const stmt = db.prepare('DELETE FROM chat_messages WHERE id=? AND thread_id=?');
-            for (const id of discardIds) stmt.run(id, threadId);
+            // The id must name a USER turn in THIS thread, or it is inert:
+            // discard exists to drop a halted question, and without that check a
+            // buggy or hostile client could delete any earlier turn in its own
+            // thread just by naming its id.
+            const owns = db.prepare("SELECT 1 FROM chat_messages WHERE id=? AND thread_id=? AND role='user'");
+            // The halted turn's REPLY has to go with it. It cannot be suppressed
+            // where it is written: a synchronous provider blocks the whole
+            // server for its completion, so the halted turn finishes and appends
+            // its reply BEFORE this replacement request is even accepted — the
+            // superseded check there sees a row that has not been deleted yet.
+            // Deleting forward from the question is the order-independent
+            // version: everything after it in the thread exists only because of
+            // it, and this request is about to write the replacement question.
+            const cut = db.prepare('DELETE FROM chat_messages WHERE thread_id=? AND id>=?');
+            for (const id of discardIds) if (owns.get(id, threadId)) cut.run(threadId, id);
           });
         }
         const userMsgId = addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
@@ -1697,6 +1711,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // check just catches the easy case — an async provider, where the socket
         // state is already accurate here.
         const abandoned = () => abandonedEvent || res.destroyed;
+        // The deterministic half, and the one that actually holds: if this
+        // turn's user row is gone, a replacement request already discarded it,
+        // so this completion is superseded and must not write a reply to a
+        // question that is no longer in the thread. Dropping the user row alone
+        // was not enough — the in-flight completion still appended its assistant
+        // row and left a reply with nothing to answer.
+        const superseded = () => chatDb(dbPath, (db) => db.prepare('SELECT 1 FROM chat_messages WHERE id=?').get(userMsgId)) == null;
         const discardTurn = () => {
           chatDb(dbPath, (db) => db.prepare('DELETE FROM chat_messages WHERE id=?').run(userMsgId));
           return res.end();
@@ -1715,7 +1736,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             execTool: (n, i) => { toolsUsed.push(n); return execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }); },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
           });
-          if (abandoned()) return discardTurn();
+          if (abandoned() || superseded()) return discardTurn();
           const { text: cleanReply, title } = extractThreadTitle(reply);
           addMessage(dbPath, threadId, 'assistant', cleanReply, JSON.stringify({ toolsUsed }));
           if (title) {
@@ -1724,7 +1745,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           }
           send({ type: 'done', threadId: Number(threadId), reply: cleanReply });
         } catch (err) {
-          if (abandoned()) return discardTurn();
+          if (abandoned() || superseded()) return discardTurn();
           addMessage(dbPath, threadId, 'error', err.message);
           send({ type: 'error', threadId: Number(threadId), error: err.message });
         }

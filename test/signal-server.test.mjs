@@ -876,7 +876,34 @@ test('chat: a halted turn is named by the replacement and dropped — no orphan 
     assert.equal(messages.filter((m) => m.content === 'abandoned question').length, 0, `orphan question survived: ${JSON.stringify(shape)}`);
     const users = messages.filter((m) => m.role === 'user');
     assert.equal(users.at(-1).content, 'abandoned question\n\nand the follow-up', 'the replacement carries both questions');
-    assert.equal(messages.at(-1).role, 'assistant', `the thread ends on the reply to the combined question: ${JSON.stringify(shape)}`);
+    // The halted completion is still running server-side when the replacement
+    // lands. Dropping only its user row is not enough — its assistant row must
+    // never be written either, or the thread gains a reply to a question that
+    // is no longer there.
+    assert.deepEqual(
+      messages.map((m) => m.role),
+      ['user', 'assistant', 'user', 'assistant'],
+      `exactly one exchange per surviving question: ${JSON.stringify(shape)}`,
+    );
+  });
+});
+
+test('chat: a discard id naming an assistant turn is inert — only a question can be dropped', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "keep me"\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'opening', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const threadId = ev.find((e) => e.type === 'done').threadId;
+    const before = (await (await fetch(`${base}/api/messages?thread=${threadId}`)).json()).messages;
+    const assistantId = before.find((m) => m.role === 'assistant').id;
+
+    await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId, message: 'next', discard: [assistantId] }) })).text();
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${threadId}`)).json();
+    assert.ok(messages.some((m) => m.id === assistantId), 'an assistant turn named in discard survives — discard drops questions only');
   });
 });
 
@@ -1223,6 +1250,14 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
   );
   assert.equal(extractThreadTitle('keeps <!--an ordinary note--> intact').title, null, 'a non-title comment is not an annotation');
   assert.equal(extractThreadTitle('keeps <!--an ordinary note--> intact').text, 'keeps <!--an ordinary note--> intact', 'and is left in the text');
+  // A self-correcting model emits more than one. Leaving the extras behind
+  // renders them verbatim, since md() escapes '<' and an HTML comment then
+  // shows as text — so every annotation goes and the last one is the title.
+  assert.deepEqual(
+    extractThreadTitle('Body.\n<!--title: first take-->\nmore\n<!--title: better take-->'),
+    { text: 'Body.\nmore', title: 'better take' },
+    'all annotations removed; the last wins',
+  );
   assert.equal(extractThreadTitle('x\r\n<!--title: crlf reply-->').title, 'crlf reply', 'CRLF before the annotation accepted');
   assert.equal(extractThreadTitle('x\n<!--title: A > B breakout-->').title, 'A > B breakout', 'titles may contain >');
   assert.equal(extractThreadTitle('x\n<!--title: never closed').title, null, 'missing --> is a silent no-op');
