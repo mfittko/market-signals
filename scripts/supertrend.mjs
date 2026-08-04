@@ -692,6 +692,9 @@ function verdictMaxTokens(settings) {
 // the verdict calls always used for their one attempt; it now bounds both
 // combined rather than each individually.
 const VERDICT_DEADLINE_MS = 90000;
+// The least time a fallback attempt is worth starting with. Below this it would
+// spend a request to fail on its own timeout, so the primary's error stands.
+const VERDICT_FALLBACK_MIN_MS = 5000;
 
 // A configured fallback that resolves to the same provider as the primary is
 // not a fallback (pinned decision, not a config error): it silently behaves
@@ -724,9 +727,10 @@ async function withVerdictFallback(settings, run) {
   } catch (primaryErr) {
     if (!fallback) throw primaryErr;
     const remaining = deadline - Date.now();
-    // shared deadline exhausted by the primary: the fallback is SKIPPED,
-    // never started with a near-zero timeout that would just fail at once.
-    if (remaining <= 0) throw primaryErr;
+    // Shared deadline all but exhausted by the primary: the fallback is SKIPPED.
+    // The floor matters — `remaining > 0` would start a fallback with a few
+    // milliseconds to answer in, which cannot succeed and still spends a request.
+    if (remaining < VERDICT_FALLBACK_MIN_MS) throw primaryErr;
     try {
       return { ...(await run(settings, fallback, remaining)), provider: fallback };
     } catch (fallbackErr) {

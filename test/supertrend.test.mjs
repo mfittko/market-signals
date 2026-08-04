@@ -1810,3 +1810,26 @@ test('updateSignal kind scoping: an impulse alert on a bar carrying a flip row l
   assert.equal(flip.verdict, null, 'an unscoped UPDATE would have stamped the impulse verdict onto the flip row');
   assert.equal(flip.notified, 0);
 });
+
+// The shared deadline's floor: a fallback started with a few milliseconds left
+// cannot answer in time and still spends a request, so below the floor the
+// primary's error stands rather than a doomed second attempt being made.
+test('withVerdictFallback: a nearly-exhausted deadline skips the fallback instead of starting a doomed attempt', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const settings = {
+    provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://primary.invalid/v1',
+    ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+    models: { 'openai-compatible': 'm1', anthropic: 'm2' },
+  };
+  const realNow = Date.now;
+  let calls = 0;
+  global.fetch = async () => { calls++; Date.now = () => realNow() + 89_000; throw new Error('primary down'); };
+  try {
+    await assert.rejects(llmVerdict(settings, { x: 1 }, 'sys'), /primary down/,
+      'the primary error stands — no "both providers failed" wrapper, because the fallback never ran');
+    assert.equal(calls, 1, 'exactly one provider call: the fallback was skipped, not attempted');
+  } finally {
+    Date.now = realNow;
+    delete global.fetch;
+  }
+});
