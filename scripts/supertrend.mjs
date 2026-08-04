@@ -233,7 +233,13 @@ export const FILTER_HEALTH_WARN_RATE = 0.2;
 // No new LLM or network call: this only reads rows the filter already wrote.
 export function filterHealth(dbPath, { window = FILTER_HEALTH_WINDOW } = {}) {
   return withDb(dbPath, (db) => {
-    const rows = db.prepare(`SELECT reason FROM signals WHERE ${FLIP_KIND_PREDICATE} AND verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?`).all(window);
+    // The window spans every instrument/granularity, so bars at the same candle
+    // time routinely tie — 60 of 588 filter-judged rows in the live db do. `time`
+    // alone leaves those ties unordered, which lets a tie straddling the window
+    // boundary swap rows in and out between refreshes and makes the displayed
+    // rate flicker with no underlying change. The rest of the primary key gives
+    // the sort a total order, so the window is the same set every time.
+    const rows = db.prepare(`SELECT reason FROM signals WHERE ${FLIP_KIND_PREDICATE} AND verdict IN ('alert','suppress') ORDER BY time DESC, instrument DESC, granularity DESC, kind DESC LIMIT ?`).all(window);
     const checked = rows.length;
     const errorReasons = rows.map((r) => r.reason).filter((r) => /filter error:/i.test(r || ''));
     const errors = errorReasons.length;

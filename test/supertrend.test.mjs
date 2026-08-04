@@ -1815,6 +1815,50 @@ test('filterHealth: at/above the threshold ⇒ warn true, dominant failure kind 
   rmSync(dbPath, { force: true });
 });
 
+// Each label gets its own dominant case. The test above only ever pins
+// 'timeout', so a regex drifting on any of the other three would collapse that
+// kind to 'other' while every existing assertion still passed — and the whole
+// point of naming a dominant kind is telling the four failure modes apart.
+for (const [label, reason] of [
+  ['cut off', 'filter error: openai provider returned no content (finish_reason=length; …)'],
+  ['no answer', 'filter error: no verdict JSON in provider output'],
+  ['server error', 'filter error: openai HTTP 503: upstream unavailable'],
+  ['timeout', 'filter error: The operation was aborted due to timeout'],
+]) {
+  test(`filterHealth: a window dominated by "${label}" failures names that kind`, () => {
+    const dbPath = fileURLToPath(new URL(`./tmp-filter-health-kind-${label.replace(/\s+/g, '-')}.db`, import.meta.url));
+    rmSync(dbPath, { force: true });
+    for (let i = 0; i < 5; i++) seedFilteredSignal(dbPath, tAt(i), { reason });
+    for (let i = 5; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { reason: 'looks like chop' });
+    const h = filterHealth(dbPath);
+    assert.equal(h.errors, 5, `every "${label}" reason is recognised as a filter error`);
+    assert.equal(h.dominantKind, label);
+    rmSync(dbPath, { force: true });
+  });
+}
+
+// The window spans instruments, so rows routinely share a candle time. A tie
+// straddling the boundary must not change which rows the window contains.
+test('filterHealth: the window is deterministic when rows share a timestamp', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-ties.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 4 instruments flip on the SAME bar, so a window of 2 must cut through a tie.
+  for (const inst of ['AAA/USD', 'BBB/USD', 'CCC/USD', 'DDD/USD']) {
+    withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?)')
+      .run(inst, 'M5', tAt(0), 'buy', 100, 'alert', inst === 'AAA/USD' ? 'filter error: timeout' : 'looks like chop', 1));
+  }
+  // Assert WHICH rows the tie resolves to, not merely that repeated reads agree:
+  // without a tie-breaker SQLite still returns a stable order here (insert order,
+  // which starts at the errored AAA/USD row), so a self-consistency check passes
+  // either way and proves nothing. Ordering by the rest of the primary key makes
+  // the top 2 DDD and CCC — both clean — so the errored row is provably outside
+  // the window and the assertion fails the moment the tie-breaker is dropped.
+  const h = filterHealth(dbPath, { window: 2 });
+  assert.equal(h.checked, 2);
+  assert.equal(h.errors, 0, 'the window resolves ties by the primary key, so the two highest instruments win — not insert order');
+  rmSync(dbPath, { force: true });
+});
+
 // Scope by verdict only. The impulse row here carries a null verdict, so it
 // pins the verdict clause alone — the kind clause is pinned separately above,
 // with an impulse row that DOES carry verdict='alert', which is the shape
