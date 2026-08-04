@@ -12,7 +12,7 @@
 import { withDb, trackedInstruments } from './supertrend.mjs';
 import { sentinelConfigForInstrument, loadInstrumentsConfig } from './lib/instruments.mjs';
 import {
-  fetchSentinelNews, createGdeltThrottle, resolveNewsApiAiConfig, normTitle,
+  fetchSentinelNews, createGdeltThrottle, resolveNewsApiAiConfig, resolveGnewsConfig, normTitle,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 // NewsAPI.ai provider persistence (issue #104), kept separate from the canonical
@@ -35,6 +35,18 @@ const PROVIDER_OBS_DDL = `CREATE TABLE IF NOT EXISTS news_provider_observations 
   PRIMARY KEY (instrument, provider, provider_item_id)
 )`;
 export const NEWSAPI_AI_PROVIDER = 'newsapi-ai';
+// GNews: a second opt-in commercial provider, same persistence
+// substrate (news_provider_state/news_provider_observations are already
+// provider-keyed) — additive, no new tables or bespoke budget/circuit logic.
+export const GNEWS_PROVIDER = 'gnews';
+// Sentinel instrument for state that belongs to the KEY rather than to one
+// instrument (a per-day quota). It can never collide with a real instrument: a
+// tracked one always carries a config entry in config/instruments.yaml.
+export const PROVIDER_WIDE_INSTRUMENT = '*';
+// GNews meters per day and per key: a 429 means today's allowance is gone for
+// every instrument, so pause the whole provider for an hour rather than retrying
+// each tick. Stated once, applied at both call sites.
+export const GNEWS_RATE_LIMIT_POLICY = { rateLimitedForMs: 60 * 60 * 1000, keyWide: true };
 
 // Keyed on (instrument, url), NOT url alone: two instruments can share a
 // sentinel query (e.g. WTI + Brent both query oil/OPEC/Hormuz, per
@@ -114,7 +126,9 @@ function newsDb(dbPath, fn) {
 // The trial budget is a single global cap across all instruments: sum
 // requests_used over every (provider, *) row and compare to the configured
 // NEWSAPI_AI_REQUEST_BUDGET. Persisted, so it survives process restarts.
-export function providerRequestsUsed(dbPath, provider = NEWSAPI_AI_PROVIDER) {
+// provider is required: defaulting it silently answered for the wrong provider,
+// the same trap the settings resolver had.
+export function providerRequestsUsed(dbPath, provider) {
   return newsDb(dbPath, (db) =>
     db.prepare('SELECT COALESCE(SUM(requests_used),0) AS n FROM news_provider_state WHERE provider=?').get(provider).n);
 }
@@ -123,18 +137,31 @@ export function providerRequestsUsed(dbPath, provider = NEWSAPI_AI_PROVIDER) {
 // future (401/403). Returns the reason string while open, else null.
 export function providerCircuitOpen(dbPath, provider, instrument, now = Date.now()) {
   return newsDb(dbPath, (db) => {
-    const row = db.prepare('SELECT disabled_reason, disabled_until FROM news_provider_state WHERE provider=? AND instrument=?').get(provider, instrument);
-    if (!row?.disabled_until) return null;
-    return Date.parse(row.disabled_until) > now ? (row.disabled_reason || 'circuit open') : null;
+    const stmt = db.prepare('SELECT disabled_reason, disabled_until FROM news_provider_state WHERE provider=? AND instrument=?');
+    // the provider-wide row first: a key-metered quota parks every instrument
+    for (const key of [PROVIDER_WIDE_INSTRUMENT, instrument]) {
+      const row = stmt.get(provider, key);
+      if (row?.disabled_until && Date.parse(row.disabled_until) > now) return row.disabled_reason || 'circuit open';
+    }
+    return null;
   });
 }
 
 // Record one chargeable attempt + its outcome in a single transaction: bump
-// requests_used and last_attempt_at always; on success stamp last_success_at
-// and clear any circuit; on 401/403 open a persistent circuit; on 429/5xx/etc
-// leave the circuit closed (transient — retried next tick). `disabledForMs`
-// bounds the 401/403 circuit so a rotated key can recover without a restart.
-export function recordProviderCall(dbPath, provider, instrument, { ok, status, now = Date.now(), disabledForMs = 6 * 60 * 60 * 1000 } = {}) {
+// requests_used and last_attempt_at always; on success stamp last_success_at and
+// clear any circuit; on 401/403 open a circuit bounded by `disabledForMs` so a
+// rotated key recovers without a restart.
+//
+// 429 is deliberately NOT handled generically. What a rate limit means is the
+// provider's own business: one metered per day (GNews: 100/day on the free key)
+// will not clear on the next tick, so retrying is pure waste — while one metered
+// per second or per month may well clear immediately, which is why the paid
+// provider has always treated 429 as transient. A caller that knows its provider
+// meters per day passes `rateLimitedForMs` to opt into a bounded pause; callers
+// that pass nothing keep the transient behavior unchanged. `keyWide` parks every
+// instrument of that provider rather than just this one, because a per-KEY quota
+// is already spent for the other instruments too.
+export function recordProviderCall(dbPath, provider, instrument, { ok, status, now = Date.now(), disabledForMs = 6 * 60 * 60 * 1000, rateLimitedForMs = 0, keyWide = false } = {}) {
   return newsDb(dbPath, (db) => {
     const at = new Date(now).toISOString();
     db.prepare(`INSERT INTO news_provider_state (provider, instrument, requests_used, last_attempt_at)
@@ -147,6 +174,16 @@ export function recordProviderCall(dbPath, provider, instrument, { ok, status, n
     } else if (status === 401 || status === 403) {
       db.prepare('UPDATE news_provider_state SET disabled_reason=?, disabled_until=? WHERE provider=? AND instrument=?')
         .run(`auth/quota HTTP ${status}`, new Date(now + disabledForMs).toISOString(), provider, instrument);
+    } else if (status === 429 && rateLimitedForMs > 0) {
+      const until = new Date(now + rateLimitedForMs).toISOString();
+      if (keyWide) {
+        // the quota belongs to the key, so parking only this instrument would
+        // leave every other one walking into the same exhausted limit
+        db.prepare('INSERT INTO news_provider_state (provider, instrument, requests_used, disabled_reason, disabled_until) VALUES (?, ?, 0, ?, ?) ON CONFLICT(provider, instrument) DO UPDATE SET disabled_reason=excluded.disabled_reason, disabled_until=excluded.disabled_until')
+          .run(provider, PROVIDER_WIDE_INSTRUMENT, 'rate limited HTTP 429', until);
+      }
+      db.prepare('UPDATE news_provider_state SET disabled_reason=?, disabled_until=? WHERE provider=? AND instrument=?')
+        .run('rate limited HTTP 429', until, provider, instrument);
     }
   });
 }
@@ -268,6 +305,22 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return { cfg: c, active: true };
   };
 
+  // GNews on the background cadence is a second opt-in (GNEWS_BACKGROUND), off by
+  // default, for the same reason the paid provider's is: this loop visits every
+  // instrument carrying a sentinel query every 8 minutes — 4 of the 7 watched
+  // today, ~720 requests/day — against a provider that meters 100/day on its free
+  // key. Left off, GNews spends only at decision points (refreshNewsForDecision),
+  // the same moments the paid provider spends, which is what makes the two
+  // comparable in the provider report.
+  let gnewsBudgetUsed = providerRequestsUsed(dbPath, GNEWS_PROVIDER);
+  const gnewsFor = (instrument) => {
+    const c = resolveGnewsConfig(env, { instrument });
+    if (!c.enabled || !c.background) return { cfg: c, active: false };
+    if (gnewsBudgetUsed >= c.requestBudget) return { cfg: c, active: false, budgetExhausted: true };
+    if (providerCircuitOpen(dbPath, GNEWS_PROVIDER, instrument, now)) return { cfg: c, active: false, circuitOpen: true };
+    return { cfg: c, active: true };
+  };
+
   const newest = newsDb(dbPath, (db) => {
     const stmt = db.prepare('SELECT MAX(fetched_at) AS t FROM news WHERE instrument=?');
     const out = {};
@@ -275,11 +328,12 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
     return out;
   });
 
-  const due = withConfig.map((x) => ({ ...x, nai: naiFor(x.instrument) })).filter(({ instrument, nai }) => {
+  const due = withConfig.map((x) => ({ ...x, nai: naiFor(x.instrument), gnews: gnewsFor(x.instrument) })).filter(({ instrument, nai }) => {
     const t = newest[instrument];
     const parsed = t ? Date.parse(t) : NaN;
     const ageMs = Number.isNaN(parsed) ? Infinity : now - parsed;
-    // Shorter interval when NewsAPI.ai will actually run this tick, else free cadence.
+    // Shorter interval when NewsAPI.ai will actually run this tick, else free
+    // cadence — gnews rides whichever cadence the tick already resolved to.
     return ageMs > (nai.active ? NEWSAPI_AI_POLL_INTERVAL_MS : NEWS_POLL_INTERVAL_MS);
   });
 
@@ -292,16 +346,18 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
   // One throttle shared across this tick's GDELT calls (≥5s apart per IP).
   const gdeltThrottle = createGdeltThrottle(sleep ? { sleep, now: () => now } : {});
   const refreshed = [];
-  for (const { instrument, sentinel, nai } of toFetch) {
+  for (const { instrument, sentinel, nai, gnews } of toFetch) {
     // Re-check the budget against the LIVE budgetUsed right before the call, not
     // the tick-start snapshot: when several instruments are eligible in one tick,
     // an earlier one may have spent the last budgeted request, and the global cap
     // must hold across all of them.
     const naiActiveNow = nai.active && budgetUsed < nai.cfg.requestBudget;
+    const gnewsActiveNow = gnews.active && gnewsBudgetUsed < gnews.cfg.requestBudget;
     try {
       const result = await fetchSentinelNews({
         query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, now, log, gdeltThrottle,
         newsApiAi: naiActiveNow ? nai.cfg : null,
+        gnews: gnewsActiveNow ? gnews.cfg : null,
       });
       const fetchedAt = new Date(now).toISOString();
       const { added } = upsertNews(dbPath, instrument, result.items, fetchedAt);
@@ -311,9 +367,13 @@ export async function refreshNewsCache(dbPath, combos, cfg, {
         recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: result.newsApiAi.ok, status: result.newsApiAi.status, now });
         budgetUsed += 1;
       }
+      if (result.gnews?.requestMade) {
+        recordProviderCall(dbPath, GNEWS_PROVIDER, instrument, { ok: result.gnews.ok, status: result.gnews.status, now, ...GNEWS_RATE_LIMIT_POLICY });
+        gnewsBudgetUsed += 1;
+      }
       // Provenance for the trial benchmark: every provider's in-window sighting.
-      if (naiActiveNow && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
-      refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null });
+      if ((naiActiveNow || gnewsActiveNow) && Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
+      refreshed.push({ instrument, added, escalation: result.escalation, newsApiAi: result.newsApiAi ?? null, gnews: result.gnews ?? null });
     } catch (err) {
       log(`refresh failed for ${instrument}: ${err.message}`);
     }
@@ -334,28 +394,51 @@ export const DECISION_PULL_THROTTLE_MS = 5 * 60 * 1000;
 // default 15s per-source timeout — the decision falls back to the cache if a
 // source stalls, per the filter/bot fail-open contract.
 export const DECISION_FETCH_TIMEOUT_MS = 5000;
+
+// Shared usability check for a decision-point provider pull
+// generalized this from the NewsAPI.ai-only original so a second provider can
+// share the same disabled/budget/circuit/throttle precedence, in that order).
+function providerUsable(dbPath, provider, cfg, instrument, now) {
+  if (!cfg.enabled) return { usable: false, reason: 'disabled' };
+  if (providerRequestsUsed(dbPath, provider) >= cfg.requestBudget) return { usable: false, reason: 'budget-exhausted' };
+  if (providerCircuitOpen(dbPath, provider, instrument, now)) return { usable: false, reason: 'circuit-open' };
+  const lastAttempt = newsDb(dbPath, (db) =>
+    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(provider, instrument)?.t ?? null);
+  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { usable: false, reason: 'throttled' };
+  return { usable: true, reason: null };
+}
+
 export async function refreshNewsForDecision(dbPath, instrument, { env = process.env, fetcher = undefined, now = Date.now(), log = () => {} } = {}) {
   const sentinel = sentinelConfigForInstrument(instrument);
   if (!sentinel) return { pulled: false, reason: 'no-sentinel-config' };
-  const c = resolveNewsApiAiConfig(env, { instrument });
-  if (!c.enabled) return { pulled: false, reason: 'disabled' };
-  if (providerRequestsUsed(dbPath) >= c.requestBudget) return { pulled: false, reason: 'budget-exhausted' };
-  if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) return { pulled: false, reason: 'circuit-open' };
-  const lastAttempt = newsDb(dbPath, (db) =>
-    db.prepare('SELECT last_attempt_at AS t FROM news_provider_state WHERE provider=? AND instrument=?').get(NEWSAPI_AI_PROVIDER, instrument)?.t ?? null);
-  if (lastAttempt && now - Date.parse(lastAttempt) < DECISION_PULL_THROTTLE_MS) return { pulled: false, reason: 'throttled' };
+  const naiCfg = resolveNewsApiAiConfig(env, { instrument });
+  const gnewsCfg = resolveGnewsConfig(env, { instrument });
+  const naiCheck = providerUsable(dbPath, NEWSAPI_AI_PROVIDER, naiCfg, instrument, now);
+  const gnewsCheck = providerUsable(dbPath, GNEWS_PROVIDER, gnewsCfg, instrument, now);
+  // Neither provider usable this call: keep the paid provider's reason precedence
+  // via NAI's check (GNews is off by default, so this is byte-identical to the
+  // original single-provider behavior until an operator opts GNews in too).
+  if (!naiCheck.usable && !gnewsCheck.usable) return { pulled: false, reason: naiCheck.reason };
   try {
-    const result = await fetchSentinelNews({ query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log, newsApiAi: c });
+    const result = await fetchSentinelNews({
+      query: sentinel.query, yahooSymbol: sentinel.yahooSymbol, fetcher, timeoutMs: DECISION_FETCH_TIMEOUT_MS, now, log,
+      newsApiAi: naiCheck.usable ? naiCfg : null,
+      gnews: gnewsCheck.usable ? gnewsCfg : null,
+    });
     const fetchedAt = new Date(now).toISOString();
     upsertNews(dbPath, instrument, result.items, fetchedAt);
     recordPollMarker(dbPath, instrument, fetchedAt);
     const nai = result.newsApiAi ?? null;
+    const gnews = result.gnews ?? null;
     if (nai?.requestMade) recordProviderCall(dbPath, NEWSAPI_AI_PROVIDER, instrument, { ok: nai.ok, status: nai.status, now });
+    if (gnews?.requestMade) recordProviderCall(dbPath, GNEWS_PROVIDER, instrument, { ok: gnews.ok, status: gnews.status, now, ...GNEWS_RATE_LIMIT_POLICY });
     if (Array.isArray(result.observed)) recordProviderObservations(dbPath, instrument, result.observed, now);
     // Accurate reason: distinguish a real spent request from a non-chargeable
-    // local skip (parse/keyword-limit) and from a network failure.
-    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed') : 'not-made';
-    return { pulled: nai?.requestMade === true, reason, newsApiAi: nai };
+    // local skip (parse/query-cap) and from a network failure. NAI takes
+    // precedence when both providers ran, so existing reporting is unchanged.
+    const reason = nai?.requestMade ? (nai.ok ? 'ok' : 'request-failed')
+      : gnews?.requestMade ? (gnews.ok ? 'ok' : 'request-failed') : 'not-made';
+    return { pulled: nai?.requestMade === true || gnews?.requestMade === true, reason, newsApiAi: nai, gnews };
   } catch (err) {
     log(`decision news pull failed for ${instrument}: ${err.message}`);
     return { pulled: false, reason: 'error' };

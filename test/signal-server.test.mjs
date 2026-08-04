@@ -164,7 +164,7 @@ test('signal history: /api/signals paginates older signals; page ships the load-
 
 test('settings round-trip: unknown keys rejected, secrets masked and preserved, atomic file', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
-    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', NEWSAPI_AI_KEY: 'nai-secret', port: 9000 }) });
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ provider: 'pi', OPENAI_API_KEY: 'sk-secret', NEWSAPI_AI_KEY: 'nai-secret', port: 9000, PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'po-tok-secret', PUSHOVER_USER: 'po-user-secret' }) });
     assert.equal(res.status, 200);
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
@@ -172,13 +172,20 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');
+    assert.equal(got.PUSHOVER_ENABLED, '1', 'PUSHOVER_ENABLED is a plain toggle, not a secret — not masked (AC10)');
+    assert.equal(got.PUSHOVER_TOKEN, '•••', 'Pushover token masked on read — never echoed back (AC10)');
+    assert.equal(got.PUSHOVER_USER, '•••', 'Pushover user key masked on read — never echoed back (AC10)');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret', 'secret stored');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'NewsAPI.ai key stored');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_TOKEN, 'po-tok-secret', 'Pushover token stored');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_USER, 'po-user-secret', 'Pushover user key stored');
 
     // Re-saving the masked value must not clobber the stored secret.
-    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', NEWSAPI_AI_KEY: '•••', model: 'x' }) });
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ OPENAI_API_KEY: '•••', NEWSAPI_AI_KEY: '•••', PUSHOVER_TOKEN: '•••', PUSHOVER_USER: '•••', model: 'x' }) });
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).OPENAI_API_KEY, 'sk-secret');
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).NEWSAPI_AI_KEY, 'nai-secret', 'masked re-save keeps the stored NewsAPI.ai key');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_TOKEN, 'po-tok-secret', 'masked re-save keeps the stored Pushover token round-trip (AC10)');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).PUSHOVER_USER, 'po-user-secret', 'masked re-save keeps the stored Pushover user key round-trip (AC10)');
 
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ nope: 1 }) });
     assert.equal(res.status, 400);
@@ -187,6 +194,27 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ port: 'abc' }) });
     assert.equal(res.status, 400);
     assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).provider, 'pi', 'rejected writes never corrupt the file');
+  });
+});
+
+test('settings round-trip: GNEWS_KEY is masked write-only, GNEWS_MODE/INSTRUMENTS/REQUEST_BUDGET persist', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath }) => {
+    let res = await fetch(`${base}/api/settings`, {
+      method: 'POST',
+      body: JSON.stringify({ GNEWS_KEY: 'gnews-secret', GNEWS_MODE: 'shadow', GNEWS_INSTRUMENTS: 'WTICO/USD', GNEWS_REQUEST_BUDGET: 2500 }),
+    });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.GNEWS_KEY, '•••', 'GNews key is a secret — masked on read (write-only)');
+    assert.equal(got.GNEWS_MODE, 'shadow');
+    assert.equal(got.GNEWS_INSTRUMENTS, 'WTICO/USD');
+    assert.equal(got.GNEWS_REQUEST_BUDGET, 2500);
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_KEY, 'gnews-secret', 'GNews key stored');
+
+    // Re-saving the masked value must not clobber the stored secret.
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ GNEWS_KEY: '•••', GNEWS_MODE: 'auto' }) });
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_KEY, 'gnews-secret', 'masked re-save keeps the stored GNews key');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).GNEWS_MODE, 'auto', 'a non-masked field in the same request still updates');
   });
 });
 
@@ -388,6 +416,129 @@ test('sendNotification: MS_NO_NOTIFY suppresses unconfigured fallbacks but not a
     assert.ok(readFileSync(argsFile, 'utf8').includes('WTI SELL @ 88.0'), 'a configured, existing notifierBin still delivers under MS_NO_NOTIFY');
   } finally {
     process.env.PATH = prevPath;
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+function fakeBin(dir, name, script) {
+  const p = join(dir, name);
+  writeFileSync(p, `#!/bin/sh\n${script}\n`);
+  chmodSync(p, 0o755);
+  return p;
+}
+
+// Pushover settings that would otherwise fire a real curl POST: a missing
+// notifierBin (defense in depth — no local notification either), and a
+// shadowed `curl` recorder on PATH so sendNotification's real
+// execFileSync('curl', …) call never reaches a real binary of that name.
+function pushoverFixture(dir, curlScript) {
+  fakeBin(dir, 'curl', curlScript);
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  return () => { process.env.PATH = prevPath; };
+}
+
+test('sendNotification + Pushover: MS_NO_NOTIFY suppresses it structurally, even fully configured (AC9) — this is how every other test in the suite proves no test ever pushes', () => {
+  assert.equal(process.env.MS_NO_NOTIFY, '1', 'the whole suite runs under MS_NO_NOTIFY — sanity-check the premise');
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
+  try {
+    sendNotification('WTI SELL @ 88.0', 'http://x', {
+      notifierBin: join(dir, 'missing-notifier'),
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
+    });
+    assert.ok(!existsSync(curlLog), 'curl is never invoked under MS_NO_NOTIFY, regardless of Pushover config');
+  } finally { restorePath(); }
+});
+
+test('sendNotification + Pushover: disabled is byte-identical to today — no curl call (AC1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY; // prove the OFF-by-default behavior itself, not the structural guard
+  try {
+    sendNotification('WTI SELL @ 88.0', 'http://x', { notifierBin: join(dir, 'missing-notifier') }); // PUSHOVER_ENABLED unset
+    assert.ok(!existsSync(curlLog), 'no PUSHOVER_ENABLED means no HTTP call at all');
+  } finally {
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: enabled+configured posts the field shape AND the local notification still fires (AC2/AC3)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  try {
+    const notifierArgs = join(dir, 'notifier-args.txt');
+    const notifier = fakeBin(dir, 'terminal-notifier', `echo "$@" > ${notifierArgs}`);
+    sendNotification('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x', {
+      notifierBin: notifier,
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
+    });
+    assert.ok(readFileSync(notifierArgs, 'utf8').includes('WTI SELL @ 88.0'), 'the local notification still fires — push is additive, not a replacement');
+    const curlArgv = readFileSync(curlLog, 'utf8');
+    // the body arrives on stdin (form-encoded), so argv carries no payload at all
+    assert.match(curlArgv, /-d @-/, 'body posted on stdin, nothing sensitive in argv');
+    assert.match(curlArgv, /token=tok\b/, 'token reached curl (via the recorded stdin body)');
+    assert.match(curlArgv, /user=usr\b/);
+    assert.match(curlArgv, /message=WTI\+SELL\+%40\+88\.0/);
+    assert.match(curlArgv, /title=market-signals/);
+    assert.match(curlArgv, /url=http%3A%2F%2F127\.0\.0\.1%3A8787%2F%3Ft%3Dx/);
+  } finally {
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: a curl failure never throws, never blocks the local notification, and the token/user never leak into the caught error (AC4/AC6)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const restorePath = pushoverFixture(dir, 'exit 22'); // curl -f treats a non-2xx as failure
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  const stderrChunks = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => { stderrChunks.push(String(chunk)); return realWrite(chunk, ...rest); };
+  try {
+    const notifierArgs = join(dir, 'notifier-args.txt');
+    const notifier = fakeBin(dir, 'terminal-notifier', `echo "$@" > ${notifierArgs}`);
+    assert.doesNotThrow(() => sendNotification('WTI SELL @ 88.0', 'http://x', {
+      notifierBin: notifier,
+      PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'sekret-token-do-not-log', PUSHOVER_USER: 'sekret-user-do-not-log',
+    }));
+    assert.ok(readFileSync(notifierArgs, 'utf8').includes('WTI SELL @ 88.0'), 'a Pushover failure does not suppress the local notification');
+    const logged = stderrChunks.join('');
+    assert.ok(!logged.includes('sekret-token-do-not-log') && !logged.includes('sekret-user-do-not-log'), `token/user leaked into a log line: ${logged}`);
+  } finally {
+    process.stderr.write = realWrite;
+    restorePath();
+    if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
+  }
+});
+
+test('sendNotification + Pushover: enabled but missing a key is inert — no curl call, warns once not per alert (AC5)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-po-'));
+  const curlLog = join(dir, 'curl.log');
+  const restorePath = pushoverFixture(dir, `echo "ARGV $@" >> ${curlLog}\ncat >> ${curlLog}\nexit 0`);
+  const prevGuard = process.env.MS_NO_NOTIFY;
+  delete process.env.MS_NO_NOTIFY;
+  const stderrChunks = [];
+  const realWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (chunk, ...rest) => { stderrChunks.push(String(chunk)); return realWrite(chunk, ...rest); };
+  try {
+    const opts = { notifierBin: join(dir, 'missing-notifier'), PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok' }; // no PUSHOVER_USER
+    sendNotification('alert one', 'http://x', opts);
+    sendNotification('alert two', 'http://x', opts);
+    assert.ok(!existsSync(curlLog), 'half-configured Pushover never attempts a call');
+    const warnings = stderrChunks.join('').split('\n').filter((l) => l.includes('PUSHOVER_TOKEN/PUSHOVER_USER is missing'));
+    assert.equal(warnings.length, 1, `warns once across two alerts, not per alert: ${JSON.stringify(warnings)}`);
+  } finally {
+    process.stderr.write = realWrite;
+    restorePath();
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
   }
 });
@@ -812,8 +963,9 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
   // Clear any ambient NEWSAPI_AI_* so the injection assertions below are
   // deterministic (the tool spawns with {...process.env, ...settings}); restored below.
   const naiKeys = ['NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND'];
-  const prevNai = Object.fromEntries(naiKeys.map((k) => [k, process.env[k]]));
-  for (const k of naiKeys) delete process.env[k];
+  const gnewsKeys = ['GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET'];
+  const prevNai = Object.fromEntries([...naiKeys, ...gnewsKeys].map((k) => [k, process.env[k]]));
+  for (const k of [...naiKeys, ...gnewsKeys]) delete process.env[k];
   try {
     const out = JSON.parse(execChatTool('sentinel_news', {}, { view: { instrument: 'XAU/USD', granularity: 'M5' } }));
     assert.equal(out.meta.instrument, 'XAU/USD', 'defaults to the current view instrument when none is given');
@@ -828,6 +980,13 @@ test('sentinel_news chat tool (#86): present in both CHAT_TOOLS and botToolDefs 
     assert.equal(withKey.meta.newsApiAiEnabled, true, 'a settings key enables the provider in the spawned tool');
     const noKey = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
     assert.equal(noKey.meta.newsApiAiEnabled, false, 'no settings key => provider disabled in the spawned tool');
+
+    // the tool injects settings-derived GNEWS_* too, same wiring as NAI.
+    const withGnews = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: { GNEWS_KEY: 'from-settings', GNEWS_MODE: 'shadow' } }));
+    assert.equal(withGnews.meta.gnewsMode, 'shadow', 'settings GNEWS_MODE reaches the spawned tool');
+    assert.equal(withGnews.meta.gnewsEnabled, true, 'a settings key enables gnews in the spawned tool');
+    const noGnews = JSON.parse(execChatTool('sentinel_news', { instrument: 'WTICO/USD' }, { view: { instrument: 'XAU/USD', granularity: 'M5' }, settings: {} }));
+    assert.equal(noGnews.meta.gnewsEnabled, false, 'no settings key => gnews disabled in the spawned tool');
   } finally {
     if (prevOffline === undefined) delete process.env.SENTINEL_NEWS_OFFLINE;
     else process.env.SENTINEL_NEWS_OFFLINE = prevOffline;
@@ -1692,6 +1851,7 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.equal(h.feed[0].granularity, 'M5');
     assert.equal(typeof h.feed[0].ageSec, 'number');
     assert.equal(h.news.mode, 'free', 'no NEWSAPI_AI_KEY configured');
+    assert.equal(h.news.gnewsMode, 'off', 'no GNEWS_KEY configured');
     assert.equal(typeof h.llm, 'object');
     assert.ok(h.llm.lastOkAt === null || typeof h.llm.lastOkAt === 'string');
     assert.ok(Array.isArray(h.bots));
@@ -1701,6 +1861,14 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
     assert.equal(post.status, 404, 'health only registers a GET route');
+  });
+});
+
+test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ GNEWS_KEY: 'gk-secret', GNEWS_MODE: 'shadow' }) });
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.news.gnewsMode, 'shadow');
   });
 });
 
@@ -2577,5 +2745,22 @@ test('viewing a combo lazily backfills historical volume impulses with kind + ba
     assert.equal(imp.time, rows[26].time, 'second bar of the qualifying pair');
     assert.equal(imp.signal, 'buy');
     assert.equal(imp.notified, 0);
+  });
+});
+
+// The served page hand-mirrors the server's mode list because browser code cannot
+// import a server module. Nothing else keeps the two honest, so pin them against
+// each other: a mode added on one side and forgotten on the other would render a
+// select whose options the server rejects (or hide one it accepts).
+test('GNews modes: the served page\'s client-side list matches the server\'s GNEWS_MODES exactly', async () => {
+  const { GNEWS_MODES } = await import('../scripts/lib/gnews-source.mjs');
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const page = await (await fetch(base + '/')).text();
+    const m = /const\s+GNEWS_MODE_VALUES\s*=\s*\[([^\]]*)\]/.exec(page);
+    assert.ok(m, 'the page ships a client-side GNEWS_MODE_VALUES const');
+    const clientModes = m[1].split(',').map((t) => t.trim().replace(/^'|'$/g, '')).filter(Boolean);
+    assert.deepEqual(clientModes, GNEWS_MODES, 'client select options match the server mode list');
+    // and the server-only symbol must never be dereferenced in browser code
+    assert.ok(!/GNEWS_MODES\s*[.[]/.test(page), 'no server-only GNEWS_MODES.<...> leaked into the page');
   });
 });

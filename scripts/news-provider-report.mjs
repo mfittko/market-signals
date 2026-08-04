@@ -14,6 +14,8 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withDb, FLIP_KIND_PREDICATE } from './supertrend.mjs';
+import { sentinelConfigForInstrument } from './lib/instruments.mjs';
+import { parseSentinelQueryToKeywords, normTitle } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
 
 const NAI = 'newsapi-ai';
 
@@ -29,25 +31,54 @@ export function loadObservations(db, instrument, sinceIso) {
     FROM news_provider_observations WHERE instrument=? AND first_seen_at>=? ORDER BY first_seen_at ASC`).all(instrument, sinceIso);
 }
 
+// On-topic rate: the metric that matters most for comparing
+// providers — GDELT already demonstrates high volume with poor precision, so
+// raw counts alone overstate a noisy source. A row counts as on-topic when its
+// normalized_title contains at least one of the instrument's sentinel terms
+// (reusing the same OR-list parser NewsAPI.ai's query builder uses — the
+// committed queries are all pure OR lists today). Degrades to a null rate
+// (never a misleading 0%) when the instrument has no committed sentinel query
+// or produces no parseable terms.
+export function onTopicRate(obs, instrument, provider = NAI) {
+  const rows = obs.filter((o) => o.provider === provider);
+  const sentinel = instrument ? sentinelConfigForInstrument(instrument) : null;
+  let terms = [];
+  try { terms = sentinel ? parseSentinelQueryToKeywords(sentinel.query).map((t) => normTitle(t)).filter(Boolean) : []; }
+  catch { terms = []; }
+  if (!terms.length) return { onTopic: null, total: rows.length, rate: null };
+  // Whole-word, not bare substring: the short terms in these queries are exactly
+  // the ones that over-fire ("gold" inside "Goldman", "oil" inside "toil"), and
+  // this is the metric the report leads with — a false positive here would flatter
+  // a noisy provider on the one number meant to expose it. An optional plural
+  // suffix is allowed, because the committed terms are singular and headlines
+  // pluralise them ("tanker"/"tankers", "rate cut"/"rate cuts") — without it the
+  // metric would under-count instead, which flatters nothing but is just as wrong.
+  const patterns = terms.map((t) => new RegExp(`(^|\\W)${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(s|es)?(\\W|$)`));
+  const onTopic = rows.filter((o) => patterns.some((re) => re.test(o.normalized_title || ''))).length;
+  return { onTopic, total: rows.length, rate: rows.length ? Number((onTopic / rows.length).toFixed(3)) : null };
+}
+
 // Coverage: totals, unique canonical articles, unique events, duplicate ratio,
-// articles unique to the target provider vs the rest (matched on normalized
-// title), and distinct publisher domains. `provider` is the reported provider
-// (default newsapi-ai); "free"/rest is every other provider in the log.
+// articles unique to the target provider vs the free stack (matched on
+// normalized title), and distinct publisher domains.
 export function coverage(obs, provider = NAI) {
   const nai = obs.filter((o) => o.provider === provider);
-  const free = obs.filter((o) => o.provider !== provider);
+  const free = obs.filter((o) => !PAID_PROVIDERS.includes(o.provider) && o.provider !== provider);
   const titleSet = (rows) => new Set(rows.map((o) => o.normalized_title).filter(Boolean));
   const naiTitles = titleSet(nai);
   const freeTitles = titleSet(free);
   const uniqueToNai = [...naiTitles].filter((t) => !freeTitles.has(t)).length;
   const uniqueToFree = [...freeTitles].filter((t) => !naiTitles.has(t)).length;
   const dupCount = nai.filter((o) => o.is_duplicate === 1).length;
+  // Providers with no event clustering (e.g. gnews) never carry an event_uri —
+  // report null rather than a misleading 0 "unique events" for them.
+  const hasEventUri = nai.some((o) => o.event_uri);
   return {
     observations: obs.length,
     newsApiAi: nai.length,
     free: free.length,
     uniqueCanonical: new Set(obs.map((o) => o.canonical_url || o.normalized_title).filter(Boolean)).size,
-    uniqueEvents: new Set(nai.map((o) => o.event_uri).filter(Boolean)).size,
+    uniqueEvents: hasEventUri ? new Set(nai.map((o) => o.event_uri).filter(Boolean)).size : null,
     duplicateRatio: nai.length ? Number((dupCount / nai.length).toFixed(3)) : 0,
     articlesUniqueToNewsApiAi: uniqueToNai,
     articlesUniqueToFree: uniqueToFree,
@@ -55,12 +86,23 @@ export function coverage(obs, provider = NAI) {
   };
 }
 
+// The free stack, named explicitly. Defining "free" as "not the target provider"
+// silently reclassifies one paid provider's rows as free rows the moment a second
+// paid provider starts recording, which would corrupt the very comparison this
+// report exists to make. The target is excluded from the free bucket too, so
+// pointing --provider at a free source compares it against the REST of the free
+// stack rather than against itself.
+export const PAID_PROVIDERS = ['newsapi-ai', 'gnews'];
+
 // Latency: for stories BOTH stacks saw (matched on normalized title), compare
-// first_seen_at. Positive lead(min) = NewsAPI.ai saw it earlier.
+// first_seen_at. Positive lead(min) = the target provider saw it earlier.
 export function latency(obs, provider = NAI) {
   const firstSeen = (rows) => { const m = new Map(); for (const o of rows) { const t = Date.parse(o.first_seen_at); if (!o.normalized_title || !Number.isFinite(t)) continue; if (!m.has(o.normalized_title) || t < m.get(o.normalized_title)) m.set(o.normalized_title, t); } return m; };
   const naiSeen = firstSeen(obs.filter((o) => o.provider === provider));
-  const freeSeen = firstSeen(obs.filter((o) => o.provider !== provider));
+  // same bucketing rule as coverage(): the free stack is named, never inferred as
+  // "everything that isn't the target" — otherwise the OTHER paid provider's
+  // first-seen times score as free-stack wins and the two sections disagree
+  const freeSeen = firstSeen(obs.filter((o) => !PAID_PROVIDERS.includes(o.provider) && o.provider !== provider));
   const leads = []; let naiWins = 0; let freeWins = 0;
   for (const [title, naiT] of naiSeen) {
     if (!freeSeen.has(title)) continue;
@@ -124,8 +166,11 @@ export function buildReport(db, { instrument, sinceIso, provider = NAI }) {
       lastAttemptAt: state.last_attempt_at ?? null,
       circuit: state.disabled_reason ? { reason: state.disabled_reason, until: state.disabled_until } : null,
     },
-    coverage: coverage(obs, provider),
+    // Ordered per the issue: on-topic rate first (the metric that matters —
+    // volume alone overstates a noisy source), then latency, then coverage.
+    onTopic: onTopicRate(obs, instrument, provider),
     latency: latency(obs, provider),
+    coverage: coverage(obs, provider),
     tradingRelevance: tradingRelevance(db, instrument, obs, sinceIso, provider),
   };
 }
@@ -159,22 +204,26 @@ export function parseArgs(argv) {
 
 function render(r) {
   const L = [];
+  const provider = r.provider; // label with the reported provider, never a hardcoded name
   L.push(`# Provider report: ${r.provider} — ${r.instrument} (since ${r.since})`);
   const a = r.apiOperation;
   L.push(`\n## API operation`);
   L.push(`- requests used: ${a.requestsUsed}`);
   L.push(`- last success: ${a.lastSuccessAt ?? '—'} · last attempt: ${a.lastAttemptAt ?? '—'}`);
   L.push(`- circuit: ${a.circuit ? `OPEN (${a.circuit.reason}, until ${a.circuit.until})` : 'closed'}`);
-  const c = r.coverage;
-  L.push(`\n## Coverage`);
-  L.push(`- observations: ${c.observations} (newsapi-ai ${c.newsApiAi}, free ${c.free})`);
-  L.push(`- unique canonical articles: ${c.uniqueCanonical} · unique events: ${c.uniqueEvents}`);
-  L.push(`- unique to NewsAPI.ai: ${c.articlesUniqueToNewsApiAi} · unique to free: ${c.articlesUniqueToFree}`);
-  L.push(`- distinct publisher domains: ${c.distinctPublisherDomains} · duplicate ratio: ${c.duplicateRatio}`);
+  const ot = r.onTopic;
+  L.push(`\n## On-topic rate (the metric that matters — volume alone overstates a noisy source)`);
+  L.push(`- on-topic: ${ot.onTopic ?? '—'}/${ot.total} · rate: ${ot.rate === null ? '— (no sentinel terms for this instrument)' : `${(ot.rate * 100).toFixed(1)}%`}`);
   const l = r.latency;
-  L.push(`\n## Latency (observed, includes poll cadence)`);
-  L.push(`- matched stories: ${l.matchedStories} · NewsAPI.ai first-seen wins: ${l.newsApiAiFirstSeenWins} · free wins: ${l.freeFirstSeenWins}`);
+  L.push(`\n## First-seen latency (observed, includes poll cadence)`);
+  L.push(`- matched stories: ${l.matchedStories} · ${provider} first-seen wins: ${l.newsApiAiFirstSeenWins} · free wins: ${l.freeFirstSeenWins}`);
   L.push(`- median lead: ${l.medianLeadMin ?? '—'} min · acquisition median/p90/p95: ${l.acquisitionMedianMin ?? '—'}/${l.acquisitionP90Min ?? '—'}/${l.acquisitionP95Min ?? '—'} min`);
+  const c = r.coverage;
+  L.push(`\n## Unique coverage`);
+  L.push(`- observations: ${c.observations} (${provider} ${c.newsApiAi}, free stack ${c.free}; the rest are other paid providers)`);
+  L.push(`- unique canonical articles: ${c.uniqueCanonical} · unique events: ${c.uniqueEvents ?? '— (provider has no event clustering)'}`);
+  L.push(`- unique to ${provider}: ${c.articlesUniqueToNewsApiAi} · unique to free: ${c.articlesUniqueToFree}`);
+  L.push(`- distinct publisher domains: ${c.distinctPublisherDomains} · duplicate ratio: ${c.duplicateRatio}`);
   const t = r.tradingRelevance;
   L.push(`\n## Trading relevance`);
   L.push(`- fresh flips: ${t.freshFlips} — covered ${JSON.stringify(t.flipsCovered)}`);

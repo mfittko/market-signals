@@ -45,7 +45,25 @@ uiReview:
       steps:
         - { action: goto, path: "/", name: open-config }
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        # the modal reopens on the LAST-USED tab (persisted in localStorage), so a
+        # sibling flow that visited another tab would leave the model field absent —
+        # every settings flow names its own tab rather than trusting the default.
+        - { action: click, selector: "#cfgTabs button[data-tab=llm]", name: llm-provider-tab }
         - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
+        - { action: click, selector: "#cfg button", name: save-settings }
+        - { action: goto, path: "/", name: reload-after-save }
+    # the GNews fields (second opt-in news provider, alongside NEWSAPI_AI_*) live
+    # on the News provider tab — drive them so the review loop actually renders
+    # the masked key input and the off/shadow/auto mode select, not just the
+    # LLM-tab fields the settings-roundtrip flow above already covers.
+    - name: settings-news-gnews
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: click, selector: "#cfgTabs button[data-tab=news]", name: news-provider-tab }
+        - { action: fill, selector: "#f-GNEWS_KEY", value: "ui-review-gnews-key", name: fill-gnews-key }
+        - { action: select, selector: "#f-GNEWS_MODE", value: "shadow", name: select-gnews-mode }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
     # the gates/standing-notes panel is global config: it lives in the ⚙ modal,
@@ -57,6 +75,16 @@ uiReview:
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         - { action: click, selector: "#cfgTabs button[data-tab=global]", name: gates-notes-tab }
         - { action: click, selector: "#gatesTabs button[data-tab=recheck]", name: recheck-gate-panel }
+    # Pushover fields (opt-in push target) live in the Advanced tab,
+    # next to notifierBin — never a real Pushover request, just the fields render.
+    - name: settings-advanced-pushover
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html", "scripts/lib/pushover.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: click, selector: "#cfgTabs button[data-tab=adv]", name: advanced-tab }
+        - { action: fill, selector: "input[name=PUSHOVER_TOKEN]", value: "ui-review-token", name: fill-pushover-token }
+        - { action: fill, selector: "input[name=PUSHOVER_USER]", value: "ui-review-user", name: fill-pushover-user }
     # verdict-budget + fallback-provider fields: NOT contextual on the
     # provider select, so they render regardless of which provider is active.
     - name: settings-llm-fallback

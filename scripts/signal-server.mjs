@@ -23,6 +23,9 @@ import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, detectHistoricalIm
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
+import { resolveGnewsSource } from './lib/gnews-source.mjs';
+import { resolveNewsProviderEnv } from './lib/news-provider-env.mjs';
+import { PUSHOVER_SETTING_KEYS } from './lib/pushover.mjs';
 import { activateStrategy, activeStrategy, ensureSeedStrategy, listStrategies, saveStrategy, strategyById } from './strategies.mjs';
 import { archiveMemory, editMemory, listMemories, memoriesContext, reweightMemory, saveMemory } from './memories.mjs';
 import { GATES, activateGatePrompt, deactivateGatePrompt, listGatePrompts, saveGatePrompt } from './gate-prompts.mjs';
@@ -51,7 +54,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', , 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -70,7 +73,7 @@ function validateGranularityMinMap(patchVal, key, min) {
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
-const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'sttOpenaiKey'];
+const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'GNEWS_KEY', 'PUSHOVER_TOKEN', 'PUSHOVER_USER', 'sttOpenaiKey'];
 const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
@@ -744,11 +747,12 @@ export const CHAT_TOOLS = [
       const instrument = validInstrument(a?.instrument) ? a.instrument
         : validInstrument(ctx?.view?.instrument) ? ctx.view.instrument
         : DEFAULT_INSTRUMENT;
-      // Inject the NewsAPI.ai config from settings.json into the subprocess env
-      // (issue #114): the CLI resolves the provider from process.env, but the key
-      // lives in settings (the LaunchAgent never loads .env), so without this the
-      // chat/bot sentinel tool silently falls back to the free stack only.
-      const env = { ...process.env, ...resolveNewsApiAiSource(ctx?.settings || {}) };
+      // Inject the NewsAPI.ai + GNews config from settings.json into the subprocess
+      // env (issue #114): the CLI resolves each provider from
+      // process.env, but the keys live in settings (the LaunchAgent never loads
+      // .env), so without this the chat/bot sentinel tool silently falls back to
+      // whatever a bare .env carries (nothing, on the deployed server).
+      const env = { ...process.env, ...resolveNewsProviderEnv(ctx?.settings || {}) };
       return execFileSync(process.execPath, ['skills/market-sentinel/scripts/sentinel_news.mjs', '--instrument', instrument, '--hours', String(clampInt(a?.hours, 1, 72, 12)), '--max-items', String(clampInt(a?.maxItems, 1, 30, 15)), '--json'], { encoding: 'utf8', timeout: 45000, env });
     },
   },
@@ -1474,6 +1478,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           catch (err) { if (/no such table/i.test(String(err.message))) return null; throw err; }
         });
         const newsSrc = resolveNewsApiAiSource(cfg);
+        const gnewsSrc = resolveGnewsSource(cfg);
         const botsCfg = (cfg.bot && typeof cfg.bot.bots === 'object' && cfg.bot.bots) || {};
         const combos = Object.keys(botsCfg).map(normCombo);
         const lastDecisions = lastDecisionByCombo(dbPath, combos);
@@ -1490,7 +1495,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           halted,
           feed,
           llm: { lastOkAt: lastDecisionRow?.at ?? null },
-          news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free' },
+          news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free', gnewsMode: gnewsSrc.GNEWS_KEY ? (gnewsSrc.GNEWS_MODE || 'off') : 'off' },
           bots,
           cycle: cycleStatus,
         });

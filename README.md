@@ -117,7 +117,8 @@ Always-on localhost web app (`http://127.0.0.1:8787`, binds 127.0.0.1 only):
 - **Settings modal** (⚙, #108): one tabbed modal of **global** config (reopens on
   the last-used tab), four tabs:
   - **LLM provider** — contextual provider/model/key panel (masked keys, atomic writes);
-  - **News provider** — every `NEWSAPI_AI_*` setting (masked key);
+  - **News provider** — every `NEWSAPI_AI_*` setting (masked key) plus the
+    `GNEWS_*` fields for the second opt-in provider (masked key);
   - **Gates & notes** — per-gate transparency (filter/recheck/bot/chat): effective
     system prompt + declared toolset, drafted overrides, human-only activation for
     the filter and recheck gates; plus the standing notes (add, reweight, edit,
@@ -248,6 +249,32 @@ reports coverage, latency, and trading relevance from the provenance log. Withou
 a key, behavior is byte-for-byte the free stack. See
 `skills/market-sentinel/SKILL.md`.
 
+**GNews — a second, independent opt-in provider (off by default, nothing
+removed):** add `GNEWS_KEY` in the ⚙ settings modal's News provider tab (masked,
+write-only) and it starts alongside NewsAPI.ai, not instead of it — the choice
+between the two is made later, on measured coverage/precision/latency, not up
+front. Modes, `GNEWS_MODE` (default `off`): `off` disables it; `shadow` fetches
+and records to the same provider-observations log purely for comparison and
+never reaches a prompt; `auto` additionally merges its articles into the same
+deduped news union every other source feeds. The free developer key is **not**
+a live feed — every article arrives 12 hours after publication and the key is
+licensed for non-commercial/evaluation use only, so `auto` on a free key is a
+stale feed dressed up as a live one; a paid/trial key is required before `auto`
+can inform a real decision. `shadow` is what the free key is actually good
+for: building and measuring the adapter without spending real money.
+Like NewsAPI.ai, `GNEWS_REQUEST_BUDGET` caps spend — as a running lifetime
+total, not a daily allowance: the counter is never reset, so once it is reached
+the provider stops for good until the number is raised. The fetch is
+**on-demand at decision points** by default; background polling is its own
+field on the same tab (`GNEWS_BACKGROUND`, off by default) and
+stays opt-in for the same reason NewsAPI.ai's does: the watcher's ~8-minute
+background cadence visits every instrument carrying a sentinel query — 4 of the
+7 watched today — which is roughly 720 requests/day against GNews's 100/day
+cap — leaving it off keeps spend scoped to actual decisions instead of clock
+ticks. Activation, either provider: the key set in the ⚙ modal persists to
+`data/settings.json`, which is what the long-lived server reads (the
+LaunchAgent never loads `.env`); `.env` covers CLI and test runs only.
+
 ## Provider configuration — `data/settings.json`
 
 Edited from the settings modal, or by hand. Provider resolution is
@@ -272,6 +299,25 @@ chat-only proxy with no transcription endpoint), `sttOpenaiBaseUrl` (default
 (a local command invoked as `sttBin <audiofile>` printing the transcript to
 stdout — wrap whisper.cpp here for a fully-offline backend).
 
+### Pushover push notifications (opt-in)
+
+Off by default; nothing changes until you configure it. When enabled, every
+alert (a supertrend flip, a volume-impulse alert, the bot's kill-switch halt)
+is pushed to your phone via [Pushover](https://pushover.net), **in addition
+to** the existing desktop notification — not instead of it, so the desktop one
+still fires as a safety net if a push fails or the monthly quota is hit. A
+one-off ~$5 iOS licence covers iPhone/iPad/Apple Watch; the free allowance is 10,000
+messages/month. The alert text (instrument, direction, price) leaves this
+machine over Pushover's hosted service — that's inherent to any hosted push
+target, so weigh it before enabling.
+
+To activate: ⚙ settings modal → **Advanced** tab → set `PUSHOVER_ENABLED` on
+and fill in `PUSHOVER_TOKEN` (your Pushover application API token) and
+`PUSHOVER_USER` (your user key), then Save. This writes to `data/settings.json`,
+**not** `.env` — the LaunchAgent never loads `.env`, so that's the only place
+that reaches the live watcher/bot. Both fields are masked write-only secrets,
+same as the LLM API keys. Enabling the toggle without both keys set is inert
+(no call attempted, a one-time log line) rather than erroring on every alert.
 **Verdict budget + fallback provider (the alert filter and the recheck gate
 only, never the bot or chat).** `filterMaxCompletionTokens` caps the filter/
 recheck completion separately from the global `maxCompletionTokens`, and

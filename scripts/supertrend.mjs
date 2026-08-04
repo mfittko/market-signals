@@ -18,6 +18,7 @@ export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from './lib/pushover.mjs';
 
 const USAGE = `supertrend — Supertrend flip signals + inline backtest.
 
@@ -755,7 +756,7 @@ async function withVerdictFallback(settings, run) {
 }
 
 async function llmVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true, exactMaxTokens: true });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -793,7 +794,7 @@ function normalizeRecheckVerdict(v) {
 }
 
 async function llmRecheckVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true, exactMaxTokens: true });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);
@@ -824,8 +825,27 @@ export function readSettings(settingsPath) {
 
 // Delivery: terminal-notifier when installed (the notification itself opens the
 // deep link), else osascript (not clickable). Both bounded by a 10s timeout.
+// Pushover is delivered AFTER the local notification, additively — it
+// never replaces it and a slow/hanging push can't delay the notification that
+// already works.
 export function sendNotification(msg, deepLink, settings = {}) {
+  // `clean` exists for the AppleScript fallback's string literal; the push
+  // carries the unmangled text, since nothing about its transport needs it
+  // stripped.
   const clean = msg.replace(/[\\"]/g, '').replace(/\s+/g, ' ');
+  // Local first (it is the channel that always exists and must not wait on a
+  // network call), but in a `finally` so the push is attempted even when the
+  // local delivery throws — a machine with no osascript, or a broken notifier
+  // binary, is exactly when the phone matters most. The local error still
+  // propagates afterwards, so the caller's recorded outcome is unchanged.
+  try {
+    deliverLocalNotification(clean, deepLink, settings);
+  } finally {
+    deliverPushover(msg, deepLink, settings);
+  }
+}
+
+function deliverLocalNotification(clean, deepLink, settings) {
   // An EXPLICITLY configured notifierBin is authoritative: if it does not
   // exist, notifications are deliberately suppressed (tests pin a missing path
   // for exactly this) — the osascript fallback applies only when nothing was
@@ -862,6 +882,55 @@ export function sendNotification(msg, deepLink, settings = {}) {
   execFileSync('osascript', ['-e', `display notification "${clean}" with title "market-signals" sound name "Glass"`], { timeout: 10000 });
 }
 
+// Half-configured (enabled but missing a key) warns ONCE per process, not per
+// alert — a watcher that pushes every few minutes must not spam the log for a
+// config mistake it can't fix on its own. Process-lifetime only (ponytail: no
+// persistence to settings.json, so a restarted watcher warns again — that's
+// fine, restarts are rare and settings.json is operator config, not runtime state).
+let pushoverWarnedIncomplete = false;
+
+// Additive push target: never throws (any failure is caught and swallowed
+// here, never reaching the caller — a Pushover outage must not corrupt the
+// recorded alert outcome), and MS_NO_NOTIFY suppresses it UNCONDITIONALLY.
+// Unlike the local notifier, Pushover has no fixture equivalent an
+// explicitly-configured test could point at, so under MS_NO_NOTIFY this returns
+// before any config is even resolved. That is what makes the suite safe by
+// default. The handful of tests that DO exercise this path opt out deliberately —
+// they delete MS_NO_NOTIFY and shadow `curl` on PATH with a recorder — so the
+// guarantee is "nothing reaches the network unless a test explicitly builds a
+// fake endpoint for it", not "the code cannot make a request".
+function deliverPushover(msg, deepLink, settings) {
+  if (process.env.MS_NO_NOTIFY) return;
+  try {
+    const { enabled, token, user } = resolvePushoverConfig(settings);
+    if (!enabled) return;
+    if (!token || !user) {
+      if (!pushoverWarnedIncomplete) {
+        pushoverWarnedIncomplete = true;
+        dbg('PUSHOVER_ENABLED is on but PUSHOVER_TOKEN/PUSHOVER_USER is missing — push disabled until both are set');
+      }
+      return;
+    }
+    sendPushover(buildPushoverPayload(msg, deepLink), { token, user });
+  } catch (err) {
+    // String(...) rather than err.message.split(...): a non-Error throw would make
+    // the handler itself raise a TypeError, and since this call sits in a `finally`
+    // that error would REPLACE any pending local-delivery error and escape to the
+    // caller — which records a failed alert. The whole point of this catch is that
+    // a push failure can never do that.
+    // Sanitised by construction: the token and user never reach argv or a message
+    // (sendPushover posts them on stdin), so an error string cannot carry them.
+    // Prefer curl's own diagnostic: execFileSync's err.message is a constant echo
+    // of the argv, identical for every failure, so on its own it cannot tell a
+    // rejected token from a DNS failure from a quota wall — and a push that has
+    // quietly stopped working is exactly what needs diagnosing. `-sS` keeps curl
+    // quiet on success and explanatory on failure. Safe to log: the body (and so
+    // both secrets) goes in on stdin, never argv, so curl cannot echo them back.
+    const detail = String(err?.stderr || '').trim() || String(err?.message ?? err);
+    dbg(`pushover notification failed: ${detail.split('\n')[0]}`);
+  }
+}
+
 // Default: pi coding agent if installed, else env API keys, else no filter.
 // Shared by the watcher's alert filter (processSignal) and the operator's
 // recheckSignal button — both fall back the same way when settings.json
@@ -887,11 +956,14 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
   const { memoriesContext } = await import('./memories.mjs');
   // lazy import: avoids a static cycle (news.mjs imports withDb from here)
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource, isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
-  // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
+  const { isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
+  // On-demand paid-provider pull at this decision point (issue #104): fresh news
   // fetched at the moment the flip is judged (fail-open, no-op without a key).
-  // Key comes from settings.json (env fallback) — the LaunchAgent never loads .env.
-  const sentinel = await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings), log: dbg, sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) });
+  // Keys come from settings.json (env fallback) — the LaunchAgent never loads
+  // .env — and EVERY provider's keys are resolved together, so one configured in
+  // the settings dialog can't be silently left out of this path.
+  const sentinel = await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsProviderEnv(settings), log: dbg, sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) });
   return {
     current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity },
     backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
@@ -1610,14 +1682,15 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate, settings = {} } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource, isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
-    // On-demand NewsAPI.ai pull at the bot's decision point (issue #104); the
+    // On-demand paid-provider pull at the bot's decision point (issue #104); the
     // throttle means the filter + bot judging the same flip share one pull.
-    // Key from settings.json (env fallback) — the LaunchAgent never loads .env.
-    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings), sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) })) || undefined,
+    // Keys from settings.json (env fallback) — the LaunchAgent never loads .env.
+    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsProviderEnv(settings), sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) })) || undefined,
   };
 }
 
@@ -1745,7 +1818,11 @@ export async function runWatcherCycle(opts, cfg) {
     // a real alert.
     try {
       const { refreshNewsCache } = await import('./news.mjs');
-      await refreshNewsCache(opts.db, combos, cfg);
+      const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
+      // cfg IS the settings object here; without this the background path would
+      // read process.env only, so a provider enabled in the settings dialog would
+      // never poll (the LaunchAgent never loads .env).
+      await refreshNewsCache(opts.db, combos, cfg, { env: resolveNewsProviderEnv(cfg) });
     } catch (err) {
       dbg(`news cache refresh failed: ${err.message}`);
     }
