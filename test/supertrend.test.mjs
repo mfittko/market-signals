@@ -561,7 +561,7 @@ test('effectiveModel: per-provider binding, active-only flat fallback, no cross-
   // bound model wins
   assert.equal(effectiveModel({ provider: 'anthropic', models: { anthropic: 'claude-x' } }, 'anthropic'), 'claude-x');
   // provider default when nothing bound and no flat model
-  assert.equal(effectiveModel({ provider: 'anthropic' }, 'anthropic'), 'claude-opus-4-8');
+  assert.equal(effectiveModel({ provider: 'anthropic' }, 'anthropic'), 'claude-sonnet-5');
   assert.equal(effectiveModel({ provider: 'openai' }, 'openai'), 'gpt-5.4-mini');
   // openai-compatible has NO default → null when unset
   assert.equal(effectiveModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x' }, 'openai-compatible'), null);
@@ -1013,7 +1013,7 @@ test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rou
     });
     assert.equal(reply, 'final answer');
     assert.equal(call, 2, 'two rounds ran');
-    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-opus-4-8', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
+    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-sonnet-5', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -1923,7 +1923,12 @@ test('withVerdictFallback: a nearly-exhausted deadline skips the fallback instea
   }
 });
 
-test('verdict budget: the big reasoning budget goes to the openai path, never to anthropic max_tokens', async () => {
+// The anthropic verdict once carried its own small cap. It was raised to the
+// shared budget because that API bills actual output rather than the ceiling, so
+// a low cap bought nothing and truncated a thinking model mid-JSON — the same
+// unparseable-verdict failure this path exists to remove. The remaining
+// invariant is only that the budget stays under the smallest model's own cap.
+test('verdict budget: one budget covers both API shapes, under every model max-output cap', async () => {
   const { llmVerdict } = await import('../scripts/supertrend.mjs');
   const bodies = [];
   global.fetch = async (url, opts) => {
@@ -1934,9 +1939,28 @@ test('verdict budget: the big reasoning budget goes to the openai path, never to
     await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' } }, { s: 1 }, 'sys').catch(() => {});
     const anthropic = bodies.find((b) => b.url.includes('anthropic'));
     assert.ok(anthropic, 'the anthropic endpoint was called');
-    assert.ok(anthropic.body.max_tokens <= 4096,
-      `anthropic max_tokens must stay a modest output cap, got ${anthropic.body.max_tokens} — a hard ceiling above the model's own would 400 every attempt`);
+    assert.equal(anthropic.body.max_tokens, 16384, 'anthropic gets the same verdict budget as the openai path');
+    assert.ok(anthropic.body.max_tokens <= 64000,
+      `must stay under the smallest current anthropic model's max-output cap, got ${anthropic.body.max_tokens} — above it the API 400s every attempt`);
   } finally { delete global.fetch; }
+});
+
+test('anthropicThinking: unset sends no thinking field; a mode is passed straight through', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const send = async (settings) => {
+    let sent = null;
+    global.fetch = async (url, opts) => {
+      sent = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{}' };
+    };
+    try { await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' }, ...settings }, { s: 1 }, 'sys').catch(() => {}); } finally { delete global.fetch; }
+    return sent;
+  };
+  assert.ok(!('thinking' in await send({})), 'unset means the model default, NOT an explicit disable');
+  assert.ok(!('thinking' in await send({ anthropicThinking: '' })), 'empty string is the same as unset');
+  assert.ok(!('thinking' in await send({ anthropicThinking: 'bogus' })), 'an unknown mode is ignored, never forwarded to the vendor');
+  assert.deepEqual((await send({ anthropicThinking: 'adaptive' })).thinking, { type: 'adaptive' });
+  assert.deepEqual((await send({ anthropicThinking: 'disabled' })).thinking, { type: 'disabled' });
 });
 
 test('verdict budget: filterMaxCompletionTokens can lower the budget, not only raise it', async () => {

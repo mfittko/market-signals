@@ -272,7 +272,7 @@ export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai', 'openai-compatibl
 
 // Per-provider default model (#93/#99). `openai-compatible` has NO default — the
 // operator sets the model id explicitly (arbitrary self-hosted models).
-export const PROVIDER_DEFAULT_MODEL = { anthropic: 'claude-opus-4-8', openai: 'gpt-5.4-mini' };
+export const PROVIDER_DEFAULT_MODEL = { anthropic: 'claude-sonnet-5', openai: 'gpt-5.4-mini' };
 
 export function resolveProvider(settings) {
   // explicit-first (#42): the provider is a deliberate choice; the key-derived
@@ -317,6 +317,25 @@ export function effectiveModel(settings, provider) {
   if (bound) return bound;
   if (provider === resolveProvider(settings) && settings.model) return settings.model;
   return PROVIDER_DEFAULT_MODEL[provider] ?? null;
+}
+
+// Deliberately anthropic-scoped, not a shared "thinking" knob: these are that
+// vendor's own wire values, and the other providers express reasoning depth in
+// their own vocabulary entirely (the openai shape has no equivalent field — its
+// lever is the completion budget). A cross-provider setting would have to mean
+// something different per provider, so each gets its own key instead, the same
+// way maxCompletionTokens is openai-only and piBin is pi-only.
+export const ANTHROPIC_THINKING_MODES = ['adaptive', 'disabled'];
+// Unset sends no `thinking` field at all, which is NOT the same as 'disabled':
+// each model family picks its own default (the current default model thinks
+// adaptively; its predecessor did not), and some models reject an explicit
+// 'disabled' outright. Leaving the field off is therefore the only setting safe
+// on every model, so it stays the default. Choose 'disabled' for a cheap, fast
+// verdict at the cost of reasoning depth, or 'adaptive' to force thinking on a
+// model that would otherwise skip it — remembering that max_tokens caps thinking
+// and output together.
+export function anthropicThinkingMode(settings) {
+  return ANTHROPIC_THINKING_MODES.includes(settings.anthropicThinking) ? settings.anthropicThinking : null;
 }
 
 // Fail fast at request time when a provider with no default (openai-compatible)
@@ -466,6 +485,8 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
       system,
       messages: [{ role: 'user', content: user }],
     };
+    const thinking = anthropicThinkingMode(settings);
+    if (thinking) body.thinking = { type: thinking };
     if (schema) body.output_config = { format: { type: 'json_schema', schema } };
     if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -545,6 +566,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
     ...toolDefs.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
   ];
   const model = effectiveModel(settings, 'anthropic');
+  const thinking = anthropicThinkingMode(settings);
   const messages = [{ role: 'user', content: user }];
   // #93: usage isn't known until the loop's final round, so rounds accumulate
   // into these and report once, at the end, instead of per-round.
@@ -555,7 +577,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: anthropicHeaders(settings),
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages, ...(thinking ? { thinking: { type: thinking } } : {}) }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
@@ -691,15 +713,15 @@ export function llmUsageLine(tag, info) {
 // NOT touch OPENAI_REASONING_FLOOR or settings.maxCompletionTokens, so every
 // other call site (chat, the bot's tool loop) keeps its existing budget.
 const VERDICT_TOKEN_FLOOR = 16384;
-// The verdict JSON itself is tiny; this budget exists purely as REASONING
-// headroom, which is an openai-compatible concern. Anthropic's max_tokens is a
-// hard OUTPUT ceiling instead, and a model whose own ceiling sits below this
-// number would 400 on every single attempt — so a fallback to anthropic would be
-// permanently broken rather than a safety net. Anthropic keeps the small
-// call-site budget its output actually needs.
-const VERDICT_ANTHROPIC_MAX_TOKENS = 1024;
-function verdictMaxTokens(settings, provider) {
-  if (provider === 'anthropic') return VERDICT_ANTHROPIC_MAX_TOKENS;
+// One budget for every provider. The verdict JSON itself is tiny either way —
+// this is headroom for the reasoning that precedes it, and BOTH API shapes spend
+// it the same way: a reasoning model can exhaust the budget on chain-of-thought
+// and return truncated or empty content. It is a ceiling, not a reservation, and
+// both vendors bill actual output, so a generous number costs nothing when the
+// model answers quickly. The one hard limit is a model's own max-output cap
+// (64k on the smallest current anthropic model) — this floor sits well under
+// every one of them, so it cannot 400 a request on its own.
+function verdictMaxTokens(settings) {
   return settings.filterMaxCompletionTokens > 0 ? settings.filterMaxCompletionTokens : VERDICT_TOKEN_FLOOR;
 }
 
@@ -761,7 +783,7 @@ async function withVerdictFallback(settings, run) {
 }
 
 async function llmVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings), exactMaxTokens: true });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -799,7 +821,7 @@ function normalizeRecheckVerdict(v) {
 }
 
 async function llmRecheckVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings), exactMaxTokens: true });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);

@@ -2033,7 +2033,8 @@ const FIELD_HINTS = {
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
   OPENAI_BASE_URL: 'base URL of the OpenAI-compatible endpoint (e.g. a local proxy)',
   maxCompletionTokens: 'cap on tokens the model may generate per call',
-  filterMaxCompletionTokens: 'token budget for the alert filter + re-check verdict calls only (separate from maxCompletionTokens, which caps chat) — defaults to 16384 so a reasoning model does not exhaust its budget on chain-of-thought before replying. Authoritative for these calls: unlike the chat budget it can be set lower as well as higher. Ignored for an anthropic verdict, whose max_tokens is a hard output ceiling rather than reasoning headroom',
+  filterMaxCompletionTokens: 'token budget for the alert filter + re-check verdict calls only (separate from maxCompletionTokens, which caps chat) — defaults to 16384 so a reasoning model does not exhaust its budget on chain-of-thought before replying. Authoritative for these calls: unlike the chat budget it can be set lower as well as higher. Applies to every provider; it is a ceiling rather than a reservation, so a generous value costs nothing when the model answers quickly. Set it below a model\'s own max-output cap',
+  anthropicThinking: 'whether anthropic models reason before answering. Leave at "model default" unless you have a reason: it sends no thinking setting at all, which is the only choice valid on every model — some reject an explicit "disabled". "adaptive" lets the model decide how much to think (better on finely-balanced calls, slower, and it spends the filterMaxCompletionTokens budget, which caps thinking and answer together). "disabled" is fastest and cheapest but reasons less. Applies to verdicts and chat alike',
   llmFallbackProvider: 'retried once on this provider if the primary cannot produce a usable verdict (timeout, error, or unparseable reply) — off by default, and only for the alert filter and re-check. It uses this provider\'s own stored model, and its own key EXCEPT for the openai / openai-compatible pair, which share the single OPENAI_API_KEY slot by design — so that pairing fails over the endpoint, not the credential. When it fires, the signal payload (instrument, price, signal) reaches this second vendor too.',
   __model: 'model name/id to request from the provider',
 };
@@ -2091,7 +2092,7 @@ async function cfg() {
   const llmFieldsFor = (p) => {
     const model = ['__model', 'text', 'model', (s.models && s.models[p]) || ''];
     if (p === 'pi') return [['piBin', 'text', 'piBin', s.piBin || '']];
-    if (p === 'anthropic') return [model, ['ANTHROPIC_API_KEY', 'password', 'ANTHROPIC_API_KEY', s.ANTHROPIC_API_KEY || '']];
+    if (p === 'anthropic') return [model, ['ANTHROPIC_API_KEY', 'password', 'ANTHROPIC_API_KEY', s.ANTHROPIC_API_KEY || ''], ['anthropicThinking', 'select', 'anthropicThinking', s.anthropicThinking || '', [['', 'model default'], ['adaptive', 'adaptive'], ['disabled', 'disabled']]]];
     if (p === 'openai') return [model, ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
     if (p === 'openai-compatible') return [model, ['OPENAI_BASE_URL', 'text', 'OPENAI_BASE_URL', s.OPENAI_BASE_URL || ''], ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
     return []; // none
@@ -2107,18 +2108,24 @@ async function cfg() {
     '<label for="f-' + id + '"' + (FIELD_HINTS[id] ? ' title="' + esc(FIELD_HINTS[id]) + '"' : '') + '>' + esc(label) + '</label>';
   const inputRow = (id, kind, label, val, ph) =>
     hintedLabel(id, label) + '<input id="f-' + id + '" name="' + id + '" type="' + kind + '"' + (kind === 'number' ? ' step="any"' : '') + ' value="' + esc(val) + '" placeholder="' + esc(ph || '') + '">' + fieldHint(id);
-  const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val]) =>
-    inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : '')).join('');
+  // One select renderer for both the contextual LLM fields and the flat
+  // News/Advanced ones. An unknown stored value is appended as its own option so
+  // a hand-edited settings.json is shown rather than silently reset on save.
+  const selectRow = (id, label, val, opts) => {
+    const curS = String(val);
+    const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [val, val]];
+    return hintedLabel(id, label) + '<select id="f-' + id + '" name="' + id + '">' +
+      list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>' + fieldHint(id);
+  };
+  const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val, opts]) =>
+    (kind === 'select'
+      ? selectRow(id, label, val, opts)
+      : inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : ''))).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts, def]) => {
     if (kind === 'json') return inputRow(k, 'text', k, s[k] ? JSON.stringify(s[k]) : '', opts || '{"M1":1,"M5":5}');
     const cur = s[k] ?? def ?? '';
-    if (kind === 'select') {
-      const curS = String(cur);
-      const list = opts.some(([v]) => String(v) === curS) ? opts : [...opts, [cur, cur]];
-      return hintedLabel(k, k) + '<select id="f-' + k + '" name="' + k + '">' +
-        list.map(([v, lab]) => '<option value="' + esc(v) + '"' + (String(v) === curS ? ' selected' : '') + '>' + esc(lab) + '</option>').join('') + '</select>' + fieldHint(k);
-    }
+    if (kind === 'select') return selectRow(k, k, cur, opts);
     return inputRow(k, kind, k, cur, '');
   };
   const stored = localStorage.getItem('cfgTab');

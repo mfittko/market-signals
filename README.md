@@ -323,7 +323,16 @@ only, never the bot or chat).** `filterMaxCompletionTokens` caps the filter/
 recheck completion separately from the global `maxCompletionTokens`, and
 defaults well above it — a reasoning model can otherwise spend the whole
 budget on chain-of-thought before emitting the verdict JSON, returning
-`finish_reason=length` with no content. `llmFallbackProvider` retries the
+`finish_reason=length` with no content (or, on the Anthropic shape, JSON
+truncated mid-string). One budget covers every provider: it is a ceiling
+rather than a reservation and both vendors bill actual output, so a generous
+value costs nothing when the model answers quickly. Keep it below the
+configured model's own max-output cap, or the request is rejected outright.
+`anthropicThinking` controls whether Anthropic models reason before
+answering — leave it at the default (unset, meaning no `thinking` field is
+sent at all) unless you have a reason to force `adaptive` or `disabled`;
+unset is the only value valid on every model, since some reject an explicit
+`disabled`. `llmFallbackProvider` retries the
 verdict once, on a second provider, when the primary produces nothing usable
 (a transport error, a timeout, an empty reply, or JSON the filter can't
 parse) — off by default. Both providers already have their key and model
