@@ -329,7 +329,7 @@ export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai', 'openai-compatibl
 
 // Per-provider default model (#93/#99). `openai-compatible` has NO default — the
 // operator sets the model id explicitly (arbitrary self-hosted models).
-export const PROVIDER_DEFAULT_MODEL = { anthropic: 'claude-opus-4-8', openai: 'gpt-5.4-mini' };
+export const PROVIDER_DEFAULT_MODEL = { anthropic: 'claude-sonnet-5', openai: 'gpt-5.4-mini' };
 
 export function resolveProvider(settings) {
   // explicit-first (#42): the provider is a deliberate choice; the key-derived
@@ -376,6 +376,25 @@ export function effectiveModel(settings, provider) {
   return PROVIDER_DEFAULT_MODEL[provider] ?? null;
 }
 
+// Deliberately anthropic-scoped, not a shared "thinking" knob: these are that
+// vendor's own wire values, and the other providers express reasoning depth in
+// their own vocabulary entirely (the openai shape has no equivalent field — its
+// lever is the completion budget). A cross-provider setting would have to mean
+// something different per provider, so each gets its own key instead, the same
+// way maxCompletionTokens is openai-only and piBin is pi-only.
+export const ANTHROPIC_THINKING_MODES = ['adaptive', 'disabled'];
+// Unset sends no `thinking` field at all, which is NOT the same as 'disabled':
+// each model family picks its own default (the current default model thinks
+// adaptively; its predecessor did not), and some models reject an explicit
+// 'disabled' outright. Leaving the field off is therefore the only setting safe
+// on every model, so it stays the default. Choose 'disabled' for a cheap, fast
+// verdict at the cost of reasoning depth, or 'adaptive' to force thinking on a
+// model that would otherwise skip it — remembering that max_tokens caps thinking
+// and output together.
+export function anthropicThinkingMode(settings) {
+  return ANTHROPIC_THINKING_MODES.includes(settings.anthropicThinking) ? settings.anthropicThinking : null;
+}
+
 // Fail fast at request time when a provider with no default (openai-compatible)
 // has no model configured (#99 review): sending "model": null just earns a
 // generic upstream 400 — a clear config error is far more actionable.
@@ -405,8 +424,8 @@ function requireAnthropicKey(settings) {
   return settings.ANTHROPIC_API_KEY;
 }
 
-function requireOpenAiKey(settings) {
-  if (!settings.OPENAI_API_KEY) throw new Error(`provider "${resolveProvider(settings)}" selected but OPENAI_API_KEY is not set`);
+function requireOpenAiKey(settings, provider = resolveProvider(settings)) {
+  if (!settings.OPENAI_API_KEY) throw new Error(`provider "${provider}" selected but OPENAI_API_KEY is not set`);
   return settings.OPENAI_API_KEY;
 }
 
@@ -414,8 +433,13 @@ function requireOpenAiKey(settings) {
 // no-content diagnostic were byte-identical across the request path and both tool
 // loops. (The request BODIES still differ per path, so those aren't merged.)
 const anthropicHeaders = (settings) => ({ 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' });
-const openaiHeaders = (settings) => ({ 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings)}` });
-const openaiNoContentError = (finishReason, budget) => new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+const openaiHeaders = (settings, provider = resolveProvider(settings)) => ({ 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings, provider)}` });
+// Names the knob the CALLER actually governs: the verdict/recheck path is
+// capped by filterMaxCompletionTokens, everything else by maxCompletionTokens.
+// Pointing a filter failure at the chat knob would send the operator to a
+// setting that cannot fix it — and diagnosing filter failures is the whole
+// reason this error text exists.
+const openaiNoContentError = (finishReason, budget, knob = 'maxCompletionTokens') => new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise ${knob})`);
 
 // Streaming SSE reader shared by both API providers: calls extract(json) per
 // `data:` event, invokes onDelta with each text piece, returns the full text.
@@ -476,8 +500,12 @@ function openaiCompletionBudget(settings, maxTokens) {
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
 // Always tool-less: the chat's tool surface lives in the dedicated tool loops.
-export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null, onUsage = null } = {}) {
-  const provider = resolveProvider(settings);
+export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null, onUsage = null, provider = resolveProvider(settings), exactMaxTokens = false } = {}) {
+  // provider is overridable (same precedent as openaiToolLoop below) so a
+  // caller can dispatch to a DIFFERENT provider than settings.provider without
+  // rewriting settings.json — the verdict fallback below uses this to retry on
+  // a second configured provider whose key/model already live alongside the
+  // primary's in settings, untouched.
   if (provider === 'none') throw new Error('no provider configured');
   if (provider === 'pi') {
     // ponytail: absolute default path because launchd's PATH lacks /opt/homebrew/bin
@@ -514,6 +542,8 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
       system,
       messages: [{ role: 'user', content: user }],
     };
+    const thinking = anthropicThinkingMode(settings);
+    if (thinking) body.thinking = { type: thinking };
     if (schema) body.output_config = { format: { type: 'json_schema', schema } };
     if (stream) body.stream = true;
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -541,7 +571,10 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
   {
     const stream = Boolean(onDelta) && !schema;
     const model = requireModel(settings, provider);
-    const budget = openaiCompletionBudget(settings, maxTokens);
+    // exactMaxTokens: the caller already decided the final number, so do not
+    // re-floor it against the global setting — otherwise a caller-side knob could
+    // only ever raise the budget and never lower it below the 8192 floor.
+    const budget = exactMaxTokens ? maxTokens : openaiCompletionBudget(settings, maxTokens);
     const body = {
       model,
       max_completion_tokens: budget,
@@ -555,7 +588,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     if (stream) body.stream = true;
     const res = await fetch(openaiEndpoint(settings, provider), {
       method: 'POST',
-      headers: openaiHeaders(settings),
+      headers: openaiHeaders(settings, provider),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -575,7 +608,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     const content = choice.message.content;
     if (content == null || content === '') {
       const finishReason = choice.finish_reason;
-      throw openaiNoContentError(finishReason, budget);
+      throw openaiNoContentError(finishReason, budget, exactMaxTokens ? 'filterMaxCompletionTokens' : 'maxCompletionTokens');
     }
     return content;
   }
@@ -590,6 +623,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
     ...toolDefs.map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema })),
   ];
   const model = effectiveModel(settings, 'anthropic');
+  const thinking = anthropicThinkingMode(settings);
   const messages = [{ role: 'user', content: user }];
   // #93: usage isn't known until the loop's final round, so rounds accumulate
   // into these and report once, at the end, instead of per-round.
@@ -600,7 +634,7 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: anthropicHeaders(settings),
-      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system, tools, messages, ...(thinking ? { thinking: { type: thinking } } : {}) }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`anthropic HTTP ${res.status}: ${(await res.text()).slice(0, 120)}`);
@@ -678,7 +712,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
     }
     if (msg.content == null || msg.content === '') {
       const finishReason = choice.finish_reason;
-      throw openaiNoContentError(finishReason, budget);
+      throw openaiNoContentError(finishReason, budget, 'maxCompletionTokens');
     }
     if (onDelta) onDelta(msg.content);
     reportUsage(onUsage, { provider, model, usage: sawUsage ? { inputTokens, outputTokens } : null });
@@ -727,8 +761,93 @@ export function llmUsageLine(tag, info) {
   return `[llm] ${tag} ${provider} ${model ?? 'default'} in=${usage ? tok(usage.inputTokens) : 'n/a'} out=${usage ? tok(usage.outputTokens) : 'n/a'}`;
 }
 
-export async function llmVerdict(settings, payload, system, onUsage) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs: 90000, onUsage });
+// Verdict-path token budget (filter + recheck ONLY — the schema-constrained
+// single-shot calls, never chat/the tool loop). On a reasoning model (e.g.
+// GLM) the same max_completion_tokens budget also pays for chain-of-thought
+// before any content is emitted; the shared 8192 OPENAI_REASONING_FLOOR
+// measurably starved verdict completions. This default is deliberately well
+// above that floor; settings.filterMaxCompletionTokens overrides it. It does
+// NOT touch OPENAI_REASONING_FLOOR or settings.maxCompletionTokens, so every
+// other call site (chat, the bot's tool loop) keeps its existing budget.
+const VERDICT_TOKEN_FLOOR = 16384;
+// One budget for every provider. The verdict JSON itself is tiny either way —
+// this is headroom for the reasoning that precedes it, and BOTH API shapes spend
+// it the same way: a reasoning model can exhaust the budget on chain-of-thought
+// and return truncated or empty content. It is a ceiling, not a reservation, and
+// both vendors bill actual output, so a generous number costs nothing when the
+// model answers quickly. The one hard limit is a model's own max-output cap
+// (64k on the smallest current anthropic model) — this floor sits well under
+// every one of them, so it cannot 400 a request on its own.
+function verdictMaxTokens(settings) {
+  // Coerced, not just compared: settings.json is hand-editable, and a quoted
+  // "20000" passes a bare `> 0` and then reaches the vendor as a STRING
+  // max_tokens, which is a request-validation failure on every call. The
+  // openai budget below gets this for free from Math.max; this path has to do
+  // it explicitly. A non-numeric value falls back to the floor rather than
+  // propagating NaN.
+  const configured = Number(settings.filterMaxCompletionTokens);
+  return Number.isFinite(configured) && configured > 0 ? configured : VERDICT_TOKEN_FLOOR;
+}
+
+// One shared deadline across the primary attempt and (if configured) the
+// fallback attempt. Two independent 90s attempts would put 180s on the alert
+// path — longer than an M1 watcher's own 60s cycle — so this is the SAME 90s
+// the verdict calls always used for their one attempt; it now bounds both
+// combined rather than each individually.
+const VERDICT_DEADLINE_MS = 90000;
+// The least time a fallback attempt is worth starting with. Below this it would
+// spend a request to fail on its own timeout, so the primary's error stands.
+const VERDICT_FALLBACK_MIN_MS = 5000;
+
+// A configured fallback that resolves to the same provider as the primary is
+// not a fallback (pinned decision, not a config error): it silently behaves
+// as unset rather than retrying the provider that just failed. A same-
+// provider retry is deliberately out of scope — the dominant measured
+// failures are endpoint-level, so a same-endpoint retry mostly buys latency.
+function resolveFallbackProvider(settings) {
+  const raw = settings.llmFallbackProvider;
+  if (!raw || raw === 'none' || !PROVIDERS.includes(raw)) return null;
+  return raw === resolveProvider(settings) ? null : raw;
+}
+
+// Wraps a single verdict attempt (`run(settings, provider, timeoutMs)`) with
+// the optional fallback. Deliberately wraps the WHOLE attempt, not just the
+// transport call: the largest measured failure bucket is an unparseable/
+// absent verdict thrown by the caller AFTER llmRequest already returned
+// successfully, so a transport-only retry would miss it. On ANY failure of
+// the primary — transport error, timeout, 5xx, empty content, or that
+// unparseable-JSON case — retries once on the fallback provider with
+// whatever remains of the shared deadline; both providers already have their
+// key/model stored side by side in settings, so only the provider name
+// changes between the two calls. Resolves to `{ ...result, provider }` so
+// the caller can tell which provider actually produced it.
+async function withVerdictFallback(settings, run) {
+  const primary = resolveProvider(settings);
+  const fallback = resolveFallbackProvider(settings);
+  const deadline = Date.now() + VERDICT_DEADLINE_MS;
+  try {
+    return { ...(await run(settings, primary, VERDICT_DEADLINE_MS)), provider: primary };
+  } catch (primaryErr) {
+    if (!fallback) throw primaryErr;
+    const remaining = deadline - Date.now();
+    // Shared deadline all but exhausted by the primary: the fallback is SKIPPED.
+    // The floor matters — `remaining > 0` would start a fallback with a few
+    // milliseconds to answer in, which cannot succeed and still spends a request.
+    if (remaining < VERDICT_FALLBACK_MIN_MS) throw primaryErr;
+    try {
+      return { ...(await run(settings, fallback, remaining)), provider: fallback };
+    } catch (fallbackErr) {
+      // Both names must survive the caller's 90-char reason truncation, because
+      // "which provider is broken" is the whole diagnostic value here — so the
+      // names come first and the error text is what gets sacrificed.
+      const detail = String(fallbackErr?.message ?? fallbackErr).slice(0, 24);
+      throw new Error(`both failed (${primary}+${fallback}): ${detail}`);
+    }
+  }
+}
+
+async function llmVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings), exactMaxTokens: true });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -738,6 +857,20 @@ export async function llmVerdict(settings, payload, system, onUsage) {
   const m = String(out).match(/\{[^{}]*"alert"[^{}]*\}/);
   if (!m) throw new Error('no verdict JSON in provider output');
   return JSON.parse(m[0]);
+}
+
+export async function llmVerdict(settings, payload, system, onUsage) {
+  const primary = resolveProvider(settings);
+  const { provider, ...verdict } = await withVerdictFallback(settings, (s, p, timeoutMs) => llmVerdictOnce(s, payload, system, onUsage, p, timeoutMs));
+  // Once a fallback is configured, name the PRODUCING provider in the reason
+  // whenever it isn't the primary — so signals.reason can answer "is the
+  // fallback carrying us?" by inspection, with no code change and no extra
+  // column. The unconfigured default path (provider === primary, always true
+  // when no fallback is set) never tags, so it stays byte-identical to today.
+  if (provider !== primary && typeof verdict.reason === 'string') {
+    verdict.reason = `${verdict.reason} [fallback: ${provider}]`;
+  }
+  return verdict;
 }
 
 // Schema mode constrains type shape, not content — a provider can still return
@@ -751,8 +884,8 @@ function normalizeRecheckVerdict(v) {
   return { verdict: v.verdict, reason };
 }
 
-async function llmRecheckVerdict(settings, payload, system, onUsage) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs: 90000, onUsage });
+async function llmRecheckVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings), exactMaxTokens: true });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);
@@ -764,6 +897,17 @@ async function llmRecheckVerdict(settings, payload, system, onUsage) {
   const norm = normalizeRecheckVerdict(parsed);
   if (!norm) throw new Error(`invalid recheck verdict "${parsed.verdict}"${parsed.reason == null ? ' (missing reason)' : ''}`);
   return norm;
+}
+
+async function llmRecheckVerdict(settings, payload, system, onUsage) {
+  const primary = resolveProvider(settings);
+  const { provider, ...out } = await withVerdictFallback(settings, (s, p, timeoutMs) => llmRecheckVerdictOnce(s, payload, system, onUsage, p, timeoutMs));
+  // Same producing-provider tag as llmVerdict above; re-bounded to the
+  // recheck reason's own 90-char limit (normalizeRecheckVerdict already
+  // slices to 90, so appending the tag can trim it further on an already-long
+  // reason — acceptable: the tag is diagnostic, the reason text is primary).
+  if (provider !== primary) out.reason = `${out.reason} [fallback: ${provider}]`.slice(0, 90);
+  return out;
 }
 
 export function readSettings(settingsPath) {

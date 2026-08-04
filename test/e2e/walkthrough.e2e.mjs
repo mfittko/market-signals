@@ -24,6 +24,13 @@ const VIEWPORTS = {
   'desktop-portrait': [1024, 1366],
   'phone-portrait': [390, 844],
   'phone-landscape': [844, 390],
+  // the table and rail used to disagree on which mode a width is
+  // in right at this boundary (table's collapse was max-width:900, the
+  // rail's strip was max-width:899) — pin both sides of the shared 900px
+  // breakpoint so a future regression that re-splits the two constants fails
+  // here instead of shipping invisibly again.
+  'breakpoint-899': [899, 900],
+  'breakpoint-900': [900, 900],
 };
 // #108: memories/gates are now TABS inside the settings modal (global config).
 // Per-combo bot config is instrument-specific, so it stays its own per-view modal.
@@ -97,10 +104,30 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
       rows.forEach(([verdict, action], i) => {
         const t = `2026-07-26T00:${String(i).padStart(2, '0')}:00.000Z`;
         sig.run('WTICO/USD', 'M15', t, 'buy', verdict);
+        // the LAST (newest) decision also carries a sentinel
+        // headline, so the tape's per-row detail (only reachable through the
+        // expand toggle) has real news content to assert against on desktop.
+        // matchBotDecision() resolves the newest decision within a signal's
+        // candle window, and every one of these 10 signals sits inside the
+        // newest decision's window (they're only a minute apart) — so seeding
+        // it on the newest one is what actually makes it surface, on the
+        // newest (first-rendered) row.
         dec.run(t, 'decision', 'e2e gate-disagreement seed', JSON.stringify({
           instrument: 'WTICO/USD', granularity: 'M15', event: 'flip', decision: { action },
-          instrumentContext: { flip: { time: t } },
+          instrumentContext: i === rows.length - 1
+            ? { flip: { time: t }, sentinel: { escalation: false, asOf: t, headlines: [{ title: 'e2e219 tape headline: OPEC+ signals output hike', source: 'reuters', time: t, url: 'https://reuters.example/e2e219' }] } }
+            : { flip: { time: t } },
         }));
+      });
+      // the default view combo (WTICO/USD|M5, un-botted so the
+      // "+ add bot" row above still renders) needs its own tape rows — without
+      // these, #hist stays empty on the page's first load at EVERY viewport and
+      // the toggle-reveals-content assertions below never actually execute,
+      // which is exactly how the dead-toggle defect stayed invisible to this
+      // suite for months.
+      const m5rows = [['alert', 'buy'], ['suppress', 'sell'], ['alert', 'buy']];
+      m5rows.forEach(([verdict, signal], i) => {
+        sig.run('WTICO/USD', 'M5', `2026-07-27T00:0${i}:00.000Z`, signal, verdict);
       });
     });
     // 20 filter-judged rows (FILTER_HEALTH_WINDOW), newer than every
@@ -247,10 +274,13 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('dialog[open]')?.close());
         }
 
-        // #168 F10: phone viewports collapse the tape table to <=4 visible
-        // columns (reason/gates move behind the row's expand toggle) with no
-        // horizontal scroll anywhere in the table.
-        if (vname.startsWith('phone')) {
+        // Widths at or below the shared 900px breakpoint
+        // collapse the tape table to <=4 visible columns (reason/gates move
+        // behind the row's expand toggle) with no horizontal scroll anywhere
+        // in the table — keyed on the actual CSS constant (900), not a
+        // viewport-name prefix, so the 899/900 boundary pair is covered here
+        // like every other narrow width.
+        if (width <= 900) {
           // operator decision: indicators stay always-visible (no toggle
           // button) even on phone widths — so the cost has to be paid by
           // layout instead: below <900px the panel renders as a static row,
@@ -268,33 +298,54 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           });
           assert.ok(histCols.visible <= 4, `tape table shows <=4 visible columns on ${vname} (got ${histCols.visible})`);
           assert.ok(histCols.scrollWidth <= histCols.clientWidth + 1, `tape table has no horizontal overflow on ${vname}`);
-          const hasRows = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length > 0);
-          if (hasRows) {
-            const expandBtn = await p.evaluate(() => {
-              const b = document.querySelector('#hist .rowExpandBtn');
-              return !!b && getComputedStyle(b).display !== 'none' && b.getClientRects().length > 0;
-            });
-            assert.ok(expandBtn, 'collapsed tape rows carry an expand toggle for reason/gates');
-            // #168: clicking the toggle must actually REVEAL detail content, not
-            // just flip a class — a CSS cascade bug once kept detail rows
-            // display:none at every width regardless of the click.
-            const before = await p.evaluate(() => {
-              const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
-              return { hidden: detail.hidden, rects: detail.getClientRects().length, text: detail.textContent.trim() };
-            });
-            assert.equal(before.hidden, true, 'detail row starts hidden');
-            assert.equal(before.rects, 0, 'collapsed detail row is truly not rendered (no client rects)');
-            await p.evaluate(() => document.querySelector('#hist .rowExpandBtn').click());
-            await p.waitForTimeout(100);
-            const after = await p.evaluate(() => {
-              const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
-              return { hidden: detail.hidden, visible: getComputedStyle(detail).display !== 'none', text: detail.textContent.trim() };
-            });
-            assert.equal(after.hidden, false, 'clicking the expand toggle un-hides the detail row');
-            assert.ok(after.visible, `expanded detail row is actually rendered (computed display != none) on ${vname}`);
-            assert.ok(after.text.length > 0, 'expanded detail row shows visible text content');
-          }
         }
+
+        // the rail and the table must never disagree on which mode
+        // a given width is in — both now key off the same 900px breakpoint.
+        assert.equal(
+          await p.evaluate(() => getComputedStyle(document.getElementById('rail')).flexDirection),
+          width <= 900 ? 'row' : 'column',
+          `rail is in ${width <= 900 ? 'mobile strip' : 'desktop sidebar'} mode on ${vname} (${width}px), matching the table's own <=900px collapse`,
+        );
+
+        // one collapse mechanism at every width — the
+        // toggle must actually change what is RENDERED, asserted on layout
+        // boxes (getClientRects/computed display), never the `hidden`
+        // attribute alone. The attribute flips correctly even when a CSS
+        // cascade bug keeps the row permanently displayed regardless of
+        // width, which is exactly how this defect passed a green suite for
+        // months — so this now runs on every viewport (not just phone
+        // widths), which is also how a signal's news becomes reachable on
+        // desktop (AC3): the detail row is the only place it renders.
+        await p.waitForFunction(() => document.querySelectorAll('#hist tbody tr').length > 0, { timeout: 5000 });
+        const hasRows = await p.evaluate(() => document.querySelectorAll('#hist tbody tr').length > 0);
+        assert.ok(hasRows, `tape has at least one signal row to exercise the expand toggle on ${vname}`);
+        const expandBtn = await p.evaluate(() => {
+          const b = document.querySelector('#hist .rowExpandBtn');
+          return !!b && getComputedStyle(b).display !== 'none' && b.getClientRects().length > 0;
+        });
+        assert.ok(expandBtn, `tape rows carry a reachable expand toggle for reason/gates/news on ${vname}`);
+        const before = await p.evaluate(() => {
+          const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
+          return { hidden: detail.hidden, rects: detail.getClientRects().length };
+        });
+        assert.equal(before.hidden, true, `detail row starts hidden (AC2) on ${vname}`);
+        assert.equal(before.rects, 0, `collapsed detail row has no layout box at all (AC1: geometry, not the attribute) on ${vname}`);
+        await p.evaluate(() => document.querySelector('#hist .rowExpandBtn').click());
+        await p.waitForTimeout(100);
+        const after = await p.evaluate(() => {
+          const detail = document.querySelector('#hist .rowExpandBtn').closest('tr').nextElementSibling;
+          return { hidden: detail.hidden, display: getComputedStyle(detail).display, rects: detail.getClientRects().length, text: detail.textContent.trim() };
+        });
+        assert.equal(after.hidden, false, `clicking the expand toggle un-hides the detail row on ${vname}`);
+        assert.notEqual(after.display, 'none', `expanded detail row's computed display is not none on ${vname}`);
+        assert.ok(after.rects > 0, `expanded detail row has a real layout box (getClientRects) on ${vname}`);
+        assert.ok(after.text.length > 0, `expanded detail row shows visible text content on ${vname}`);
+        // collapse it again so later steps in this same page session (the
+        // desktop-landscape deep-checks below reuse `p`) start from the
+        // default collapsed state.
+        await p.evaluate(() => document.querySelector('#hist .rowExpandBtn').click());
+        await p.waitForTimeout(100);
 
         // collapsible chat (collapsed by default, toggles, persists to markup)
         assert.ok(await p.evaluate(() => document.getElementById('app').classList.contains('chat-collapsed')), 'chat collapsed by default');
@@ -333,6 +384,34 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           p.on('request', onCfgReq);
           await p.evaluate(() => document.getElementById('cfgbtn').click());
           await p.waitForTimeout(300);
+          // llmFallbackProvider + filterMaxCompletionTokens: NOT contextual on
+          // the provider select (present regardless of the active provider,
+          // unlike the fields the swap below toggles) — save these BEFORE
+          // swapping to openai-compatible below, since that swap deliberately
+          // leaves OPENAI_BASE_URL blank (a save would then hit the real
+          // "openai-compatible requires OPENAI_BASE_URL" guard).
+          assert.deepEqual(
+            await p.evaluate(() => [...document.getElementById('f-llmFallbackProvider').options].map((o) => o.value)),
+            ['', 'pi', 'anthropic', 'openai', 'openai-compatible'],
+            'fallback select offers off (\'\') plus every real provider, no duplicate "none"',
+          );
+          assert.ok(await p.evaluate(() => !!document.getElementById('f-filterMaxCompletionTokens')), 'verdict-budget number field present');
+          assert.equal(await p.evaluate(() => document.getElementById('f-llmFallbackProvider').value), '', 'off by default on a fresh settings.json');
+          await p.evaluate(() => {
+            const sel = document.getElementById('f-llmFallbackProvider');
+            sel.value = 'anthropic';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            document.getElementById('f-filterMaxCompletionTokens').value = '20000';
+          });
+          await p.evaluate(() => document.querySelector('#cfg button').click());
+          await p.waitForTimeout(300);
+          const persisted = await p.evaluate(async () => (await (await fetch('/api/settings')).json()));
+          assert.equal(persisted.llmFallbackProvider, 'anthropic', 'fallback provider persists');
+          assert.equal(persisted.filterMaxCompletionTokens, 20000, 'verdict budget persists');
+          // clear the leftover "saved" status text: a later assertion in this
+          // same flow checks that text stays EMPTY across an unrelated action,
+          // a check that predates this save and would otherwise misread it.
+          await p.evaluate(() => { document.getElementById('saved').textContent = ''; });
           await p.evaluate(() => { const s = document.getElementById('f-provider'); s.value = 'openai-compatible'; s.dispatchEvent(new Event('change', { bubbles: true })); });
           await p.waitForTimeout(150);
           assert.ok(await p.evaluate(() => !!document.getElementById('f-OPENAI_BASE_URL')), 'provider swap reveals the base-URL field');
@@ -812,6 +891,28 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.waitForTimeout(300);
           assert.equal(await p.evaluate(() => document.getElementById('granSel').value), 'M15', '#bot/<combo> hash route changed the chart granularity');
           assert.equal(await p.evaluate(() => document.getElementById('instSel').value), 'WTICO/USD', '#bot/<combo> hash route changed the chart instrument');
+          // on desktop, gates/reason/MFE already show as their own
+          // columns — but a signal's news is built ONLY into the detail row,
+          // so it stays unreachable unless the expand toggle itself is
+          // reachable here too. This combo's newest seeded decision carries a
+          // real sentinel headline; pin that it actually surfaces once the
+          // toggle is used, at this desktop-landscape width.
+          await p.waitForFunction(() => document.querySelectorAll('#hist tbody tr').length > 0, { timeout: 5000 });
+          const newsReachable = await p.evaluate(() => {
+            // rows render newest-first, and the seeded headline sits on the
+            // newest of the 10 seeded decisions — so the first toggle carries it.
+            const btn = document.querySelector('#hist .rowExpandBtn');
+            if (!btn) return null;
+            btn.click();
+            const detail = btn.closest('tr').nextElementSibling;
+            const rects = detail.getClientRects().length;
+            const text = detail.textContent;
+            btn.click(); // restore collapsed for the rest of this run
+            return { rects, hasHeadline: text.includes('e2e219 tape headline') };
+          });
+          assert.ok(newsReachable, 'expand toggle is present for the WTICO/USD|M15 tape on desktop');
+          assert.ok(newsReachable.rects > 0, 'expanded detail row is actually rendered on desktop (not just an attribute flip)');
+          assert.ok(newsReachable.hasHeadline, "a signal's seeded news headline is reachable from the desktop tape via the expand toggle (AC3)");
           // #185 regression + operator 28/07: the desktop overlay is a slim
           // horizontal row along the chart TOP (not a corner box over candles),
           // whose right edge stops short of the y-axis price-label column.

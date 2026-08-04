@@ -22,6 +22,42 @@ const closes = [
 ];
 const candles = series(closes);
 
+// --- Verdict-path token budget + fallback provider (filter + recheck ONLY,
+// never the bot's tool loop) ---
+// Primary is openai-compatible ('http://primary.test'), fallback is anthropic
+// (a fixed https://api.anthropic.com/... URL) — two different endpoints let
+// one fetch stub route by URL and prove the fallback used its OWN key/model
+// (AC5), never the primary's, without spinning up a real HTTP server.
+function fallbackFilterSettings(overrides = {}) {
+  return {
+    provider: 'openai-compatible',
+    OPENAI_API_KEY: 'primary-key',
+    OPENAI_BASE_URL: 'http://primary.test',
+    model: 'primary-model',
+    llmFallbackProvider: 'anthropic',
+    ANTHROPIC_API_KEY: 'fallback-key',
+    models: { anthropic: 'fallback-model' },
+    ...overrides,
+  };
+}
+
+const anthropicVerdictOk = (alert, reason) => new Response(
+  JSON.stringify({ content: [{ type: 'text', text: JSON.stringify({ alert, reason }) }] }),
+  { status: 200, headers: { 'content-type': 'application/json' } },
+);
+
+// One fetch stub shared by the four AC4 failure-kind tests below: only the
+// primary's response/rejection varies per test; the fallback always succeeds.
+function stubPrimaryThenFallback(primaryBehavior) {
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), auth: opts.headers.authorization ?? opts.headers['x-api-key'], body: JSON.parse(opts.body) });
+    if (String(url).includes('primary.test')) return primaryBehavior();
+    return anthropicVerdictOk(true, 'fallback caught it');
+  };
+  return calls;
+}
+
 test('supertrend flips sell on crashes and buy on the rally', () => {
   const st = computeSupertrend(candles, { period: 10, multiplier: 3 });
   const flips = detectFlips(candles, st);
@@ -525,7 +561,7 @@ test('effectiveModel: per-provider binding, active-only flat fallback, no cross-
   // bound model wins
   assert.equal(effectiveModel({ provider: 'anthropic', models: { anthropic: 'claude-x' } }, 'anthropic'), 'claude-x');
   // provider default when nothing bound and no flat model
-  assert.equal(effectiveModel({ provider: 'anthropic' }, 'anthropic'), 'claude-opus-4-8');
+  assert.equal(effectiveModel({ provider: 'anthropic' }, 'anthropic'), 'claude-sonnet-5');
   assert.equal(effectiveModel({ provider: 'openai' }, 'openai'), 'gpt-5.4-mini');
   // openai-compatible has NO default → null when unset
   assert.equal(effectiveModel({ provider: 'openai-compatible', OPENAI_BASE_URL: 'http://x' }, 'openai-compatible'), null);
@@ -977,7 +1013,7 @@ test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rou
     });
     assert.equal(reply, 'final answer');
     assert.equal(call, 2, 'two rounds ran');
-    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-opus-4-8', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
+    assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-sonnet-5', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -1805,4 +1841,317 @@ test(`filterHealth: count-based window — only the most recent ${FILTER_HEALTH_
   assert.equal(h.errors, 0, 'the older errored rows are outside the count-based window');
   assert.equal(h.warn, false);
   rmSync(dbPath, { force: true });
+});
+
+test('llmVerdict fallback (AC4/AC5/AC8): a primary TRANSPORT ERROR triggers exactly one fallback attempt, using its own key/model', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = stubPrimaryThenFallback(() => { throw new Error('fetch failed: ECONNREFUSED'); });
+  try {
+    const verdict = await llmVerdict(fallbackFilterSettings(), { some: 'payload' }, 'system', null);
+    assert.equal(calls.length, 2, 'exactly one fallback attempt after the primary failed');
+    assert.equal(calls[0].url, 'http://primary.test/v1/chat/completions');
+    assert.equal(calls[1].url, 'https://api.anthropic.com/v1/messages');
+    assert.equal(calls[1].auth, 'fallback-key', "the fallback call carries ITS OWN key, never the primary's OPENAI_API_KEY");
+    assert.equal(calls[1].body.model, 'fallback-model', "the fallback call carries ITS OWN model, never the primary's");
+    assert.equal(verdict.alert, true);
+    assert.match(verdict.reason, /fallback caught it/);
+    assert.match(verdict.reason, /\[fallback: anthropic]/, 'the recorded reason names the producing provider');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback (AC4): a primary TIMEOUT triggers exactly one fallback attempt', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = stubPrimaryThenFallback(() => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); });
+  try {
+    const verdict = await llmVerdict(fallbackFilterSettings(), { some: 'payload' }, 'system', null);
+    assert.equal(calls.length, 2, 'exactly one fallback attempt after the primary timed out');
+    assert.equal(verdict.alert, true);
+    assert.match(verdict.reason, /\[fallback: anthropic]/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback (AC4): a primary EMPTY-CONTENT reply (reasoning budget exhausted) triggers exactly one fallback attempt', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = stubPrimaryThenFallback(() => new Response(
+    JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: null } }] }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  ));
+  try {
+    const verdict = await llmVerdict(fallbackFilterSettings(), { some: 'payload' }, 'system', null);
+    assert.equal(calls.length, 2, 'exactly one fallback attempt after the primary returned empty content');
+    assert.equal(verdict.alert, true);
+    assert.match(verdict.reason, /\[fallback: anthropic]/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback (AC4): an UNPARSEABLE verdict — thrown by llmVerdict AFTER llmRequest already returned successfully — triggers exactly one fallback attempt (the largest measured failure bucket)', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = stubPrimaryThenFallback(() => new Response(
+    JSON.stringify({ choices: [{ message: { content: 'sure — here is some prose with no JSON at all' } }] }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  ));
+  try {
+    const verdict = await llmVerdict(fallbackFilterSettings(), { some: 'payload' }, 'system', null);
+    assert.equal(calls.length, 2, 'the fallback still fires even though the primary transport call itself succeeded');
+    assert.equal(verdict.alert, true);
+    assert.match(verdict.reason, /\[fallback: anthropic]/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback (AC6): a primary that consumes the ENTIRE shared deadline skips the fallback rather than starting it', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const realNow = Date.now;
+  let call = 0;
+  // 1st Date.now() call anchors the shared deadline; the 2nd (evaluated right
+  // after the primary rejects) simulates the primary having consumed the
+  // full 90s budget on its own — nothing should remain for the fallback.
+  Date.now = () => (call++ === 0 ? 1_000_000 : 1_000_000 + 90_000);
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error('primary down'); };
+  try {
+    await assert.rejects(() => llmVerdict(fallbackFilterSettings(), { some: 'payload' }, 'system', null), /primary down$/);
+    assert.equal(calls.length, 1, 'the fallback was never started once the shared deadline was exhausted');
+  } finally { Date.now = realNow; globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback (AC9): unset llmFallbackProvider makes exactly one attempt — byte-identical to no fallback existing (AC1)', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error('primary down'); };
+  try {
+    await assert.rejects(
+      () => llmVerdict({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'http://primary.test', model: 'm' }, { some: 'payload' }, 'system', null),
+      (err) => { assert.equal(err.message, 'primary down', 'unwrapped — no "both providers failed" framing when no fallback was ever configured'); return true; },
+    );
+    assert.equal(calls.length, 1, 'exactly one attempt, no fallback');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict fallback: a fallback equal to the resolved primary is not a fallback — treated as unset, one attempt only', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error('primary down'); };
+  try {
+    await assert.rejects(
+      // provider 'openai' + a base URL migrates to the resolved primary
+      // 'openai-compatible' (#99) — naming that same string as the fallback
+      // must resolve to no fallback, not a same-provider retry.
+      () => llmVerdict({ provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'http://primary.test', model: 'm', llmFallbackProvider: 'openai-compatible' }, { some: 'payload' }, 'system', null),
+      /primary down$/,
+    );
+    assert.equal(calls.length, 1, 'fallback === primary resolves to no fallback');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('processSignal fallback (AC7/AC8): both primary AND fallback failing still fails OPEN, and the recorded reason names both providers', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => { res.statusCode = 500; res.end('boom'); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const primaryBase = `http://127.0.0.1:${srv.address().port}`;
+  const realFetch = globalThis.fetch;
+  // the primary is a real (failing) HTTP server; only the fallback's fixed
+  // anthropic URL is stubbed to also fail, so both channels are exercised.
+  globalThis.fetch = (url, opts) => (String(url).includes('anthropic.com')
+    ? Promise.reject(new Error('fallback down'))
+    : realFetch(url, opts));
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const { opts, result, candles: c } = fixture(dir, {
+      settings: { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: primaryBase, model: 'm', llmFallbackProvider: 'anthropic', ANTHROPIC_API_KEY: 'fk', models: { anthropic: 'fm' } },
+    });
+    const res = await processSignal(opts, result, c);
+    assert.equal(res.sent, true, 'fails open: the alert is still sent even though BOTH providers failed');
+    assert.equal(res.verdictSource, 'error');
+    const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
+    assert.equal(row.verdict, 'alert');
+    assert.match(row.reason, /filter error/);
+    assert.match(row.reason, /openai-compatible/, 'names the primary provider');
+    assert.match(row.reason, /anthropic/, "names the fallback provider too — the DB can answer 'both failed' by inspection");
+  } finally { globalThis.fetch = realFetch; await new Promise((r) => srv.close(r)); }
+});
+
+test('recheckSignal: the recheck gate (not just the filter) also retries on the fallback provider', async () => {
+  const { createServer } = await import('node:http');
+  const srv = createServer((req, res) => { res.statusCode = 500; res.end('down'); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${srv.address().port}`;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (url, opts) => (String(url).includes('anthropic.com')
+    ? Promise.resolve(new Response(JSON.stringify({ content: [{ type: 'text', text: '{"verdict":"valid","reason":"still tracking"}' }] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+    : realFetch(url, opts));
+  try {
+    const dir = mkdtempSync(join(tmpdir(), 'st-'));
+    const settings = { provider: 'openai', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: base, model: 'm', llmFallbackProvider: 'anthropic', ANTHROPIC_API_KEY: 'fk', models: { anthropic: 'fm' } };
+    const { opts, result, candles: c } = fixture(dir, { notify: false, settings });
+    await processSignal(opts, result, c); // seeds the signal row (notify:false never reaches the filter)
+    const { recheckSignal } = await import('../scripts/supertrend.mjs');
+    const out = await recheckSignal(opts.db, opts.settings, opts.instrument, opts.granularity, result.signal);
+    assert.equal(out.verdict, 'valid');
+    assert.match(out.reason, /still tracking/);
+    assert.match(out.reason, /\[fallback: anthropic]/);
+  } finally { globalThis.fetch = realFetch; await new Promise((r) => srv.close(r)); }
+});
+
+test('llmVerdict budget (AC2/AC3): unset filterMaxCompletionTokens defaults the verdict call WELL ABOVE the old 8192 floor', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (url, opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"alert":true,"reason":"ok"}' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await llmVerdict({ provider: 'openai', OPENAI_API_KEY: 'k' }, { representative: 'filter payload' }, 'system', null);
+    assert.ok(bodies[0].max_completion_tokens > 8192, `expected the verdict default above the old 8192 floor, got ${bodies[0].max_completion_tokens}`);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('llmVerdict budget (AC2): settings.filterMaxCompletionTokens overrides the verdict-path default, independent of the global maxCompletionTokens', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (url, opts) => {
+    bodies.push(JSON.parse(opts.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"alert":true,"reason":"ok"}' } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await llmVerdict({ provider: 'openai', OPENAI_API_KEY: 'k', filterMaxCompletionTokens: 20000 }, { some: 'payload' }, 'system', null);
+    assert.equal(bodies[0].max_completion_tokens, 20000, 'the operator-configured verdict budget is honored exactly');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('withVerdictFallback: a nearly-exhausted deadline skips the fallback instead of starting a doomed attempt', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const settings = {
+    provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://primary.invalid/v1',
+    ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+    models: { 'openai-compatible': 'm1', anthropic: 'm2' },
+  };
+  const realNow = Date.now;
+  let calls = 0;
+  global.fetch = async () => { calls++; Date.now = () => realNow() + 89_000; throw new Error('primary down'); };
+  try {
+    await assert.rejects(llmVerdict(settings, { x: 1 }, 'sys'), /primary down/,
+      'the primary error stands — no "both providers failed" wrapper, because the fallback never ran');
+    assert.equal(calls, 1, 'exactly one provider call: the fallback was skipped, not attempted');
+  } finally {
+    Date.now = realNow;
+    delete global.fetch;
+  }
+});
+
+// The anthropic verdict once carried its own small cap. It was raised to the
+// shared budget because that API bills actual output rather than the ceiling, so
+// a low cap bought nothing and truncated a thinking model mid-JSON — the same
+// unparseable-verdict failure this path exists to remove. The remaining
+// invariant is only that the budget stays under the smallest model's own cap.
+test('verdict budget: one budget covers both API shapes, under every model max-output cap', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const bodies = [];
+  global.fetch = async (url, opts) => {
+    bodies.push({ url: String(url), body: JSON.parse(opts.body) });
+    return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{"content":[{"text":"{\\"alert\\":true,\\"reason\\":\\"ok\\"}"}]}' };
+  };
+  try {
+    await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' } }, { s: 1 }, 'sys').catch(() => {});
+    const anthropic = bodies.find((b) => b.url.includes('anthropic'));
+    assert.ok(anthropic, 'the anthropic endpoint was called');
+    assert.equal(anthropic.body.max_tokens, 16384, 'anthropic gets the same verdict budget as the openai path');
+    assert.ok(anthropic.body.max_tokens <= 64000,
+      `must stay under the smallest current anthropic model's max-output cap, got ${anthropic.body.max_tokens} — above it the API 400s every attempt`);
+  } finally { delete global.fetch; }
+});
+
+// settings.json is hand-editable, so a numeric setting can arrive as a string.
+// A bare `> 0` accepts "20000" and forwards it verbatim, and a string max_tokens
+// is rejected by the vendor on every single call — the budget must be coerced.
+test('verdict budget: a string filterMaxCompletionTokens reaches the wire as a number', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const send = async (filterMaxCompletionTokens) => {
+    let sent = null;
+    global.fetch = async (url, opts) => {
+      sent = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{}' };
+    };
+    try { await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' }, filterMaxCompletionTokens }, { s: 1 }, 'sys').catch(() => {}); } finally { delete global.fetch; }
+    return sent;
+  };
+  assert.strictEqual((await send('20000')).max_tokens, 20000, 'a quoted number is coerced, never forwarded as a string');
+  assert.strictEqual((await send(20000)).max_tokens, 20000);
+  assert.strictEqual((await send('nonsense')).max_tokens, 16384, 'an unparseable value falls back to the floor, never NaN');
+  assert.strictEqual((await send(0)).max_tokens, 16384, 'zero means unset');
+});
+
+test('anthropicThinking: unset sends no thinking field; a mode is passed straight through', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const send = async (settings) => {
+    let sent = null;
+    global.fetch = async (url, opts) => {
+      sent = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{}' };
+    };
+    try { await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' }, ...settings }, { s: 1 }, 'sys').catch(() => {}); } finally { delete global.fetch; }
+    return sent;
+  };
+  assert.ok(!('thinking' in await send({})), 'unset means the model default, NOT an explicit disable');
+  assert.ok(!('thinking' in await send({ anthropicThinking: '' })), 'empty string is the same as unset');
+  assert.ok(!('thinking' in await send({ anthropicThinking: 'bogus' })), 'an unknown mode is ignored, never forwarded to the vendor');
+  assert.deepEqual((await send({ anthropicThinking: 'adaptive' })).thinking, { type: 'adaptive' });
+  assert.deepEqual((await send({ anthropicThinking: 'disabled' })).thinking, { type: 'disabled' });
+});
+
+test('verdict budget: filterMaxCompletionTokens can lower the budget, not only raise it', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  let sent = null;
+  global.fetch = async (url, opts) => { sent = JSON.parse(opts.body); return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"alert":true,"reason":"ok"}' } }] }) }; };
+  try {
+    await llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+      models: { 'openai-compatible': 'm' }, filterMaxCompletionTokens: 4000, maxCompletionTokens: 32000 }, { s: 1 }, 'sys').catch(() => {});
+    assert.equal(sent.max_completion_tokens, 4000,
+      'the verdict knob wins over the global chat budget, in both directions');
+  } finally { delete global.fetch; }
+});
+
+test('both-providers-failed: both provider names survive the 90-char reason truncation', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  global.fetch = async () => { throw new Error('a'.repeat(300)); };
+  try {
+    await assert.rejects(
+      llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+        ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+        models: { 'openai-compatible': 'm1', anthropic: 'm2' } }, { s: 1 }, 'sys'),
+      (err) => {
+        const stored = `filter error: ${err.message}`.slice(0, 90); // exactly what processSignal persists
+        assert.match(stored, /openai-compatible/, `primary name lost to truncation: ${stored}`);
+        assert.match(stored, /anthropic/, `fallback name lost to truncation: ${stored}`);
+        return true;
+      },
+    );
+  } finally { delete global.fetch; }
+});
+
+// A filter failure must name the knob that can actually fix it. The verdict path
+// is capped by filterMaxCompletionTokens; pointing it at the chat knob would send
+// the operator to a setting that changes nothing — and diagnosing exactly this
+// failure is why the error text exists.
+test('openai no-content error: a verdict failure names filterMaxCompletionTokens, not the chat knob', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const payload = { choices: [{ message: { content: '' }, finish_reason: 'length' }] };
+  global.fetch = async () => ({ ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) });
+  try {
+    await assert.rejects(
+      llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1', models: { 'openai-compatible': 'm' } }, { s: 1 }, 'sys'),
+      (err) => {
+        assert.match(err.message, /raise filterMaxCompletionTokens/, `verdict failure must name its own knob: ${err.message}`);
+        return true;
+      },
+    );
+  } finally { delete global.fetch; }
 });

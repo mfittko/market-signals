@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -54,7 +54,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', , 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -79,7 +79,11 @@ const MASK = '•••';
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
   const activeProvider = resolveProvider(s); // migrates pre-#99 openai+base-url ⇒ openai-compatible
-  const out = { activeProvider };
+  // Served so the settings UI can label the model field's default without
+  // keeping its own copy of the table. A hardcoded duplicate silently went
+  // stale the moment the anthropic default changed, telling the operator the
+  // wrong model would be used; derived, it cannot drift again.
+  const out = { activeProvider, providerDefaultModels: PROVIDER_DEFAULT_MODEL };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
@@ -115,6 +119,11 @@ export function writeSettings(settingsPath, patch) {
   // lives in supertrend.mjs's OPENAI_REASONING_FLOOR); operator-tunable here.
   if (patch.maxCompletionTokens !== undefined && patch.maxCompletionTokens !== '' && patch.maxCompletionTokens !== null && (!Number.isInteger(patch.maxCompletionTokens) || patch.maxCompletionTokens <= 0)) {
     throw new Error('maxCompletionTokens must be a positive integer');
+  }
+  // filter/recheck-only completion budget — same shape as maxCompletionTokens
+  // above, a separate key so raising it never touches chat's global budget.
+  if (patch.filterMaxCompletionTokens !== undefined && patch.filterMaxCompletionTokens !== '' && patch.filterMaxCompletionTokens !== null && (!Number.isInteger(patch.filterMaxCompletionTokens) || patch.filterMaxCompletionTokens <= 0)) {
+    throw new Error('filterMaxCompletionTokens must be a positive integer');
   }
   // volume-impulse knobs: reject junk loudly at the trust boundary — same
   // stance as the neighbouring numeric settings above. impulseSettings falls
@@ -177,6 +186,18 @@ export function writeSettings(settingsPath, patch) {
   validateGranularityMinMap(patch.uiRefreshSeconds, 'uiRefreshSeconds', 2);
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
+  }
+  // A fallback equal to the primary (or the never-a-real-choice 'none') is
+  // accepted here — resolveFallbackProvider in supertrend.mjs treats it as
+  // unset at call time — but must still be a known provider name, same
+  // allow-list as `provider`.
+  if (patch.llmFallbackProvider !== undefined && patch.llmFallbackProvider !== '' && patch.llmFallbackProvider !== null && !PROVIDERS.includes(patch.llmFallbackProvider)) {
+    throw new Error(`llmFallbackProvider must be one of ${PROVIDERS.join(', ')}`);
+  }
+  // Empty means "send no thinking field", which is the model's own default and
+  // the only value valid across every anthropic model — so it stays allowed.
+  if (patch.anthropicThinking !== undefined && patch.anthropicThinking !== '' && patch.anthropicThinking !== null && !ANTHROPIC_THINKING_MODES.includes(patch.anthropicThinking)) {
+    throw new Error(`anthropicThinking must be one of ${ANTHROPIC_THINKING_MODES.join(', ')}`);
   }
   if (patch.models !== undefined && patch.models !== '' && patch.models !== null) {
     if (typeof patch.models !== 'object' || Array.isArray(patch.models)) throw new Error('models must be an object keyed by provider');
