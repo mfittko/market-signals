@@ -907,6 +907,29 @@ test('chat: a discard id naming an assistant turn is inert — only a question c
   });
 });
 
+test('chat: an OLDER question named in discard is inert — forward-delete cannot wipe a thread', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "ok"\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'oldest question', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const threadId = ev.find((e) => e.type === 'done').threadId;
+    const oldestTurnId = ev.find((e) => e.type === 'turn').id;
+    await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId, message: 'second question' }) })).text();
+
+    // Discard only ever legitimately names the turn just halted, i.e. the newest
+    // question. Naming an older one would otherwise take every later turn with
+    // it, since the discard deletes forward.
+    await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId, message: 'third', discard: [oldestTurnId] }) })).text();
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${threadId}`)).json();
+    assert.ok(messages.some((m) => m.content === 'oldest question'), 'a stale discard id cannot delete an older question');
+    assert.ok(messages.some((m) => m.content === 'second question'), 'nor the turns that followed it');
+  });
+});
+
 test('chat: a discard id from another thread is inert', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {

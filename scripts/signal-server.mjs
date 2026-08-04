@@ -1652,7 +1652,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             // discard exists to drop a halted question, and without that check a
             // buggy or hostile client could delete any earlier turn in its own
             // thread just by naming its id.
-            const owns = db.prepare("SELECT 1 FROM chat_messages WHERE id=? AND thread_id=? AND role='user'");
+            // Must be the NEWEST question in the thread. Forward-deleting made a
+            // stale id destructive: naming an old turn would take every turn
+            // after it too. A halt can only ever produce the latest question, so
+            // anything older is refused. An id already removed by an earlier
+            // discard simply fails this and is inert, which is what makes the
+            // client's accumulated list safe to replay.
+            const owns = db.prepare(
+              "SELECT 1 FROM chat_messages m WHERE m.id=? AND m.thread_id=? AND m.role='user'"
+              + " AND NOT EXISTS (SELECT 1 FROM chat_messages n WHERE n.thread_id=m.thread_id AND n.role='user' AND n.id>m.id)",
+            );
             // The halted turn's REPLY has to go with it. It cannot be suppressed
             // where it is written: a synchronous provider blocks the whole
             // server for its completion, so the halted turn finishes and appends
