@@ -243,7 +243,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('dialog[open]')?.close());
         }
 
-        // #168 F10: widths at or below the shared 900px breakpoint
+        // Widths at or below the shared 900px breakpoint
         // collapse the tape table to <=4 visible columns (reason/gates move
         // behind the row's expand toggle) with no horizontal scroll anywhere
         // in the table — keyed on the actual CSS constant (900), not a
