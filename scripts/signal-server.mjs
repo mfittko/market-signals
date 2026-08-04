@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, computeSupertrend, detectFlips, detectHistoricalImpulses, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -79,7 +79,11 @@ const MASK = '•••';
 export function maskedSettings(settingsPath) {
   const s = readSettings(settingsPath);
   const activeProvider = resolveProvider(s); // migrates pre-#99 openai+base-url ⇒ openai-compatible
-  const out = { activeProvider };
+  // Served so the settings UI can label the model field's default without
+  // keeping its own copy of the table. A hardcoded duplicate silently went
+  // stale the moment the anthropic default changed, telling the operator the
+  // wrong model would be used; derived, it cannot drift again.
+  const out = { activeProvider, providerDefaultModels: PROVIDER_DEFAULT_MODEL };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];

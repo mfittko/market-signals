@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
+import { PROVIDER_DEFAULT_MODEL, storeCandles, recordSignal, sendNotification, withDb } from '../scripts/supertrend.mjs';
 import { buildServer, writeSettings, maskedSettings, chartData, chatSystemFor, warnLegacyLaunchAgent } from '../scripts/signal-server.mjs';
 import { mkdirSync } from 'node:fs';
 
@@ -169,6 +169,11 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     const got = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(got.provider, 'pi');
     assert.equal(got.activeProvider, 'pi', 'resolved provider surfaced');
+    // The settings UI labels the model field with each provider's default. It
+    // used to hold its own copy of that table, which silently went stale the
+    // moment a default changed — telling the operator the wrong model would be
+    // used. Serving the real table is what keeps the two from disagreeing.
+    assert.deepEqual(got.providerDefaultModels, PROVIDER_DEFAULT_MODEL, 'provider defaults served from the source table, never a UI-side duplicate');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');

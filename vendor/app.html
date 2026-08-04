@@ -2076,7 +2076,13 @@ async function cfg() {
   // is the resolved value (a pre-#99 openai+base-URL config resolves to
   // openai-compatible), so the select shows what actually runs.
   const PROVIDER_OPTS = [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (official)'], ['openai-compatible', 'openai-compatible (base URL)'], ['none', 'disabled']];
-  const MODEL_PLACEHOLDER = { anthropic: 'claude-opus-4-8 (default)', openai: 'gpt-5.4-mini (default)', 'openai-compatible': 'e.g. zai-org/GLM-5.2-FP8' };
+  // Defaults come from the server (s.providerDefaultModels) so this can never
+  // disagree with the model actually used. openai-compatible has no default —
+  // the operator always names the model — so it keeps a literal example.
+  const defaultModelFor = (p) => (s.providerDefaultModels || {})[p];
+  const MODEL_PLACEHOLDER = (p) => (p === 'openai-compatible'
+    ? 'e.g. zai-org/GLM-5.2-FP8'
+    : (defaultModelFor(p) ? defaultModelFor(p) + ' (default)' : ''));
   // Verdict budget + fallback provider: NOT contextual on the primary provider
   // (they apply to the filter/re-check gates regardless of which provider is
   // active), so they render once, outside llmFieldsFor's per-provider set —
@@ -2120,7 +2126,7 @@ async function cfg() {
   const renderLlmDyn = (p) => llmFieldsFor(p).map(([id, kind, label, val, opts]) =>
     (kind === 'select'
       ? selectRow(id, label, val, opts)
-      : inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER[p] : ''))).join('');
+      : inputRow(id, kind, label, val, id === '__model' ? MODEL_PLACEHOLDER(p) : ''))).join('');
   // flat field renderer for News/Advanced (select or input), value from s[k]
   const field = ([k, kind, opts, def]) => {
     if (kind === 'json') return inputRow(k, 'text', k, s[k] ? JSON.stringify(s[k]) : '', opts || '{"M1":1,"M5":5}');
