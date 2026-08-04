@@ -2468,12 +2468,18 @@ function appendMsg(role, text) {
 // comment-start is considered, and only when it is a title annotation that
 // runs to the end; the fallback strips bare prefixes of "<!--title:".
 const stripTitleTail = (t) => {
-  const i = t.lastIndexOf('<!--');
-  if (i !== -1) {
-    const tail = t.slice(i);
-    if (/^<!--\s*title:/.test(tail) && (!tail.includes('-->') || /-->\s*$/.test(tail))) return t.slice(0, i).replace(/\n$/, '');
-  }
-  return t.replace(/\n?<(?:!(?:-(?:-(?:\s*(?:t(?:i(?:t(?:l(?:e(?::)?)?)?)?)?)?)?)?)?)?$/, '');
+  // Complete annotations go wherever they sit. Anchoring to the end used to let
+  // a reply that appended anything after the annotation — a rule and source
+  // footnotes, say — render it verbatim in the bubble. Single-line by
+  // construction, so a legitimate multi-line comment survives.
+  let s = t.replace(/(?:\r?\n[ \t]*)?<!--[ \t]*title:[ \t]*[^\r\n]*?-->[ \t]*/g, '');
+  // Still streaming: an annotation that has opened but not closed yet must not
+  // flash, and it can only be the last thing received so far.
+  const i = s.lastIndexOf('<!--');
+  if (i !== -1 && /^<!--[ \t]*title:/.test(s.slice(i)) && !s.slice(i).includes('-->')) s = s.slice(0, i).replace(/\n$/, '');
+  // …and the same annotation arriving character by character, before even
+  // "<!--title:" is complete.
+  return s.replace(/\n?<(?:!(?:-(?:-(?:\s*(?:t(?:i(?:t(?:l(?:e(?::)?)?)?)?)?)?)?)?)?)?$/, '');
 };
 // #172 (must-fix 2): the original placeholder is captured ONCE at boot (not
 // re-read on each flash, which would clobber it to whatever the previous
@@ -2487,20 +2493,59 @@ function flashPlaceholder(el, msg) {
   el.placeholder = msg;
   chatPlaceholderTimer = setTimeout(() => { el.placeholder = CHAT_PLACEHOLDER; }, 1500);
 }
+// A question asked while a reply is streaming used to be dropped on the floor by
+// a bare `if (chat.pending) return`. Instead the running reply is halted and the
+// question re-asked carrying every question still unanswered, so the model
+// answers the accumulated intent once rather than the trader waiting out an
+// answer that is already stale. Several in quick succession coalesce the same
+// way — each new one aborts the current attempt and joins the batch, so N
+// questions cost one completion, not N.
+let chatAbort = null;
+let chatQueued = [];
+// Rows the server persisted for turns we halted. It cannot reliably notice the
+// disconnect itself (a synchronous provider blocks its event loop through the
+// whole completion), so the replacement request names them and the server drops
+// them — otherwise a halted question would sit in the thread followed by a reply
+// that answers less than the trader went on to ask.
+let chatDiscard = [];
+let chatTurnId = null;
+const joinQuestions = (qs2) => qs2.join('\n\n');
 document.getElementById('chatForm').onsubmit = async (e) => {
   e.preventDefault();
-  if (chat.pending) return;
   const input = document.getElementById('chatMsg');
   const message = input.value.trim();
   if (!message) { flashPlaceholder(input, 'type a question first…'); return; }
   input.value = '';
+  chatQueued.push(message);
+  if (chat.pending) {
+    // Halting is enough to re-drive the loop: the in-flight attempt's own
+    // finally-block re-enters with the batch this question just joined.
+    appendMsg('user', message);
+    if (chatTurnId != null) chatDiscard.push(chatTurnId);
+    chatAbort?.abort();
+    return;
+  }
+  await runChat();
+};
+async function runChat() {
+  const message = joinQuestions(chatQueued);
+  if (!message) return;
   chat.pending = true;
-  appendMsg('user', message);
+  // The first question of a batch renders as it is typed; later ones already
+  // rendered when they were queued, so only the opener is appended here.
+  if (chatQueued.length === 1) appendMsg('user', chatQueued[0]);
+  const batched = chatQueued;
+  chatQueued = [];
   const bubble = appendMsg('assistant', '…');
+  chatAbort = new AbortController();
+  chatTurnId = null;
+  const discard = chatDiscard;
+  chatDiscard = [];
   try {
-    const res = await fetch('/api/chat', { method: 'POST', body: JSON.stringify({
+    const res = await fetch('/api/chat', { signal: chatAbort.signal, method: 'POST', body: JSON.stringify({
       threadId: chat.threadId, message, tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
       instrument: qs.get('instrument') || undefined, granularity: qs.get('granularity') || undefined,
+      discard: discard.length ? discard : undefined,
     }) });
     if (!res.ok) { bubble.className = 'msg error'; bubble.textContent = (await res.json()).error; chat.pending = false; return; }
     const reader = res.body.getReader();
@@ -2518,6 +2563,7 @@ document.getElementById('chatForm').onsubmit = async (e) => {
         if (!line.startsWith('data:')) continue;
         const ev = JSON.parse(line.slice(5));
         if (ev.type === 'thread') chat.threadId = ev.id;
+        if (ev.type === 'turn') chatTurnId = ev.id;
         if (ev.type === 'delta') { acc += ev.text; bubble.innerHTML = md(stripTitleTail(acc)); document.getElementById('msgs').scrollTop = 1e9; }
         if (ev.type === 'title') loadThreads();
         if (ev.type === 'done') { bubble.innerHTML = md(ev.reply); chat.threadId = ev.threadId; }
@@ -2525,12 +2571,23 @@ document.getElementById('chatForm').onsubmit = async (e) => {
       }
     }
   } catch (err) {
-    bubble.className = 'msg error';
-    bubble.textContent = String(err);
+    if (err?.name === 'AbortError') {
+      // Halted for a follow-up: drop the stalled bubble so the batch's single
+      // reply is the only assistant turn shown, rather than leaving a dead "…".
+      bubble.remove();
+    } else {
+      bubble.className = 'msg error';
+      bubble.textContent = String(err);
+    }
+  } finally {
+    chatAbort = null;
+    chat.pending = false;
+    // Anything queued while this attempt ran (including the question that
+    // halted it) is re-asked as one batch, carrying the halted questions too.
+    if (chatQueued.length) { chatQueued = [...batched, ...chatQueued]; chatDiscard = [...discard, ...chatDiscard]; return runChat(); }
   }
-  chat.pending = false;
   loadThreads();
-};
+}
 loadThreads();
 // #165: a bookmarked/shared #bot or #chart hash without matching query params
 // wins on first load — redirect the query string to match before fetching.
