@@ -211,7 +211,11 @@ const FILTER_ERROR_KINDS = [
 // operator most wants named). That path emits the resolved label in brackets
 // instead, so the second pass here reads it back exactly.
 export function classifyFilterError(reason) {
-  const text = reason || '';
+  // Coerced, not just defaulted. The regex pass tolerates a non-string on its
+  // own (RegExp.test stringifies), but the label pass calls .includes, which
+  // does not — and this is exported now, so callers are no longer only the two
+  // in this file that always hand it a TEXT column or a built string.
+  const text = String(reason ?? '');
   return FILTER_ERROR_KINDS.find((k) => k.match.test(text))?.label
     ?? FILTER_ERROR_KINDS.find((k) => text.includes(`[${k.label}]`))?.label
     ?? 'other';

@@ -2221,6 +2221,18 @@ test('both-providers-failed: every failure kind survives into the recorded reaso
   }
 });
 
+test('classifyFilterError: a non-string reason is coerced, never thrown on', async () => {
+  const { classifyFilterError } = await import('../scripts/supertrend.mjs');
+  // The regex pass stringifies on its own; the label pass calls .includes and
+  // would throw. Exported, so the inputs are no longer only this file's own.
+  assert.equal(classifyFilterError(null), 'other');
+  assert.equal(classifyFilterError(undefined), 'other');
+  assert.equal(classifyFilterError(0), 'other');
+  assert.equal(classifyFilterError(42), 'other');
+  assert.equal(classifyFilterError({}), 'other');
+  assert.equal(classifyFilterError(['timeout']), 'timeout', 'coercion still classifies what it can read');
+});
+
 test('both-providers-failed: an unrecognised failure keeps its raw text, since that is all there is', async () => {
   const { llmVerdict, classifyFilterError } = await import('../scripts/supertrend.mjs');
   global.fetch = async () => { throw new Error('ECONNRESET talking to the proxy'); };
