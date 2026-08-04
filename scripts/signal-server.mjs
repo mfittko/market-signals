@@ -887,7 +887,7 @@ export function lastNewsFetch(messages, { now = Date.now() } = {}) {
   return null;
 }
 
-const TITLE_ANNOTATION = /\r?\n?[ \t]*<!--[ \t]*title:[ \t]*([^\r\n]{0,120}?)[ \t]*-->[ \t]*/;
+const TITLE_ANNOTATION = /(?:\r?\n[ \t]*)?<!--[ \t]*title:[ \t]*([^\r\n]{0,120}?)[ \t]*-->[ \t]*/;
 export function extractThreadTitle(reply) {
   const text = String(reply);
   // EVERY annotation is removed, not just the first: a model that self-corrects

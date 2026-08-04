@@ -1242,7 +1242,7 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
   // End-anchoring meant a reply that appended anything after it — source
   // footnotes, say — both rendered the annotation to the trader AND lost the
   // title, leaving the thread on its first-question placeholder.
-  assert.deepEqual(extractThreadTitle('mid <!--title: nope--> stream'), { text: 'midstream', title: 'nope' }, 'an annotation anywhere is extracted and removed');
+  assert.deepEqual(extractThreadTitle('mid <!--title: nope--> stream'), { text: 'mid stream', title: 'nope' }, 'an annotation anywhere is extracted and removed, without gluing words together');
   assert.deepEqual(
     extractThreadTitle('Body.\n\n<!--title: My Title-->\n\n---\n1 "headline" — src'),
     { text: 'Body.\n\n\n---\n1 "headline" — src', title: 'My Title' },
@@ -1295,7 +1295,7 @@ test('served client stripTitleTail behaves correctly as DELIVERED (escape-drift 
     assert.equal(stripTitleTail('Answer.\n<!--tit'), 'Answer.');
     assert.equal(stripTitleTail('legit <!--note--> stays put'), 'legit <!--note--> stays put');
     // Matched anywhere now — see the extractThreadTitle test for why.
-    assert.equal(stripTitleTail('explains <!--title: x--> then more'), 'explainsthen more');
+    assert.equal(stripTitleTail('explains <!--title: x--> then more'), 'explains then more', 'an inline annotation is removed without gluing the surrounding words together');
     assert.equal(stripTitleTail('Body.\n\n<!--title: t-->\n\n---\nsources'), 'Body.\n\n\n---\nsources', 'annotation removed, trailing footnotes kept');
     assert.equal(stripTitleTail('ends with <e'), 'ends with <e', 'non-prefix tails untouched');
   });

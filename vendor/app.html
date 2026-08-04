@@ -2472,7 +2472,7 @@ const stripTitleTail = (t) => {
   // a reply that appended anything after the annotation — a rule and source
   // footnotes, say — render it verbatim in the bubble. Single-line by
   // construction, so a legitimate multi-line comment survives.
-  let s = t.replace(/\r?\n?[ \t]*<!--[ \t]*title:[ \t]*[^\r\n]*?-->[ \t]*/g, '');
+  let s = t.replace(/(?:\r?\n[ \t]*)?<!--[ \t]*title:[ \t]*[^\r\n]*?-->[ \t]*/g, '');
   // Still streaming: an annotation that has opened but not closed yet must not
   // flash, and it can only be the last thing received so far.
   const i = s.lastIndexOf('<!--');
