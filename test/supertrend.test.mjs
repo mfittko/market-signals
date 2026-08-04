@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification, filterHealth, FILTER_HEALTH_WINDOW, FILTER_HEALTH_WARN_RATE } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -1681,4 +1681,100 @@ test('processSignal: a failing Pushover push leaves the alert recorded as sent+n
     process.env.PATH = prevPath;
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
   }
+});
+
+// #217: filterHealth derives the health-strip's filter-degradation signal
+// straight from persisted signals.reason rows — no LLM/network call. Seeds
+// rows by hand (not through processSignal) so each case pins an exact,
+// known verdict/reason combination.
+function seedFilteredSignal(dbPath, time, { verdict = 'alert', reason = null } = {}) {
+  withDb(dbPath, (db) => {
+    db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?)')
+      .run('WTICO/USD', 'M5', time, 'buy', 100, verdict, reason, 1);
+  });
+}
+const tAt = (i) => new Date(Date.parse('2026-07-22T08:00:00Z') + i * 300000).toISOString();
+
+test('filterHealth: no filter-judged rows yet ⇒ checked 0, quiet (warn false, no dominant kind)', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-empty.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  const h = filterHealth(dbPath);
+  assert.deepEqual(h, { checked: 0, errors: 0, rate: 0, warn: false, dominantKind: null });
+  rmSync(dbPath, { force: true });
+});
+
+test('filterHealth: healthy — every recent verdict a real provider answer ⇒ warn false', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-clean.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  for (let i = 0; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { verdict: i % 2 ? 'suppress' : 'alert', reason: 'looks like chop' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 10);
+  assert.equal(h.errors, 0);
+  assert.equal(h.rate, 0);
+  assert.equal(h.warn, false);
+  assert.equal(h.dominantKind, null);
+  rmSync(dbPath, { force: true });
+});
+
+test(`filterHealth: below the ${FILTER_HEALTH_WARN_RATE * 100}% threshold ⇒ informational, not a warning`, () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-below.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 2 of 20 = 10%, below FILTER_HEALTH_WARN_RATE — one stale failure must not cry wolf.
+  for (let i = 0; i < 20; i++) {
+    const errored = i === 0 || i === 1;
+    seedFilteredSignal(dbPath, tAt(i), { reason: errored ? 'filter error: timeout after 90000ms' : 'fine' });
+  }
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 20);
+  assert.equal(h.errors, 2);
+  assert.equal(h.rate, 0.1);
+  assert.equal(h.warn, false, 'below the named threshold stays quiet');
+  rmSync(dbPath, { force: true });
+});
+
+test('filterHealth: at/above the threshold ⇒ warn true, dominant failure kind surfaced (still distinguishable)', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-warn.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 5 of 20 = 25% (matches the incident this exists for), 3 timeouts + 1 no-JSON + 1 5xx.
+  const reasons = [
+    'filter error: timeout after 90000ms', 'filter error: The operation was aborted due to timeout',
+    'filter error: timeout', 'filter error: no verdict JSON in provider output',
+    'filter error: openai HTTP 503: upstream unavailable',
+  ];
+  for (let i = 0; i < 20; i++) seedFilteredSignal(dbPath, tAt(i), { reason: i < 5 ? reasons[i] : 'fine' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 20);
+  assert.equal(h.errors, 5);
+  assert.equal(h.rate, 0.25);
+  assert.equal(h.warn, true);
+  assert.equal(h.dominantKind, 'timeout', 'the majority failure kind (3 of the 5 errors) is named');
+  rmSync(dbPath, { force: true });
+});
+
+test('filterHealth: only verdict IN (alert,suppress) rows count — duplicate/unfiltered/impulse rows never enter the denominator', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-scope.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  seedFilteredSignal(dbPath, tAt(0), { verdict: 'duplicate', reason: 're-detection of x' });
+  seedFilteredSignal(dbPath, tAt(1), { verdict: 'unfiltered', reason: null });
+  withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified, kind) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run('WTICO/USD', 'M5', tAt(2), 'buy', 100, null, 'filter error: should never be reachable via kind', 1, 'volume-impulse'));
+  seedFilteredSignal(dbPath, tAt(3), { verdict: 'alert', reason: 'filter error: timeout' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 1, 'only the one alert/suppress row counts');
+  assert.equal(h.errors, 1);
+  rmSync(dbPath, { force: true });
+});
+
+test(`filterHealth: count-based window — only the most recent ${FILTER_HEALTH_WINDOW} filtered rows count, older errors fall out of scope`, () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-window.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 10 old errored rows, then FILTER_HEALTH_WINDOW clean rows newer than all of them —
+  // a time-based (not count-based) window covering everything would still see the old errors.
+  for (let i = 0; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { reason: 'filter error: timeout' });
+  for (let i = 0; i < FILTER_HEALTH_WINDOW; i++) seedFilteredSignal(dbPath, tAt(100 + i), { reason: 'fine' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, FILTER_HEALTH_WINDOW);
+  assert.equal(h.errors, 0, 'the older errored rows are outside the count-based window');
+  assert.equal(h.warn, false);
+  rmSync(dbPath, { force: true });
 });

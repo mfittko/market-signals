@@ -1641,7 +1641,20 @@ function renderHealthStrip() {
     : cyc.lastCycleError
     ? ' · <span class="warn">⛔ cycle error</span>'
     : ' · cycle: server · ' + (cyc.lastCycleAt ? humanAge((Date.now() - Date.parse(cyc.lastCycleAt)) / 60000) : 'not yet run');
-  el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg + cycleSeg;
+  // #217: the alert filter fails open — a broken filter still emits alerts,
+  // so nothing else on this strip (or anywhere else an operator looks) would
+  // ever show it. filter.rate/warn/dominantKind are server-derived from
+  // signals.reason (no new LLM/network call here). Quiet ("filter ok") when
+  // healthy, same recency-is-info convention as llmSeg above; only a rate
+  // crossing the server's named threshold gets `.warn`, so one stale failure
+  // doesn't cry wolf.
+  const flt = railHealth.filter;
+  const filterSeg = !flt || flt.checked === 0
+    ? 'filter —'
+    : flt.warn
+    ? '<span class="warn">⚠ filter errors ' + Math.round(flt.rate * 100) + '% (' + flt.errors + '/' + flt.checked + (flt.dominantKind ? ', mostly ' + esc(flt.dominantKind) : '') + ')</span>'
+    : 'filter ok';
+  el.innerHTML = feedSeg + ' · ' + llmSeg + ' · ' + newsSeg + ' · ' + filterSeg + cycleSeg;
 }
 function renderRail(ok) {
   const el = document.getElementById('rail');

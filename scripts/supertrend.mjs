@@ -192,6 +192,59 @@ export function signalOutcomes(dbPath, instrument, granularity, { horizonBars = 
   });
 }
 
+// The filter fails open (llmVerdict's catch below stamps `filter error: ` +
+// the exception message into `reason`), so a broken filter still emits
+// alerts — nothing stops, nothing errors, every screen looks normal. These
+// four patterns are the exact substrings its own error paths already write
+// (see the `throw new Error(...)` call sites above), mapped to plain,
+// operator-facing words rather than the raw exception text.
+const FILTER_ERROR_KINDS = [
+  { match: /no verdict json/i, label: 'no answer' },
+  { match: /finish_reason[=:]\s*['"]?length/i, label: 'cut off' },
+  { match: /http 5\d\d/i, label: 'server error' },
+  { match: /timeout/i, label: 'timeout' },
+];
+function classifyFilterError(reason) {
+  return FILTER_ERROR_KINDS.find((k) => k.match.test(reason || ''))?.label ?? 'other';
+}
+
+// Count-based, not time-based: a calendar window goes quiet over a weekend
+// (few or zero flips), and on a tiny sample a single failure swings the rate
+// wildly — a fixed count of the most recent judged verdicts stays stable
+// whether the market traded all day or was closed.
+export const FILTER_HEALTH_WINDOW = 20;
+// The incident that motivated this ran at ~24% for four days before anyone
+// noticed by eye. This sits below that, so the strip would have caught it,
+// while staying above the noise one stale failure produces in a 20-row window.
+export const FILTER_HEALTH_WARN_RATE = 0.2;
+
+// Share of the most recent FILTER_HEALTH_WINDOW filter-judged signals, across
+// every instrument/granularity (one gate, one strip segment), whose verdict
+// came from the fail-open error fallback rather than a real provider answer.
+// verdict IN ('alert','suppress') is exactly "the filter ran and recorded a
+// verdict" — duplicate/cooldown/unfiltered rows never set verdict to either,
+// so they never enter this count. No new LLM or network call: this only
+// reads rows the filter already wrote.
+export function filterHealth(dbPath, { window = FILTER_HEALTH_WINDOW } = {}) {
+  return withDb(dbPath, (db) => {
+    const rows = db.prepare("SELECT reason FROM signals WHERE verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?").all(window);
+    const checked = rows.length;
+    const errorReasons = rows.map((r) => r.reason).filter((r) => /filter error:/i.test(r || ''));
+    const errors = errorReasons.length;
+    let dominantKind = null;
+    let dominantCount = 0;
+    const counts = new Map();
+    for (const r of errorReasons) {
+      const kind = classifyFilterError(r);
+      const n = (counts.get(kind) ?? 0) + 1;
+      counts.set(kind, n);
+      if (n > dominantCount) { dominantKind = kind; dominantCount = n; }
+    }
+    const rate = checked > 0 ? errors / checked : 0;
+    return { checked, errors, rate, warn: checked > 0 && rate >= FILTER_HEALTH_WARN_RATE, dominantKind };
+  });
+}
+
 // Split so a chat-drafted override (issue #58) can only ever replace the
 // advisory RULES text — the JSON verdict instruction stays code-owned and is
 // always appended server-side, so a draft can never break parsing.

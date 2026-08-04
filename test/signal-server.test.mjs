@@ -1828,6 +1828,9 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.ok(Array.isArray(h.bots));
     // #199: the heartbeat is the only cycle owner — no owner field, cycle status only
     assert.deepEqual(h.cycle, { lastCycleAt: null, lastCycleError: null });
+    // #217: fixtureDb's seeded row carries no verdict (recordSignal alone never
+    // sets one) — it must not count as a filter-judged row.
+    assert.deepEqual(h.filter, { checked: 0, errors: 0, rate: 0, warn: false, dominantKind: null });
 
     // mutating verbs are never accepted on a read-only surface
     const post = await fetch(base + '/api/health', { method: 'POST' });
@@ -1840,6 +1843,28 @@ test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode'
     await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ GNEWS_KEY: 'gk-secret', GNEWS_MODE: 'shadow' }) });
     const h = await (await fetch(base + '/api/health')).json();
     assert.equal(h.news.gnewsMode, 'shadow');
+  });
+});
+
+// #217: the filter fails open, so a degraded gate looks identical to a
+// healthy one everywhere else — GET /api/health is where the health strip
+// gets the derived rate/warn/dominantKind it renders.
+test('GET /api/health: a recent filter-error rate at/above the named threshold surfaces filter.warn=true with the dominant error kind', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, dbPath }) => {
+    withDb(dbPath, (db) => {
+      const ins = db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?)');
+      for (let i = 0; i < 20; i++) {
+        const t = new Date(Date.parse('2026-07-25T00:00:00Z') + i * 60000).toISOString();
+        const reason = i < 5 ? 'filter error: openai HTTP 503: upstream unavailable' : 'fine';
+        ins.run(INSTRUMENT, 'M5', t, 'buy', 100, 'alert', reason, 1);
+      }
+    });
+    const h = await (await fetch(base + '/api/health')).json();
+    assert.equal(h.filter.checked, 20);
+    assert.equal(h.filter.errors, 5);
+    assert.equal(h.filter.rate, 0.25);
+    assert.equal(h.filter.warn, true);
+    assert.equal(h.filter.dominantKind, 'server error');
   });
 });
 

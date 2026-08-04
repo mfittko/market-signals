@@ -103,6 +103,27 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         }));
       });
     });
+    // #217: 20 filter-judged rows (FILTER_HEALTH_WINDOW), newer than every
+    // other seeded signal above so they own the count-based window; 5 of them
+    // (25%, at/above FILTER_HEALTH_WARN_RATE) carry a "filter error: " reason
+    // — the fail-open fallback the health strip must surface. filterHealth is
+    // global (not per combo), but the tape table renders whatever combo is
+    // viewed — a fictitious, never-viewed combo keeps this seed from adding
+    // rows to the WTICO/USD tape assertions elsewhere in this walkthrough.
+    withDb(dbPath, (db) => {
+      const ins = db.prepare('INSERT INTO signals (instrument, granularity, time, signal, verdict, reason) VALUES (?,?,?,?,?,?)');
+      const errorReasons = [
+        'filter error: openai HTTP 503: upstream unavailable',
+        'filter error: no verdict JSON in provider output',
+        'filter error: openai provider returned no content (finish_reason=length; a reasoning model likely exhausted max_completion_tokens=1024)',
+        'filter error: The operation was aborted due to timeout',
+        'filter error: The operation was aborted due to timeout',
+      ];
+      for (let i = 0; i < 20; i++) {
+        const t = `2026-07-27T01:${String(i).padStart(2, '0')}:00.000Z`;
+        ins.run('E2E-FILTERHEALTH/USD', 'M5', t, 'buy', i % 2 ? 'suppress' : 'alert', i < errorReasons.length ? errorReasons[i] : 'looks like chop');
+      }
+    });
     browser = await webkit.launch({ headless: true });
     for (const vname of selected) {
       await t.test(vname, async () => {
@@ -193,6 +214,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         assert.ok(await p.evaluate(() => !!document.getElementById('chart')), 'chart canvas present');
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
+
+        // #217: the health strip surfaces filter degradation — assert the
+        // RENDERED text (not just the /api/health field the strip reads),
+        // per the #219 lesson that a state-only assertion let a dead control
+        // pass for months. The 25%/5-timeout-dominant fixture seeded above
+        // is well above the strip's warn threshold.
+        await p.waitForFunction(() => (document.getElementById('healthStrip')?.textContent || '').includes('filter'), { timeout: 5000 });
+        const healthStripHtml = await p.evaluate(() => document.getElementById('healthStrip').innerHTML);
+        assert.match(healthStripHtml, /filter errors 25% \(5\/20, mostly timeout\)/, 'health strip renders the derived filter error rate, count, and dominant failure kind');
+        assert.match(healthStripHtml, /<span class="warn">[^<]*filter errors/, 'a degraded filter rate renders inside the strip\'s warn styling, not as quiet info');
 
         // #187 AC3 (mobile): the bot modal's tab strip renders and the history
         // tabs are tappable on phones (collapse inherited via .bmtabs
