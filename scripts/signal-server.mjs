@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -1499,6 +1499,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // server heartbeat's cycle surfaces here without ever breaking chart
         // serving (the cycle's own try/catch already isolates it).
         const cycleStatus = keepFresh.getCycleStatus();
+        // The alert filter fails open, so a broken filter looks
+        // identical to a healthy one everywhere else — derived here (no new
+        // LLM/network call) from the same `signals.reason` rows the filter
+        // already writes, so the health strip can surface it too.
         return json(res, 200, {
           ok: true,
           halted,
@@ -1507,6 +1511,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           news: { mode: newsSrc.NEWSAPI_AI_KEY ? (newsSrc.NEWSAPI_AI_MODE || 'auto') : 'free', gnewsMode: gnewsSrc.GNEWS_KEY ? (gnewsSrc.GNEWS_MODE || 'off') : 'off' },
           bots,
           cycle: cycleStatus,
+          filter: filterHealth(dbPath),
         });
       }
       if (url.pathname === '/api/portfolio') {

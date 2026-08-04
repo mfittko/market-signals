@@ -20,11 +20,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Must list EVERY viewport in walkthrough.e2e.mjs's VIEWPORTS map. CI
+        # shards by E2E_VIEWPORT, so a cell missing here never runs in CI while
+        # a local run (which iterates them all) still goes green — the guard
+        # looks present and is not exercised.
         viewport:
           - desktop-landscape
           - desktop-portrait
           - phone-portrait
           - phone-landscape
+          - breakpoint-899
+          - breakpoint-900
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

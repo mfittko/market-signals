@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification, filterHealth, FILTER_HEALTH_WINDOW, FILTER_HEALTH_WARN_RATE } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -1717,6 +1717,178 @@ test('processSignal: a failing Pushover push leaves the alert recorded as sent+n
     process.env.PATH = prevPath;
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
   }
+});
+
+// filterHealth derives the health-strip's filter-degradation signal
+// straight from persisted signals.reason rows — no LLM/network call. Seeds
+// rows by hand (not through processSignal) so each case pins an exact,
+// known verdict/reason combination.
+function seedFilteredSignal(dbPath, time, { verdict = 'alert', reason = null, kind = 'supertrend-flip' } = {}) {
+  withDb(dbPath, (db) => {
+    db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified, kind) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run('WTICO/USD', 'M5', time, 'buy', 100, verdict, reason, 1, kind);
+  });
+}
+const tAt = (i) => new Date(Date.parse('2026-07-22T08:00:00Z') + i * 300000).toISOString();
+
+test('filterHealth: no filter-judged rows yet ⇒ checked 0, quiet (warn false, no dominant kind)', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-empty.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  const h = filterHealth(dbPath);
+  assert.deepEqual(h, { checked: 0, errors: 0, rate: 0, warn: false, dominantKind: null });
+  rmSync(dbPath, { force: true });
+});
+
+test('filterHealth: healthy — every recent verdict a real provider answer ⇒ warn false', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-clean.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  for (let i = 0; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { verdict: i % 2 ? 'suppress' : 'alert', reason: 'looks like chop' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 10);
+  assert.equal(h.errors, 0);
+  assert.equal(h.rate, 0);
+  assert.equal(h.warn, false);
+  assert.equal(h.dominantKind, null);
+  rmSync(dbPath, { force: true });
+});
+
+// A detector that never consults the filter still records verdict='alert'. Left
+// in the denominator those rows dilute the rate: measured against the live DB
+// they were 7 of the last 20, turning a real 23% error rate into a reported 15%
+// — under the threshold, so the strip stayed quiet during actual degradation.
+// The window must be filter-judged rows only.
+test('filterHealth: rows from detectors that never run the filter are excluded, not counted as healthy', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-kinds.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 4 filter-judged rows, 1 of them errored (25%, above the threshold) …
+  for (let i = 0; i < 4; i++) {
+    seedFilteredSignal(dbPath, tAt(i), { reason: i === 0 ? 'filter error: timeout after 90000ms' : 'looks like chop' });
+  }
+  // … plus impulse rows that carry verdict='alert' without the filter ever running.
+  for (let i = 4; i < 12; i++) {
+    seedFilteredSignal(dbPath, tAt(i), { verdict: 'alert', reason: 'volume impulse', kind: 'volume-impulse' });
+  }
+  // The scope uses FLIP_KIND_PREDICATE, which also admits legacy kind IS NULL
+  // flips. That branch is deliberately unexercised here: the current DDL declares
+  // kind NOT NULL, so such a row cannot be inserted at all — it only exists in a
+  // database whose schema predates the primary-key rebuild.
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 4, 'only filter-judged rows enter the window');
+  assert.equal(h.errors, 1);
+  assert.equal(h.rate, 0.25);
+  assert.equal(h.warn, true, 'the impulse rows must not dilute a real degradation below the threshold');
+  rmSync(dbPath, { force: true });
+});
+
+test(`filterHealth: below the ${FILTER_HEALTH_WARN_RATE * 100}% threshold ⇒ informational, not a warning`, () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-below.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 2 of 20 = 10%, below FILTER_HEALTH_WARN_RATE — one stale failure must not cry wolf.
+  for (let i = 0; i < 20; i++) {
+    const errored = i === 0 || i === 1;
+    seedFilteredSignal(dbPath, tAt(i), { reason: errored ? 'filter error: timeout after 90000ms' : 'fine' });
+  }
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 20);
+  assert.equal(h.errors, 2);
+  assert.equal(h.rate, 0.1);
+  assert.equal(h.warn, false, 'below the named threshold stays quiet');
+  rmSync(dbPath, { force: true });
+});
+
+test('filterHealth: at/above the threshold ⇒ warn true, dominant failure kind surfaced (still distinguishable)', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-warn.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 5 of 20 = 25% (matches the incident this exists for), 3 timeouts + 1 no-JSON + 1 5xx.
+  const reasons = [
+    'filter error: timeout after 90000ms', 'filter error: The operation was aborted due to timeout',
+    'filter error: timeout', 'filter error: no verdict JSON in provider output',
+    'filter error: openai HTTP 503: upstream unavailable',
+  ];
+  for (let i = 0; i < 20; i++) seedFilteredSignal(dbPath, tAt(i), { reason: i < 5 ? reasons[i] : 'fine' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 20);
+  assert.equal(h.errors, 5);
+  assert.equal(h.rate, 0.25);
+  assert.equal(h.warn, true);
+  assert.equal(h.dominantKind, 'timeout', 'the majority failure kind (3 of the 5 errors) is named');
+  rmSync(dbPath, { force: true });
+});
+
+// Each label gets its own dominant case. The test above only ever pins
+// 'timeout', so a regex drifting on any of the other three would collapse that
+// kind to 'other' while every existing assertion still passed — and the whole
+// point of naming a dominant kind is telling the four failure modes apart.
+for (const [label, reason] of [
+  ['cut off', 'filter error: openai provider returned no content (finish_reason=length; …)'],
+  ['no answer', 'filter error: no verdict JSON in provider output'],
+  ['server error', 'filter error: openai HTTP 503: upstream unavailable'],
+  ['timeout', 'filter error: The operation was aborted due to timeout'],
+]) {
+  test(`filterHealth: a window dominated by "${label}" failures names that kind`, () => {
+    const dbPath = fileURLToPath(new URL(`./tmp-filter-health-kind-${label.replace(/\s+/g, '-')}.db`, import.meta.url));
+    rmSync(dbPath, { force: true });
+    for (let i = 0; i < 5; i++) seedFilteredSignal(dbPath, tAt(i), { reason });
+    for (let i = 5; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { reason: 'looks like chop' });
+    const h = filterHealth(dbPath);
+    assert.equal(h.errors, 5, `every "${label}" reason is recognised as a filter error`);
+    assert.equal(h.dominantKind, label);
+    rmSync(dbPath, { force: true });
+  });
+}
+
+// The window spans instruments, so rows routinely share a candle time. A tie
+// straddling the boundary must not change which rows the window contains.
+test('filterHealth: the window is deterministic when rows share a timestamp', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-ties.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 4 instruments flip on the SAME bar, so a window of 2 must cut through a tie.
+  for (const inst of ['AAA/USD', 'BBB/USD', 'CCC/USD', 'DDD/USD']) {
+    withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?)')
+      .run(inst, 'M5', tAt(0), 'buy', 100, 'alert', inst === 'AAA/USD' ? 'filter error: timeout' : 'looks like chop', 1));
+  }
+  // Assert WHICH rows the tie resolves to, not merely that repeated reads agree:
+  // without a tie-breaker SQLite still returns a stable order here (insert order,
+  // which starts at the errored AAA/USD row), so a self-consistency check passes
+  // either way and proves nothing. Ordering by the rest of the primary key makes
+  // the top 2 DDD and CCC — both clean — so the errored row is provably outside
+  // the window and the assertion fails the moment the tie-breaker is dropped.
+  const h = filterHealth(dbPath, { window: 2 });
+  assert.equal(h.checked, 2);
+  assert.equal(h.errors, 0, 'the window resolves ties by the primary key, so the two highest instruments win — not insert order');
+  rmSync(dbPath, { force: true });
+});
+
+// Scope by verdict only. The impulse row here carries a null verdict, so it
+// pins the verdict clause alone — the kind clause is pinned separately above,
+// with an impulse row that DOES carry verdict='alert', which is the shape
+// production actually writes.
+test('filterHealth: only verdict IN (alert,suppress) rows count — duplicate/unfiltered/no-verdict rows never enter the denominator', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-scope.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  seedFilteredSignal(dbPath, tAt(0), { verdict: 'duplicate', reason: 're-detection of x' });
+  seedFilteredSignal(dbPath, tAt(1), { verdict: 'unfiltered', reason: null });
+  withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified, kind) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run('WTICO/USD', 'M5', tAt(2), 'buy', 100, null, 'filter error: should never be reachable via kind', 1, 'volume-impulse'));
+  seedFilteredSignal(dbPath, tAt(3), { verdict: 'alert', reason: 'filter error: timeout' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 1, 'only the one alert/suppress row counts');
+  assert.equal(h.errors, 1);
+  rmSync(dbPath, { force: true });
+});
+
+test(`filterHealth: count-based window — only the most recent ${FILTER_HEALTH_WINDOW} filtered rows count, older errors fall out of scope`, () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-window.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 10 old errored rows, then FILTER_HEALTH_WINDOW clean rows newer than all of them —
+  // a time-based (not count-based) window covering everything would still see the old errors.
+  for (let i = 0; i < 10; i++) seedFilteredSignal(dbPath, tAt(i), { reason: 'filter error: timeout' });
+  for (let i = 0; i < FILTER_HEALTH_WINDOW; i++) seedFilteredSignal(dbPath, tAt(100 + i), { reason: 'fine' });
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, FILTER_HEALTH_WINDOW);
+  assert.equal(h.errors, 0, 'the older errored rows are outside the count-based window');
+  assert.equal(h.warn, false);
+  rmSync(dbPath, { force: true });
 });
 
 test('llmVerdict fallback (AC4/AC5/AC8): a primary TRANSPORT ERROR triggers exactly one fallback attempt, using its own key/model', async () => {
