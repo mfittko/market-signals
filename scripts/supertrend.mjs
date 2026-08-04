@@ -418,7 +418,7 @@ function openaiCompletionBudget(settings, maxTokens) {
 // Single provider dispatch. schema => JSON-constrained (non-streaming);
 // onDelta => streamed tokens for the API providers (pi replies whole).
 // Always tool-less: the chat's tool surface lives in the dedicated tool loops.
-export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null, onUsage = null, provider = resolveProvider(settings) } = {}) {
+export async function llmRequest(settings, system, user, { schema = null, maxTokens = 1024, timeoutMs = 90000, onDelta = null, temperature = null, onUsage = null, provider = resolveProvider(settings), exactMaxTokens = false } = {}) {
   // provider is overridable (same precedent as openaiToolLoop below) so a
   // caller can dispatch to a DIFFERENT provider than settings.provider without
   // rewriting settings.json — the verdict fallback below uses this to retry on
@@ -487,7 +487,10 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
   {
     const stream = Boolean(onDelta) && !schema;
     const model = requireModel(settings, provider);
-    const budget = openaiCompletionBudget(settings, maxTokens);
+    // exactMaxTokens: the caller already decided the final number, so do not
+    // re-floor it against the global setting — otherwise a caller-side knob could
+    // only ever raise the budget and never lower it below the 8192 floor.
+    const budget = exactMaxTokens ? maxTokens : openaiCompletionBudget(settings, maxTokens);
     const body = {
       model,
       max_completion_tokens: budget,
@@ -682,7 +685,15 @@ export function llmUsageLine(tag, info) {
 // NOT touch OPENAI_REASONING_FLOOR or settings.maxCompletionTokens, so every
 // other call site (chat, the bot's tool loop) keeps its existing budget.
 const VERDICT_TOKEN_FLOOR = 16384;
-function verdictMaxTokens(settings) {
+// The verdict JSON itself is tiny; this budget exists purely as REASONING
+// headroom, which is an openai-compatible concern. Anthropic's max_tokens is a
+// hard OUTPUT ceiling instead, and a model whose own ceiling sits below this
+// number would 400 on every single attempt — so a fallback to anthropic would be
+// permanently broken rather than a safety net. Anthropic keeps the small
+// call-site budget its output actually needs.
+const VERDICT_ANTHROPIC_MAX_TOKENS = 1024;
+function verdictMaxTokens(settings, provider) {
+  if (provider === 'anthropic') return VERDICT_ANTHROPIC_MAX_TOKENS;
   return settings.filterMaxCompletionTokens > 0 ? settings.filterMaxCompletionTokens : VERDICT_TOKEN_FLOOR;
 }
 
@@ -734,13 +745,17 @@ async function withVerdictFallback(settings, run) {
     try {
       return { ...(await run(settings, fallback, remaining)), provider: fallback };
     } catch (fallbackErr) {
-      throw new Error(`both providers failed — ${primary}: ${primaryErr.message}; ${fallback}: ${fallbackErr.message}`);
+      // Both names must survive the caller's 90-char reason truncation, because
+      // "which provider is broken" is the whole diagnostic value here — so the
+      // names come first and the error text is what gets sacrificed.
+      const detail = String(fallbackErr?.message ?? fallbackErr).slice(0, 24);
+      throw new Error(`both failed (${primary}+${fallback}): ${detail}`);
     }
   }
 }
 
 async function llmVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings) });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: VERDICT_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true, exactMaxTokens: true });
   // API providers return pure JSON under schema mode; regex is the pi fallback
   // (its output may wrap the JSON in prose) and can't handle braces in reason.
   try {
@@ -778,7 +793,7 @@ function normalizeRecheckVerdict(v) {
 }
 
 async function llmRecheckVerdictOnce(settings, payload, system, onUsage, provider, timeoutMs) {
-  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings) });
+  const out = await llmRequest(settings, system, JSON.stringify(payload), { schema: RECHECK_SCHEMA, timeoutMs, onUsage, provider, maxTokens: verdictMaxTokens(settings, provider), exactMaxTokens: true, exactMaxTokens: true });
   try {
     const whole = JSON.parse(out);
     const norm = normalizeRecheckVerdict(whole);

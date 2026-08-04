@@ -1833,3 +1833,58 @@ test('withVerdictFallback: a nearly-exhausted deadline skips the fallback instea
     delete global.fetch;
   }
 });
+
+// The verdict budget is REASONING headroom, which only the openai path has.
+// Anthropic's max_tokens is a hard OUTPUT ceiling, so sending 16384 there can
+// exceed the model's own ceiling and 400 on every attempt — a fallback that is
+// permanently broken rather than a safety net.
+test('verdict budget: the big reasoning budget goes to the openai path, never to anthropic max_tokens', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const bodies = [];
+  global.fetch = async (url, opts) => {
+    bodies.push({ url: String(url), body: JSON.parse(opts.body) });
+    return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{"content":[{"text":"{\\"alert\\":true,\\"reason\\":\\"ok\\"}"}]}' };
+  };
+  try {
+    await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' } }, { s: 1 }, 'sys').catch(() => {});
+    const anthropic = bodies.find((b) => b.url.includes('anthropic'));
+    assert.ok(anthropic, 'the anthropic endpoint was called');
+    assert.ok(anthropic.body.max_tokens <= 4096,
+      `anthropic max_tokens must stay a modest output cap, got ${anthropic.body.max_tokens} — a hard ceiling above the model's own would 400 every attempt`);
+  } finally { delete global.fetch; }
+});
+
+// The knob must be authoritative for the verdict path. Floored against the global
+// setting it could only ever raise the budget, never lower it below 8192.
+test('verdict budget: filterMaxCompletionTokens can lower the budget, not only raise it', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  let sent = null;
+  global.fetch = async (url, opts) => { sent = JSON.parse(opts.body); return { ok: true, status: 200, text: async () => JSON.stringify({ choices: [{ message: { content: '{"alert":true,"reason":"ok"}' } }] }) }; };
+  try {
+    await llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+      models: { 'openai-compatible': 'm' }, filterMaxCompletionTokens: 4000, maxCompletionTokens: 32000 }, { s: 1 }, 'sys').catch(() => {});
+    assert.equal(sent.max_completion_tokens, 4000,
+      'the verdict knob wins over the global chat budget, in both directions');
+  } finally { delete global.fetch; }
+});
+
+// "Which provider is broken" is the whole diagnostic value of the both-failed
+// message, and the caller truncates the reason to 90 chars — so the names must
+// come first and survive, with the error text sacrificed instead.
+test('both-providers-failed: both provider names survive the 90-char reason truncation', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  global.fetch = async () => { throw new Error('a'.repeat(300)); };
+  try {
+    await assert.rejects(
+      llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+        ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+        models: { 'openai-compatible': 'm1', anthropic: 'm2' } }, { s: 1 }, 'sys'),
+      (err) => {
+        const stored = `filter error: ${err.message}`.slice(0, 90); // exactly what processSignal persists
+        assert.match(stored, /openai-compatible/, `primary name lost to truncation: ${stored}`);
+        assert.match(stored, /anthropic/, `fallback name lost to truncation: ${stored}`);
+        return true;
+      },
+    );
+  } finally { delete global.fetch; }
+});
