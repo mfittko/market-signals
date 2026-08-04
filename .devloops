@@ -100,3 +100,11 @@ uiReview:
 queue:
   board:
     number: 5
+
+# Gate evidence policy (operator, 2026-08-04): fan-out evidence is NOT required.
+# Gates on this repo run as a single inline reviewer, which the shipped default
+# rejects at the pre-merge evidence check. Each inline verdict still records a
+# reason, so the audit trail says plainly that one perspective reviewed it
+# rather than several independent ones — that is the tradeoff being accepted.
+gates:
+  requireFanoutEvidence: false
