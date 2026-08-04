@@ -9,7 +9,10 @@ import {
   fetchSentinelNews, createGdeltThrottle, resolveQuery, parseArgs,
   parseSentinelQueryToKeywords, normalizeNewsApiAiArticle, fetchNewsApiAiArticles,
   resolveNewsApiAiConfig, NEWSAPI_AI_MAX_KEYWORDS, resolveNewsApiAiSource,
+  buildGnewsQuery, GNEWS_MAX_QUERY_LEN, normalizeGnewsArticle, markGnewsDuplicates,
+  fetchGnewsArticles, resolveGnewsConfig, resolveGnewsSource, TOTAL_CAP,
 } from '../skills/market-sentinel/scripts/sentinel_news.mjs';
+import { loadInstrumentsConfig } from '../scripts/lib/instruments.mjs';
 
 // A fetch double: returns `body` (object => JSON) with status 200, or a chosen
 // status. Records the requested url + parsed request body for assertions.
@@ -29,6 +32,24 @@ function mockFetcher(responses) {
   return { fetcher, calls };
 }
 const jsonFixture = (name) => JSON.parse(fixture(name));
+
+// A GET-request fetch double (GNews has no request body, just query params):
+// returns `body`/status 200, or a chosen status. Records the requested url.
+function mockGnewsFetcher(responses) {
+  const calls = [];
+  const fetcher = async (url) => {
+    calls.push({ url });
+    const r = responses.shift();
+    if (r instanceof Error) throw r;
+    const status = r?.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => (typeof r?.json === 'string' ? r.json : JSON.stringify(r?.json ?? {})),
+    };
+  };
+  return { fetcher, calls };
+}
 
 const SCRIPT = fileURLToPath(new URL('../skills/market-sentinel/scripts/sentinel_news.mjs', import.meta.url));
 const fixture = (name) => readFileSync(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)), 'utf8');
@@ -460,6 +481,237 @@ test('fetchSentinelNews: NewsAPI.ai + free are unioned — paid items lead, free
   assert.ok(res.observed.some((it) => it.provider === 'newsapi-ai'), 'paid story recorded in observed');
 });
 
+// --- GNews provider --------------------------------------------------------
+test('buildGnewsQuery: quotes unquoted multi-word terms, leaves single words and already-quoted phrases alone', () => {
+  assert.equal(
+    buildGnewsQuery('(natural gas OR LNG OR gas pipeline OR gas supply OR Freeport LNG OR Nord Stream)'),
+    '("natural gas" OR LNG OR "gas pipeline" OR "gas supply" OR "Freeport LNG" OR "Nord Stream")',
+  );
+  assert.equal(
+    buildGnewsQuery('(oil OR crude OR OPEC OR "supply disruption")'),
+    '(oil OR crude OR OPEC OR "supply disruption")',
+    'an already-quoted phrase is left as-is, not double-quoted',
+  );
+});
+test('buildGnewsQuery: rejects an empty query', () => {
+  assert.throws(() => buildGnewsQuery('   '), /empty sentinel query/);
+});
+test('buildGnewsQuery: over the 200-char cap throws — non-chargeable (no network attempt)', () => {
+  const long = `(${Array.from({ length: 30 }, (_, i) => `keyword phrase ${i}`).join(' OR ')})`;
+  assert.throws(() => buildGnewsQuery(long), new RegExp(`exceeds the ${GNEWS_MAX_QUERY_LEN}-char cap`));
+});
+test('buildGnewsQuery: every committed sentinel query in config/instruments.yaml fits the 200-char cap', () => {
+  const cfg = loadInstrumentsConfig();
+  for (const entries of Object.values(cfg.markets)) {
+    for (const e of entries) {
+      if (!e.sentinel) continue;
+      const q = buildGnewsQuery(e.sentinel);
+      assert.ok(q.length <= GNEWS_MAX_QUERY_LEN, `${e.slug}: gnews query is ${q.length} chars (${q})`);
+    }
+  }
+});
+
+test('normalizeGnewsArticle: maps a real fixture article, prefers description over content, tags provider gnews', () => {
+  const fx = jsonFixture('gnews_search_oil.json');
+  const it = normalizeGnewsArticle(fx.articles[0]);
+  assert.equal(it.provider, 'gnews');
+  assert.equal(it.providerItemId, fx.articles[0].id);
+  assert.equal(it.source, fx.articles[0].source.name);
+  assert.equal(it.sourceUri, fx.articles[0].source.url);
+  assert.equal(it.summary, fx.articles[0].description, 'description preferred over the truncated content');
+  assert.equal(it.timeIso, new Date(fx.articles[0].publishedAt).toISOString());
+  assert.equal(it.eventUri, null);
+  assert.equal(it.sentiment, null);
+  assert.equal(it.concepts, null);
+  assert.equal(it.isDuplicate, false, 'not yet run through markGnewsDuplicates');
+});
+test('normalizeGnewsArticle: falls back to (truncated) content when description is absent', () => {
+  const it = normalizeGnewsArticle({ title: 't', content: 'body text', description: null });
+  assert.equal(it.summary, 'body text');
+});
+
+test('markGnewsDuplicates: the 3x BP North Sea case (different outlets, different wording) all mark after the first', () => {
+  const fx = jsonFixture('gnews_search_oil.json');
+  const items = fx.articles.map(normalizeGnewsArticle);
+  markGnewsDuplicates(items);
+  const bp = items.filter((it) => /BP puts/.test(it.title));
+  assert.equal(bp.length, 3, 'fixture has 3 BP North Sea variants');
+  assert.equal(bp[0].isDuplicate, false, 'first sighting (array order) is canonical');
+  assert.ok(bp[1].isDuplicate && bp[2].isDuplicate, 'the two later sightings are marked, not dropped');
+  assert.equal(items.length, fx.articles.length, 'marking never drops rows — every sighting survives');
+});
+test('markGnewsDuplicates: distinct stories are never marked as duplicates of each other', () => {
+  const items = [
+    { title: 'Ukraine strikes Russian oil refinery' },
+    { title: 'Gold prices steady amid Fed rate-cut bets' },
+  ];
+  markGnewsDuplicates(items);
+  assert.ok(items.every((it) => !it.isDuplicate));
+});
+
+test('fetchGnewsArticles: parses the fixture, marks intra-response duplicates, enforces the lookback locally', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z'); // 12h after the fixture's newest article
+  const { fetcher, calls } = mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]);
+  const r = await fetchGnewsArticles({ query: '(oil OR crude)', apiKey: 'SECRET', fetcher, hours: 24, now });
+  assert.equal(r.endpoint, 'search');
+  assert.equal(r.items.length, 10, 'every fixture article is within the 24h window');
+  assert.ok(r.items.every((it) => it.provider === 'gnews'));
+  assert.ok(r.items.some((it) => it.isDuplicate === true), 'the BP/British-man near-duplicates got marked');
+  assert.match(calls[0].url, /apikey=SECRET/, 'key travels as a query param (GNews API shape)');
+  // The window is widened by the free tier's 12h publication delay, so a 1h
+  // lookback still admits these 12h-old articles — without that widening the
+  // provider would look empty rather than delayed.
+  const shortWindow = await fetchGnewsArticles({ query: '(oil)', apiKey: 'SECRET', fetcher: mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]).fetcher, hours: 1, now });
+  assert.equal(shortWindow.items.length, 10, 'a 1h lookback still sees 12h-delayed articles (window widened by the delay)');
+  // genuinely stale items are still excluded: 48h on, even the widened window drops them
+  const stale = await fetchGnewsArticles({ query: '(oil)', apiKey: 'SECRET', fetcher: mockGnewsFetcher([{ json: jsonFixture('gnews_search_oil.json') }]).fetcher, hours: 1, now: now + 48 * 3600000 });
+  assert.equal(stale.items.length, 0, 'the widened window is still a window — 48h-old articles are dropped');
+});
+test('fetchGnewsArticles: requires an apiKey', async () => {
+  await assert.rejects(() => fetchGnewsArticles({ query: '(oil)' }), /requires an apiKey/);
+});
+test('fetchGnewsArticles: a failing fetch never leaks the key in the thrown error string', async () => {
+  const leaky = async (url) => { throw new Error(`request to ${url} failed`); }; // simulates a fetch impl that echoes the url
+  await assert.rejects(
+    () => fetchGnewsArticles({ query: '(oil)', apiKey: 'TOP-SECRET-KEY', fetcher: leaky }),
+    (err) => { assert.ok(!err.message.includes('TOP-SECRET-KEY'), `key leaked: ${err.message}`); return true; },
+  );
+});
+
+test('resolveGnewsConfig: default mode is off; an unknown mode fails CLOSED to off (unlike NewsAPI.ai\'s auto fallback)', () => {
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K' }).mode, 'off');
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K' }).enabled, false, 'off ignores a present key');
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K', GNEWS_MODE: 'bogus' }).mode, 'off');
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K', GNEWS_MODE: 'bogus' }).enabled, false);
+});
+test('resolveGnewsConfig: key absent => disabled regardless of mode', () => {
+  for (const mode of ['auto', 'shadow']) {
+    assert.equal(resolveGnewsConfig({ GNEWS_MODE: mode }).enabled, false, mode);
+  }
+});
+test('resolveGnewsConfig: auto/shadow with a key enables it; shadow flags shadow', () => {
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K', GNEWS_MODE: 'auto' }).enabled, true);
+  assert.deepEqual(
+    (({ enabled, shadow }) => ({ enabled, shadow }))(resolveGnewsConfig({ GNEWS_KEY: 'K', GNEWS_MODE: 'shadow' })),
+    { enabled: true, shadow: true },
+  );
+  assert.equal(resolveGnewsConfig({ GNEWS_KEY: 'K', GNEWS_MODE: 'auto' }).shadow, false);
+});
+test('resolveGnewsConfig: instrument allowlist gates enablement', () => {
+  const env = { GNEWS_KEY: 'K', GNEWS_MODE: 'auto', GNEWS_INSTRUMENTS: 'WTICO/USD' };
+  assert.equal(resolveGnewsConfig(env, { instrument: 'WTICO/USD' }).enabled, true);
+  assert.equal(resolveGnewsConfig(env, { instrument: 'XAU/USD' }).enabled, false);
+  assert.equal(resolveGnewsConfig(env, { instrument: null }).enabled, true);
+});
+
+test('resolveGnewsSource: settings.json wins over env; empty settings + empty env -> nothing', () => {
+  const s = resolveGnewsSource({ GNEWS_KEY: 'from-settings', GNEWS_MODE: 'shadow' }, { GNEWS_KEY: 'from-env', GNEWS_REQUEST_BUDGET: '500' });
+  assert.equal(s.GNEWS_KEY, 'from-settings');
+  assert.equal(s.GNEWS_MODE, 'shadow');
+  assert.equal(s.GNEWS_REQUEST_BUDGET, '500', 'env fills keys settings omits');
+  assert.equal(resolveGnewsConfig(s).enabled, true);
+  assert.deepEqual(resolveGnewsSource({}, {}), {});
+});
+
+// --- fetchSentinelNews: gnews wiring ---------------------------------------
+function gnewsFetchOnly(fixtureName) {
+  return async (url) => {
+    if (/gnews\.io/.test(url)) return { ok: true, status: 200, text: async () => fixture(fixtureName) };
+    throw new Error('offline');
+  };
+}
+
+test('fetchSentinelNews: gnews absent/off => byte-identical to today\'s free-only output (AC3c)', async () => {
+  const now = Date.parse('2026-07-23T12:00:00Z');
+  const withoutGnews = await fetchSentinelNews({ query: '(oil)', now, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {} });
+  const withOffGnews = await fetchSentinelNews({
+    query: '(oil)', now, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
+    gnews: { enabled: false, mode: 'off' },
+  });
+  assert.deepEqual(withOffGnews, withoutGnews, 'a disabled gnews verdict changes nothing');
+  assert.equal(withoutGnews.gnews, undefined);
+  assert.equal(withoutGnews.providersAttempted, undefined);
+});
+
+test('fetchSentinelNews: shadow mode — the prompt-facing payload (items/escalation/asOf) is byte-identical to off, gnews recorded separately', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const off = await fetchSentinelNews({ query: '(oil)', now, fetcher: async () => { throw new Error('offline'); }, log: () => {} });
+  const shadow = await fetchSentinelNews({
+    query: '(oil)', now, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
+    gnews: { enabled: true, shadow: true, mode: 'shadow', apiKey: 'K' },
+  });
+  assert.deepEqual(shadow.items, off.items, 'shadow gnews items never merge into the prompt-facing union');
+  assert.equal(shadow.escalation, off.escalation);
+  assert.equal(shadow.asOf, off.asOf);
+  assert.equal(shadow.gnews.shadow, true);
+  assert.ok(shadow.gnewsShadowItems.length > 0, 'gnews items recorded separately for provenance');
+});
+
+test('fetchSentinelNews: auto mode merges gnews items into the same deduped/ordered/capped union as every other source', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const res = await fetchSentinelNews({
+    query: '(oil)', now, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
+    gnews: { enabled: true, shadow: false, mode: 'auto', apiKey: 'K' },
+  });
+  const gnewsItems = res.items.filter((it) => it.provider === 'gnews');
+  assert.ok(gnewsItems.length >= 8, `the whole delay-widened fixture page reaches the union, got ${gnewsItems.length}`);
+  assert.equal(res.gnews.mode, 'auto');
+  assert.equal(res.gnews.requestMade, true);
+  const times = res.items.map((i) => Date.parse(i.timeIso));
+  assert.deepEqual(times, [...times].sort((a, b) => b - a), 'still newest-first after merging gnews');
+  assert.ok(res.items.length <= TOTAL_CAP, 'still capped');
+  // The duplicate mark is provenance, NOT a filter: word overlap cannot tell
+  // "OPEC agrees to raise output" from "...to cut output", so filtering on it
+  // would hide the contradicting event from the model. Marked items must arrive.
+  assert.ok(gnewsItems.some((it) => it.isDuplicate === true),
+    'items the overlap heuristic marked still reach the union — the mark never filters the prompt');
+});
+
+test('fetchSentinelNews: a gnews network failure never aborts the aggregate (free stack + other providers carry)', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const failer = async (url) => { if (/gnews\.io/.test(url)) return { ok: false, status: 503, text: async () => 'boom' }; throw new Error('offline'); };
+  const res = await fetchSentinelNews({
+    query: '(oil)', now, fetcher: failer, log: () => {},
+    gnews: { enabled: true, shadow: false, mode: 'auto', apiKey: 'K' },
+  });
+  assert.equal(res.gnews.requestMade, true);
+  assert.equal(res.gnews.ok, false);
+  assert.equal(res.gnews.status, 503);
+  assert.deepEqual(res.items, [], 'no items from any source, but the call itself never throws');
+});
+
+test('fetchSentinelNews: an over-cap gnews query is a local, non-chargeable failure (no network call, requestMade false)', async () => {
+  const overCap = `(${Array.from({ length: 30 }, (_, i) => `keyword phrase ${i}`).join(' OR ')})`;
+  let gnewsCalls = 0;
+  const routes = async (url) => { if (/gnews\.io/.test(url)) { gnewsCalls++; return { ok: true, status: 200, text: async () => '{}' }; } throw new Error('offline'); };
+  const res = await fetchSentinelNews({
+    query: overCap, now: Date.now(), fetcher: routes, log: () => {},
+    gnews: { enabled: true, shadow: false, mode: 'auto', apiKey: 'K' },
+  });
+  assert.equal(gnewsCalls, 0, 'no network call for a query that fails the local char-cap check');
+  assert.equal(res.gnews.requestMade, false, 'a local cap failure is not chargeable');
+  assert.equal(res.gnews.ok, false);
+});
+
+test('fetchSentinelNews: NewsAPI.ai and gnews can both be active without interfering with each other', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const naiFx = { articles: { results: [{ uri: 'n1', url: 'https://e/n1', title: 'NewsAPI oil story', dateTimePub: '2026-07-31T19:30:00Z', source: { title: 'Reuters', uri: 'reuters.com' } }] } };
+  const routes = async (url) => {
+    if (/getArticles/.test(url)) return { ok: true, status: 200, text: async () => JSON.stringify(naiFx) };
+    if (/gnews\.io/.test(url)) return { ok: true, status: 200, text: async () => fixture('gnews_search_oil.json') };
+    throw new Error('offline');
+  };
+  const res = await fetchSentinelNews({
+    query: '(oil)', now, fetcher: routes, log: () => {},
+    newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K', shadow: false },
+    gnews: { enabled: true, mode: 'auto', apiKey: 'K', shadow: false },
+  });
+  assert.ok(res.items.some((it) => it.provider === 'newsapi-ai'));
+  assert.ok(res.items.some((it) => it.provider === 'gnews'));
+  assert.equal(res.providersAttempted.includes('newsapi-ai'), true);
+  assert.equal(res.providersAttempted.includes('gnews'), true);
+});
+
 test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative false)', async () => {
   const gnews = '<rss><channel><item><title>Free fallback story</title><link>https://g/f1</link><pubDate>Fri, 24 Jul 2026 18:00:00 GMT</pubDate><description>d</description></item></channel></rss>';
   const now = Date.parse('2026-07-24T19:00:00Z');
@@ -471,4 +723,96 @@ test('fetchSentinelNews: NewsAPI.ai empty => free-stack fallback (authoritative 
   const res = await fetchSentinelNews({ query: '(oil)', now, fetcher: routes, newsApiAi: { enabled: true, mode: 'auto', apiKey: 'K' } });
   assert.equal(res.newsApiAi.authoritative, false, 'NewsAPI.ai empty => not authoritative');
   assert.ok(res.items.some((it) => it.title === 'Free fallback story'), 'free stack used as fallback when NewsAPI.ai is empty');
+});
+
+// The duplicate mark is provenance only and must never gate what the model sees:
+// word overlap is blind to the words that carry the meaning, so an
+// opposite-direction pair on one subject scores as a single story. Dropping the
+// second of such a pair would hide the contradicting — often newer and more
+// tradeable — event.
+test('markGnewsDuplicates: opposite-direction headlines on one subject DO collide (the heuristic ceiling, documented)', () => {
+  const items = [{ title: 'OPEC agrees to raise output', isDuplicate: false }, { title: 'OPEC agrees to cut output', isDuplicate: false }];
+  markGnewsDuplicates(items);
+  assert.equal(items[1].isDuplicate, true, 'word overlap cannot tell raise from cut — this is why the mark must not gate the prompt');
+});
+
+test('fetchSentinelNews: a gnews item marked duplicate still reaches the merged union (marks are provenance, not a filter)', async () => {
+  const dupPair = JSON.stringify({ articles: [
+    { id: 'g-a', title: 'OPEC agrees to raise output', description: 'a', url: 'https://gnews.example/a', publishedAt: '2026-07-23T09:50:00Z', source: { name: 'Reuters', url: 'reuters.com' } },
+    { id: 'g-b', title: 'OPEC agrees to cut output', description: 'b', url: 'https://gnews.example/b', publishedAt: '2026-07-23T09:49:00Z', source: { name: 'AP', url: 'ap.org' } },
+  ] });
+  const fetcher = async (url) => {
+    if (/gnews\.io/.test(url)) return { ok: true, status: 200, text: async () => dupPair };
+    throw new Error('offline'); // every free source fails => only gnews contributes
+  };
+  const out = await fetchSentinelNews({
+    query: '(oil OR crude)', hours: 24, fetcher, timeoutMs: 5000, now: Date.parse('2026-07-23T10:00:00Z'), log: () => {},
+    gnews: { apiKey: 'GK', mode: 'auto', enabled: true, shadow: false, requestBudget: 100, allow: [], instrumentAllowed: true, background: false },
+  });
+  const titles = out.items.map((i) => i.title);
+  assert.ok(titles.includes('OPEC agrees to raise output'), 'first sighting present');
+  assert.ok(titles.includes('OPEC agrees to cut output'), 'the contradicting headline is NOT dropped by the duplicate mark');
+});
+
+// The lowercase `and` inside a term used to be treated as an operator, so the
+// term was emitted unquoted and GNews read it as an implicit AND — the exact
+// failure the quoting exists to prevent.
+test('buildGnewsQuery: a term containing "and" stays one quoted phrase, not an implicit AND', () => {
+  assert.equal(buildGnewsQuery('(oil OR supply and demand OR crude)'), '(oil OR "supply and demand" OR crude)');
+});
+
+// Shadow mode's promise is that nothing it fetched reaches a reader. The CLI's
+// --json payload is returned verbatim by the sentinel_news chat tool, so the
+// shadow items and the raw provenance list must not ride along in it.
+test('sentinel_news --json: shadow items and the provenance list never appear in the CLI payload', () => {
+  const res = spawnSync(process.execPath, [
+    fileURLToPath(new URL('../skills/market-sentinel/scripts/sentinel_news.mjs', import.meta.url)),
+    '--query', '(oil)', '--hours', '6', '--json',
+  ], { encoding: 'utf8', env: { ...process.env, GNEWS_KEY: '', NEWSAPI_AI_KEY: '' }, timeout: 30000 });
+  const payload = JSON.parse(res.stdout);
+  assert.equal('gnewsShadowItems' in payload, false, 'no gnews shadow items in the tool payload');
+  assert.equal('shadowItems' in payload, false, 'no paid-provider shadow items in the tool payload');
+  assert.equal('observed' in payload, false, 'no raw provenance list in the tool payload');
+  assert.ok(Array.isArray(payload.items), 'the prompt-facing items array is still there');
+});
+
+// Shadow mode's whole purpose is the provenance log the provider report reads.
+// Filtering it by the narrow window recorded ~1 of every 10 articles just paid
+// for, leaving the comparison empty in exactly the mode the free key supports.
+test('fetchSentinelNews: shadow records every in-window gnews sighting, using the delay-widened window', async () => {
+  const now = Date.parse('2026-07-31T20:00:00Z');
+  const res = await fetchSentinelNews({
+    query: '(oil)', now, hours: 6, fetcher: gnewsFetchOnly('gnews_search_oil.json'), log: () => {},
+    gnews: { enabled: true, shadow: true, mode: 'shadow', apiKey: 'K' },
+  });
+  const observedGnews = (res.observed || []).filter((it) => it.provider === 'gnews');
+  assert.equal(observedGnews.length, 10, `all 10 fetched articles are recorded, got ${observedGnews.length}`);
+  assert.equal(res.items.some((it) => it.provider === 'gnews'), false, 'and none of them reaches the prompt-facing items');
+});
+
+test('buildGnewsQuery: operators must be uppercase, and AND/NOT is rejected rather than quoted into a phrase', () => {
+  // a lowercase `or` inside a term is part of the term, not an operator
+  assert.equal(buildGnewsQuery('(rate cut or hike OR crude)'), '("rate cut or hike" OR crude)');
+  // silently searching for the literal string "oil AND OPEC" is the same class of
+  // mangling as an unquoted phrase — fail loud, and non-chargeably
+  assert.throws(() => buildGnewsQuery('(oil AND OPEC)'), /OR lists only/);
+  assert.throws(() => buildGnewsQuery('(oil NOT shale)'), /OR lists only/);
+});
+
+// The key rides in the query string, so URLSearchParams percent-encodes it there.
+// Redacting only the raw string happens to work for an alphanumeric key and fails
+// the day one contains `+`, `/` or `=` — the redaction must not depend on the
+// key's character set.
+test('fetchGnewsArticles: a key needing percent-encoding is redacted from an error that echoes the url', async () => {
+  const apiKey = 'ab+cd/ef=gh';
+  const fetcher = async (url) => { throw new Error(`fetch failed for ${url}`); };
+  await assert.rejects(
+    fetchGnewsArticles({ query: '(oil)', apiKey, fetcher }),
+    (err) => {
+      assert.ok(!err.message.includes(apiKey), `raw key leaked: ${err.message}`);
+      assert.ok(!err.message.includes(encodeURIComponent(apiKey)), `percent-encoded key leaked: ${err.message}`);
+      assert.match(err.message, /\[redacted\]/, 'the redaction actually fired');
+      return true;
+    },
+  );
 });

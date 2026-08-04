@@ -176,7 +176,7 @@ export async function pollWindow(dbPath, {
   if (active.poll_count >= cfg.maxRequestsPerWindow) {
     return corrDb(dbPath, (db) => ({ action: 'stopped', ...close(db, active.id, 'expired', 'window_request_cap', now, null) }));
   }
-  if (providerRequestsUsed(dbPath) >= budgetTotal) {
+  if (providerRequestsUsed(dbPath, NEWSAPI_AI_PROVIDER) >= budgetTotal) {
     return corrDb(dbPath, (db) => ({ action: 'stopped', ...close(db, active.id, 'budget_blocked', 'global_budget_exhausted', now, null) }));
   }
   if (providerCircuitOpen(dbPath, NEWSAPI_AI_PROVIDER, instrument, now)) {

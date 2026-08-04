@@ -312,6 +312,38 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // #171: sentinelSourceFootnotes default flips to ON — an untouched
           // settings.json (this fresh e2e db) must render the 'on' option selected.
           assert.equal(await p.evaluate(() => document.getElementById('f-sentinelSourceFootnotes').value), '1', 'sentinelSourceFootnotes defaults on when never explicitly set');
+          // GNews fields (the second opt-in news provider): mode select is
+          // exactly off/shadow/auto, defaulting to off on a fresh db; the key
+          // field is masked input. A full round trip (set + Save + reload)
+          // must persist the mode and never echo the key back in plaintext.
+          assert.deepEqual(await p.evaluate(() => [...document.getElementById('f-GNEWS_MODE').options].map((o) => o.value)), ['off', 'shadow', 'auto'], 'GNews modes = off/shadow/auto');
+          assert.equal(await p.evaluate(() => document.getElementById('f-GNEWS_MODE').value), 'off', 'GNews mode defaults to off on a fresh db');
+          assert.equal(await p.evaluate(() => document.getElementById('f-GNEWS_KEY').type), 'password', 'GNews key field is a masked (password) input');
+          await p.evaluate(() => {
+            document.getElementById('f-GNEWS_KEY').value = 'e2e-gnews-secret';
+            const sel = document.getElementById('f-GNEWS_MODE');
+            sel.value = 'shadow';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            // the earlier LLM-tab provider swap (openai-compatible) left the
+            // base-URL field blank in the same batched-Save form — put the
+            // provider back to one that needs no extra field so THIS Save
+            // (which submits every tab at once) isn't rejected for a reason
+            // unrelated to what this block is checking.
+            const provSel = document.getElementById('f-provider');
+            provSel.value = 'pi';
+            provSel.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+          await p.evaluate(() => document.querySelector('#cfg .cfgfoot button').click());
+          await p.waitForTimeout(400);
+          assert.equal(await p.evaluate(() => document.getElementById('saved').textContent), 'saved', 'GNews round-trip Save completes');
+          await p.reload({ waitUntil: 'domcontentloaded' });
+          await p.waitForTimeout(300);
+          await p.evaluate(() => document.getElementById('cfgbtn').click());
+          await p.waitForTimeout(300);
+          await p.evaluate(() => { const t = [...document.querySelectorAll('#cfgTabs button')].find((b) => b.dataset.tab === 'news'); t && t.click(); });
+          await p.waitForTimeout(150);
+          assert.equal(await p.evaluate(() => document.getElementById('f-GNEWS_MODE').value), 'shadow', 'GNews mode persists across a reload');
+          assert.equal(await p.evaluate(() => document.getElementById('f-GNEWS_KEY').value), '•••', 'GNews key comes back masked, not echoed, after a reload');
           // four GLOBAL-config tabs, in order: gates + standing notes are global
           // config, so they live here; per-combo bot config stays in its own modal
           assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#cfgTabs button')].map((b) => b.dataset.tab)), ['llm', 'news', 'global', 'adv'], 'four settings tabs in order (gates/notes here, no per-combo bot tab)');
@@ -363,10 +395,16 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => { document.getElementById('f-PUSHOVER_TOKEN').value = 'ui-review-pushover-token'; });
           await p.evaluate(() => { document.getElementById('f-PUSHOVER_USER').value = 'ui-review-pushover-user'; });
           await p.evaluate(() => { const s = document.getElementById('f-PUSHOVER_ENABLED'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); });
-          // the LLM tab was left on openai-compatible (above) with no base URL —
-          // this batched Save spans every tab, so it needs a valid one to pass
-          // provider validation; the value itself is irrelevant to this flow.
-          await p.evaluate(() => { document.getElementById('f-OPENAI_BASE_URL').value = 'http://127.0.0.1:1234/v1'; });
+          // The batched Save spans every tab, so the LLM tab must be in a valid
+          // state — but which state that is depends on what an earlier block in
+          // this same test left behind, and the LLM panel is contextual (a `pi`
+          // provider renders piBin, not a base URL). Fill the base URL only if the
+          // field is actually present, so this block does not break when an
+          // earlier one legitimately changes the provider.
+          await p.evaluate(() => {
+            const baseUrl = document.getElementById('f-OPENAI_BASE_URL');
+            if (baseUrl) baseUrl.value = 'http://127.0.0.1:1234/v1';
+          });
           await p.evaluate(() => document.querySelector('#cfg .cfgfoot button').click());
           await p.waitForTimeout(400);
           // the Save handler's own cfg() re-fetch (no dialog close/reopen — that

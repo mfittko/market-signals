@@ -846,11 +846,14 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
   const { memoriesContext } = await import('./memories.mjs');
   // lazy import: avoids a static cycle (news.mjs imports withDb from here)
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource, isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
-  // On-demand NewsAPI.ai pull at this decision point (issue #104): fresh news
+  const { isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
+  // On-demand paid-provider pull at this decision point (issue #104): fresh news
   // fetched at the moment the flip is judged (fail-open, no-op without a key).
-  // Key comes from settings.json (env fallback) — the LaunchAgent never loads .env.
-  const sentinel = await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings), log: dbg, sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) });
+  // Keys come from settings.json (env fallback) — the LaunchAgent never loads
+  // .env — and EVERY provider's keys are resolved together, so one configured in
+  // the settings dialog can't be silently left out of this path.
+  const sentinel = await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsProviderEnv(settings), log: dbg, sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) });
   return {
     current: { ...sig, time: localHm(sig.time), timezone: LOCAL_TZ, close: result.close, trend: result.trend, supertrend: result.supertrend, granularity },
     backtestWindow: { winRatePct: result.backtest.winRatePct, totalReturnPct: result.backtest.totalReturnPct, trades: result.backtest.trades },
@@ -1569,14 +1572,15 @@ export async function refreshHtfCache(dbPath, combos, cfg, { fetcher = fetchCand
 export async function buildBotContext(dbPath, instrument, { supertrend, trend, backtest, axisGate, settings = {} } = {}) {
   const { memoriesContext } = await import('./memories.mjs');
   const { sentinelDecisionContext } = await import('./news.mjs');
-  const { resolveNewsApiAiSource, isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { isSentinelFootnotesOn } = await import('./lib/newsapi-ai-source.mjs');
+  const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
   return {
     supertrend, trend, backtest, axisGate,
     traderMemories: memoriesContext(dbPath) || undefined,
-    // On-demand NewsAPI.ai pull at the bot's decision point (issue #104); the
+    // On-demand paid-provider pull at the bot's decision point (issue #104); the
     // throttle means the filter + bot judging the same flip share one pull.
-    // Key from settings.json (env fallback) — the LaunchAgent never loads .env.
-    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsApiAiSource(settings), sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) })) || undefined,
+    // Keys from settings.json (env fallback) — the LaunchAgent never loads .env.
+    sentinel: (await sentinelDecisionContext(dbPath, instrument, { env: resolveNewsProviderEnv(settings), sourceFootnotes: isSentinelFootnotesOn(settings?.sentinelSourceFootnotes) })) || undefined,
   };
 }
 
@@ -1704,7 +1708,11 @@ export async function runWatcherCycle(opts, cfg) {
     // a real alert.
     try {
       const { refreshNewsCache } = await import('./news.mjs');
-      await refreshNewsCache(opts.db, combos, cfg);
+      const { resolveNewsProviderEnv } = await import('./lib/news-provider-env.mjs');
+      // cfg IS the settings object here; without this the background path would
+      // read process.env only, so a provider enabled in the settings dialog would
+      // never poll (the LaunchAgent never loads .env).
+      await refreshNewsCache(opts.db, combos, cfg, { env: resolveNewsProviderEnv(cfg) });
     } catch (err) {
       dbg(`news cache refresh failed: ${err.message}`);
     }

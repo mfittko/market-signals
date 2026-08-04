@@ -1629,7 +1629,11 @@ function renderHealthStrip() {
   // event-driven, so recency is information, never a warning (the STALE lesson)
   const llmAgeMin = railHealth.llm?.lastOkAt ? (Date.now() - Date.parse(railHealth.llm.lastOkAt)) / 60000 : null;
   const llmSeg = llmAgeMin == null ? 'LLM —' : 'LLM last used ' + humanAge(llmAgeMin);
-  const newsSeg = 'news ' + esc(railHealth.news?.mode || '—');
+  // both providers, so turning one on is visible where the operator already looks;
+  // GNews is named only when it is actually on, keeping the strip quiet by default
+  const gnewsMode = railHealth.news?.gnewsMode;
+  const newsSeg = 'news ' + esc(railHealth.news?.mode || '—')
+    + (gnewsMode && gnewsMode !== 'off' ? ' + gnews ' + esc(gnewsMode) : '');
   // #199: decision-cycle last run — info-not-warning unless it errored
   // (mirrors the llmSeg "recency is information" lesson), same strip.
   const cyc = railHealth.cycle;
@@ -1979,10 +1983,14 @@ function renderHistory(list, botDecisions, view) {
 // the two client uses (the select + the validation below) in sync via this one
 // const. The old primary mode was dropped (byte-identical to auto).
 const NEWSAPI_AI_MODE_VALUES = ['auto', 'shadow', 'off'];
+// Client-side copy of the GNews modes: same reason as NEWSAPI_AI_MODE_VALUES
+// above — this browser code can't import the server's GNEWS_MODES from
+// lib/gnews-source.mjs, so keep this const in sync with that list by hand.
+const GNEWS_MODE_VALUES = ['off', 'shadow', 'auto'];
 // #171 review item 5: an untouched setting's default lives on ITS OWN
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
-const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
+const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['GNEWS_KEY', 'password'], ['GNEWS_MODE', 'select', GNEWS_MODE_VALUES.map((m) => [m, m]), 'off'], ['GNEWS_INSTRUMENTS', 'text'], ['GNEWS_REQUEST_BUDGET', 'number'], ['GNEWS_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
 const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['PUSHOVER_ENABLED', 'select', [['', 'off'], ['1', 'on']]], ['PUSHOVER_TOKEN', 'password'], ['PUSHOVER_USER', 'password'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
@@ -2001,8 +2009,13 @@ const FIELD_HINTS = {
   NEWSAPI_AI_KEY: 'API key for the paid NewsAPI.ai tier (leave blank to use free sources only)',
   NEWSAPI_AI_MODE: 'auto uses paid calls when budget allows; shadow logs without spending; off disables paid calls',
   NEWSAPI_AI_INSTRUMENTS: 'comma-separated instruments NewsAPI.ai should fetch for (defaults to all watched)',
-  NEWSAPI_AI_REQUEST_BUDGET: 'max paid NewsAPI.ai requests allowed per day',
+  NEWSAPI_AI_REQUEST_BUDGET: 'total paid NewsAPI.ai requests this install may ever spend (a running lifetime count, not a daily one — it does not reset at midnight); once reached, the free sources carry on alone',
   NEWSAPI_AI_BACKGROUND: 'poll NewsAPI.ai in the background instead of only at decision points',
+  GNEWS_KEY: 'API key for GNews, a second opt-in news provider (leave blank to leave it off)',
+  GNEWS_MODE: 'off disables GNews; shadow fetches and records for comparison but never feeds a prompt; auto merges its articles into the news feed. The free key is 12-hour delayed and licensed for non-commercial use only — auto on a free key is a stale feed, not a live one; a paid key is required before it can inform a real decision',
+  GNEWS_INSTRUMENTS: 'comma-separated instruments GNews should fetch for (defaults to all watched)',
+  GNEWS_REQUEST_BUDGET: 'total GNews requests this install may ever spend — a running lifetime count, not a daily one; it does not reset at midnight. Blank or 0 means the built-in default of 2500. Once reached, GNews stops and the other sources carry on',
+  GNEWS_BACKGROUND: 'poll GNews on the background cadence instead of only at decision points. Off by default and usually right: the refresh visits every instrument with a news query every 8 minutes, ~720 requests/day today — far past the free key\'s 100/day. Narrow GNEWS_INSTRUMENTS first if you turn this on',
   sentinelSourceFootnotes: 'footnote which FEED each cited headline came from (newsapi-ai / google-news) — not the publisher link',
   cycleMinutes: 'per-granularity decision-cycle cadence, JSON e.g. {"M1":1,"M5":5} — unset key defaults to the bar length capped at 5 (M1 → 1, M5+ → 5). Faster (lower n) closes the blind window between cycles sooner but means more gate/LLM evaluations; the HTF/news cache refresh itself stays bounded to once per master tick regardless of cadence, so it does not amplify with faster settings.',
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
@@ -2049,6 +2062,9 @@ async function cfg() {
   const s = await (await fetch('/api/settings')).json();
   // unset/invalid NewsAPI.ai mode shows its effective default (auto)
   if (!NEWSAPI_AI_MODE_VALUES.includes(s.NEWSAPI_AI_MODE)) s.NEWSAPI_AI_MODE = 'auto';
+  // same normalization for GNews, or a stale/hand-edited value renders as a fourth
+  // option and shows as active while the server has already fallen back to off
+  if (s.GNEWS_MODE !== undefined && !GNEWS_MODE_VALUES.includes(s.GNEWS_MODE)) s.GNEWS_MODE = 'off';
   const f = document.getElementById('cfg');
   // #99 provider config: the select + the per-provider field set. activeProvider
   // is the resolved value (a pre-#99 openai+base-URL config resolves to
