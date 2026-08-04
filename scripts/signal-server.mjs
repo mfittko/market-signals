@@ -846,22 +846,65 @@ export function execChatTool(name, input, ctx = {}) {
 
 // The model annotates each reply with an evolving thread title (issue #38);
 // stripped before persistence/display, applied when it changed.
-export function extractThreadTitle(reply) {
-  const text = String(reply);
-  const m = text.match(/\r?\n?<!--\s*title:\s*(.{1,120}?)\s*-->\s*$/);
-  if (!m || /[\r\n]/.test(m[1])) return { text, title: null };
-  // Only the annotation (and its single leading newline) is removed — trailing
-  // whitespace in the reply (markdown hard breaks) is content, not noise.
-  return { text: text.slice(0, m.index), title: m[1].slice(0, 48).trim() || null };
+//
+// Matched ANYWHERE in the reply, not only at the end. The prompt asks for it on
+// the final line, but a reply that appends anything after it — a horizontal rule
+// and source footnotes, say — used to fail an end-anchored match twice over: the
+// annotation rendered verbatim to the trader AND no title was extracted, so the
+// thread kept its first-question placeholder. Nothing about an HTML comment
+// requires it to be last for either job.
+//
+// Single-line by construction (`[^\r\n]`), so a legitimate multi-line comment in
+// a reply is never swallowed.
+// Tools that cost a news fetch. A thread that already pulled news does not need
+// to pull it again on every follow-up: the thread history is replayed as prose
+// with no record of tool calls, so without this marker the model has no evidence
+// the fetch ever happened and re-runs it, exactly as the system prompt tells it
+// to. Recorded against the assistant turn that used them and replayed as the
+// context's newsAlreadyFetched block.
+export const NEWS_TOOL_NAMES = ['sentinel_news', 'fxempire_articles'];
+// How long a thread's earlier news fetch is treated as still current. Past this
+// the model is told nothing and fetches again — breaking news goes stale fast,
+// and the point is to stop redundant fetches, not to freeze the thread's view.
+export const NEWS_REUSE_WINDOW_MS = 20 * 60 * 1000;
+
+// Latest news fetch recorded in this thread, or null. Reads the per-message
+// context column rather than adding a schema: the assistant turn stores the tool
+// names it used, so "was news fetched, and when" is answerable from history.
+export function lastNewsFetch(messages, { now = Date.now() } = {}) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== 'assistant' || !m.context) continue;
+    let used = null;
+    try { used = JSON.parse(m.context)?.toolsUsed; } catch { continue; }
+    if (!Array.isArray(used)) continue;
+    const news = used.filter((n) => NEWS_TOOL_NAMES.includes(n));
+    if (!news.length) continue;
+    const at = Date.parse(m.created_at);
+    if (!Number.isFinite(at) || now - at > NEWS_REUSE_WINDOW_MS) return null;
+    return { at: m.created_at, tools: [...new Set(news)] };
+  }
+  return null;
 }
 
-const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; a gatePrompts block carries the alert filter's current effective rules text (its note explains the bot/chat prompts) — use it if the trader wants to discuss or draft a revision (save_gate_prompt saves a draft; activation is a human act in settings); prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, sentinel_news for breaking geopolitical/macro news with an escalation flag, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
+const TITLE_ANNOTATION = /\r?\n?[ \t]*<!--[ \t]*title:[ \t]*([^\r\n]{0,120}?)[ \t]*-->[ \t]*/;
+export function extractThreadTitle(reply) {
+  const text = String(reply);
+  const m = text.match(TITLE_ANNOTATION);
+  if (!m) return { text, title: null };
+  // The annotation and its own surrounding padding go; everything else — including
+  // trailing whitespace elsewhere, which is a markdown hard break — is content.
+  const stripped = text.slice(0, m.index) + text.slice(m.index + m[0].length);
+  return { text: stripped, title: m[1].slice(0, 48).trim() || null };
+}
+
+const CHAT_SYSTEM = `You are the trading copilot embedded in the market-signals local dashboard of a leveraged CFD trader. Each question carries a JSON context block: the currently viewed instrument/granularity, its quote, recent candles, the latest signal with verdict and realized outcomes, recent signal history, the trader's notes, and (once the bot has traded) a botPerformance summary per strategy — use it to answer "why is the bot up/down" questions; an axisGate block groups indicator evidence into five independent axes (trend-strength ADX, direction/regime, impulse, VWAP location, RSI exhaustion) — cite axis verdicts rather than re-deriving indicators; when the trader has saved any, a traderMemories block lists their standing rules/preferences — advisory context to weigh, never a substitute for the fail-safe clamps; a gatePrompts block carries the alert filter's current effective rules text (its note explains the bot/chat prompts) — use it if the trader wants to discuss or draft a revision (save_gate_prompt saves a draft; activation is a human act in settings); prior thread messages may precede the question. All timestamps in the context are ALREADY in the trader's local timezone (view.traderTimezone), matching the chart axis — quote them as-is, never convert, never mention UTC. Be brief: default to 2-5 sentences or a few tight bullets with concrete levels — no headers, no recap of the question, no closing offers unless something genuinely warrants a follow-up. Expand only when explicitly asked. You provide analysis, never order execution. When tools are available, use them to expand context before speculating: fxempire_articles for recent market news, sentinel_news for breaking geopolitical/macro news with an escalation flag, truthsocial_posts for market-moving Trump posts, live_rates for current cross-instrument rates, and web search for anything else time-sensitive. Prefer the provided context; fetch only what is missing. When you cite a headline from any news tool, link it: write [headline](url) using that item's own \`url\` field, so the trader can open the source. Omit the link only when the item carries no url. When the context contains a newsAlreadyFetched block, news for this thread was ALREADY fetched at the time it names and its headlines are in the thread above — reuse them and do NOT call a news tool again, unless the trader is asking for news now or explicitly wants something newer. End EVERY reply with a final line of exactly: <!--title: <max 48 chars summarizing this whole thread>--> — it is stripped before display and keeps the thread list meaningful.`;
 
 // Opt-in provider footnotes (#116): when the trader enables the toggle, tell the
 // copilot to name which feed (e.g. newsapi-ai vs google-news) each headline came
 // from — the sentinel_news tool output already carries a per-item `provider`.
 // Off by default ⇒ base CHAT_SYSTEM unchanged.
-const CHAT_SOURCE_FOOTNOTE_RULE = ` When you cite headlines from sentinel_news, add a brief footnote naming each item's fetch source (its \`provider\` field, e.g. newsapi-ai or google-news) — this is separate from the publisher's own link.`;
+const CHAT_SOURCE_FOOTNOTE_RULE = ` When you cite headlines from sentinel_news, add a brief footnote naming each item's fetch source (its \`provider\` field, e.g. newsapi-ai or google-news). That is the FETCH source and is additional to — never a replacement for — the [headline](url) link to the publisher.`;
 export function chatSystemFor(cfg) {
   return isSentinelFootnotesOn(cfg?.sentinelSourceFootnotes) ? CHAT_SYSTEM + CHAT_SOURCE_FOOTNOTE_RULE : CHAT_SYSTEM;
 }
@@ -1587,7 +1630,28 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             .run(message.slice(0, 60), new Date().toISOString(), instrument, granularity).lastInsertRowid);
           createdThread = { id: Number(threadId), title: message.slice(0, 60) };
         }
-        addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
+        // Read BEFORE this turn's user row is written, so the marker reflects
+        // earlier turns only.
+        const priorMessages = listMessages(dbPath, threadId);
+        const newsFetch = lastNewsFetch(priorMessages);
+        if (newsFetch) {
+          context.newsAlreadyFetched = {
+            at: localFull(newsFetch.at),
+            tools: newsFetch.tools,
+            note: 'news for this thread was already fetched — its headlines are in the thread above; do not fetch again unless the trader is asking for news now or wants something newer',
+          };
+        }
+        // A halted turn is named by the client that halted it, because the
+        // server cannot reliably observe the disconnect (see the abandoned()
+        // note below). Scoped to this thread so an id from elsewhere is inert.
+        const discardIds = Array.isArray(body.discard) ? body.discard.filter(Number.isInteger).slice(0, 20) : [];
+        if (discardIds.length) {
+          chatDb(dbPath, (db) => {
+            const stmt = db.prepare('DELETE FROM chat_messages WHERE id=? AND thread_id=?');
+            for (const id of discardIds) stmt.run(id, threadId);
+          });
+        }
+        const userMsgId = addMessage(dbPath, threadId, 'user', message, JSON.stringify(context));
 
         const history = listMessages(dbPath, threadId).slice(-13, -1)
           .map((m) => `${m.role}: ${m.content}`).join('\n');
@@ -1607,23 +1671,60 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           sseHeaders['X-LLM-Model'] = effectiveModel(cfg, chatProvider) ?? 'n/a';
         }
         res.writeHead(200, sseHeaders);
-        const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+        // The client halts an in-flight reply when the trader asks a follow-up
+        // before this one lands, then re-asks carrying both questions. Aborting
+        // the fetch cannot stop work already running here, so without this the
+        // abandoned turn would still finish and write its assistant row — AFTER
+        // the replacement wrote its own — leaving the thread holding a question
+        // and a reply to it, out of order and answering less than the trader
+        // went on to ask. Both of this turn's rows are therefore dropped: the
+        // assistant row is never written, and the user row already written
+        // before the completion is removed, because the replacement request
+        // carries that same question again. The completion itself is already
+        // paid for and is simply discarded.
+        let abandonedEvent = false;
+        const abandon = () => { abandonedEvent = true; };
+        res.on('close', abandon);
+        req.on('aborted', abandon);
+        // BEST-EFFORT ONLY — the `discard` parameter above is the guarantee.
+        // Measured: with the pi provider, which completes through a SYNCHRONOUS
+        // execFileSync, the event loop is blocked for the whole completion, and
+        // neither the close event nor `res.destroyed` is set when the await
+        // resumes. Both are delivered from the poll phase, so a `setImmediate`
+        // (check phase) sees nothing and even one `setTimeout(0)` sees nothing;
+        // it took two loop iterations. Shipping a fixed number of yields would
+        // be timing-dependent, so the client names what to drop instead and this
+        // check just catches the easy case — an async provider, where the socket
+        // state is already accurate here.
+        const abandoned = () => abandonedEvent || res.destroyed;
+        const discardTurn = () => {
+          chatDb(dbPath, (db) => db.prepare('DELETE FROM chat_messages WHERE id=?').run(userMsgId));
+          return res.end();
+        };
+        const send = (obj) => { if (!abandoned()) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
         if (createdThread) send({ type: 'thread', ...createdThread });
+        // The client needs this to name the turn if it later halts it.
+        send({ type: 'turn', id: Number(userMsgId) });
+        // Which tools actually ran, so the next turn can see that news was
+        // already fetched instead of re-fetching it.
+        const toolsUsed = [];
         try {
           const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
             toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-            execTool: (n, i) => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }),
+            execTool: (n, i) => { toolsUsed.push(n); return execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }); },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
           });
+          if (abandoned()) return discardTurn();
           const { text: cleanReply, title } = extractThreadTitle(reply);
-          addMessage(dbPath, threadId, 'assistant', cleanReply);
+          addMessage(dbPath, threadId, 'assistant', cleanReply, JSON.stringify({ toolsUsed }));
           if (title) {
             const changed = chatDb(dbPath, (db) => db.prepare('UPDATE chat_threads SET title=? WHERE id=? AND title<>?').run(title, threadId, title).changes);
             if (changed > 0) send({ type: 'title', threadId: Number(threadId), title });
           }
           send({ type: 'done', threadId: Number(threadId), reply: cleanReply });
         } catch (err) {
+          if (abandoned()) return discardTurn();
           addMessage(dbPath, threadId, 'error', err.message);
           send({ type: 'error', threadId: Number(threadId), error: err.message });
         }

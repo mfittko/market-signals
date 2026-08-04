@@ -777,6 +777,129 @@ function sseEvents(text) {
   return text.split('\n\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)));
 }
 
+test('lastNewsFetch: the newest recent news-tool turn wins; stale, tool-less and non-assistant turns do not', async () => {
+  const { lastNewsFetch, NEWS_REUSE_WINDOW_MS } = await import('../scripts/signal-server.mjs');
+  const now = Date.parse('2026-08-04T12:00:00.000Z');
+  const at = (msAgo) => new Date(now - msAgo).toISOString();
+  const msg = (role, created_at, toolsUsed) => ({ role, created_at, context: toolsUsed ? JSON.stringify({ toolsUsed }) : null });
+
+  assert.equal(lastNewsFetch([], { now }), null, 'empty thread');
+  assert.equal(lastNewsFetch([msg('assistant', at(1000), ['live_rates'])], { now }), null, 'a non-news tool is not a news fetch');
+  assert.equal(lastNewsFetch([msg('assistant', at(1000), [])], { now }), null, 'no tools at all');
+  assert.equal(lastNewsFetch([msg('user', at(1000), ['sentinel_news'])], { now }), null, 'only assistant turns record tool use');
+  assert.equal(lastNewsFetch([{ role: 'assistant', created_at: at(1000), context: 'not json' }], { now }), null, 'a malformed context is ignored, never thrown on');
+  assert.equal(lastNewsFetch([msg('assistant', at(NEWS_REUSE_WINDOW_MS + 1000), ['sentinel_news'])], { now }), null, 'past the reuse window, fetch again — breaking news goes stale');
+
+  const hit = lastNewsFetch([msg('assistant', at(60000), ['sentinel_news', 'sentinel_news', 'live_rates'])], { now });
+  assert.equal(hit.at, at(60000));
+  assert.deepEqual(hit.tools, ['sentinel_news'], 'deduped, and only the news tools are named');
+  // A later tool-less turn must not mask an earlier news fetch that is still current.
+  const masked = lastNewsFetch([msg('assistant', at(120000), ['sentinel_news']), msg('assistant', at(30000), ['live_rates'])], { now });
+  assert.equal(masked?.at, at(120000), 'scans back past turns that used no news tool');
+});
+
+test('chat: a thread that already fetched news carries newsAlreadyFetched into the next turn context', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath, dbPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "ack"\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const first = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'any news?', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const threadId = sseEvents(await first.text()).find((e) => e.type === 'done').threadId;
+
+    // The fake pi never calls a tool, so stamp the turn as if it had — this test
+    // is about the replay, which is the half that was missing.
+    const { withDb } = await import('../scripts/supertrend.mjs');
+    withDb(dbPath, (db) => db.prepare("UPDATE chat_messages SET context=? WHERE thread_id=? AND role='assistant'")
+      .run(JSON.stringify({ toolsUsed: ['sentinel_news'] }), threadId));
+
+    await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId, message: 'and the stop?' }) }).then((r) => r.text());
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${threadId}`)).json();
+    const followUp = messages.filter((m) => m.role === 'user').pop();
+    const ctx = JSON.parse(followUp.context);
+    assert.ok(ctx.newsAlreadyFetched, 'the follow-up turn is told news was already fetched');
+    assert.deepEqual(ctx.newsAlreadyFetched.tools, ['sentinel_news']);
+    assert.match(ctx.newsAlreadyFetched.note, /do not fetch again/i);
+
+    const opening = messages.filter((m) => m.role === 'user')[0];
+    assert.equal(JSON.parse(opening.context).newsAlreadyFetched, undefined, 'the opening turn had nothing to reuse');
+  });
+});
+
+test('chat: a halted turn is named by the replacement and dropped — no orphan question, no out-of-order reply', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    // Slow enough that the halt lands mid-completion, which is the case that
+    // used to write an assistant row after the replacement wrote its own.
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\nsleep 2\necho "late answer"\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const seed = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'first', instrument: INSTRUMENT, granularity: 'M5' }) });
+    const threadId = sseEvents(await seed.text()).find((e) => e.type === 'done').threadId;
+
+    // Halt a turn the way the page does: read the turn id off the stream, abort,
+    // then name that id on the replacement.
+    const ctrl = new AbortController();
+    let haltedTurnId = null;
+    const halted = (async () => {
+      const r = await fetch(`${base}/api/chat`, { signal: ctrl.signal, method: 'POST', body: JSON.stringify({ threadId, message: 'abandoned question' }) });
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (haltedTurnId == null) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        for (const line of buf.split('\n\n')) {
+          if (!line.startsWith('data:')) continue;
+          const ev = JSON.parse(line.slice(5));
+          if (ev.type === 'turn') haltedTurnId = ev.id;
+        }
+      }
+    })().catch(() => {});
+    await halted;
+    assert.ok(Number.isInteger(haltedTurnId), 'the server names the turn it just persisted');
+    ctrl.abort();
+
+    const replacement = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId, message: 'abandoned question\n\nand the follow-up', discard: [haltedTurnId] }) });
+    await replacement.text();
+    // Outlast the halted completion the server may still be running, so a late
+    // write would show up.
+    await new Promise((r) => setTimeout(r, 2500));
+
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${threadId}`)).json();
+    const shape = messages.map((m) => [m.role, m.content.slice(0, 30)]);
+    assert.equal(messages.filter((m) => m.content === 'abandoned question').length, 0, `orphan question survived: ${JSON.stringify(shape)}`);
+    const users = messages.filter((m) => m.role === 'user');
+    assert.equal(users.at(-1).content, 'abandoned question\n\nand the follow-up', 'the replacement carries both questions');
+    assert.equal(messages.at(-1).role, 'assistant', `the thread ends on the reply to the combined question: ${JSON.stringify(shape)}`);
+  });
+});
+
+test('chat: a discard id from another thread is inert', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const piBin = join(dir, 'pi');
+    writeFileSync(piBin, `#!/bin/sh\necho "ok"\n`);
+    chmodSync(piBin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+
+    const a = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'thread A', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const threadA = a.find((e) => e.type === 'done').threadId;
+    const victimId = a.find((e) => e.type === 'turn').id;
+    const b = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'thread B', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const threadB = b.find((e) => e.type === 'done').threadId;
+
+    await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: threadB, message: 'next', discard: [victimId] }) })).text();
+    const { messages } = await (await fetch(`${base}/api/messages?thread=${threadA}`)).json();
+    assert.ok(messages.some((m) => m.content === 'thread A'), "thread A's turn is untouched by a discard sent on thread B");
+  });
+});
+
 test('chat: SSE reply via fake pi, thread auto-created, context + messages persisted, delete cascades', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
@@ -1088,7 +1211,18 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
   assert.deepEqual(extractThreadTitle('Answer text.\n<!--title: WTI short setup-->'), { text: 'Answer text.', title: 'WTI short setup' });
   assert.deepEqual(extractThreadTitle('No annotation here'), { text: 'No annotation here', title: null });
   assert.equal(extractThreadTitle('x\n<!--title: ' + 'y'.repeat(90) + '-->').title.length, 48, 'clamped');
-  assert.equal(extractThreadTitle('mid <!--title: nope--> stream').title, null, 'only a trailing annotation counts');
+  // Deliberately reversed: the annotation is now matched wherever it sits.
+  // End-anchoring meant a reply that appended anything after it — source
+  // footnotes, say — both rendered the annotation to the trader AND lost the
+  // title, leaving the thread on its first-question placeholder.
+  assert.deepEqual(extractThreadTitle('mid <!--title: nope--> stream'), { text: 'midstream', title: 'nope' }, 'an annotation anywhere is extracted and removed');
+  assert.deepEqual(
+    extractThreadTitle('Body.\n\n<!--title: My Title-->\n\n---\n1 "headline" — src'),
+    { text: 'Body.\n\n\n---\n1 "headline" — src', title: 'My Title' },
+    'the reported shape: footnotes AFTER the annotation keep the footnotes and still yield the title',
+  );
+  assert.equal(extractThreadTitle('keeps <!--an ordinary note--> intact').title, null, 'a non-title comment is not an annotation');
+  assert.equal(extractThreadTitle('keeps <!--an ordinary note--> intact').text, 'keeps <!--an ordinary note--> intact', 'and is left in the text');
   assert.equal(extractThreadTitle('x\r\n<!--title: crlf reply-->').title, 'crlf reply', 'CRLF before the annotation accepted');
   assert.equal(extractThreadTitle('x\n<!--title: A > B breakout-->').title, 'A > B breakout', 'titles may contain >');
   assert.equal(extractThreadTitle('x\n<!--title: never closed').title, null, 'missing --> is a silent no-op');
@@ -1125,7 +1259,9 @@ test('served client stripTitleTail behaves correctly as DELIVERED (escape-drift 
     assert.equal(stripTitleTail('Answer.\n<!--title: partial stream'), 'Answer.');
     assert.equal(stripTitleTail('Answer.\n<!--tit'), 'Answer.');
     assert.equal(stripTitleTail('legit <!--note--> stays put'), 'legit <!--note--> stays put');
-    assert.equal(stripTitleTail('explains <!--title: x--> then more'), 'explains <!--title: x--> then more');
+    // Matched anywhere now — see the extractThreadTitle test for why.
+    assert.equal(stripTitleTail('explains <!--title: x--> then more'), 'explainsthen more');
+    assert.equal(stripTitleTail('Body.\n\n<!--title: t-->\n\n---\nsources'), 'Body.\n\n\n---\nsources', 'annotation removed, trailing footnotes kept');
     assert.equal(stripTitleTail('ends with <e'), 'ends with <e', 'non-prefix tails untouched');
   });
 });
