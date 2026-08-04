@@ -798,3 +798,21 @@ test('buildGnewsQuery: operators must be uppercase, and AND/NOT is rejected rath
   assert.throws(() => buildGnewsQuery('(oil AND OPEC)'), /OR lists only/);
   assert.throws(() => buildGnewsQuery('(oil NOT shale)'), /OR lists only/);
 });
+
+// The key rides in the query string, so URLSearchParams percent-encodes it there.
+// Redacting only the raw string happens to work for an alphanumeric key and fails
+// the day one contains `+`, `/` or `=` — the redaction must not depend on the
+// key's character set.
+test('fetchGnewsArticles: a key needing percent-encoding is redacted from an error that echoes the url', async () => {
+  const apiKey = 'ab+cd/ef=gh';
+  const fetcher = async (url) => { throw new Error(`fetch failed for ${url}`); };
+  await assert.rejects(
+    fetchGnewsArticles({ query: '(oil)', apiKey, fetcher }),
+    (err) => {
+      assert.ok(!err.message.includes(apiKey), `raw key leaked: ${err.message}`);
+      assert.ok(!err.message.includes(encodeURIComponent(apiKey)), `percent-encoded key leaked: ${err.message}`);
+      assert.match(err.message, /\[redacted\]/, 'the redaction actually fired');
+      return true;
+    },
+  );
+});

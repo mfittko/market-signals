@@ -459,7 +459,12 @@ export async function fetchGnewsArticles({
   } catch (err) {
     // Redact the key out of ANY thrown message (HTTP status errors never carry
     // it, but a network-layer error from the fetcher itself might echo the url).
-    const msg = (err && err.message ? err.message : String(err)).split(apiKey).join('[redacted]');
+    // Both forms: the key rides in the query string, so URLSearchParams has
+    // percent-encoded it there. Redacting only the raw string works by accident
+    // for an alphanumeric key and silently fails the day one contains `+`, `/`
+    // or `=` — the redaction must not depend on the key's character set.
+    const raw = err && err.message ? err.message : String(err);
+    const msg = raw.split(apiKey).join('[redacted]').split(encodeURIComponent(apiKey)).join('[redacted]');
     const sanitized = new Error(msg);
     if (err?.status) sanitized.status = err.status;
     throw sanitized;
