@@ -204,8 +204,21 @@ const FILTER_ERROR_KINDS = [
   { match: /http 5\d\d/i, label: 'server error' },
   { match: /timeout/i, label: 'timeout' },
 ];
-function classifyFilterError(reason) {
-  return FILTER_ERROR_KINDS.find((k) => k.match.test(reason || ''))?.label ?? 'other';
+// A both-providers-failed reason cannot carry the upstream text — two provider
+// names plus a message rarely fit the 90-char reason budget, and truncating it
+// cut the classifying keyword out of the longest one ("The operation was aborted
+// due to timeout" lost "timeout" and fell to `other`, which is the failure an
+// operator most wants named). That path emits the resolved label in brackets
+// instead, so the second pass here reads it back exactly.
+export function classifyFilterError(reason) {
+  // Coerced, not just defaulted. The regex pass tolerates a non-string on its
+  // own (RegExp.test stringifies), but the label pass calls .includes, which
+  // does not — and this is exported now, so callers are no longer only the two
+  // in this file that always hand it a TEXT column or a built string.
+  const text = String(reason ?? '');
+  return FILTER_ERROR_KINDS.find((k) => k.match.test(text))?.label
+    ?? FILTER_ERROR_KINDS.find((k) => text.includes(`[${k.label}]`))?.label
+    ?? 'other';
 }
 
 // Count-based, not time-based: a calendar window goes quiet over a weekend
@@ -846,10 +859,15 @@ async function withVerdictFallback(settings, run) {
       return { ...(await run(settings, fallback, remaining)), provider: fallback };
     } catch (fallbackErr) {
       // Both names must survive the caller's 90-char reason truncation, because
-      // "which provider is broken" is the whole diagnostic value here — so the
-      // names come first and the error text is what gets sacrificed.
-      const detail = String(fallbackErr?.message ?? fallbackErr).slice(0, 24);
-      throw new Error(`both failed (${primary}+${fallback}): ${detail}`);
+      // "which provider is broken" is the whole diagnostic value here. What used
+      // to be sacrificed was the upstream text, cut to a length that removed the
+      // very keyword that classifies the failure. The resolved label is carried
+      // instead — short, and read back by classifyFilterError — with the raw text
+      // appended only when nothing classified it, where it is all there is.
+      const raw = String(fallbackErr?.message ?? fallbackErr);
+      const kind = classifyFilterError(raw);
+      const suffix = kind === 'other' ? `: ${raw.slice(0, 24)}` : '';
+      throw new Error(`both failed (${primary}+${fallback}) [${kind}]${suffix}`);
     }
   }
 }

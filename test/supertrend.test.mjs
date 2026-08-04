@@ -2185,6 +2185,72 @@ test('both-providers-failed: both provider names survive the 90-char reason trun
   } finally { delete global.fetch; }
 });
 
+// The health strip names a dominant failure kind so an operator can tell the
+// four modes apart without opening the database. A both-providers-failed reason
+// cannot carry the upstream text, and truncating it removed the classifying
+// keyword from the longest message — the unreachable-everywhere case, which is
+// the one most worth naming, showed up as `other`.
+test('both-providers-failed: every failure kind survives into the recorded reason and classifies', async () => {
+  const { llmVerdict, classifyFilterError } = await import('../scripts/supertrend.mjs');
+  const settings = {
+    provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+    ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+    models: { 'openai-compatible': 'm1', anthropic: 'm2' },
+  };
+  const cases = [
+    ['The operation was aborted due to timeout', 'timeout'],
+    ['no verdict JSON in provider output', 'no answer'],
+    ['openai provider returned no content (finish_reason=length; budget 16384)', 'cut off'],
+    ['anthropic HTTP 503: upstream unavailable', 'server error'],
+  ];
+  for (const [message, expected] of cases) {
+    global.fetch = async () => { throw new Error(message); };
+    try {
+      await assert.rejects(
+        llmVerdict(settings, { s: 1 }, 'sys'),
+        (err) => {
+          const stored = `filter error: ${err.message}`.slice(0, 90); // exactly what processSignal persists
+          assert.equal(classifyFilterError(stored), expected, `"${message}" recorded as "${stored}"`);
+          assert.match(stored, /openai-compatible/, `primary name lost: ${stored}`);
+          assert.match(stored, /anthropic/, `fallback name lost: ${stored}`);
+          assert.ok(stored.length <= 90, `over the reason budget at ${stored.length}`);
+          return true;
+        },
+      );
+    } finally { delete global.fetch; }
+  }
+});
+
+test('classifyFilterError: a non-string reason is coerced, never thrown on', async () => {
+  const { classifyFilterError } = await import('../scripts/supertrend.mjs');
+  // The regex pass stringifies on its own; the label pass calls .includes and
+  // would throw. Exported, so the inputs are no longer only this file's own.
+  assert.equal(classifyFilterError(null), 'other');
+  assert.equal(classifyFilterError(undefined), 'other');
+  assert.equal(classifyFilterError(0), 'other');
+  assert.equal(classifyFilterError(42), 'other');
+  assert.equal(classifyFilterError({}), 'other');
+  assert.equal(classifyFilterError(['timeout']), 'timeout', 'coercion still classifies what it can read');
+});
+
+test('both-providers-failed: an unrecognised failure keeps its raw text, since that is all there is', async () => {
+  const { llmVerdict, classifyFilterError } = await import('../scripts/supertrend.mjs');
+  global.fetch = async () => { throw new Error('ECONNRESET talking to the proxy'); };
+  try {
+    await assert.rejects(
+      llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1',
+        ANTHROPIC_API_KEY: 'a', llmFallbackProvider: 'anthropic',
+        models: { 'openai-compatible': 'm1', anthropic: 'm2' } }, { s: 1 }, 'sys'),
+      (err) => {
+        const stored = `filter error: ${err.message}`.slice(0, 90);
+        assert.equal(classifyFilterError(stored), 'other');
+        assert.match(stored, /ECONNRESET/, `unclassified failures must keep their text: ${stored}`);
+        return true;
+      },
+    );
+  } finally { delete global.fetch; }
+});
+
 // A filter failure must name the knob that can actually fix it. The verdict path
 // is capped by filterMaxCompletionTokens; pointing it at the chat knob would send
 // the operator to a setting that changes nothing — and diagnosing exactly this
