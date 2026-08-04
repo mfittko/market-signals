@@ -722,7 +722,14 @@ const VERDICT_TOKEN_FLOOR = 16384;
 // (64k on the smallest current anthropic model) — this floor sits well under
 // every one of them, so it cannot 400 a request on its own.
 function verdictMaxTokens(settings) {
-  return settings.filterMaxCompletionTokens > 0 ? settings.filterMaxCompletionTokens : VERDICT_TOKEN_FLOOR;
+  // Coerced, not just compared: settings.json is hand-editable, and a quoted
+  // "20000" passes a bare `> 0` and then reaches the vendor as a STRING
+  // max_tokens, which is a request-validation failure on every call. The
+  // openai budget below gets this for free from Math.max; this path has to do
+  // it explicitly. A non-numeric value falls back to the floor rather than
+  // propagating NaN.
+  const configured = Number(settings.filterMaxCompletionTokens);
+  return Number.isFinite(configured) && configured > 0 ? configured : VERDICT_TOKEN_FLOOR;
 }
 
 // One shared deadline across the primary attempt and (if configured) the

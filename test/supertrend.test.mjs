@@ -1945,6 +1945,26 @@ test('verdict budget: one budget covers both API shapes, under every model max-o
   } finally { delete global.fetch; }
 });
 
+// settings.json is hand-editable, so a numeric setting can arrive as a string.
+// A bare `> 0` accepts "20000" and forwards it verbatim, and a string max_tokens
+// is rejected by the vendor on every single call — the budget must be coerced.
+test('verdict budget: a string filterMaxCompletionTokens reaches the wire as a number', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const send = async (filterMaxCompletionTokens) => {
+    let sent = null;
+    global.fetch = async (url, opts) => {
+      sent = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ content: [{ text: '{"alert":true,"reason":"ok"}' }] }), text: async () => '{}' };
+    };
+    try { await llmVerdict({ provider: 'anthropic', ANTHROPIC_API_KEY: 'a', models: { anthropic: 'claude-x' }, filterMaxCompletionTokens }, { s: 1 }, 'sys').catch(() => {}); } finally { delete global.fetch; }
+    return sent;
+  };
+  assert.strictEqual((await send('20000')).max_tokens, 20000, 'a quoted number is coerced, never forwarded as a string');
+  assert.strictEqual((await send(20000)).max_tokens, 20000);
+  assert.strictEqual((await send('nonsense')).max_tokens, 16384, 'an unparseable value falls back to the floor, never NaN');
+  assert.strictEqual((await send(0)).max_tokens, 16384, 'zero means unset');
+});
+
 test('anthropicThinking: unset sends no thinking field; a mode is passed straight through', async () => {
   const { llmVerdict } = await import('../scripts/supertrend.mjs');
   const send = async (settings) => {

@@ -174,6 +174,11 @@ test('settings round-trip: unknown keys rejected, secrets masked and preserved, 
     // moment a default changed — telling the operator the wrong model would be
     // used. Serving the real table is what keeps the two from disagreeing.
     assert.deepEqual(got.providerDefaultModels, PROVIDER_DEFAULT_MODEL, 'provider defaults served from the source table, never a UI-side duplicate');
+    // A stray double comma in the SETTINGS_KEYS literal leaves an array hole,
+    // and the read/write loops iterate it with for...of, which yields undefined
+    // for a hole and then probes s[undefined]. Cheap to leave, invisible to
+    // every other test, so assert the shape directly.
+    assert.ok(!Object.prototype.hasOwnProperty.call(got, 'undefined'), 'no key named "undefined" leaks from an array hole in SETTINGS_KEYS');
     assert.equal(got.port, 9000);
     assert.equal(got.OPENAI_API_KEY, '•••', 'secret masked on read');
     assert.equal(got.NEWSAPI_AI_KEY, '•••', 'NewsAPI.ai key is a secret — masked on read (write-only)');
