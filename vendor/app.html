@@ -1973,7 +1973,10 @@ function renderHistory(list, botDecisions, view) {
 // the fields that provider uses (rendered client-side in cfg()). News/Advanced
 // stay flat field lists. Provider-specific keys (model, base URL, keys,
 // maxCompletionTokens, piBin) are owned by the LLM panel and NOT listed here, so
-// they never render twice or collide in the global Save.
+// they never render twice or collide in the global Save. llmFallbackProvider and
+// filterMaxCompletionTokens also live in the LLM panel, but NOT contextually —
+// they apply to the filter/re-check verdict calls regardless of the active
+// provider, so they render once (LLM_ALWAYS_FIELDS in cfg()), not per-provider.
 // Client-side copy of the NewsAPI.ai modes (#128): this is browser code, so it
 // can't import the server NEWSAPI_AI_MODES from lib/newsapi-ai-source.mjs — keep
 // the two client uses (the select + the validation below) in sync via this one
@@ -2014,6 +2017,8 @@ const FIELD_HINTS = {
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
   OPENAI_BASE_URL: 'base URL of the OpenAI-compatible endpoint (e.g. a local proxy)',
   maxCompletionTokens: 'cap on tokens the model may generate per call',
+  filterMaxCompletionTokens: 'token budget for the alert filter + re-check verdict calls only (separate from maxCompletionTokens, which caps chat) — defaults well above 8192 so a reasoning model does not exhaust its budget on chain-of-thought before replying',
+  llmFallbackProvider: 'retried once, with its OWN stored key/model, if the primary provider cannot produce a usable verdict (timeout, error, or unparseable reply) — off by default. When it fires, the signal payload (instrument, price, signal) reaches this second vendor too.',
   __model: 'model name/id to request from the provider',
 };
 // #108: one modal for everything GLOBAL — provider config (batched-Save) plus
@@ -2052,6 +2057,16 @@ async function cfg() {
   // openai-compatible), so the select shows what actually runs.
   const PROVIDER_OPTS = [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (official)'], ['openai-compatible', 'openai-compatible (base URL)'], ['none', 'disabled']];
   const MODEL_PLACEHOLDER = { anthropic: 'claude-opus-4-8 (default)', openai: 'gpt-5.4-mini (default)', 'openai-compatible': 'e.g. zai-org/GLM-5.2-FP8' };
+  // Verdict budget + fallback provider: NOT contextual on the primary provider
+  // (they apply to the filter/re-check gates regardless of which provider is
+  // active), so they render once, outside llmFieldsFor's per-provider set —
+  // reuses the same flat `field()` renderer as the News/Advanced tabs below.
+  // 'off' is the empty string, same convention as every other optional select
+  // here (NEWSAPI_AI_BACKGROUND etc.) — writeSettings deletes the key on ''.
+  const LLM_ALWAYS_FIELDS = [
+    ['llmFallbackProvider', 'select', [['', 'off'], ...PROVIDER_OPTS.filter(([v]) => v !== 'none')]],
+    ['filterMaxCompletionTokens', 'number'],
+  ];
   // contextual field spec per provider: [inputId, kind, label, storedValue]. The
   // synthetic __model id binds to models[provider]; real keys map straight through.
   const llmFieldsFor = (p) => {
@@ -2104,6 +2119,7 @@ async function cfg() {
   f.innerHTML =
     '<div class="cfgpanel" data-panel="llm"' + (active === 'llm' ? '' : ' hidden') + '>' +
       providerSelect + '<div id="llmDyn" style="display:contents">' + renderLlmDyn(curProvider) + '</div>' +
+      LLM_ALWAYS_FIELDS.map(field).join('') +
     '</div>' +
     flatPanel('news', NEWS_FIELDS) +
     flatPanel('adv', ADV_FIELDS) +
@@ -2144,8 +2160,9 @@ async function cfg() {
   f.onsubmit = async (e) => {
     e.preventDefault();
     const patch = {};
-    // News + Advanced: flat fields
-    for (const [k, kind] of [...NEWS_FIELDS, ...ADV_FIELDS]) {
+    // News + Advanced + the LLM tab's non-contextual fields: flat fields, all
+    // reachable via f.elements[k] regardless of which panel renders them
+    for (const [k, kind] of [...NEWS_FIELDS, ...ADV_FIELDS, ...LLM_ALWAYS_FIELDS]) {
       const el = f.elements[k]; if (!el) continue;
       const v = el.value;
       if (kind === 'json') {

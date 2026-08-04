@@ -51,7 +51,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'impulseCooldownBars'];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -112,6 +112,11 @@ export function writeSettings(settingsPath, patch) {
   // lives in supertrend.mjs's OPENAI_REASONING_FLOOR); operator-tunable here.
   if (patch.maxCompletionTokens !== undefined && patch.maxCompletionTokens !== '' && patch.maxCompletionTokens !== null && (!Number.isInteger(patch.maxCompletionTokens) || patch.maxCompletionTokens <= 0)) {
     throw new Error('maxCompletionTokens must be a positive integer');
+  }
+  // filter/recheck-only completion budget — same shape as maxCompletionTokens
+  // above, a separate key so raising it never touches chat's global budget.
+  if (patch.filterMaxCompletionTokens !== undefined && patch.filterMaxCompletionTokens !== '' && patch.filterMaxCompletionTokens !== null && (!Number.isInteger(patch.filterMaxCompletionTokens) || patch.filterMaxCompletionTokens <= 0)) {
+    throw new Error('filterMaxCompletionTokens must be a positive integer');
   }
   // volume-impulse knobs: reject junk loudly at the trust boundary — same
   // stance as the neighbouring numeric settings above. impulseSettings falls
@@ -174,6 +179,13 @@ export function writeSettings(settingsPath, patch) {
   validateGranularityMinMap(patch.uiRefreshSeconds, 'uiRefreshSeconds', 2);
   if (patch.provider !== undefined && patch.provider !== '' && patch.provider !== null && !PROVIDERS.includes(patch.provider)) {
     throw new Error(`provider must be one of ${PROVIDERS.join(', ')}`);
+  }
+  // A fallback equal to the primary (or the never-a-real-choice 'none') is
+  // accepted here — resolveFallbackProvider in supertrend.mjs treats it as
+  // unset at call time — but must still be a known provider name, same
+  // allow-list as `provider`.
+  if (patch.llmFallbackProvider !== undefined && patch.llmFallbackProvider !== '' && patch.llmFallbackProvider !== null && !PROVIDERS.includes(patch.llmFallbackProvider)) {
+    throw new Error(`llmFallbackProvider must be one of ${PROVIDERS.join(', ')}`);
   }
   if (patch.models !== undefined && patch.models !== '' && patch.models !== null) {
     if (typeof patch.models !== 'object' || Array.isArray(patch.models)) throw new Error('models must be an object keyed by provider');

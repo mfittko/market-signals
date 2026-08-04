@@ -302,6 +302,34 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           p.on('request', onCfgReq);
           await p.evaluate(() => document.getElementById('cfgbtn').click());
           await p.waitForTimeout(300);
+          // llmFallbackProvider + filterMaxCompletionTokens: NOT contextual on
+          // the provider select (present regardless of the active provider,
+          // unlike the fields the swap below toggles) — save these BEFORE
+          // swapping to openai-compatible below, since that swap deliberately
+          // leaves OPENAI_BASE_URL blank (a save would then hit the real
+          // "openai-compatible requires OPENAI_BASE_URL" guard).
+          assert.deepEqual(
+            await p.evaluate(() => [...document.getElementById('f-llmFallbackProvider').options].map((o) => o.value)),
+            ['', 'pi', 'anthropic', 'openai', 'openai-compatible'],
+            'fallback select offers off (\'\') plus every real provider, no duplicate "none"',
+          );
+          assert.ok(await p.evaluate(() => !!document.getElementById('f-filterMaxCompletionTokens')), 'verdict-budget number field present');
+          assert.equal(await p.evaluate(() => document.getElementById('f-llmFallbackProvider').value), '', 'off by default on a fresh settings.json');
+          await p.evaluate(() => {
+            const sel = document.getElementById('f-llmFallbackProvider');
+            sel.value = 'anthropic';
+            sel.dispatchEvent(new Event('change', { bubbles: true }));
+            document.getElementById('f-filterMaxCompletionTokens').value = '20000';
+          });
+          await p.evaluate(() => document.querySelector('#cfg button').click());
+          await p.waitForTimeout(300);
+          const persisted = await p.evaluate(async () => (await (await fetch('/api/settings')).json()));
+          assert.equal(persisted.llmFallbackProvider, 'anthropic', 'fallback provider persists');
+          assert.equal(persisted.filterMaxCompletionTokens, 20000, 'verdict budget persists');
+          // clear the leftover "saved" status text: a later assertion in this
+          // same flow checks that text stays EMPTY across an unrelated action,
+          // a check that predates this save and would otherwise misread it.
+          await p.evaluate(() => { document.getElementById('saved').textContent = ''; });
           await p.evaluate(() => { const s = document.getElementById('f-provider'); s.value = 'openai-compatible'; s.dispatchEvent(new Event('change', { bubbles: true })); });
           await p.waitForTimeout(150);
           assert.ok(await p.evaluate(() => !!document.getElementById('f-OPENAI_BASE_URL')), 'provider swap reveals the base-URL field');

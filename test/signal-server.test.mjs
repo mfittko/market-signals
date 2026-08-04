@@ -470,6 +470,35 @@ test('maxCompletionTokens (#98): round-trips as a positive integer, rejects non-
   });
 });
 
+test('filterMaxCompletionTokens (#216): round-trips as a positive integer, rejects non-positive/non-integer values, independent of maxCompletionTokens', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 20000, maxCompletionTokens: 9000 }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.filterMaxCompletionTokens, 20000);
+    assert.equal(got.maxCompletionTokens, 9000, 'the two budgets are independent settings keys');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 0 }) });
+    assert.equal(res.status, 400, 'zero is not a positive integer');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: 1.5 }) });
+    assert.equal(res.status, 400, 'must be an integer');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ filterMaxCompletionTokens: '' }) });
+    assert.equal(res.status, 200, 'clearing it back out (empty string deletes) is still valid');
+  });
+});
+
+test('llmFallbackProvider (#216): round-trips as a known provider name, rejects unknown values, not a secret (unmasked on read)', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    let res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: 'anthropic' }) });
+    assert.equal(res.status, 200);
+    const got = await (await fetch(`${base}/api/settings`)).json();
+    assert.equal(got.llmFallbackProvider, 'anthropic', 'not in SECRET_KEYS — round-trips unmasked, unlike API keys');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: 'made-up-vendor' }) });
+    assert.equal(res.status, 400, 'must be one of the known PROVIDERS');
+    res = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ llmFallbackProvider: '' }) });
+    assert.equal(res.status, 200, "'' (the UI's off entry) clears it back to unset");
+  });
+});
+
 test('page escapes db-backed fields (no raw script injection vector)', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
     const html = await (await fetch(base + '/')).text();

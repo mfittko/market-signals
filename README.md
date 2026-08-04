@@ -272,6 +272,25 @@ chat-only proxy with no transcription endpoint), `sttOpenaiBaseUrl` (default
 (a local command invoked as `sttBin <audiofile>` printing the transcript to
 stdout — wrap whisper.cpp here for a fully-offline backend).
 
+**Verdict budget + fallback provider (the alert filter and the recheck gate
+only, never the bot or chat).** `filterMaxCompletionTokens` caps the filter/
+recheck completion separately from the global `maxCompletionTokens`, and
+defaults well above it — a reasoning model can otherwise spend the whole
+budget on chain-of-thought before emitting the verdict JSON, returning
+`finish_reason=length` with no content. `llmFallbackProvider` retries the
+verdict once, on a second provider, when the primary produces nothing usable
+(a transport error, a timeout, an empty reply, or JSON the filter can't
+parse) — off by default. Both providers already have their key and model
+stored side by side in `data/settings.json` (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`/`OPENAI_BASE_URL`, and `models[provider]` all coexist), so
+naming a fallback needs no new credentials — but it does mean that **when it
+fires, the signal payload (instrument, price, the flip itself) is sent to
+that second vendor too.** The two attempts share one 90s deadline rather than
+adding a second one: if the primary uses it all, the fallback is skipped, not
+started. The stored `reason` names whichever provider actually produced the
+verdict once a fallback is configured, so `signals.reason` in `candles.db`
+can answer "is the fallback carrying us?" directly.
+
 Everything under `data/` (db, settings with keys, notes, logs) is gitignored.
 
 ## `data/` layout

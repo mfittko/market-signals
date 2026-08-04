@@ -57,6 +57,16 @@ uiReview:
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         - { action: click, selector: "#cfgTabs button[data-tab=global]", name: gates-notes-tab }
         - { action: click, selector: "#gatesTabs button[data-tab=recheck]", name: recheck-gate-panel }
+    # verdict-budget + fallback-provider fields: NOT contextual on the
+    # provider select, so they render regardless of which provider is active.
+    - name: settings-llm-fallback
+      pathPatterns: ["scripts/signal-server.mjs", "vendor/app.html", "scripts/supertrend.mjs"]
+      steps:
+        - { action: goto, path: "/", name: open-config }
+        - { action: click, selector: "#cfgbtn", name: open-settings-modal }
+        - { action: fill, selector: "#f-filterMaxCompletionTokens", value: "20000", name: fill-verdict-budget }
+        - { action: select, selector: "#f-llmFallbackProvider", value: "anthropic", name: select-fallback-provider }
+        - { action: click, selector: "#cfg button", name: save-llm-fallback }
 
 # Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
 queue:
