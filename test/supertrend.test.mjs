@@ -1968,3 +1968,22 @@ test('both-providers-failed: both provider names survive the 90-char reason trun
     );
   } finally { delete global.fetch; }
 });
+
+// A filter failure must name the knob that can actually fix it. The verdict path
+// is capped by filterMaxCompletionTokens; pointing it at the chat knob would send
+// the operator to a setting that changes nothing — and diagnosing exactly this
+// failure is why the error text exists.
+test('openai no-content error: a verdict failure names filterMaxCompletionTokens, not the chat knob', async () => {
+  const { llmVerdict } = await import('../scripts/supertrend.mjs');
+  const payload = { choices: [{ message: { content: '' }, finish_reason: 'length' }] };
+  global.fetch = async () => ({ ok: true, status: 200, json: async () => payload, text: async () => JSON.stringify(payload) });
+  try {
+    await assert.rejects(
+      llmVerdict({ provider: 'openai-compatible', OPENAI_API_KEY: 'k', OPENAI_BASE_URL: 'https://x.invalid/v1', models: { 'openai-compatible': 'm' } }, { s: 1 }, 'sys'),
+      (err) => {
+        assert.match(err.message, /raise filterMaxCompletionTokens/, `verdict failure must name its own knob: ${err.message}`);
+        return true;
+      },
+    );
+  } finally { delete global.fetch; }
+});

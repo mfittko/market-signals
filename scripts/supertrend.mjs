@@ -358,7 +358,12 @@ function requireOpenAiKey(settings, provider = resolveProvider(settings)) {
 // loops. (The request BODIES still differ per path, so those aren't merged.)
 const anthropicHeaders = (settings) => ({ 'content-type': 'application/json', 'x-api-key': requireAnthropicKey(settings), 'anthropic-version': '2023-06-01' });
 const openaiHeaders = (settings, provider = resolveProvider(settings)) => ({ 'content-type': 'application/json', authorization: `Bearer ${requireOpenAiKey(settings, provider)}` });
-const openaiNoContentError = (finishReason, budget) => new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise maxCompletionTokens)`);
+// Names the knob the CALLER actually governs: the verdict/recheck path is
+// capped by filterMaxCompletionTokens, everything else by maxCompletionTokens.
+// Pointing a filter failure at the chat knob would send the operator to a
+// setting that cannot fix it — and diagnosing filter failures is the whole
+// reason this error text exists.
+const openaiNoContentError = (finishReason, budget, knob = 'maxCompletionTokens') => new Error(`openai provider returned no content (finish_reason=${finishReason}; a reasoning model likely exhausted max_completion_tokens=${budget} — raise ${knob})`);
 
 // Streaming SSE reader shared by both API providers: calls extract(json) per
 // `data:` event, invokes onDelta with each text piece, returns the full text.
@@ -525,7 +530,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     const content = choice.message.content;
     if (content == null || content === '') {
       const finishReason = choice.finish_reason;
-      throw openaiNoContentError(finishReason, budget);
+      throw openaiNoContentError(finishReason, budget, exactMaxTokens ? 'filterMaxCompletionTokens' : 'maxCompletionTokens');
     }
     return content;
   }
@@ -628,7 +633,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
     }
     if (msg.content == null || msg.content === '') {
       const finishReason = choice.finish_reason;
-      throw openaiNoContentError(finishReason, budget);
+      throw openaiNoContentError(finishReason, budget, 'maxCompletionTokens');
     }
     if (onDelta) onDelta(msg.content);
     reportUsage(onUsage, { provider, model, usage: sawUsage ? { inputTokens, outputTokens } : null });
