@@ -1478,7 +1478,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // server heartbeat's cycle surfaces here without ever breaking chart
         // serving (the cycle's own try/catch already isolates it).
         const cycleStatus = keepFresh.getCycleStatus();
-        // #217: the alert filter fails open, so a broken filter looks
+        // The alert filter fails open, so a broken filter looks
         // identical to a healthy one everywhere else — derived here (no new
         // LLM/network call) from the same `signals.reason` rows the filter
         // already writes, so the health strip can surface it too.

@@ -221,13 +221,17 @@ export const FILTER_HEALTH_WARN_RATE = 0.2;
 // Share of the most recent FILTER_HEALTH_WINDOW filter-judged signals, across
 // every instrument/granularity (one gate, one strip segment), whose verdict
 // came from the fail-open error fallback rather than a real provider answer.
-// verdict IN ('alert','suppress') is exactly "the filter ran and recorded a
-// verdict" — duplicate/cooldown/unfiltered rows never set verdict to either,
-// so they never enter this count. No new LLM or network call: this only
-// reads rows the filter already wrote.
+// Two conditions together define "the filter ran and recorded a verdict", and
+// both are load-bearing. verdict IN ('alert','suppress') drops the duplicate,
+// cooldown and backfill rows. The kind predicate drops the detectors that never
+// consult the filter at all: a volume impulse records verdict='alert'
+// unconditionally, so leaving those rows in the denominator dilutes the rate and
+// hides exactly the degradation this is here to catch. Add another kind only
+// once that kind is genuinely filter-judged. No new LLM or network call: this
+// only reads rows the filter already wrote.
 export function filterHealth(dbPath, { window = FILTER_HEALTH_WINDOW } = {}) {
   return withDb(dbPath, (db) => {
-    const rows = db.prepare("SELECT reason FROM signals WHERE verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?").all(window);
+    const rows = db.prepare("SELECT reason FROM signals WHERE kind='supertrend-flip' AND verdict IN ('alert','suppress') ORDER BY time DESC LIMIT ?").all(window);
     const checked = rows.length;
     const errorReasons = rows.map((r) => r.reason).filter((r) => /filter error:/i.test(r || ''));
     const errors = errorReasons.length;

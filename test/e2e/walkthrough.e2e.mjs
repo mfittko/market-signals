@@ -103,7 +103,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         }));
       });
     });
-    // #217: 20 filter-judged rows (FILTER_HEALTH_WINDOW), newer than every
+    // 20 filter-judged rows (FILTER_HEALTH_WINDOW), newer than every
     // other seeded signal above so they own the count-based window; 5 of them
     // (25%, at/above FILTER_HEALTH_WARN_RATE) carry a "filter error: " reason
     // — the fail-open fallback the health strip must surface. filterHealth is
@@ -215,9 +215,9 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
         // canvases carry a text alternative (a11y)
         assert.ok(await p.evaluate(() => document.getElementById('chart').getAttribute('role') === 'img'), 'chart canvas has role=img');
 
-        // #217: the health strip surfaces filter degradation — assert the
+        // The health strip surfaces filter degradation — assert the
         // RENDERED text (not just the /api/health field the strip reads),
-        // per the #219 lesson that a state-only assertion let a dead control
+        // because a state-only assertion once let a dead control
         // pass for months. The 25%/5-timeout-dominant fixture seeded above
         // is well above the strip's warn threshold.
         await p.waitForFunction(() => (document.getElementById('healthStrip')?.textContent || '').includes('filter'), { timeout: 5000 });

@@ -1641,7 +1641,7 @@ function renderHealthStrip() {
     : cyc.lastCycleError
     ? ' · <span class="warn">⛔ cycle error</span>'
     : ' · cycle: server · ' + (cyc.lastCycleAt ? humanAge((Date.now() - Date.parse(cyc.lastCycleAt)) / 60000) : 'not yet run');
-  // #217: the alert filter fails open — a broken filter still emits alerts,
+  // The alert filter fails open — a broken filter still emits alerts,
   // so nothing else on this strip (or anywhere else an operator looks) would
   // ever show it. filter.rate/warn/dominantKind are server-derived from
   // signals.reason (no new LLM/network call here). Quiet ("filter ok") when

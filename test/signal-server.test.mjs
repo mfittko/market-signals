@@ -1828,7 +1828,7 @@ test('#163: GET /api/health serves feed freshness, halted, llm/news/bots summari
     assert.ok(Array.isArray(h.bots));
     // #199: the heartbeat is the only cycle owner — no owner field, cycle status only
     assert.deepEqual(h.cycle, { lastCycleAt: null, lastCycleError: null });
-    // #217: fixtureDb's seeded row carries no verdict (recordSignal alone never
+    // fixtureDb's seeded row carries no verdict (recordSignal alone never
     // sets one) — it must not count as a filter-judged row.
     assert.deepEqual(h.filter, { checked: 0, errors: 0, rate: 0, warn: false, dominantKind: null });
 
@@ -1846,7 +1846,7 @@ test('GET /api/health: a configured GNEWS_KEY + mode surfaces as news.gnewsMode'
   });
 });
 
-// #217: the filter fails open, so a degraded gate looks identical to a
+// The filter fails open, so a degraded gate looks identical to a
 // healthy one everywhere else — GET /api/health is where the health strip
 // gets the derived rate/warn/dominantKind it renders.
 test('GET /api/health: a recent filter-error rate at/above the named threshold surfaces filter.warn=true with the dominant error kind', async () => {

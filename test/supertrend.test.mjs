@@ -1683,14 +1683,14 @@ test('processSignal: a failing Pushover push leaves the alert recorded as sent+n
   }
 });
 
-// #217: filterHealth derives the health-strip's filter-degradation signal
+// filterHealth derives the health-strip's filter-degradation signal
 // straight from persisted signals.reason rows — no LLM/network call. Seeds
 // rows by hand (not through processSignal) so each case pins an exact,
 // known verdict/reason combination.
-function seedFilteredSignal(dbPath, time, { verdict = 'alert', reason = null } = {}) {
+function seedFilteredSignal(dbPath, time, { verdict = 'alert', reason = null, kind = 'supertrend-flip' } = {}) {
   withDb(dbPath, (db) => {
-    db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?)')
-      .run('WTICO/USD', 'M5', time, 'buy', 100, verdict, reason, 1);
+    db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, verdict, reason, notified, kind) VALUES (?,?,?,?,?,?,?,?,?)')
+      .run('WTICO/USD', 'M5', time, 'buy', 100, verdict, reason, 1, kind);
   });
 }
 const tAt = (i) => new Date(Date.parse('2026-07-22T08:00:00Z') + i * 300000).toISOString();
@@ -1713,6 +1713,30 @@ test('filterHealth: healthy — every recent verdict a real provider answer ⇒ 
   assert.equal(h.rate, 0);
   assert.equal(h.warn, false);
   assert.equal(h.dominantKind, null);
+  rmSync(dbPath, { force: true });
+});
+
+// A detector that never consults the filter still records verdict='alert'. Left
+// in the denominator those rows dilute the rate: measured against the live DB
+// they were 7 of the last 20, turning a real 23% error rate into a reported 15%
+// — under the threshold, so the strip stayed quiet during actual degradation.
+// The window must be filter-judged rows only.
+test('filterHealth: rows from detectors that never run the filter are excluded, not counted as healthy', () => {
+  const dbPath = fileURLToPath(new URL('./tmp-filter-health-kinds.db', import.meta.url));
+  rmSync(dbPath, { force: true });
+  // 4 filter-judged rows, 1 of them errored (25%, above the threshold) …
+  for (let i = 0; i < 4; i++) {
+    seedFilteredSignal(dbPath, tAt(i), { reason: i === 0 ? 'filter error: timeout after 90000ms' : 'looks like chop' });
+  }
+  // … plus impulse rows that carry verdict='alert' without the filter ever running.
+  for (let i = 4; i < 12; i++) {
+    seedFilteredSignal(dbPath, tAt(i), { verdict: 'alert', reason: 'volume impulse', kind: 'volume-impulse' });
+  }
+  const h = filterHealth(dbPath);
+  assert.equal(h.checked, 4, 'only filter-judged rows enter the window');
+  assert.equal(h.errors, 1);
+  assert.equal(h.rate, 0.25);
+  assert.equal(h.warn, true, 'the impulse rows must not dilute a real degradation below the threshold');
   rmSync(dbPath, { force: true });
 });
 
@@ -1751,7 +1775,11 @@ test('filterHealth: at/above the threshold ⇒ warn true, dominant failure kind 
   rmSync(dbPath, { force: true });
 });
 
-test('filterHealth: only verdict IN (alert,suppress) rows count — duplicate/unfiltered/impulse rows never enter the denominator', () => {
+// Scope by verdict only. The impulse row here carries a null verdict, so it
+// pins the verdict clause alone — the kind clause is pinned separately above,
+// with an impulse row that DOES carry verdict='alert', which is the shape
+// production actually writes.
+test('filterHealth: only verdict IN (alert,suppress) rows count — duplicate/unfiltered/no-verdict rows never enter the denominator', () => {
   const dbPath = fileURLToPath(new URL('./tmp-filter-health-scope.db', import.meta.url));
   rmSync(dbPath, { force: true });
   seedFilteredSignal(dbPath, tAt(0), { verdict: 'duplicate', reason: 're-detection of x' });
