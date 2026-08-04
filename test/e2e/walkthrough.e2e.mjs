@@ -167,8 +167,14 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           }, [key, checked]),
         ]);
         const errs = [];
+        // One step below deliberately provokes a server rejection to prove the
+        // trader is shown the reason. The browser logs that response as a console
+        // error, which is real and expected — so it is ignored only while that
+        // step runs, rather than by loosening the check for the whole walkthrough.
+        let expectingRejection = false;
+        const isExpected = (line) => expectingRejection && /status of 400/.test(line);
         p.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
-        p.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
+        p.on('console', (m) => { if (m.type() === 'error' && !isExpected(m.text())) errs.push('CONSOLE: ' + m.text()); });
         // #166: selects must not depend on rail data — stall /api/bots so the
         // rail hasn't loaded yet when the DOM first settles, and confirm the
         // selects render visible anyway (no render-then-hide flicker).
@@ -546,6 +552,47 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.keyboard.press('Enter');
           await p.waitForTimeout(600);
           assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 2, 'Enter activates the panel\'s add button (keyboard reach preserved)');
+          // A rejected add used to be silent: the server 400s, the console logs
+          // it, and the trader sees nothing but their own text still sitting in
+          // the box. Assert the rendered message, not just the absence of a new
+          // row — "nothing happened" is exactly what the bug looked like.
+          expectingRejection = true;
+          const beforeReject = await p.evaluate(() => document.querySelectorAll('#memList .memrow').length);
+          await p.evaluate(() => {
+            document.getElementById('memNewContent').value = 'e2e note with a bad weight';
+            document.getElementById('memNewWeight').value = '9'; // server rule is 1-5
+          });
+          await p.evaluate(() => document.getElementById('memAddBtn').click());
+          await p.waitForTimeout(600);
+          const rejected = await p.evaluate(() => {
+            const e = document.getElementById('memAddErr');
+            return { text: e?.textContent ?? null, rects: e?.getClientRects().length ?? 0, content: document.getElementById('memNewContent').value, weight: document.getElementById('memNewWeight').value };
+          });
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), beforeReject, 'a rejected note is not added');
+          assert.ok(rejected.rects > 0, 'the rejection message is actually rendered, not just present in the DOM');
+          assert.match(rejected.text, /weight/i, `the server's own reason is shown: ${JSON.stringify(rejected.text)}`);
+          assert.equal(rejected.content, 'e2e note with a bad weight', 'the typed note survives a rejection');
+          assert.equal(rejected.weight, '9', 'and so does the weight, so it can be corrected in place');
+
+          expectingRejection = false; // narrow window: anything after this counts again
+
+          // Cleared on the next attempt, so a stale rejection never outlives it.
+          await p.evaluate(() => { document.getElementById('memNewWeight').value = '3'; });
+          await p.evaluate(() => document.getElementById('memAddBtn').click());
+          await p.waitForTimeout(700);
+          assert.equal(await p.evaluate(() => document.getElementById('memAddErr').hidden), true, 'the message clears once the add succeeds');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), beforeReject + 1, 'the corrected note is added');
+
+          // Two submits inside one round-trip must add one note, not two.
+          const beforeDouble = await p.evaluate(() => document.querySelectorAll('#memList .memrow').length);
+          await p.evaluate(() => {
+            document.getElementById('memNewContent').value = 'e2e double-submit note';
+            const b = document.getElementById('memAddBtn');
+            b.click(); b.click();
+          });
+          await p.waitForTimeout(900);
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), beforeDouble + 1, 'two rapid submits add exactly one note');
+
           await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] details summary').focus());
           await p.keyboard.press('Enter');
           await p.waitForTimeout(200);
@@ -568,9 +615,13 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           await p.evaluate(() => document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft .gatedeactivate').click());
           await p.waitForTimeout(600);
           assert.equal(await p.evaluate(() => !!document.querySelector('#gatesList .gaterow[data-gate="filter"] .gatedraft b')), false, 'deactivating it from the settings modal drops the active marker');
+          // Relative, not anchored on a count taken far upstream: the absolute
+          // form silently couples this assertion to how many notes every earlier
+          // step happened to add, and broke the moment one more was added.
+          const notesBeforeArchive = await p.evaluate(() => document.querySelectorAll('#memList .memrow').length);
           await p.evaluate(() => document.querySelector('#memList .memrow .memarchive').click());
           await p.waitForTimeout(600);
-          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBefore + 1, 'archiving a note from the settings modal drops it from the list');
+          assert.equal(await p.evaluate(() => document.querySelectorAll('#memList .memrow').length), notesBeforeArchive - 1, 'archiving a note from the settings modal drops it from the list');
           // a gate mutation re-renders #gatesList — the rebuilt "view strategy"
           // button must not lose its handler (it is the only nav out of this panel)
           await p.evaluate(() => document.querySelector('#gatesTabs button[data-tab="bot"]').click());

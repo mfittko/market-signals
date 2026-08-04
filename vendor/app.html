@@ -797,7 +797,7 @@ async function mountGlobalTab(goToStrategy) {
   document.getElementById('cfgGlobal').innerHTML =
     '<fieldset><legend>global — affects every bot</legend>' +
     '<div class="gates-wrap"><div id="gatesTabs" role="tablist" aria-label="gate sections"></div><div id="gatesList"></div></div>' + // gatesTabs bound below, once it exists in the DOM
-    '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
+    '<div><small class="fieldhint" data-info="' + esc(INFO.memories) + '">standing notes — weight (1-5) controls how strongly they steer the copilot/bot; archive retires a note without deleting it</small><div id="memAddRow"><input type="text" id="memNewContent" aria-label="new standing note or preference" placeholder="add a standing note or preference…"><input type="number" id="memNewWeight" min="1" max="5" value="3" title="weight 1-5" aria-label="weight, 1 to 5"><button type="button" id="memAddBtn">add</button></div><div id="memAddErr" class="botwarn" role="alert" aria-live="polite" hidden></div><div id="memList"></div><details id="memArchivedWrap" hidden><summary id="memArchivedCount" title="archived notes are hidden from advisory context but kept for reference">archived</summary></details></div>' +
     '</fieldset>';
   tabStrip(document.getElementById('gatesTabs')); // #168: bound here, not at boot — gatesTabs doesn't exist until this markup is inserted
   await renderGates(goToStrategy);
@@ -2360,13 +2360,33 @@ async function renderMemories() {
   document.getElementById('memArchivedCount').textContent = r.archivedCount + ' archived';
   // add-memory button lives in the embedded panel — wire it here (idempotent)
   const addBtn = document.getElementById('memAddBtn');
+  // A rejected add used to leave the trader with nothing but a console 400 —
+  // their text still in the box, reading as if the click had done nothing. The
+  // gates half of this same panel already renders its error into a span, so this
+  // mirrors that rather than inventing a second idiom. The guard sits on the
+  // shared handler, so the Enter and click triggers are both covered at the one
+  // point they already have in common.
+  let memAdding = false;
   if (addBtn) addBtn.onclick = async () => {
+    if (memAdding) return;
     const content = document.getElementById('memNewContent').value.trim();
+    const err = document.getElementById('memAddErr');
+    const showErr = (msg) => { if (!err) return; err.textContent = msg || ''; err.hidden = !msg; };
+    showErr(''); // cleared per attempt, so a stale rejection never outlives its cause
     if (!content) return;
     const weightRaw = document.getElementById('memNewWeight').value;
     const weight = weightRaw === '' ? undefined : Number(weightRaw); // blank → saveMemory default (3)
-    const r2 = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content, weight }) })).json();
-    if (r2.ok) { document.getElementById('memNewContent').value = ''; renderMemories(); }
+    memAdding = true;
+    try {
+      const r2 = await (await fetch('/api/memories', { method: 'POST', body: JSON.stringify({ action: 'save', content, weight }) })).json();
+      // Content and weight are deliberately left alone on failure: the trader
+      // has to be able to correct what was rejected without retyping it.
+      if (!r2.ok) return showErr(r2.error || 'could not add the note');
+      document.getElementById('memNewContent').value = '';
+      renderMemories();
+    } catch (e) {
+      showErr(String(e && e.message ? e.message : e));
+    } finally { memAdding = false; }
   };
   // Enter in either add-row input adds the note — wired next to the button it
   // triggers, so the panel keeps this behavior wherever it is mounted. Inputs
