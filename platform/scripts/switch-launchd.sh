@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Run the live Market Signals engine from this branch's worktree, and retire the old
+# five-minute watcher job that duplicates the server's own watcher cycle.
+#
+#   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
+#   scripts/switch-launchd.sh up         switch to this worktree (asks first; -y skips the question)
+#   scripts/switch-launchd.sh rollback   restore the original plists and the main checkout
+#
+# The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
+# main checkout's data/, so no state is copied or lost. Original plists are kept in ~/Library/LaunchAgents/.ms-backup.
+set -euo pipefail
+
+WT="$(cd "$(dirname "$0")/../.." && pwd)"                     # worktree root
+MAIN="$(cd "$(git -C "$WT" rev-parse --git-common-dir)/.." && pwd)"  # main checkout
+LA="$HOME/Library/LaunchAgents"
+BK="$LA/.ms-backup"
+UID_="$(id -u)"
+SRV=com.market-signals.signal-server
+WATCH=com.market-signals.supertrend
+API=http://127.0.0.1:8787
+
+die() { echo "error: $*" >&2; exit 1; }
+loaded() { launchctl print "gui/$UID_/$1" >/dev/null 2>&1; }
+equity() { curl -fsS -m 8 "$API/api/portfolio" | jq -c '.portfolio | {equity, cash, trades: (.trades | length), positions: (.positions | length)}'; }
+workdir() { /usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' "$LA/$SRV.plist" 2>/dev/null || echo "?"; }
+
+wait_health() {
+  for _ in $(seq 1 30); do curl -fsS -m 3 "$API/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
+  return 1
+}
+
+status() {
+  echo "worktree:       $WT ($(git -C "$WT" branch --show-current))"
+  echo "main checkout:  $MAIN"
+  echo "server plist:   working directory $(workdir)"
+  for j in "$SRV" "$WATCH"; do loaded "$j" && echo "loaded:         $j" || echo "not loaded:     $j"; done
+  [ -L "$WT/data" ] && echo "worktree data:  symlink to $(readlink "$WT/data")" || echo "worktree data:  not linked"
+  curl -fsS -m 3 "$API/api/health" >/dev/null 2>&1 && echo "engine:         answering on $API" || echo "engine:         not answering"
+}
+
+up() {
+  command -v jq >/dev/null || die "jq is required"
+  [ -f "$LA/$SRV.plist" ] || [ -f "$BK/$SRV.plist" ] || die "no $SRV plist found"
+  [ -f "$WT/scripts/signal-server.mjs" ] || die "worktree has no engine scripts"
+  status; echo
+  echo "This will:"
+  echo "  1. back up the two plists to $BK (only when no backup exists)"
+  echo "  2. link $WT/data to $MAIN/data"
+  echo "  3. point $SRV at $WT and reload it"
+  echo "  4. stop and disable $WATCH (the old five-minute watcher)"
+  if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
+
+  before="$(equity || echo unavailable)"
+  mkdir -p "$BK"
+  for p in "$SRV" "$WATCH"; do [ -f "$BK/$p.plist" ] || { [ -f "$LA/$p.plist" ] && command cp -f "$LA/$p.plist" "$BK/$p.plist"; }; done
+
+  if [ ! -L "$WT/data" ]; then
+    [ -e "$WT/data" ] && command mv "$WT/data" "$WT/data.test-artifacts.$(date +%s)"
+    ln -s "$MAIN/data" "$WT/data"
+  fi
+
+  /usr/libexec/PlistBuddy -c "Set :WorkingDirectory $WT" "$LA/$SRV.plist"
+  plutil -lint "$LA/$SRV.plist" >/dev/null || die "plist is invalid; run: $0 rollback"
+
+  if loaded "$WATCH"; then launchctl bootout "gui/$UID_/$WATCH"; fi
+  [ -f "$LA/$WATCH.plist" ] && command mv "$LA/$WATCH.plist" "$BK/$WATCH.plist.disabled"
+
+  # a changed plist only takes effect after a full unload and load; kickstart alone would keep the old directory
+  if loaded "$SRV"; then launchctl bootout "gui/$UID_/$SRV"; fi
+  launchctl bootstrap "gui/$UID_" "$LA/$SRV.plist"
+
+  wait_health || die "engine did not answer within 30 seconds; run: $0 rollback"
+  after="$(equity || echo unavailable)"
+  echo; echo "portfolio before: $before"; echo "portfolio after:  $after"
+  [ "$before" = "$after" ] && echo "portfolio unchanged: ok" || echo "note: figures differ. A trade or a price move can explain a small change; compare before deciding."
+  echo; status
+}
+
+rollback() {
+  [ -f "$BK/$SRV.plist" ] || die "no backup at $BK"
+  loaded "$SRV" && launchctl bootout "gui/$UID_/$SRV"
+  command cp -f "$BK/$SRV.plist" "$LA/$SRV.plist"
+  launchctl bootstrap "gui/$UID_" "$LA/$SRV.plist"
+  if [ -f "$BK/$WATCH.plist" ] && ! loaded "$WATCH"; then
+    command cp -f "$BK/$WATCH.plist" "$LA/$WATCH.plist"
+    launchctl bootstrap "gui/$UID_" "$LA/$WATCH.plist"
+  fi
+  wait_health || die "engine did not answer within 30 seconds"
+  echo "rolled back."; status
+}
+
+case "${1:-status}" in
+  status) status ;;
+  up) up "${2:-}" ;;
+  rollback) rollback ;;
+  *) die "usage: $0 status|up [-y]|rollback" ;;
+esac
