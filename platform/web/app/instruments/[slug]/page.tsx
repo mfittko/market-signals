@@ -9,6 +9,7 @@ import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart
 import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
 import { Card } from '@/components/ui';
+import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
@@ -24,6 +25,7 @@ export default function InstrumentPage() {
   const { tick } = useLive();
   const [tab, setTab] = useState<'signals' | 'trades'>('signals');
   const bots = useActiveBots();
+  const w = useWatchers();
   const [allSig, setAllSig] = useState(false);
   const [allTr, setAllTr] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
@@ -76,9 +78,13 @@ export default function InstrumentPage() {
   return (
     <main className="wrap">
       <div className="top">
-        <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span><BotBadge grans={bots?.get(d.symbol)} /></div>
+        <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span><BotBadge grans={bots?.get(d.symbol)} />
+          {w.watched && (
+            <label className="chip" title="The engine looks for flips on this market and alerts you when the filter passes one."><input type="checkbox" checked={w.watched.has(`${d.symbol}|${d.granularity}`)} disabled={w.busy} onChange={() => void w.toggle(d.symbol, d.granularity)} /> Signal alerts {d.granularity}</label>
+          )}
+          {w.err && <span className="msg err" role="alert">{w.err}</span>}</div>
         <div className="seg" role="group" aria-label="Granularity">
-          {d.granularities.map((g) => <button key={g.granularity} aria-pressed={g.granularity === d.granularity} onClick={() => setGran(g.granularity)}>{g.granularity}</button>)}
+          {d.granularities.map((g) => <button key={g.granularity} aria-pressed={g.granularity === d.granularity} onClick={() => setGran(g.granularity)}>{g.granularity}{w.watched?.has(`${d.symbol}|${g.granularity}`) && <span title="Signal alerts on" aria-label="alerts on"> ●</span>}</button>)}
         </div>
       </div>
 

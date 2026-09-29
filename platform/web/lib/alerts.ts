@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
@@ -62,3 +63,25 @@ export function loadSeen(): Set<string> | null {
   try { const v = localStorage.getItem(SEEN); return v ? new Set(JSON.parse(v) as string[]) : null; } catch { return null; }
 }
 export function saveSeen(s: Set<string>) { try { localStorage.setItem(SEEN, JSON.stringify([...s].slice(-400))); } catch { /* ignore */ } }
+
+// The engine alerts on the instrument and timeframe pairs in its watcher list.
+const canon = (csv?: string) => (csv ?? '').split(',').map((c) => c.trim().replace(/\s*\|\s*/, '|')).filter(Boolean);
+export function useWatchers() {
+  const [watched, setWatched] = useState<Set<string> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api<{ watchers?: string }>('/engine/settings').then((s) => alive && setWatched(new Set(canon(s.watchers)))).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const toggle = async (symbol: string, gran: string) => {
+    if (!watched || busy) return;
+    const next = new Set(watched); const k = `${symbol}|${gran}`;
+    if (next.has(k)) next.delete(k); else next.add(k);
+    setBusy(true); setErr(null);
+    try { await api('/engine/settings', { method: 'POST', body: JSON.stringify({ watchers: [...next].join(', ') }) }); setWatched(next); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  };
+  return { watched, toggle, busy, err };
+}
