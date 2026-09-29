@@ -33,6 +33,7 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 			Value float64 `json:"value"`
 			Trend string  `json:"trend"`
 		} `json:"supertrend"`
+		AxisGate map[string]any `json:"axisGate"`
 		Quote    map[string]any `json:"quote"`
 		BotState map[string]any `json:"botState"`
 	}
@@ -79,6 +80,22 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 		},
 		"strategy":   map[string]any{"name": chart.BotState["strategyRef"]},
 		"capturedAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	if chart.AxisGate != nil {
+		snap["axisGate"] = chart.AxisGate
+	}
+	// advisory context the old bot also saw; a failure only omits it
+	var dc struct {
+		TraderMemories any `json:"traderMemories"`
+		Sentinel       any `json:"sentinel"`
+	}
+	if err := eng.Get(ctx, "/api/decision-context", url.Values{"instrument": {a.Instrument}}, &dc); err == nil {
+		if dc.TraderMemories != nil {
+			snap["traderMemories"] = dc.TraderMemories
+		}
+		if dc.Sentinel != nil {
+			snap["sentinel"] = dc.Sentinel
+		}
 	}
 	if n := len(chart.Supertrend); n > 0 {
 		snap["supertrend"], snap["trend"] = chart.Supertrend[n-1].Value, chart.Supertrend[n-1].Trend

@@ -2993,3 +2993,16 @@ test('GNews modes: the served page\'s client-side list matches the server\'s GNE
     assert.ok(!/GNEWS_MODES\s*[.[]/.test(page), 'no server-only GNEWS_MODES.<...> leaked into the page');
   });
 });
+
+test('decision-context serves the standing rules and cached news read-only, and rejects a bad instrument', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const ok = await (await fetch(`${base}/api/decision-context?instrument=WTICO/USD`)).json();
+    assert.equal(ok.ok, true);
+    assert.equal(ok.instrument, 'WTICO/USD');
+    assert.equal(ok.traderMemories, undefined, 'no rules saved: block omitted');
+    const bad = await fetch(`${base}/api/decision-context?instrument=${encodeURIComponent('x;rm -rf')}`);
+    assert.equal(bad.status, 400);
+    const post = await fetch(`${base}/api/decision-context`, { method: 'POST', body: '{}' });
+    assert.notEqual(post.status, 200, 'read-only route');
+  });
+});

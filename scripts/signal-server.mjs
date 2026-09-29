@@ -1205,6 +1205,20 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
       }
+      // Read-only advisory context the bot sees at a decision point: the trader's
+      // standing rules and the sentinel news block. `news=fresh` may spend the
+      // paid-provider budget (same throttle as the bot); the default reads the cache.
+      if (url.pathname === '/api/decision-context' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const news = await import('./news.mjs');
+        const footnotes = isSentinelFootnotesOn(cfg.sentinelSourceFootnotes);
+        const sentinel = url.searchParams.get('news') === 'fresh'
+          ? await news.sentinelDecisionContext(dbPath, instrument, { env: resolveNewsProviderEnv(cfg), sourceFootnotes: footnotes })
+          : news.newsContextFor(dbPath, instrument, { sourceFootnotes: footnotes });
+        return json(res, 200, { ok: true, instrument, traderMemories: memoriesContext(dbPath) || undefined, sentinel: sentinel || undefined });
+      }
       // Signal-history pagination: the table defaults to the visible chart
       // window; "load 10 more" pages in older signals via ?before=<iso>&limit=N.
       if (url.pathname === '/api/signals') {
