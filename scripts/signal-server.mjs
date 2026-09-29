@@ -1205,6 +1205,22 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
       }
+      // Recent headlines for one instrument, read from the news cache. Read-only.
+      if (url.pathname === '/api/news' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const hours = clampInt(Number(url.searchParams.get('hours')), 1, 336, 24);
+        const limit = clampInt(Number(url.searchParams.get('limit')), 1, 100, 40);
+        const cutoff = new Date(Date.now() - hours * 3600000).toISOString();
+        const items = withDb(dbPath, (db) => db.prepare(
+          'SELECT title, source, provider, time, url, tone, escalation FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
+        ).all(instrument, cutoff, limit)).map((r) => ({
+          title: r.title, source: r.source, provider: r.provider ?? null, time: r.time, tone: r.tone ?? null, escalation: r.escalation === 1,
+          url: /^https?:\/\/\S+$/i.test((r.url || '').trim()) ? r.url.trim() : null,
+        }));
+        return json(res, 200, { ok: true, instrument, hours, items });
+      }
       // Read-only advisory context the bot sees at a decision point: the trader's
       // standing rules and the sentinel news block. `news=fresh` may spend the
       // paid-provider budget (same throttle as the bot); the default reads the cache.

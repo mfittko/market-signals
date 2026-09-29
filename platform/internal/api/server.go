@@ -74,6 +74,8 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/agents", s.listAgents)
 	m.HandleFunc("GET /api/v1/desk", s.desk)
 	m.HandleFunc("GET /api/v1/instruments/{slug}", s.instrument)
+	m.HandleFunc("GET /api/v1/instruments/{slug}/live", s.live)
+	m.HandleFunc("GET /api/v1/instruments/{slug}/news", s.news)
 	m.HandleFunc("POST /api/v1/agents", s.upsertAgent)
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)

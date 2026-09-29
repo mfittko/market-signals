@@ -3006,3 +3006,23 @@ test('decision-context serves the standing rules and cached news read-only, and 
     assert.notEqual(post.status, 200, 'read-only route');
   });
 });
+
+test('news endpoint lists recent headlines for one instrument, newest first, urls sanitised', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    const { withDb } = await import('../scripts/supertrend.mjs');
+    const now = Date.now();
+    withDb(dbPath, (db) => {
+      db.exec("CREATE TABLE IF NOT EXISTS news (instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT, summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT, escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL, provider TEXT, UNIQUE(instrument, url))");
+      const ins = db.prepare('INSERT INTO news (instrument, source, title, time, url, escalation, fetched_at) VALUES (?,?,?,?,?,?,?)');
+      ins.run('WTICO/USD', 'oilprice', 'older', new Date(now - 3600000).toISOString(), 'https://a.example/1', 0, 'x');
+      ins.run('WTICO/USD', 'gdelt', 'newer', new Date(now - 60000).toISOString(), 'javascript:alert(1)', 1, 'x');
+      ins.run('XAU/USD', 'gdelt', 'other instrument', new Date(now - 60000).toISOString(), 'https://a.example/3', 0, 'x');
+    });
+    const r = await (await fetch(`${base}/api/news?instrument=WTICO/USD&hours=24`)).json();
+    assert.deepEqual(r.items.map((i) => i.title), ['newer', 'older']);
+    assert.equal(r.items[0].url, null, 'a non-http url is dropped');
+    assert.equal(r.items[0].escalation, true);
+    assert.equal((await fetch(`${base}/api/news?instrument=${encodeURIComponent('a b')}`)).status, 400);
+  });
+});

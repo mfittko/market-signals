@@ -40,6 +40,13 @@ func fakeEngine(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/portfolio", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"portfolio": map[string]any{"equity": 1000, "cash": 900, "halted": false, "positions": []any{}}})
 	})
+	mux.HandleFunc("/api/news", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("instrument") != "WTICO/USD" {
+			http.Error(w, "wrong scope", 400)
+			return
+		}
+		io.WriteString(w, `{"ok":true,"items":[{"title":"Tanker hit","source":"gdelt","time":"2026-01-01T10:00:00Z","escalation":true}]}`)
+	})
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"ok":true}`) })
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
@@ -297,5 +304,28 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 	}
 	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope", "", "", nil); code != 404 {
 		t.Fatalf("unknown slug must be 404, got %d", code)
+	}
+}
+
+func TestLiveAndNewsProxyTheEngineForOneInstrument(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE instruments CASCADE; INSERT INTO instruments (symbol,name,market) VALUES ('WTICO/USD','WTI Oil','commodities')`); err != nil {
+		t.Fatal(err)
+	}
+	code, live := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd/live?granularity=M5", "", "", nil)
+	if code != 200 || live["source"] != "engine" {
+		t.Fatalf("live: %d %v", code, live)
+	}
+	cs := live["candles"].([]any)
+	if len(cs) != 2 || cs[0].(map[string]any)["complete"] != true || cs[1].(map[string]any)["complete"] != false {
+		t.Fatalf("the forming candle must be flagged and the finished one must not: %v", cs)
+	}
+	code, news := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd/news", "", "", nil)
+	if code != 200 || len(news["items"].([]any)) != 1 {
+		t.Fatalf("news: %d %v", code, news)
+	}
+	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope/live", "", "", nil); code != 404 {
+		t.Fatalf("unknown instrument must be 404, got %d", code)
 	}
 }

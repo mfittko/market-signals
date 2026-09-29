@@ -4,12 +4,15 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
-import { CandleChart } from '@/components/CandleChart';
+import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { EntryCheck } from '@/components/EntryCheck';
 import { AgentList } from '@/components/AgentList';
 import { Card, Stat } from '@/components/ui';
 
 const LIMIT = 10;
+const POLL_MS = 15000;
+type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string };
+type NewsItem = { title: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 export default function InstrumentPage() {
@@ -20,6 +23,10 @@ export default function InstrumentPage() {
   const { tick } = useLive();
   const [allSig, setAllSig] = useState(false);
   const [allTr, setAllTr] = useState(false);
+  const [live, setLive] = useState<Live | null>(null);
+  const [liveErr, setLiveErr] = useState<string | null>(null);
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [showNews, setShowNews] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -30,12 +37,38 @@ export default function InstrumentPage() {
   }, [slug, gran]);
   useEffect(() => { void load(); }, [load, tick]);
 
+  // Live candles from the engine every 15s while the tab is visible. On failure the chart keeps the imported history.
+  useEffect(() => {
+    if (!gran) return;
+    let dead = false;
+    const pull = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const r = await api<Live>(`/instruments/${slug}/live?granularity=${gran}`);
+        if (!dead) { setLive(r); setLiveErr(null); }
+      } catch (e) { if (!dead) setLiveErr(e instanceof Error ? e.message : String(e)); }
+    };
+    setLive(null);
+    void pull();
+    const t = setInterval(pull, POLL_MS);
+    document.addEventListener('visibilitychange', pull);
+    return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
+  }, [slug, gran]);
+
+  useEffect(() => {
+    let dead = false;
+    api<{ items: NewsItem[] }>(`/instruments/${slug}/news?hours=72`).then((r) => { if (!dead) setNews(r.items ?? []); }).catch(() => { if (!dead) setNews([]); });
+    return () => { dead = true; };
+  }, [slug]);
+
   if (error) return <main className="wrap"><Link href="/">← Desk</Link><div className="msg err" role="alert" style={{ marginTop: 12 }}>{error}</div></main>;
   if (!d) return <main className="wrap"><div className="empty">Loading…</div></main>;
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const lastFlip = [...d.signals].find((s) => s.granularity === d.granularity && d.candles.some((c) => c.time === s.time));
+  const candles = live?.candles.length ? live.candles : d.candles;
+  const signals = live?.signals.length ? live.signals : d.signals;
+  const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
   return (
     <main className="wrap">
@@ -53,8 +86,18 @@ export default function InstrumentPage() {
         <Stat label="Realized (shown)" value={money(pnl)} tone={pnl >= 0 ? 'good' : 'bad'} />
       </div>
 
-      <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={<span className="muted small">imported history{lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}</span>}>
-        {d.candles.length ? <CandleChart candles={d.candles} flip={lastFlip ? { signal: lastFlip.signal, time: lastFlip.time, price: lastFlip.price } : undefined} /> : <div className="empty">No candles for this granularity.</div>}
+      <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
+        <span className="muted small">
+          {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : liveErr ? 'imported history · engine offline' : 'imported history'}
+          {lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
+        </span>}>
+        {candles.length ? (
+          <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
+            signals={signals.filter((s) => s.granularity === d.granularity)}
+            trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
+            news={news.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />
+        ) : <div className="empty">No candles for this granularity.</div>}
+        {liveErr && <p className="small muted" role="status">Live data unavailable: {liveErr}. Showing imported history.</p>}
       </Card>
 
       <div className="grid two">
@@ -96,6 +139,19 @@ export default function InstrumentPage() {
 
         <div className="grid">
           <EntryCheck agents={d.agents} />
+          <Card title="News" aside={<span className="muted small">last 72h · {news.length}</span>}>
+            {news.length === 0 ? <div className="empty">No cached headlines.</div> : (
+              <ul className="news">
+                {(showNews ? news : news.slice(0, 6)).map((n, i) => (
+                  <li key={i}>
+                    <div className="small muted num">{when(n.time)} · {n.source}{n.escalation && <strong className="bad-t"> · escalation</strong>}</div>
+                    {n.url ? <a href={n.url} target="_blank" rel="noreferrer noopener">{n.title}</a> : n.title}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {news.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${news.length}`}</button>}
+          </Card>
           <Card title="Agents" aside={<span className="muted small">{d.agents.filter((a) => a.enabled).length} on</span>}>
             {d.agents.length === 0 ? <div className="empty">No agent for this instrument yet.</div> : <AgentList agents={d.agents} onChange={load} />}
           </Card>
