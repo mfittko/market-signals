@@ -8,7 +8,7 @@ import { BotBadge, useActiveBots } from '@/lib/bots';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
-import { Card, Stat } from '@/components/ui';
+import { Card } from '@/components/ui';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
@@ -82,18 +82,11 @@ export default function InstrumentPage() {
         </div>
       </div>
 
-      <div className="grid stats">
-        <Stat label="Candles in view" value={d.candles.length} hint={d.candles.length ? `through ${when(d.candles[d.candles.length - 1].time)}` : undefined} />
-        <Stat label="Recent signals" value={d.signals.length} />
-        <Stat label="Recent paper trades" value={d.trades.length} hint={d.trades.length ? `${won} won` : undefined} />
-        <Stat label="Realized (shown)" value={money(pnl)} tone={pnl >= 0 ? 'good' : 'bad'} />
-      </div>
-
       <div className="grid desk">
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small">
-          {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : liveErr ? 'imported history · engine offline' : 'imported history'}
+          {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
           {lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
         {candles.length ? (
@@ -128,7 +121,7 @@ export default function InstrumentPage() {
             {d.signals.length > LIMIT && <button className="linkish" onClick={() => setAllSig(!allSig)}>{allSig ? "Show fewer" : `Show all ${d.signals.length}`}</button>}
             </>)}
             {tab === 'trades' && (<>
-            <p className="small muted" style={{ marginTop: 0 }}>Closed paper trades from previous bot versions.</p>
+            <p className="small muted" style={{ marginTop: 0 }}>{d.trades.length} closed paper trades, {won} won, realized <span style={{ color: `var(--${pnl >= 0 ? "good" : "bad"})` }}>{money(pnl)}</span>. Older bot versions included.</p>
             {d.trades.length === 0 ? <div className="empty">No trades for this instrument.</div> : (
               <div className="scroll"><table>
                 <thead><tr><th>Closed</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Why</th></tr></thead>
