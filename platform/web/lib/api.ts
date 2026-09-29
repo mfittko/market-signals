@@ -141,7 +141,7 @@ export type DeskAgent = {
 
 export type DeskRow = {
   symbol: string; slug: string; name: string; market: string; granularities: string[];
-  dataThrough?: string; signals: number; lastSignal?: string; lastSignalAt?: string;
+  dataThrough?: string; live?: boolean; signals: number; lastSignal?: string; lastSignalAt?: string;
   trades: number; wins: number; realized: number; agents: DeskAgent[];
 };
 

@@ -31,7 +31,9 @@ func fakeEngine(t *testing.T) *httptest.Server {
 				{"time": "2026-01-01T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 10, "complete": true},
 				{"time": "2026-01-01T10:05:00Z", "open": 1.5, "high": 2, "low": 1, "close": 1.6, "volume": 5, "complete": false, "partial": true},
 			},
-			"signal":     map[string]any{"signal": "sell", "time": "2026-01-01T09:55:00Z", "price": 1.4},
+			"signal": map[string]any{"signal": "sell", "time": "2026-01-01T09:55:00Z", "price": 1.4},
+			// deliberately unordered: the Desk must pick the newest by time
+			"signals":    []map[string]any{{"time": "2026-01-01T09:00:00Z", "signal": "buy"}, {"time": "2026-01-01T09:55:00Z", "signal": "sell"}, {"time": "2026-01-01T09:30:00Z", "signal": "buy"}},
 			"supertrend": []map[string]any{{"value": 1.7, "trend": "down"}},
 			"quote":      map[string]any{"last": 1.6, "partial": true},
 			"botState":   map[string]any{"strategyRef": "s1"},
@@ -309,6 +311,13 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 	}
 	if len(wti["agents"].([]any)) != 1 {
 		t.Fatalf("the agent must appear under its instrument: %v", wti["agents"])
+	}
+	// freshness comes from the engine when it answers, and the newest signal wins whatever the order
+	if wti["live"] != true || wti["dataThrough"] != "2026-01-01T10:05:00Z" || wti["lastSignal"] != "sell" || wti["lastSignalAt"] != "2026-01-01T09:55:00Z" {
+		t.Fatalf("wti freshness must come from the engine: %v", wti)
+	}
+	if gold := rows[1].(map[string]any); gold["live"] == true {
+		t.Fatalf("gold has no engine data in this fixture, so it must not claim to be live: %v", gold)
 	}
 	code, d := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd?granularity=M5", "", "", nil)
 	if code != 200 || len(d["candles"].([]any)) != 2 || len(d["trades"].([]any)) != 2 {

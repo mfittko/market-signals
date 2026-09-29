@@ -50,7 +50,7 @@ export default function Desk() {
               </div>
               <div className="small muted">
                 {r.lastSignal ? <>Last signal <strong>{r.lastSignal}</strong> <Ago iso={r.lastSignalAt} /></> : 'No signals'}
-                {r.dataThrough && <> · data through <Ago iso={r.dataThrough} /></>}
+                {r.dataThrough && <> · {r.live ? "last candle" : "imported data through"} <Ago iso={r.dataThrough} /></>}
               </div>
               <div className="tools">
                 {r.agents.length === 0 && <span className="muted small">No agents</span>}

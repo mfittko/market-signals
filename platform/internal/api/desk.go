@@ -36,6 +36,7 @@ type deskRow struct {
 	Wins         int         `json:"wins"`
 	Realized     float64     `json:"realized"`
 	Agents       []deskAgent `json:"agents"`
+	Live         bool        `json:"live"`
 }
 
 func (s *Server) agentsByInstrument(r *http.Request) (map[string][]deskAgent, error) {
@@ -104,6 +105,7 @@ func (s *Server) desk(w http.ResponseWriter, r *http.Request) {
 		s.fail500(w, err)
 		return
 	}
+	s.overlayLive(r.Context(), out)
 	writeJSON(w, http.StatusOK, map[string]any{"instruments": out})
 }
 
