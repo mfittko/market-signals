@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -143,5 +144,55 @@ func TestParseDecisionTakesTheLastObjectNotTheFirst(t *testing.T) {
 	}
 	if _, err := ParseDecision(`no json here`); err == nil {
 		t.Fatal("no object is an error")
+	}
+}
+
+func TestHoldTruncatesALongReasonAndIsAlwaysAHold(t *testing.T) {
+	h := Hold(strings.Repeat("x", 500))
+	if h.Action != "hold" || len(h.Reasoning) != 200 {
+		t.Fatalf("%+v", h)
+	}
+	if err := h.CheckShape(); err != nil {
+		t.Fatalf("a fail-safe hold must always be valid: %v", err)
+	}
+}
+
+func TestFactsFromPayloadPrefersTheQuoteThenTheClose(t *testing.T) {
+	at := time.Unix(1000, 0)
+	f := FactsFromPayload("WTICO/USD", map[string]any{
+		"quote":     map[string]any{"last": 91.5},
+		"close":     90.0,
+		"portfolio": map[string]any{"halted": true, "positions": []any{map[string]any{"id": 7.0, "instrument": "WTICO/USD"}, map[string]any{"id": 0.0}}},
+	}, at)
+	if f.Price != 91.5 || !f.Halted || f.Positions[7] != "WTICO/USD" || len(f.Positions) != 1 || !f.TakenAt.Equal(at) {
+		t.Fatalf("%+v", f)
+	}
+	if g := FactsFromPayload("X", map[string]any{"close": 90.0}, at); g.Price != 90 || g.Halted {
+		t.Fatalf("without a quote the close is used: %+v", g)
+	}
+	if g := FactsFromPayload("X", map[string]any{}, at); g.Price != 0 || len(g.Positions) != 0 {
+		t.Fatalf("an empty payload gives empty facts: %+v", g)
+	}
+}
+
+func TestWakeFromPayloadNeedsAPositionId(t *testing.T) {
+	w := WakeFromPayload(map[string]any{"wake": map[string]any{"positionId": 5.0, "side": "long", "entry": 10.0, "stop": 9.0, "price": 10.5, "tripwire": "adverse"}})
+	if w == nil || w.ID != 5 || w.Side != "long" || w.Stop != 9 || w.Alert != "adverse" {
+		t.Fatalf("%+v", w)
+	}
+	if WakeFromPayload(map[string]any{}) != nil || WakeFromPayload(map[string]any{"wake": map[string]any{"positionId": 0.0}}) != nil {
+		t.Fatal("a snapshot without a valid woken position is not a wake")
+	}
+}
+
+func TestPnLIsSignedBySideAndSafeOnBadEntry(t *testing.T) {
+	if got := PnL("long", 1000, 100, 101); got != 10 {
+		t.Fatalf("long: %v", got)
+	}
+	if got := PnL("short", 1000, 100, 101); got != -10 {
+		t.Fatalf("short: %v", got)
+	}
+	if PnL("long", 1000, 0, 101) != 0 {
+		t.Fatal("a zero entry price must not divide")
 	}
 }

@@ -398,7 +398,7 @@ test('feature walkthrough (dashboard + tabbed settings + modals × viewports)', 
           // "openai-compatible requires OPENAI_BASE_URL" guard).
           assert.deepEqual(
             await p.evaluate(() => [...document.getElementById('f-llmFallbackProvider').options].map((o) => o.value)),
-            ['', 'pi', 'anthropic', 'openai', 'openai-compatible'],
+            ['', 'pi', 'claude-code', 'anthropic', 'openai', 'openai-compatible'],
             'fallback select offers off (\'\') plus every real provider, no duplicate "none"',
           );
           assert.ok(await p.evaluate(() => !!document.getElementById('f-filterMaxCompletionTokens')), 'verdict-budget number field present');
