@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import './globals.css';
+import { Notifier } from '@/components/Notifier';
 
 export const metadata: Metadata = {
   title: 'Agent desk',
@@ -16,8 +17,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <Link href="/" className="brand">Agent desk</Link>
           <Link href="/">Desk</Link>
           <Link href="/portfolio">Portfolio</Link>          <Link href="/strategies">Strategies</Link>          <Link href="/runs">Runs</Link>
+          <Link href="/alerts">Alerts</Link>
           <Link href="/settings">Settings</Link>
         </nav>
+        <Notifier />
         {children}
       </body>
     </html>

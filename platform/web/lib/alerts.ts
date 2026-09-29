@@ -1,0 +1,64 @@
+import { api, type RunRow } from '@/lib/api';
+
+export type AlertKind = 'signal' | 'proposal' | 'trade';
+export type AlertEvent = {
+  id: string; kind: AlertKind; at: string; title: string; detail: string;
+  href?: string; tone?: 'good' | 'bad' | 'warn'; alerted?: boolean;
+};
+
+type Signal = { instrument: string; granularity: string; time: string; signal: string; price: number; verdict: string; reason: string; notified: number };
+type Trade = { id: number; instrument: string; side: string; realized: number; close_time: string; close_reason: string; granularity?: string };
+type Open = { id: number; instrument: string; side: string; entry_price: number; entry_time: string };
+
+const slug = (s: string) => s.toLowerCase().replace('/', '-');
+const money = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
+const combos = (csv: string | undefined) => (csv ?? '').split(',').map((c) => c.trim().split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
+
+// One feed for the alerts page and the desktop notifier: signals the filter let
+// through, agent proposals that ask for a trade, and paper-portfolio activity.
+export async function fetchAlerts(): Promise<AlertEvent[]> {
+  const out: AlertEvent[] = [];
+  const [settings, runs, pf] = await Promise.all([
+    api<{ watchers?: string }>('/engine/settings').catch(() => ({} as { watchers?: string })),
+    api<{ runs: RunRow[] }>('/runs?limit=40').catch(() => ({ runs: [] as RunRow[] })),
+    api<{ portfolio: { trades: Trade[]; positions: Open[] } }>('/engine/portfolio').catch(() => null),
+  ]);
+  const lists = await Promise.all(combos(settings.watchers).map(([i, g]) =>
+    api<{ signals: Signal[] }>(`/engine/signals?instrument=${encodeURIComponent(i)}&granularity=${g}&limit=6`).then((r) => r.signals).catch(() => [] as Signal[])));
+  for (const s of lists.flat()) {
+    const passed = s.verdict !== 'suppress';
+    out.push({
+      id: `s:${s.instrument}:${s.granularity}:${s.time}`, kind: 'signal', at: s.time, alerted: !!s.notified,
+      title: `${s.signal === 'buy' ? 'Buy' : 'Sell'} flip ${s.instrument} ${s.granularity} at ${s.price}`,
+      detail: `${passed ? 'Passed the filter' : 'Filtered out'}${s.reason ? `: ${s.reason}` : ''}`, href: `/instruments/${slug(s.instrument)}`, tone: passed ? (s.signal === 'buy' ? 'good' : 'bad') : undefined,
+    });
+  }
+  for (const r of runs.runs) {
+    const p = r.proposal;
+    if (r.status !== 'succeeded' || !p || p.action === 'hold') continue;
+    out.push({
+      id: `r:${r.id}`, kind: 'proposal', at: r.finishedAt ?? r.updatedAt, title: `${r.agentName} proposes to ${p.action}${p.side ? ` ${p.side}` : ''}`,
+      detail: p.reasoning ?? '', href: `/runs/${r.id}`, tone: 'warn',
+    });
+  }
+  for (const t of pf?.portfolio.trades.slice(0, 15) ?? []) {
+    out.push({ id: `t:${t.id}`, kind: 'trade', at: t.close_time, title: `Paper ${t.side} on ${t.instrument} closed ${money(t.realized)}`, detail: t.close_reason, href: `/instruments/${slug(t.instrument)}`, tone: t.realized >= 0 ? 'good' : 'bad' });
+  }
+  for (const o of pf?.portfolio.positions ?? []) {
+    out.push({ id: `o:${o.id}`, kind: 'trade', at: o.entry_time, title: `Paper ${o.side} opened on ${o.instrument} at ${o.entry_price}`, detail: 'Open position', href: `/instruments/${slug(o.instrument)}`, tone: 'warn' });
+  }
+  return out.sort((a, b) => +new Date(b.at) - +new Date(a.at));
+}
+
+// Desktop notification preferences live in this browser only.
+export type NotifyPrefs = { signal: boolean; proposal: boolean; trade: boolean };
+export const DEFAULT_PREFS: NotifyPrefs = { signal: false, proposal: true, trade: true };
+const KEY = 'ms.notify.prefs', SEEN = 'ms.notify.seen';
+export function loadPrefs(): NotifyPrefs {
+  try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return DEFAULT_PREFS; }
+}
+export function savePrefs(p: NotifyPrefs) { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* private window */ } window.dispatchEvent(new Event('ms-notify-prefs')); }
+export function loadSeen(): Set<string> | null {
+  try { const v = localStorage.getItem(SEEN); return v ? new Set(JSON.parse(v) as string[]) : null; } catch { return null; }
+}
+export function saveSeen(s: Set<string>) { try { localStorage.setItem(SEEN, JSON.stringify([...s].slice(-400))); } catch { /* ignore */ } }

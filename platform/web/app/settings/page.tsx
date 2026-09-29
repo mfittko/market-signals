@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
+import { AlertsCard, FilterCard, WatchersCard } from '@/components/MoreSettings';
 
 type BotEntry = { enabled?: boolean; allocationPct?: number | null; strategyName?: string; riskPct?: number | null };
 type Settings = {
@@ -52,9 +53,13 @@ export default function SettingsPage() {
       <div className="grid two">
         <div className="grid">
           <LlmCard s={s} run={run} busy={busy} />
-          <Card title="News"><p className="small">Provider mode is set by the engine: NewsAPI.ai <strong>{s.NEWSAPI_AI_MODE ?? 'free'}</strong>, GNews <strong>{s.GNEWS_MODE ?? 'off'}</strong>. Source footnotes {s.sentinelSourceFootnotes === '1' ? 'on' : 'off'}.</p><p className="small muted">Read-only here: the paid-provider budget lives in the engine.</p></Card>
+          <AlertsCard s={s} run={run} busy={busy} />
+          <FilterCard s={s} run={run} busy={busy} />
         </div>
+        <div className="grid">
+          <WatchersCard s={s} run={run} busy={busy} />
         <BotsCard s={s} run={run} busy={busy} />
+        </div>
       </div>
     </main>
   );
