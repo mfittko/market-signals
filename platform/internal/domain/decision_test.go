@@ -73,3 +73,61 @@ func TestCompare(t *testing.T) {
 		t.Error("action differs")
 	}
 }
+
+func TestWakeMayOnlyHoldCloseTightenOrResetTripwires(t *testing.T) {
+	long := WakePosition{ID: 7, Side: "long", Entry: 100, Stop: 98, Price: 101}
+	short := WakePosition{ID: 8, Side: "short", Entry: 100, Stop: 102, Price: 99}
+	at := time.Now()
+	f := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name string
+		d    Decision
+		w    WakePosition
+		ok   bool
+	}{
+		{"hold", Decision{Action: "hold"}, long, true},
+		{"close own position", Decision{Action: "close", PositionID: 7}, long, true},
+		{"close someone else's position", Decision{Action: "close", PositionID: 9}, long, false},
+		{"tighten long stop up", Decision{Action: "tighten_stop", PositionID: 7, NewStop: f(99.5)}, long, true},
+		{"widen long stop", Decision{Action: "tighten_stop", PositionID: 7, NewStop: f(97)}, long, false},
+		{"same stop is not a tightening", Decision{Action: "tighten_stop", PositionID: 7, NewStop: f(98)}, long, false},
+		{"stop through the price", Decision{Action: "tighten_stop", PositionID: 7, NewStop: f(101.5)}, long, false},
+		{"tighten short stop down", Decision{Action: "tighten_stop", PositionID: 8, NewStop: f(100.5)}, short, true},
+		{"widen short stop", Decision{Action: "tighten_stop", PositionID: 8, NewStop: f(103)}, short, false},
+		{"open from a wake", Decision{Action: "open", Side: "long", Notional: 10, Stop: 90}, long, false},
+		{"valid tripwires", Decision{Action: "set_tripwires", PositionID: 7, Tripwires: []Tripwire{{Kind: "adverse_atr", ATR: 2}}}, long, true},
+		{"unknown tripwire", Decision{Action: "set_tripwires", PositionID: 7, Tripwires: []Tripwire{{Kind: "vibes"}}}, long, false},
+	}
+	for _, c := range cases {
+		v := ValidateWake(c.d, c.w, at, at, time.Minute)
+		if v.Valid != c.ok {
+			t.Errorf("%s: valid=%v want %v (%v)", c.name, v.Valid, c.ok, v.Reasons)
+		}
+	}
+}
+
+func TestWakeActionsAreRefusedOutsideAWake(t *testing.T) {
+	v := ValidateProposal(Decision{Action: "tighten_stop", PositionID: 1, NewStop: func() *float64 { x := 1.0; return &x }()}, SnapshotFacts{Instrument: "X", Price: 2, TakenAt: time.Now()}, time.Now(), 0)
+	if v.Valid {
+		t.Fatal("tighten_stop must not stand outside a tripwire wake")
+	}
+}
+
+func TestPlanValidation(t *testing.T) {
+	bad := []Plan{
+		{Trail: &Trail{Kind: "atr"}},
+		{Trail: &Trail{Kind: "moon"}},
+		{Tripwires: []Tripwire{{Kind: "close_beyond", Level: 1}}},
+		{Tripwires: []Tripwire{{Kind: "no_progress", Bars: 1}}},
+		{Tripwires: make([]Tripwire, MaxTripwires+1)},
+	}
+	for i, p := range bad {
+		if err := p.Check("long"); err == nil {
+			t.Errorf("bad plan %d accepted", i)
+		}
+	}
+	good := Plan{Trail: &Trail{Kind: "atr", Mult: 2}, MaxBars: 60, Tripwires: []Tripwire{{Kind: "close_beyond", Level: 93.4, Dir: "above"}, {Kind: "opposite_flip"}, {Kind: "feed_stale", Minutes: 10}}}
+	if err := good.Check("long"); err != nil {
+		t.Fatal(err)
+	}
+}

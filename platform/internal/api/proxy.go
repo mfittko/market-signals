@@ -16,6 +16,7 @@ var engineRoutes = map[string]bool{
 	"GET /messages": true,
 	"POST /chat":    true,
 	"GET /memories": true, "POST /memories": true,
+	"GET /portfolio": true,
 }
 
 // engineProxy forwards an allowlisted request to the engine. Chat replies can

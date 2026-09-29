@@ -18,6 +18,11 @@ type Decision struct {
 	Target     *float64 `json:"target,omitempty"`
 	PositionID int64    `json:"positionId,omitempty"`
 	Reasoning  string   `json:"reasoning,omitempty"`
+	// Exit plan, on an open. The monitor enforces it without a model.
+	Plan *Plan `json:"plan,omitempty"`
+	// Wake actions: tighten_stop moves the stop toward price; set_tripwires replaces the wake conditions.
+	NewStop   *float64   `json:"newStop,omitempty"`
+	Tripwires []Tripwire `json:"tripwires,omitempty"`
 }
 
 func finitePositive(v float64) bool { return v > 0 && !math.IsInf(v, 0) && !math.IsNaN(v) }
@@ -40,12 +45,25 @@ func (d Decision) CheckShape() error {
 		if d.Target != nil && !finitePositive(*d.Target) {
 			return errors.New("target must be positive")
 		}
+		if d.Plan != nil {
+			return d.Plan.Check(d.Side)
+		}
 		return nil
 	case "close":
 		if d.PositionID <= 0 {
 			return errors.New("close needs a positionId")
 		}
 		return nil
+	case "tighten_stop":
+		if d.PositionID <= 0 || d.NewStop == nil || !finitePositive(*d.NewStop) {
+			return errors.New("tighten_stop needs positionId and a positive newStop")
+		}
+		return nil
+	case "set_tripwires":
+		if d.PositionID <= 0 {
+			return errors.New("set_tripwires needs a positionId")
+		}
+		return CheckTripwires(d.Tripwires)
 	}
 	return fmt.Errorf("unknown action %q", d.Action)
 }
@@ -123,6 +141,10 @@ func ValidateProposal(d Decision, f SnapshotFacts, now time.Time, maxAge time.Du
 	if d.Action == "hold" {
 		return v
 	}
+	if d.Action == "tighten_stop" || d.Action == "set_tripwires" {
+		fail(d.Action + " is only allowed when the agent is woken by a tripwire")
+		return v
+	}
 	if f.Halted {
 		fail("portfolio is halted; only hold is allowed")
 	}
@@ -159,4 +181,68 @@ func Compare(proposal, legacy Decision) string {
 		return "differ"
 	}
 	return "agree"
+}
+
+// WakePosition is the position a tripwire woke the agent for, as frozen in the snapshot.
+type WakePosition struct {
+	ID    int64   `json:"id"`
+	Side  string  `json:"side"`
+	Entry float64 `json:"entry"`
+	Stop  float64 `json:"stop"`
+	Price float64 `json:"price"`
+	Alert string  `json:"tripwire"`
+}
+
+// WakeFromPayload returns the woken position when the snapshot is a tripwire wake.
+func WakeFromPayload(payload map[string]any) *WakePosition {
+	w, ok := payload["wake"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	num := func(k string) float64 { v, _ := w[k].(float64); return v }
+	str := func(k string) string { v, _ := w[k].(string); return v }
+	wp := &WakePosition{ID: int64(num("positionId")), Side: str("side"), Entry: num("entry"), Stop: num("stop"), Price: num("price"), Alert: str("tripwire")}
+	if wp.ID <= 0 {
+		return nil
+	}
+	return wp
+}
+
+// ValidateWake judges a proposal made after a tripwire woke the agent. The agent
+// may only hold, close, tighten the stop toward price, or replace the tripwires.
+// It can never widen a stop, add size or open a trade from a wake. A halted
+// portfolio does not block these, because every one of them reduces or keeps risk.
+func ValidateWake(d Decision, w WakePosition, takenAt time.Time, now time.Time, maxAge time.Duration) Validation {
+	v := Validation{Valid: true, Reasons: []string{}, PriceUsed: w.Price, Committed: false}
+	v.FreshnessSeconds = math.Round(now.Sub(takenAt).Seconds()*10) / 10
+	fail := func(msg string) { v.Valid = false; v.Reasons = append(v.Reasons, msg) }
+	if err := d.CheckShape(); err != nil {
+		fail(err.Error())
+		return v
+	}
+	if maxAge > 0 && now.Sub(takenAt) > maxAge {
+		fail(fmt.Sprintf("snapshot is %.0fs old, over the %.0fs freshness limit", now.Sub(takenAt).Seconds(), maxAge.Seconds()))
+	}
+	switch d.Action {
+	case "hold":
+	case "close", "tighten_stop", "set_tripwires":
+		if d.PositionID != w.ID {
+			fail(fmt.Sprintf("a wake for position %d cannot act on position %d", w.ID, d.PositionID))
+			break
+		}
+		if d.Action != "tighten_stop" {
+			break
+		}
+		long := w.Side == "long"
+		ns := *d.NewStop
+		switch {
+		case long && ns <= w.Stop, !long && ns >= w.Stop:
+			fail(fmt.Sprintf("newStop %v does not move toward price from %v; a stop may only tighten", ns, w.Stop))
+		case long && ns >= w.Price, !long && ns <= w.Price:
+			fail(fmt.Sprintf("newStop %v is on the wrong side of price %v for a %s", ns, w.Price, w.Side))
+		}
+	default:
+		fail(fmt.Sprintf("%s is not allowed from a wake; only hold, close, tighten_stop and set_tripwires are", d.Action))
+	}
+	return v
 }

@@ -355,8 +355,14 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	}
 	var pm map[string]any
 	_ = json.Unmarshal(payload, &pm)
-	facts := domain.FactsFromPayload(snapInstrument, pm, taken)
-	val := domain.ValidateProposal(proposal, facts, time.Now(), time.Duration(agent.Budgets.FreshnessSeconds)*time.Second)
+	maxAge := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
+	var val domain.Validation
+	if wake := domain.WakeFromPayload(pm); wake != nil {
+		// a tripwire wake has its own, narrower action set
+		val = domain.ValidateWake(proposal, *wake, taken, time.Now(), maxAge)
+	} else {
+		val = domain.ValidateProposal(proposal, domain.FactsFromPayload(snapInstrument, pm, taken), time.Now(), maxAge)
+	}
 	if !val.Valid {
 		// an invalid proposal can never stand: record it, but the outcome is a hold
 		if err := s.emit(ctx, tx, l.runID, &attemptID, "proposal_rejected", map[string]any{"proposal": proposal, "validation": val}); err != nil {
