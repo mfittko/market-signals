@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,13 +14,23 @@ import (
 // is saved until the trader saves a new version.
 
 const grillSystem = `You are a trading-strategy coach. The trader keeps strategies as short prompts. An automated analyst reads a strategy prompt together with a frozen market snapshot and proposes an entry or a hold. The analyst sees: an axis gate (trend strength ADX, direction, impulse, location, exhaustion), ATR, EMA 20/50/200, Bollinger position, RSI, VWAP distance, volume ratio, 20-bar extremes, higher-timeframe trends, the Supertrend flip and its age, standing rules and news headlines.
-Your job is to sharpen the strategy by questioning it. Rules:
-- Ask exactly ONE question per reply, and keep it short. Ground it in the supplied trade record or a gap in the prompt: vague words, missing numbers, unstated stops or targets, no hold condition, conflicting rules, rules the analyst cannot see.
-- Prefer questions the trader can answer in a sentence. Offer two or three concrete options when helpful.
-- Use only the numbers in the supplied record. Never invent performance figures.
-- After each answer, say in one line what you will change. When the trader asks to see it, or after about five answers, output the full revised strategy prompt inside one fenced block that starts with three backticks and the word prompt, then a one-line summary of what changed.
-- A good prompt is concrete: numeric thresholds, stops sized in ATR, when to hold, what invalidates the idea. It stays under 3000 characters and uses plain imperative sentences.
-- Stay on strategy. Do not give financial advice. This is a paper-trading research tool.`
+Your job is to sharpen the strategy through a guided interview and to recommend, not only to ask. The trader answers by clicking predefined options, so every question must come with them.
+Reply with ONE JSON object and nothing else. No prose outside the JSON, no code fences. Shape:
+{"findings":[{"issue":"<short>","fix":"<short>"}],
+ "question":"<one short question>",
+ "why":"<one sentence: why this matters, grounded in the record or a gap in the prompt>",
+ "options":[{"label":"<short answer, under 60 chars>","detail":"<one line consequence>","recommended":true|false}],
+ "recommendation":"<one or two sentences: which option you recommend and why>",
+ "change":"<one line: what you will change in the prompt after this answer>",
+ "prompt":"<the full revised strategy prompt, only when the trader asked for it or after about five answers, else omit>",
+ "summary":"<one line of what changed, only with prompt>"}
+Rules:
+- "findings": the top one to three weaknesses, only in your first reply. Omit later.
+- Ask exactly ONE question per reply. Give two to four concrete options with numbers, such as thresholds in ATR or ADX. Set "recommended":true on exactly one option in every question. This is required, the console shows a button for it. Explain the pick in "recommendation". Base recommendations on the supplied trade record and on how the analyst can act on a rule.
+- The trader can also type a free answer or skip. Treat "Skip" as no change and move to the next weakness.
+- Use only the numbers in the supplied record. Never invent performance figures. With no record, say the recommendation rests on general practice.
+- A good prompt is concrete: numeric thresholds, stops sized in ATR, when to hold, what invalidates the idea. Keep the trader's existing structure and wording: change only what the answers justify, and return the full text at whatever length it needs.
+- Stay on strategy. This is a paper-trading research tool, not financial advice.`
 
 type chatMsg struct {
 	Role    string `json:"role"`
@@ -64,7 +75,7 @@ func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "the model returned an empty reply; try again"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"reply": reply})
+	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "turn": parseTurn(reply)})
 }
 
 // grillContext states the strategy under review and its closed-trade record.
@@ -101,4 +112,88 @@ func (s *Server) grillContext(ctx context.Context, name, mode, draft, brief stri
 		sb.WriteString("No closed paper trades are recorded for this strategy. Do not cite results.\n")
 	}
 	return sb.String()
+}
+
+type grillOption struct {
+	Label       string `json:"label"`
+	Detail      string `json:"detail,omitempty"`
+	Recommended bool   `json:"recommended,omitempty"`
+}
+
+type grillFinding struct {
+	Issue string `json:"issue"`
+	Fix   string `json:"fix,omitempty"`
+}
+
+// grillTurn is one coach turn in the shape the console renders as a question with clickable options.
+type grillTurn struct {
+	Findings       []grillFinding `json:"findings,omitempty"`
+	Question       string         `json:"question,omitempty"`
+	Why            string         `json:"why,omitempty"`
+	Options        []grillOption  `json:"options,omitempty"`
+	Recommendation string         `json:"recommendation,omitempty"`
+	Change         string         `json:"change,omitempty"`
+	Prompt         string         `json:"prompt,omitempty"`
+	Summary        string         `json:"summary,omitempty"`
+}
+
+func clipStr(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// parseTurn reads the coach's JSON object, tolerating prose or code fences around it.
+// It returns nil when the reply is not usable, and the console then shows the raw text.
+// Field sizes are capped and at most one option keeps the recommended mark.
+func parseTurn(reply string) *grillTurn {
+	i, j := strings.Index(reply, "{"), strings.LastIndex(reply, "}")
+	if i < 0 || j <= i {
+		return nil
+	}
+	var t grillTurn
+	if err := json.Unmarshal([]byte(reply[i:j+1]), &t); err != nil {
+		return nil
+	}
+	t.Question, t.Why = clipStr(t.Question, 400), clipStr(t.Why, 400)
+	t.Recommendation, t.Change, t.Summary = clipStr(t.Recommendation, 600), clipStr(t.Change, 300), clipStr(t.Summary, 300)
+	t.Prompt = clipStr(t.Prompt, maxPrompt)
+	if len(t.Findings) > 3 {
+		t.Findings = t.Findings[:3]
+	}
+	for k := range t.Findings {
+		t.Findings[k].Issue, t.Findings[k].Fix = clipStr(t.Findings[k].Issue, 200), clipStr(t.Findings[k].Fix, 300)
+	}
+	if len(t.Options) > 5 {
+		t.Options = t.Options[:5]
+	}
+	seen := false
+	kept := t.Options[:0]
+	for _, o := range t.Options {
+		o.Label, o.Detail = clipStr(o.Label, 80), clipStr(o.Detail, 200)
+		if o.Label == "" {
+			continue
+		}
+		if o.Recommended && seen {
+			o.Recommended = false
+		}
+		seen = seen || o.Recommended
+		kept = append(kept, o)
+	}
+	t.Options = kept
+	// the model sometimes names its pick in the recommendation text without setting the flag
+	if !seen {
+		for k := range t.Options {
+			if strings.Contains(strings.ToLower(t.Recommendation), strings.ToLower(t.Options[k].Label)) {
+				t.Options[k].Recommended = true
+				break
+			}
+		}
+	}
+	if t.Question == "" && t.Prompt == "" && len(t.Findings) == 0 {
+		return nil
+	}
+	return &t
 }

@@ -94,7 +94,19 @@ func (s *Server) getStrategy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such strategy"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": name, "versions": out})
+	scopes := []map[string]string{}
+	if sr, err := s.st.Pool.Query(r.Context(), `SELECT DISTINCT instrument, granularity FROM (
+			SELECT instrument, granularity FROM agents WHERE strategy_name=$1
+			UNION SELECT instrument, granularity FROM strategies WHERE name=$1 AND instrument IS NOT NULL AND granularity IS NOT NULL) x ORDER BY 1,2`, name); err == nil {
+		defer sr.Close()
+		for sr.Next() {
+			var in, gr string
+			if sr.Scan(&in, &gr) == nil {
+				scopes = append(scopes, map[string]string{"instrument": in, "granularity": gr})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": name, "versions": out, "scopes": scopes})
 }
 
 // saveVersion adds a version and makes it the only active one. Posting to a new

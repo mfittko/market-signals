@@ -86,6 +86,7 @@ func (s *Server) routes() {
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
 	m.HandleFunc("GET /api/v1/strategies", s.listStrategies)
 	m.HandleFunc("POST /api/v1/strategies/grill", s.grill)
+	m.HandleFunc("POST /api/v1/strategies/autogrill", s.autoGrill)
 	m.HandleFunc("GET /api/v1/strategies/{name}", s.getStrategy)
 	m.HandleFunc("POST /api/v1/strategies/{name}/versions", s.saveVersion)
 	m.HandleFunc("POST /api/v1/strategies/{name}/archive", s.setArchived)

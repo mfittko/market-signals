@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
-import { GrillPanel } from '@/components/GrillPanel';
+import { Sharpen, type Scope } from '@/components/AutoGrill';
 import { StrategyWizard } from '@/components/StrategyWizard';
 
 type Summary = { name: string; activeVersion: number | null; versions: number; agents: number; updatedAt: string; archived: boolean };
@@ -32,6 +32,7 @@ export default function StrategiesPage() {
   const [list, setList] = useState<Summary[] | null>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
+  const [scopes, setScopes] = useState<Scope[]>([]);
   const [draft, setDraft] = useState('');
   const [compare, setCompare] = useState<number | null>(null);
   const [wizard, setWizard] = useState(false);
@@ -47,8 +48,9 @@ export default function StrategiesPage() {
   }, []);
   const open = useCallback(async (name: string) => {
     setSel(name); setMsg(null); setCompare(null);
-    const r = await api<{ versions: Version[] }>(`/strategies/${encodeURIComponent(name)}`);
+    const r = await api<{ versions: Version[]; scopes: Scope[] }>(`/strategies/${encodeURIComponent(name)}`);
     setVersions(r.versions);
+    setScopes(r.scopes ?? []);
     setDraft((r.versions.find((v) => v.active) ?? r.versions[0]).prompt);
   }, []);
   useEffect(() => {
@@ -145,7 +147,7 @@ export default function StrategiesPage() {
             </Card>
             {!archived && (
               <Card title="Sharpen with the grill">
-                <GrillPanel name={sel} mode="refine" draft={draft} onApply={(p) => setDraft(p)} />
+                <Sharpen name={sel} mode="refine" draft={draft} scopes={scopes} onApply={(p) => setDraft(p)} />
               </Card>
             )}
             <Card title="Versions">

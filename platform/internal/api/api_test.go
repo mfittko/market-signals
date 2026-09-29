@@ -553,3 +553,89 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 		t.Fatalf("scope %q %q %v", in, gr, err)
 	}
 }
+
+func TestGrillTurnParsingKeepsOneRecommendationAndTolerantOfFences(t *testing.T) {
+	raw := "Sure!\n```json\n" + `{"question":"How far should the stop sit?","why":"Losses average larger than wins.",
+	 "options":[{"label":"1.0 ATR","recommended":true},{"label":"1.5 ATR","recommended":true},{"label":"","detail":"dropped"},{"label":"2 ATR"}],
+	 "recommendation":"Take 1.0 ATR."}` + "\n```"
+	tr := parseTurn(raw)
+	if tr == nil || tr.Question != "How far should the stop sit?" {
+		t.Fatalf("%+v", tr)
+	}
+	rec := 0
+	for _, o := range tr.Options {
+		if o.Label == "" {
+			t.Fatal("an option without a label must be dropped")
+		}
+		if o.Recommended {
+			rec++
+		}
+	}
+	if len(tr.Options) != 3 || rec != 1 || !tr.Options[0].Recommended {
+		t.Fatalf("options %+v", tr.Options)
+	}
+	for _, bad := range []string{"plain prose", "{not json}", `{"why":"only a why"}`} {
+		if parseTurn(bad) != nil {
+			t.Fatalf("%q should not parse", bad)
+		}
+	}
+	if p := parseTurn(`{"prompt":"Enter on flips.","summary":"tightened"}`); p == nil || p.Prompt == "" {
+		t.Fatal("a prompt-only turn is valid")
+	}
+}
+
+func TestGrillTurnMarksTheOptionNamedInTheRecommendation(t *testing.T) {
+	tr := parseTurn(`{"question":"q","options":[{"label":"A one"},{"label":"B two"}],"recommendation":"Take 'B two' because it is simpler."}`)
+	if tr == nil || tr.Options[0].Recommended || !tr.Options[1].Recommended {
+		t.Fatalf("%+v", tr)
+	}
+}
+
+func TestAutoGrillBacktestsFlipsAndNeedsEnoughHistory(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	ctx := context.Background()
+	for _, q := range []string{
+		`TRUNCATE candles, signals`,
+		// a noisy uptrend: 600 five-minute bars
+		`INSERT INTO candles SELECT 'T/USD','M5', TIMESTAMPTZ '2026-01-01T00:00:00Z' + i*interval '5 minutes',
+		   100+i*0.05+sin(i)*0.5, 100+i*0.05+sin(i)*0.5+0.8, 100+i*0.05+sin(i)*0.5-0.8, 100+i*0.05+sin(i+1)*0.5, 100+(i%7)*10
+		 FROM generate_series(0,599) i`,
+		`INSERT INTO signals (instrument,granularity,time,kind,signal)
+		 SELECT 'T/USD','M5', TIMESTAMPTZ '2026-01-01T00:00:00Z' + i*interval '5 minutes','supertrend-flip', CASE WHEN i%2=0 THEN 'buy' ELSE 'sell' END
+		 FROM generate_series(50,560,6) i`,
+	} {
+		if _, err := st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(_ context.Context, m []map[string]any) (string, error) {
+		if !strings.Contains(m[1]["content"].(string), "Backtest evidence for T/USD M5") {
+			t.Errorf("the coach must receive the evidence: %v", m[1]["content"])
+		}
+		return `{"recommendation":"Keep the baseline.","prompt":"Enter on flips.","summary":"none"}`, nil
+	}}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs := httptest.NewServer(srv.Handler())
+	defer hs.Close()
+
+	c, out := call(t, "POST", hs.URL+"/api/v1/strategies/autogrill", "", `{"name":"x","instrument":"T/USD","granularity":"M5","draft":"d"}`, nil)
+	if c != 200 {
+		t.Fatalf("%d %v", c, out)
+	}
+	bt := out["backtest"].(map[string]any)
+	if bt["tried"] != float64(192) || bt["flips"] != float64(86) || len(bt["caveats"].([]any)) != 3 {
+		t.Fatalf("backtest %v", bt)
+	}
+	if out["turn"].(map[string]any)["prompt"] != "Enter on flips." {
+		t.Fatalf("turn %v", out["turn"])
+	}
+	// no history: refused with the reason, before any model call
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/autogrill", "", `{"instrument":"NOPE","granularity":"M5"}`, nil); c != 422 || !strings.Contains(out["error"].(string), "not enough history") {
+		t.Fatalf("%d %v", c, out)
+	}
+	// without a model the backtest still runs
+	off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i"}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	defer off.Close()
+	if c, out := call(t, "POST", off.URL+"/api/v1/strategies/autogrill", "", `{"instrument":"T/USD","granularity":"M5"}`, nil); c != 200 || out["turn"] != nil || out["backtest"] == nil {
+		t.Fatalf("no model: %d %v", c, out)
+	}
+}

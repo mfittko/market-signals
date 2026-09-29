@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { api, type DeskRow } from '@/lib/api';
-import { GrillPanel } from '@/components/GrillPanel';
+import { Sharpen, type Scope } from '@/components/AutoGrill';
 
 const STEPS = ['Basics', 'Style', 'Entry', 'Risk', 'Review'] as const;
 const NAME_OK = /^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}$/;
@@ -153,7 +153,7 @@ export function StrategyWizard({ existing, onDone, onCancel }: { existing: strin
           <details>
             <summary>Sharpen it with the grill (optional)</summary>
             <div style={{ marginTop: 8 }}>
-              <GrillPanel name={f.name.trim()} mode="create" draft={prompt} brief={brief} onApply={(p) => { setPrompt(p); setEdited(true); }} />
+              <Sharpen name={f.name.trim()} mode="create" draft={prompt} brief={brief} scopes={f.instrument ? [{ instrument: f.instrument, granularity: f.granularity }] : []} onApply={(p) => { setPrompt(p); setEdited(true); }} />
             </div>
           </details>
           <div className="field"><span>Use it now</span>
