@@ -98,12 +98,12 @@ function InstrumentView() {
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small chart-aside">
-          {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
-          {lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
+          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
+          {(live || liveErr) && lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
         {!live && !liveErr ? (
           // Draw once, from the source that will stay: imported history first would jump when the live candles arrive.
-          <div className="chart-wait" aria-busy="true" />
+          <div className="chart-wait" aria-busy="true"><Loading /></div>
         ) : candles.length ? (
           <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
