@@ -339,10 +339,10 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	var payload []byte
 	var taken time.Time
 	var runUsage, attUsage []byte
-	var snapInstrument string
+	var snapInstrument, snapSource string
 	var followups int
-	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, r.usage, r.followups_used FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
-		Scan(&agentID, &payload, &taken, &snapInstrument, &runUsage, &followups); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, sn.source, r.usage, r.followups_used FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
+		Scan(&agentID, &payload, &taken, &snapInstrument, &snapSource, &runUsage, &followups); err != nil {
 		return nil, err
 	}
 	if agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID)); err != nil {
@@ -357,7 +357,8 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	_ = json.Unmarshal(payload, &pm)
 	maxAge := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
 	var val domain.Validation
-	if wake := domain.WakeFromPayload(pm); wake != nil {
+	wake := domain.WakeFromPayload(pm)
+	if wake != nil {
 		// a tripwire wake has its own, narrower action set
 		val = domain.ValidateWake(proposal, *wake, taken, time.Now(), maxAge)
 	} else {
@@ -407,6 +408,21 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 		}
 		if err := s.emit(ctx, tx, l.runID, &attemptID, "proposal", map[string]any{"proposal": proposal, "validation": val}); err != nil {
 			return nil, err
+		}
+		// a final, valid result moves the shadow book: a wake acts on its position, an engine entry opens one
+		switch {
+		case wake != nil && val.Valid:
+			if err := applyWakeTx(ctx, tx, l.runID, *wake, proposal, val.PriceUsed, time.Now()); err != nil {
+				return nil, err
+			}
+		case wake != nil:
+			if err := addPositionEvent(ctx, tx, wake.ID, "wake_hold", map[string]any{"runId": l.runID, "tripwire": wake.Alert, "rejected": val.Reasons}); err != nil {
+				return nil, err
+			}
+		case val.Valid && proposal.Action == "open" && snapSource == "engine":
+			if err := openPositionTx(ctx, tx, l.runID, agent, proposal, val.PriceUsed, taken); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := s.recompute(ctx, tx, l.runID); err != nil {

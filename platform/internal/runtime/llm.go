@@ -45,7 +45,7 @@ The snapshot may also hold indicators: atr14, ema levels, bollinger, rsi14, vwap
 Be conservative: hold when the setup is unclear. A stop is REQUIRED on open.
 If the price comes from a forming (provisional) candle, prefer schedule_followup over acting on it.
 Your reply MUST end with exactly one JSON object and no prose after it:
-{"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>"}`
+{"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>","plan":<exit plan, open only, see below>}` + planDoc
 
 func endpoint(base string) string {
 	b := strings.TrimRight(strings.TrimSpace(base), "/")
@@ -73,19 +73,25 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		"strategy:\n" + orStr(strategy, "(no strategy text in the snapshot; use the supertrend-follow default)"),
 		"snapshot summary (frozen at the event; call get_snapshot for the full copy):\n" + string(summary),
 	}
+	sys, decide := systemPrompt, "Decide now."
+	if w := domain.WakeFromPayload(payload); w != nil {
+		// a tripwire woke this run: a narrower prompt and a narrower set of actions
+		sys = wakeSystem
+		decide = fmt.Sprintf("Tripwire %q fired for position %d (%s from %v, stop %v, price %v). Decide what to do with this position.", w.Alert, w.ID, w.Side, w.Entry, w.Stop, w.Price)
+	}
 	if len(in.Claim.Notes) > 2 {
 		user = append(user, "your earlier notes on this agent (advisory only):\n"+string(in.Claim.Notes))
 	}
 	if in.Claim.Run.FollowupsUsed > 0 {
 		user = append(user, fmt.Sprintf("This is follow-up %d. The reason you scheduled it: %s. Re-read the live portfolio and candles before deciding.", in.Claim.Run.FollowupsUsed, in.Claim.Run.WaitReason))
 	}
-	user = append(user, "Decide now.")
+	user = append(user, decide)
 
 	var toolSpecs []map[string]any
 	for _, d := range in.Tools.Defs() {
 		toolSpecs = append(toolSpecs, map[string]any{"type": "function", "function": map[string]any{"name": d.Name, "description": d.Description, "parameters": d.InputSchema}})
 	}
-	msgs := []map[string]any{{"role": "system", "content": systemPrompt}, {"role": "user", "content": strings.Join(user, "\n\n")}}
+	msgs := []map[string]any{{"role": "system", "content": sys}, {"role": "user", "content": strings.Join(user, "\n\n")}}
 	out := &Output{Usage: map[string]float64{"llmCalls": 0, "promptTokens": 0, "completionTokens": 0, "toolCalls": 0}}
 	rounds := in.Claim.Agent.Budgets.MaxRounds
 

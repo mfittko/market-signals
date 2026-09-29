@@ -121,3 +121,15 @@ func (p Plan) Check(side string) error {
 	}
 	return CheckTripwires(p.Tripwires)
 }
+
+// PnL is the realized result of a shadow position: notional times the return, signed by side.
+func PnL(side string, notional, entry, exit float64) float64 {
+	if entry <= 0 {
+		return 0
+	}
+	d := 1.0
+	if side == "short" {
+		d = -1
+	}
+	return math.Round(notional*d*(exit-entry)/entry*10000) / 10000
+}

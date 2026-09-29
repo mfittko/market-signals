@@ -91,6 +91,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/v1/strategies/{name}/versions", s.saveVersion)
 	m.HandleFunc("POST /api/v1/strategies/{name}/archive", s.setArchived)
 	m.HandleFunc("POST /api/v1/strategies/{name}/versions/{version}/activate", s.activateVersion)
+	m.HandleFunc("GET /api/v1/positions", s.listPositions)
+	m.HandleFunc("GET /api/v1/positions/{id}", s.getPosition)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)
 	m.HandleFunc("GET /api/v1/runs/{id}", s.getRun)
 	m.HandleFunc("GET /api/v1/runs/{id}/chart", s.runChart)

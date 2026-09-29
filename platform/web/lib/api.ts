@@ -155,3 +155,13 @@ export type InstrumentDetail = {
 };
 
 export const money = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
+
+export type ShadowPosition = {
+  id: number; agentId: string; runId: number; instrument: string; granularity: string; side: 'long' | 'short';
+  notional: number; entryPrice: number; entryTime: string; initialStop: number; stop: number; target?: number;
+  plan: { maxBars?: number; trail?: { kind: string; mult?: number }; tripwires?: Array<Record<string, any>> };
+  barsHeld: number; best: number; lastClose: number; status: 'open' | 'closed'; exitPrice?: number; exitTime?: string;
+  exitReason?: string; realized?: number; wakes: number; failedWakes: number; needsAttention: boolean;
+};
+export type PositionEvent = { id: number; at: string; kind: string; payload: Record<string, any> };
+export const slugOf = (instrument: string) => instrument.toLowerCase().replace('/', '-');

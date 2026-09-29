@@ -141,7 +141,7 @@ function BotsCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
           })}</tbody>
         </table></div>
       )}
-      <p className="small muted">Paper trading only. Turning a bot off stops new entries from that engine bot. Agents on this console stay in shadow mode either way.</p>
+      <p className="small muted">Paper trading only. Turning a bot off stops new entries from that engine bot. Agents on this console only advise. They never place orders on the paper portfolio.</p>
     </Card>
   );
 }

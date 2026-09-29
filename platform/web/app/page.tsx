@@ -27,7 +27,7 @@ export default function Desk() {
 
   return (
     <main className="wrap">
-      <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Shadow mode · nothing is executed</span></div></div>
+      <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Paper only · agents advise, nothing is traded</span></div></div>
       {error && <div className="msg err" role="alert" style={{ marginBottom: 16 }}>Cannot reach the control plane: {error}</div>}
       <div className="grid stats">
         <Stat label="Instruments" value={rows?.length ?? '–'} hint={`${(rows ?? []).filter(isActive).length} with a bot or agent on`} />

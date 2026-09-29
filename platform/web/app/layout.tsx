@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Agent desk',
-  description: 'Trading agents per instrument, running in shadow beside the deterministic engine',
+  description: 'Trading agents per instrument, advising beside the deterministic engine, paper only',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

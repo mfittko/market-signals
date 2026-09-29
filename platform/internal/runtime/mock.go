@@ -54,6 +54,11 @@ func (Mock) Run(ctx context.Context, in Input) (*Output, error) {
 		return out, nil
 	}
 
+	var probe map[string]any
+	if json.Unmarshal([]byte(raw), &probe) == nil && probe["wake"] != nil {
+		return hold("the mock agent does not manage positions; the exit plan stays in force")
+	}
+
 	pf := s.Portfolio
 	if has(in, "get_portfolio") {
 		if txt, isErr, err := call("get_portfolio", "{}"); err != nil {

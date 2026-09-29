@@ -201,3 +201,15 @@ func (s *Server) withIndicators(ctx context.Context, instrument, granularity str
 	}
 	return payload
 }
+
+// WakeEnricher gives the position monitor the same strategy and indicator context
+// an entry check gets, so a tripwire wake judges with the numbers the entry used.
+func (s *Server) WakeEnricher() func(context.Context, queue.Agent, json.RawMessage) (json.RawMessage, error) {
+	return func(ctx context.Context, a queue.Agent, p json.RawMessage) (json.RawMessage, error) {
+		out, err := s.withStrategy(ctx, p, a)
+		if err != nil {
+			return p, err
+		}
+		return s.withIndicators(ctx, a.Instrument, a.Granularity, out), nil
+	}
+}

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card, Stat } from '@/components/ui';
+import { ShadowPositions } from '@/components/ShadowPositions';
 import { EquityChart, type EquityPoint } from '@/components/EquityChart';
 
 type Trade = {
@@ -82,6 +83,8 @@ export default function PortfolioPage() {
           </table></div>
         )}
       </Card>
+
+      <ShadowPositions />
 
       <Card title={`Closed trades (${p.trades.length})`} aside={p.trades.length > 10 && <button className="link" onClick={() => setShowAll(!showAll)}>{showAll ? 'Show 10' : 'Show all'}</button>}>
         <div className="scroll"><table>

@@ -24,7 +24,7 @@ export default function Home() {
         api<{ agents: Agent[] }>('/agents'),
         api<Health>('/health'),
       ]);
-      setRuns(r.runs); setAgents(a.agents); setHealth(h); setError(null);
+      setRuns(r.runs); setAgents(a.agents.filter((x) => x.runtime !== 'mock' && x.strategyName)); setHealth(h); setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -42,7 +42,7 @@ export default function Home() {
       <div className="top">
         <div className="left">
           <h1>Runs</h1>
-          <span className="chip mode" title="Agents propose. The deterministic engine still decides and executes.">Shadow mode · nothing is executed</span>
+          <span className="chip mode" title="Shadow mode: agents record what they would do, next to the old bot. They never place orders on your paper portfolio.">Paper only · agents advise, nothing is traded</span>
         </div>
         <div className="chips">
           <span className={`chip ${health ? 'ok' : 'bad'}`}>Control plane</span>
@@ -76,7 +76,7 @@ export default function Home() {
       <div className="grid two">
         <Card title="Runs">
           {!runs ? <div className="empty">Loading…</div> : shownRuns.length === 0 ? (
-            <div className="empty">No runs yet. Start one from “New research run”, or enable the engine hook to record real events.</div>
+            <div className="empty">No runs yet. Start one from “Ask an agent now”, or enable the engine hook to record real events.</div>
           ) : (
             <div className="scroll">
               <table>
@@ -114,8 +114,7 @@ export default function Home() {
 
 function NewRun({ agents, onStarted }: { agents: Agent[]; onStarted: () => void }) {
   const [agentId, setAgentId] = useState('');
-  const [source, setSource] = useState('demo');
-  const [busy, setBusy] = useState(false);
+    const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => { if (!agentId && agents[0]) setAgentId(agents[0].id); }, [agents, agentId]);
   return (
@@ -123,18 +122,12 @@ function NewRun({ agents, onStarted }: { agents: Agent[]; onStarted: () => void 
       <form className="form" onSubmit={async (e) => {
         e.preventDefault(); setBusy(true); setMsg(null);
         try {
-          const r = await api<{ runs: { runId: number }[] }>('/runs', { method: 'POST', body: JSON.stringify({ agentId, source }) });
+          const r = await api<{ runs: { runId: number }[] }>('/runs', { method: 'POST', body: JSON.stringify({ agentId, source: 'engine' }) });
           setMsg({ ok: true, text: `Queued run #${r.runs[0]?.runId}.` }); onStarted();
         } catch (err) { setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) }); } finally { setBusy(false); }
       }}>
         <label>Agent
           <select value={agentId} onChange={(e) => setAgentId(e.target.value)}>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-        </label>
-        <label>Snapshot from
-          <select value={source} onChange={(e) => setSource(e.target.value)}>
-            <option value="demo">Bundled demo event (offline)</option>
-            <option value="engine">Current engine state (live)</option>
-          </select>
         </label>
         <button disabled={busy || !agentId}>{busy ? 'Queuing…' : 'Run'}</button>
         {msg && <div className={`msg ${msg.ok ? 'ok' : 'err'}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</div>}

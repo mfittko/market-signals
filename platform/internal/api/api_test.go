@@ -639,3 +639,20 @@ func TestAutoGrillBacktestsFlipsAndNeedsEnoughHistory(t *testing.T) {
 		t.Fatalf("no model: %d %v", c, out)
 	}
 }
+
+func TestPositionsEndpoints(t *testing.T) {
+	ts, st := setup(t)
+	_ = st
+	for _, p := range []string{"/api/v1/positions", "/api/v1/positions?status=open"} {
+		resp, err := http.Get(ts.URL + p)
+		if err != nil || resp.StatusCode != 200 {
+			t.Fatalf("%s: %v %v", p, resp, err)
+		}
+		resp.Body.Close()
+	}
+	resp, _ := http.Get(ts.URL + "/api/v1/positions/999999")
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown position: got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

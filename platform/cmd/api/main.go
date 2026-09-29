@@ -15,8 +15,10 @@ import (
 
 	"github.com/mfittko/market-signals/platform/internal/api"
 	"github.com/mfittko/market-signals/platform/internal/db"
+	"github.com/mfittko/market-signals/platform/internal/monitor"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/runtime"
+	"github.com/mfittko/market-signals/platform/internal/tools"
 	"github.com/mfittko/market-signals/platform/migrations"
 )
 
@@ -31,7 +33,7 @@ func main() {
 	addr := flag.String("addr", env("MS_API_ADDR", "127.0.0.1:8080"), "listen address (keep it on loopback)")
 	dburl := flag.String("db", env("MS_DATABASE_URL", "postgres://ms:ms@127.0.0.1:5544/ms"), "postgres URL")
 	engine := flag.String("engine", env("MS_ENGINE_URL", ""), "engine base URL for read tools and operator snapshots, e.g. http://127.0.0.1:4123")
-	seed := flag.Bool("seed", true, "create the default demo agents when missing")
+	seed := flag.Bool("seed", false, "create the default demo agents when missing")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -67,6 +69,10 @@ func main() {
 	}
 	srv := api.New(cfg, st, log)
 	srv.StartReaper(ctx, 3*time.Second)
+	if *engine != "" {
+		mon := &monitor.Service{Store: st, Feed: monitor.EngineFeed{Eng: tools.NewEngine(*engine)}, Log: log, Enrich: srv.WakeEnricher()}
+		go mon.Run(ctx, 15*time.Second)
+	}
 	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
