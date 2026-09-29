@@ -6,6 +6,7 @@ import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { EntryCheck } from '@/components/EntryCheck';
+import { ChatPanel } from '@/components/ChatPanel';
 import { AgentList } from '@/components/AgentList';
 import { Card, Stat } from '@/components/ui';
 
@@ -139,6 +140,7 @@ export default function InstrumentPage() {
 
         <div className="grid">
           <EntryCheck agents={d.agents} />
+          <ChatPanel symbol={d.symbol} granularity={d.granularity} />
           <Card title="News" aside={<span className="muted small">last 72h · {news.length}</span>}>
             {news.length === 0 ? <div className="empty">No cached headlines.</div> : (
               <ul className="news">

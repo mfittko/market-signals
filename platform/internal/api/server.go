@@ -76,6 +76,10 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/instruments/{slug}", s.instrument)
 	m.HandleFunc("GET /api/v1/instruments/{slug}/live", s.live)
 	m.HandleFunc("GET /api/v1/instruments/{slug}/news", s.news)
+	ep := s.engineProxy()
+	for _, method := range []string{"GET", "POST", "DELETE"} {
+		m.Handle(method+" /api/v1/engine/{path...}", ep)
+	}
 	m.HandleFunc("POST /api/v1/agents", s.upsertAgent)
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)

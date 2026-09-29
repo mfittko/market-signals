@@ -47,6 +47,10 @@ func fakeEngine(t *testing.T) *httptest.Server {
 		}
 		io.WriteString(w, `{"ok":true,"items":[{"title":"Tanker hit","source":"gdelt","time":"2026-01-01T10:00:00Z","escalation":true}]}`)
 	})
+	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"method":"`+r.Method+`","origin":"`+r.Header.Get("Origin")+`"}`)
+	})
+	mux.HandleFunc("/api/portfolio-secret", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `leak`) })
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"ok":true}`) })
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
@@ -327,5 +331,31 @@ func TestLiveAndNewsProxyTheEngineForOneInstrument(t *testing.T) {
 	}
 	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope/live", "", "", nil); code != 404 {
 		t.Fatalf("unknown instrument must be 404, got %d", code)
+	}
+}
+
+func TestEngineProxyAllowlist(t *testing.T) {
+	ts, _ := setup(t)
+	get := func(method, path string) (int, string) {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader("{}"))
+		req.Header.Set("Origin", ts.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	if code, body := get("POST", "/api/v1/engine/settings"); code != 200 || !strings.Contains(body, `"method":"POST"`) || strings.Contains(body, ts.URL) {
+		t.Fatalf("settings not forwarded cleanly: %d %s", code, body)
+	}
+	for _, p := range []string{"/api/v1/engine/portfolio-secret", "/api/v1/engine/health", "/api/v1/engine/../x"} {
+		if code, _ := get("GET", p); code != 404 {
+			t.Fatalf("%s should be refused, got %d", p, code)
+		}
+	}
+	if code, _ := get("DELETE", "/api/v1/engine/settings"); code != 404 {
+		t.Fatalf("DELETE settings should be refused, got %d", code)
 	}
 }

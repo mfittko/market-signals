@@ -131,3 +131,11 @@ button:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visib
 .tip-sec { border-top: 1px solid var(--border); padding-top: 4px; }
 .news { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .news li { overflow-wrap: anywhere; }
+.chat-bar { display: flex; gap: 8px; margin-bottom: 8px; } .chat-bar select { flex: 1; }
+.chat-log { max-height: 380px; overflow-y: auto; display: grid; gap: 8px; padding: 2px 0 8px; }
+.bubble { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.bubble.user { background: var(--surface-2, transparent); margin-left: 24px; }
+.bubble-t { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+.chat-form textarea { flex: 1; min-width: 0; resize: vertical; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: inherit; }
+input:not([type=checkbox]) { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; font: inherit; min-width: 0; max-width: 100%; }
