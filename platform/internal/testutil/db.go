@@ -1,4 +1,5 @@
 // Package testutil gives tests a clean, migrated Postgres database.
+// Every package truncates the same database, so run `go test -p 1 ./...`.
 package testutil
 
 import (

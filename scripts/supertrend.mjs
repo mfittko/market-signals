@@ -15,7 +15,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from './lib/pushover.mjs';
@@ -346,7 +347,7 @@ const RECHECK_VERDICTS = ['valid', 'played-out', 'invalidated'];
 // #99: OpenAI split into `openai` (official api.openai.com, no base URL) and
 // `openai-compatible` (base URL required, e.g. GLM via Makora). Both use the same
 // openai request/tool-loop code path.
-export const PROVIDERS = ['pi', 'none', 'anthropic', 'openai', 'openai-compatible'];
+export const PROVIDERS = ['pi', 'claude-code', 'none', 'anthropic', 'openai', 'openai-compatible'];
 
 // Per-provider default model (#93/#99). `openai-compatible` has NO default — the
 // operator sets the model id explicitly (arbitrary self-hosted models).
@@ -552,6 +553,41 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     // usage is always null here, never faked (#93).
     reportUsage(onUsage, { provider: 'pi', model: piModel, usage: null });
     return out;
+  }
+  if (provider === 'claude-code') {
+    // Claude Code CLI as a tool-less backend (headless `claude -p`). It uses the
+    // operator's own Claude Code login, so no API key is stored. Tools, settings
+    // and hooks, skills and session files are all off: chat cannot touch the machine.
+    const model = effectiveModel(settings, 'claude-code');
+    const sys = schema ? `${system}\n\nReply with ONLY a JSON object matching this JSON Schema, no prose:\n${JSON.stringify(schema)}` : system;
+    const args = ['-p', '--no-session-persistence', '--tools', '', '--setting-sources', '', '--disable-slash-commands', '--output-format', 'json', '--system-prompt', sys];
+    if (model) args.push('--model', model);
+    args.push(user);
+    const bin = settings.claudeBin || join(homedir(), '.local/bin/claude');
+    let parsed;
+    try {
+      parsed = JSON.parse(execFileSync(bin, args, {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        maxBuffer: 8 * 1024 * 1024,
+        cwd: tmpdir(), // keeps project CLAUDE.md and memory out of the prompt
+        env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${join(homedir(), '.local/bin')}:${process.env.PATH || ''}` },
+      }));
+    } catch (err) {
+      // execFileSync errors embed the full command (incl. the prompt) — never propagate that.
+      const stderr = (err.stderr ? String(err.stderr) : '').trim().split('\n').pop() || '';
+      throw new Error(`claude-code failed: ${stderr || err.code || `exit ${err.status}`}`.slice(0, 200));
+    }
+    if (parsed.is_error || typeof parsed.result !== 'string') throw new Error(`claude-code failed: ${String(parsed.result ?? parsed.subtype ?? 'no result').slice(0, 150)}`);
+    const text = parsed.result.trim();
+    if (onDelta) onDelta(text); // json output mode replies whole
+    const u = parsed.usage;
+    reportUsage(onUsage, {
+      provider: 'claude-code',
+      model: model || Object.keys(parsed.modelUsage || {})[0] || null,
+      usage: u ? { inputTokens: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0), outputTokens: u.output_tokens ?? 0 } : null,
+    });
+    return text;
   }
   if (provider === 'anthropic') {
     const stream = Boolean(onDelta) && !schema;

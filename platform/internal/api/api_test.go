@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/mfittko/market-signals/platform/internal/tools"
 	"io"
 	"log/slog"
 	"net/http"
@@ -218,4 +219,44 @@ func TestStreamResumesFromLastEventID(t *testing.T) {
 		t.Fatalf("expected catch-up to start at event 2, got %v", ids)
 	}
 	_ = st
+}
+
+func TestRunChartPrefersFrozenCandlesAndFallsBackToCompleteEngineCandles(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	frozen := `{"close":1,"candles":[` + strings.Repeat(`{"time":"t","open":1,"high":2,"low":1,"close":1.5,"volume":1},`, 5) + `{"time":"t","open":1,"high":2,"low":1,"close":1.5,"volume":1}]}`
+	a, err := st.Ingest(ctx, queue.IngestInput{IdemKey: "c1", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "demo", Payload: json.RawMessage(frozen)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := call(t, "GET", hs.URL+"/api/v1/runs/"+jn(float64(a.Runs[0].RunID))+"/chart", "", "", nil)
+	if code != 200 || out["source"] != "snapshot" || len(out["candles"].([]any)) != 6 {
+		t.Fatalf("%d %v", code, out)
+	}
+	b, err := st.Ingest(ctx, queue.IngestInput{IdemKey: "c2", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "demo", Payload: json.RawMessage(`{"close":1}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out = call(t, "GET", hs.URL+"/api/v1/runs/"+jn(float64(b.Runs[0].RunID))+"/chart", "", "", nil)
+	if code != 200 || out["source"] != "engine" || len(out["candles"].([]any)) != 1 {
+		t.Fatalf("the forming candle must be dropped from the live fallback: %d %v", code, out)
+	}
+}
+
+func TestChartCandlesPrefersSnapshotAndRejectsForeignMoments(t *testing.T) {
+	eng := tools.NewEngine(fakeEngine(t).URL)
+	ctx := context.Background()
+
+	frozen := `{"asOf":"2020-01-01T00:00:00Z","candles":[` + strings.Repeat(`{"time":"2020-01-01T00:00:00Z","open":1,"high":2,"low":1,"close":1,"volume":1},`, 4) + `{"time":"2020-01-01T00:05:00Z","open":1,"high":2,"low":1,"close":1,"volume":1}]}`
+	if c, src, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(frozen)); err != nil || src != "snapshot" || len(c) != 5 {
+		t.Fatalf("frozen candles must win: %v %s %d", err, src, len(c))
+	}
+	// no frozen candles, asOf inside the engine window: falls back to the live window
+	if _, src, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2026-01-01T10:00:00Z"}`)); err != nil || src != "engine" {
+		t.Fatalf("in-window fallback: %v %s", err, src)
+	}
+	// no frozen candles and a moment the live window does not cover: refuse, do not mislead
+	if _, _, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2020-01-01T00:00:00Z"}`)); err == nil {
+		t.Fatal("a foreign moment must not be drawn over live candles")
+	}
 }

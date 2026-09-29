@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, describe, engineDecision, type Decision, type RunDetail, type RunEvent } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, Json, StatusPill } from '@/components/ui';
+import { CandleChart, type Candle } from '@/components/CandleChart';
 
 const TERMINAL = ['succeeded', 'failed', 'cancelled', 'expired'];
 
@@ -13,12 +14,17 @@ export default function RunPage() {
   const [d, setD] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [chart, setChart] = useState<{ candles: Candle[]; source: string } | null>(null);
+  const [chartError, setChartError] = useState<string | null>(null);
   const { tick } = useLive((e) => String(e.runId) === id);
 
   const load = useCallback(async () => {
     try { setD(await api<RunDetail>(`/runs/${id}`)); setError(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, [id]);
   useEffect(() => { void load(); }, [load, tick]);
+  useEffect(() => {
+    api<{ candles: Candle[]; source: string }>(`/runs/${id}/chart`).then((c) => { setChart(c); setChartError(null); }).catch((e) => setChartError(e instanceof Error ? e.message : String(e)));
+  }, [id]);
 
   if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;
   if (!d) return <main className="wrap"><div className="empty">Loading…</div></main>;
@@ -48,6 +54,13 @@ export default function RunPage() {
       </div>
       {error && <div className="msg err" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
       {run.stopReason && <p className="muted" style={{ marginTop: -6 }}>Stop reason: {run.stopReason}</p>}
+
+      <Card title="Chart" aside={chart && <span className="muted small">{chart.source === 'snapshot' ? 'candles frozen in the snapshot' : 'live engine window, not frozen'}</span>} className="chart-card">
+        {chart ? (
+          <CandleChart candles={chart.candles} asOf={snapshot.payload.asOf} price={snapshot.payload.quote?.last ?? snapshot.payload.close}
+            flip={snapshot.payload.flip} agent={run.proposal} engine={engine} />
+        ) : chartError ? <p className="muted">{chartError}</p> : <p className="muted">Loading chart…</p>}
+      </Card>
 
       <div className="grid run-grid">
         <Card title="What happened">

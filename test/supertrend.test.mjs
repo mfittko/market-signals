@@ -2269,3 +2269,30 @@ test('openai no-content error: a verdict failure names filterMaxCompletionTokens
     );
   } finally { delete global.fetch; }
 });
+
+test('claude-code provider runs the CLI tool-less and parses the json envelope', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmRequest, resolveProvider } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'cc-'));
+  const argsFile = join(dir, 'args');
+  const bin = join(dir, 'claude');
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argsFile}'\necho '{"is_error":false,"result":" hello ","usage":{"input_tokens":3,"cache_read_input_tokens":7,"output_tokens":2}}'\n`);
+  chmodSync(bin, 0o755);
+  const settings = { provider: 'claude-code', claudeBin: bin, models: { 'claude-code': 'sonnet' } };
+  assert.equal(resolveProvider(settings), 'claude-code');
+  const seen = [];
+  const deltas = [];
+  const out = await llmRequest(settings, 'SYS', 'USER', { onDelta: (d) => deltas.push(d), onUsage: (i) => seen.push(i) });
+  assert.equal(out, 'hello');
+  assert.deepEqual(deltas, ['hello']);
+  assert.deepEqual(seen[0], { provider: 'claude-code', model: 'sonnet', usage: { inputTokens: 10, outputTokens: 2 } });
+  const args = readFileSync(argsFile, 'utf8').split('\n');
+  for (const flag of ['-p', '--no-session-persistence', '--disable-slash-commands', '--tools', '--setting-sources', '--model']) assert.ok(args.includes(flag), flag);
+  assert.equal(args[args.indexOf('--tools') + 1], '');
+  assert.equal(args[args.indexOf('--system-prompt') + 1], 'SYS');
+
+  writeFileSync(bin, `#!/bin/sh\necho '{"is_error":true,"result":"Not logged in"}'\n`);
+  await assert.rejects(() => llmRequest(settings, 'S', 'U'), /claude-code failed: Not logged in/);
+});

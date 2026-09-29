@@ -85,3 +85,49 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 	}
 	return json.Marshal(snap)
 }
+
+type chartCandle struct {
+	Time   string  `json:"time"`
+	Open   float64 `json:"open"`
+	High   float64 `json:"high"`
+	Low    float64 `json:"low"`
+	Close  float64 `json:"close"`
+	Volume float64 `json:"volume"`
+}
+
+// chartCandles returns complete candles only. It prefers the frozen copy in the
+// snapshot; without one it reads the engine's current window, labelled as live.
+func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularity string, payload json.RawMessage) ([]chartCandle, string, error) {
+	var snap struct {
+		AsOf    string        `json:"asOf"`
+		Candles []chartCandle `json:"candles"`
+	}
+	if json.Unmarshal(payload, &snap) == nil && len(snap.Candles) >= 5 {
+		return snap.Candles, "snapshot", nil
+	}
+	var raw struct {
+		Candles []struct {
+			chartCandle
+			Complete bool `json:"complete"`
+		} `json:"candles"`
+	}
+	q := url.Values{"instrument": {instrument}, "granularity": {granularity}}
+	if err := eng.Get(ctx, "/api/chart", q, &raw); err != nil {
+		return nil, "", err
+	}
+	out := []chartCandle{}
+	for _, c := range raw.Candles {
+		if c.Complete {
+			out = append(out, c.chartCandle)
+		}
+	}
+	if len(out) > 60 {
+		out = out[len(out)-60:]
+	}
+	// A snapshot without candles (the bundled demo) refers to a moment the live
+	// window may not cover. Drawing its levels over unrelated candles misleads.
+	if snap.AsOf != "" && (len(out) == 0 || snap.AsOf < out[0].Time || snap.AsOf > out[len(out)-1].Time) {
+		return nil, "", errors.New("this snapshot's time is outside the engine's current candle window")
+	}
+	return out, "engine", nil
+}

@@ -76,6 +76,7 @@ func (s *Server) routes() {
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)
 	m.HandleFunc("GET /api/v1/runs/{id}", s.getRun)
+	m.HandleFunc("GET /api/v1/runs/{id}/chart", s.runChart)
 	m.HandleFunc("POST /api/v1/runs", s.triggerRun)
 	m.HandleFunc("POST /api/v1/runs/{id}/cancel", s.cancelRun)
 	m.HandleFunc("GET /api/v1/stream", s.stream)
@@ -555,3 +556,23 @@ func (s *Server) cancelled(w http.ResponseWriter, r *http.Request) {
 }
 
 var _ = fixtures.DemoFlip
+
+// runChart feeds the console's candle chart for one run.
+func (s *Server) runChart(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(r, "id")
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "bad run id"})
+		return
+	}
+	d, err := s.st.GetRun(r.Context(), id)
+	if err != nil {
+		s.runtimeErr(w, err)
+		return
+	}
+	candles, source, err := chartCandles(r.Context(), s.eng, d.Snapshot.Instrument, d.Snapshot.Granularity, d.Snapshot.Payload)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable and this snapshot holds no candles"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"candles": candles, "source": source})
+}

@@ -2059,6 +2059,7 @@ const FIELD_HINTS = {
   PUSHOVER_TOKEN: 'Pushover application API token (from pushover.net) — required with PUSHOVER_USER for push to fire',
   PUSHOVER_USER: 'Pushover user key (from pushover.net) — required with PUSHOVER_TOKEN for push to fire',
   piBin: 'path to the pi CLI binary this server shells out to for LLM calls',
+  claudeBin: 'path to the claude (Claude Code) CLI binary; default ~/.local/bin/claude',
   ANTHROPIC_API_KEY: 'API key for Anthropic (Claude) models',
   OPENAI_API_KEY: 'API key for the OpenAI (or OpenAI-compatible) endpoint',
   OPENAI_BASE_URL: 'base URL of the OpenAI-compatible endpoint (e.g. a local proxy)',
@@ -2105,7 +2106,7 @@ async function cfg() {
   // #99 provider config: the select + the per-provider field set. activeProvider
   // is the resolved value (a pre-#99 openai+base-URL config resolves to
   // openai-compatible), so the select shows what actually runs.
-  const PROVIDER_OPTS = [['pi', 'pi'], ['anthropic', 'anthropic'], ['openai', 'openai (official)'], ['openai-compatible', 'openai-compatible (base URL)'], ['none', 'disabled']];
+  const PROVIDER_OPTS = [['pi', 'pi'], ['claude-code', 'claude-code (CLI login)'], ['anthropic', 'anthropic'], ['openai', 'openai (official)'], ['openai-compatible', 'openai-compatible (base URL)'], ['none', 'disabled']];
   // Defaults come from the server (s.providerDefaultModels) so this can never
   // disagree with the model actually used. openai-compatible has no default —
   // the operator always names the model — so it keeps a literal example.
@@ -2128,6 +2129,7 @@ async function cfg() {
   const llmFieldsFor = (p) => {
     const model = ['__model', 'text', 'model', (s.models && s.models[p]) || ''];
     if (p === 'pi') return [['piBin', 'text', 'piBin', s.piBin || '']];
+    if (p === 'claude-code') return [model, ['claudeBin', 'text', 'claudeBin', s.claudeBin || '']];
     if (p === 'anthropic') return [model, ['ANTHROPIC_API_KEY', 'password', 'ANTHROPIC_API_KEY', s.ANTHROPIC_API_KEY || ''], ['anthropicThinking', 'select', 'anthropicThinking', s.anthropicThinking || '', [['', 'model default'], ['adaptive', 'adaptive'], ['disabled', 'disabled']]]];
     if (p === 'openai') return [model, ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
     if (p === 'openai-compatible') return [model, ['OPENAI_BASE_URL', 'text', 'OPENAI_BASE_URL', s.OPENAI_BASE_URL || ''], ['OPENAI_API_KEY', 'password', 'OPENAI_API_KEY', s.OPENAI_API_KEY || ''], ['maxCompletionTokens', 'number', 'maxCompletionTokens', s.maxCompletionTokens ?? '']];
