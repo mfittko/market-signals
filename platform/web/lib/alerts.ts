@@ -13,7 +13,7 @@ type Open = { id: number; instrument: string; side: string; entry_price: number;
 
 const slug = (s: string) => s.toLowerCase().replace('/', '-');
 const money = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
-const combos = (csv: string | undefined) => (csv ?? '').split(',').map((c) => c.trim().split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
+const combos = (csv: string | undefined) => [...new Set((csv ?? '').split(',').map((c) => c.trim()))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
 
 // One feed for the alerts page and the desktop notifier: signals the filter let
 // through, agent proposals that ask for a trade, and paper-portfolio activity.
@@ -48,7 +48,9 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
   for (const o of pf?.portfolio.positions ?? []) {
     out.push({ id: `o:${o.id}`, kind: 'trade', at: o.entry_time, title: `Paper ${o.side} opened on ${o.instrument} at ${o.entry_price}`, detail: 'Open position', href: `/instruments/${slug(o.instrument)}`, tone: 'warn' });
   }
-  return out.sort((a, b) => +new Date(b.at) - +new Date(a.at));
+  // ids must be unique: React keys and the notifier's "already seen" set both rely on it
+  const unique = [...new Map(out.map((e) => [e.id, e])).values()];
+  return unique.sort((a, b) => +new Date(b.at) - +new Date(a.at));
 }
 
 // Desktop notification preferences live in this browser only.

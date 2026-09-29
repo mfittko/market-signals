@@ -121,3 +121,52 @@ func TestImportIsIdempotentAndChecksTheBooks(t *testing.T) {
 		t.Fatal("the LLM twin must start disabled so an import never spends money")
 	}
 }
+
+func TestReimportFollowsNewTradesAndFlagsVersionClashes(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE candles, signals, signal_snapshots, strategies, trades, bot_journal, portfolio_account, chat_threads, standing_rules, prompt_versions, rechecks, instruments CASCADE; DELETE FROM agents WHERE legacy_bot`); err != nil {
+		t.Fatal(err)
+	}
+	opts := fixture(t, 101)
+	if r, err := Run(ctx, pool, opts); err != nil || !r.Committed {
+		t.Fatalf("first import: %v %+v", err, r)
+	}
+
+	// the live engine closes another trade: cash and realized profit both move
+	src, err := sql.Open("sqlite", opts.SQLitePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	for _, q := range []string{
+		`INSERT INTO bot_journal VALUES (3,'2026-07-22T10:00:00.000Z','open',8,'go','{"strategyVersion":"abc123"}')`,
+		`INSERT INTO bot_trades VALUES (2,8,'WTICO/USD','long',1000,10,1.5,'2026-07-22T10:00:00.000Z',1.7,'2026-07-22T11:00:00.000Z',20,2.0,'target','M5')`,
+		`UPDATE portfolio SET cash=103`,
+	} {
+		if _, err := src.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r, err := Run(ctx, pool, opts)
+	if err != nil || !r.Committed {
+		t.Fatalf("a re-import after a new trade must reconcile and commit: %v %+v", err, r.Invariants)
+	}
+	var cash float64
+	pool.QueryRow(ctx, `SELECT cash FROM portfolio_account WHERE id=1`).Scan(&cash)
+	if cash != 103 {
+		t.Fatalf("cash must follow the source, got %v", cash)
+	}
+
+	// a console edit that took the same name and number must be reported, not skipped silently
+	if _, err := pool.Exec(ctx, `UPDATE strategies SET prompt='console edit' WHERE name='wti-s' AND version=1`); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Run(ctx, pool, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.OK() || c.Committed {
+		t.Fatalf("a version clash must block the commit: %+v", c.Invariants)
+	}
+}

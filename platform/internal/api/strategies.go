@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -171,7 +172,12 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 
 // activateVersion makes an existing version the active one again (rollback).
 func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
-	name, ver := r.PathValue("name"), r.PathValue("version")
+	name := r.PathValue("name")
+	ver, convErr := strconv.Atoi(r.PathValue("version"))
+	if convErr != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such version"})
+		return
+	}
 	var n int
 	err := pgx.BeginFunc(r.Context(), s.st.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+name); err != nil {

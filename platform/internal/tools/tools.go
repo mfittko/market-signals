@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/queue"
@@ -20,9 +21,9 @@ import (
 
 const MaxOutputBytes = 8000
 
-// MaxSnapshotBytes bounds the run's own frozen input, which is capped when it is created.
-// A cut here would hand the agent invalid JSON, so it is far above the tool cap.
-const MaxSnapshotBytes = 64000
+// MaxSnapshotBytes is the queue's creation cap; a stored snapshot never exceeds it.
+// Reading it back is therefore never cut into invalid JSON.
+const MaxSnapshotBytes = queue.MaxSnapshotBytes
 
 type Def struct {
 	Name        string         `json:"name"`
@@ -53,6 +54,8 @@ func Definitions() []Def {
 type Engine struct {
 	BaseURL string
 	Client  *http.Client
+	mu      sync.Mutex
+	cache   map[string]cached
 }
 
 func NewEngine(base string) *Engine {
@@ -60,8 +63,44 @@ func NewEngine(base string) *Engine {
 }
 
 func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) error {
+	body, err := e.fetch(ctx, path, q)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
+}
+
+type cached struct {
+	at   time.Time
+	body []byte
+}
+
+// GetCached is Get with a short-lived response cache, for read-only data that many
+// page loads ask for at once. A failed call is never cached.
+func (e *Engine) GetCached(ctx context.Context, ttl time.Duration, path string, q url.Values, out any) error {
+	key := path + "?" + q.Encode()
+	e.mu.Lock()
+	c, ok := e.cache[key]
+	e.mu.Unlock()
+	if ok && time.Since(c.at) < ttl {
+		return json.Unmarshal(c.body, out)
+	}
+	body, err := e.fetch(ctx, path, q)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	if e.cache == nil || len(e.cache) > 256 { // ponytail: drop everything at 256 entries, an LRU if it ever matters
+		e.cache = map[string]cached{}
+	}
+	e.cache[key] = cached{at: time.Now(), body: body}
+	e.mu.Unlock()
+	return json.Unmarshal(body, out)
+}
+
+func (e *Engine) fetch(ctx context.Context, path string, q url.Values) ([]byte, error) {
 	if e == nil || e.BaseURL == "" {
-		return errors.New("engine URL is not configured")
+		return nil, errors.New("engine URL is not configured")
 	}
 	u := e.BaseURL + path
 	if len(q) > 0 {
@@ -69,18 +108,18 @@ func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) er
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resp, err := e.Client.Do(req)
 	if err != nil {
-		return fmt.Errorf("engine unreachable: %w", err)
+		return nil, fmt.Errorf("engine unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("engine %s returned %d", path, resp.StatusCode)
+		return nil, fmt.Errorf("engine %s returned %d", path, resp.StatusCode)
 	}
-	return json.Unmarshal(body, out)
+	return body, nil
 }
 
 func bound(v any) (string, error) { return boundTo(v, MaxOutputBytes) }

@@ -12,7 +12,13 @@ import (
 )
 
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	// The queries are short. JIT compilation cost more than they ran (about 90 ms on the Desk).
+	cfg.ConnConfig.RuntimeParams["jit"] = "off"
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}

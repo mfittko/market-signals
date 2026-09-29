@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, describe, engineDecision, type Agent, type Health, type RunRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
-import { Ago, Card, ComparisonPill, Stat, StatusPill } from '@/components/ui';
+import { Ago, Card, ComparisonPill, StatusPill } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
 
 export default function Home() {
@@ -36,6 +36,16 @@ export default function Home() {
   const sh = health?.stats.shadow ?? {};
   const compared = (sh.agree ?? 0) + (sh.differ ?? 0);
   const online = health?.stats.workers.filter((w) => w.online).length ?? 0;
+  const total = Object.values(health?.stats.byStatus ?? {}).reduce((a, b) => a + b, 0);
+  const rejected = health?.stats.invalidProposals ?? 0;
+  const queued = health?.stats.queueDepth ?? 0;
+  // one line instead of five tiles; zero counts are left out
+  const summary = [
+    `${total} recorded`,
+    compared ? `${sh.agree ?? 0} of ${compared} agree with the engine` : null,
+    rejected ? `${rejected} rejected by checks` : null,
+    queued ? `${queued} queued` : null,
+  ].filter(Boolean).join(' · ');
 
   return (
     <main className="wrap">
@@ -65,16 +75,8 @@ export default function Home() {
         </label>
       </div>
 
-      <div className="grid stats">
-        <Stat label="Runs recorded" value={runs ? Object.values(health?.stats.byStatus ?? {}).reduce((a, b) => a + b, 0) : '–'} />
-        <Stat label="Agree with engine" value={sh.agree ?? 0} tone="good" hint={compared ? `${Math.round(((sh.agree ?? 0) / compared) * 100)}% of ${compared} compared` : 'needs engine events'} />
-        <Stat label="Differ from engine" value={sh.differ ?? 0} tone={(sh.differ ?? 0) > 0 ? 'warn' : undefined} />
-        <Stat label="Rejected proposals" value={health?.stats.invalidProposals ?? 0} tone={(health?.stats.invalidProposals ?? 0) > 0 ? 'bad' : undefined} hint="failed deterministic checks" />
-        <Stat label="In queue" value={health?.stats.queueDepth ?? 0} />
-      </div>
-
       <div className="grid two">
-        <Card title="Runs">
+        <Card title="Runs" aside={<span className="muted small">{summary}</span>}>
           {!runs ? <div className="empty">Loading…</div> : shownRuns.length === 0 ? (
             <div className="empty">No runs yet. Start one from “Ask an agent now”, or enable the engine hook to record real events.</div>
           ) : (

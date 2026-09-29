@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mfittko/market-signals/platform/fixtures"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/tools"
@@ -296,12 +297,22 @@ func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if b.Strategy != nil {
 		// an agent may only point at a strategy that has a live version
-		tag, err := s.st.Pool.Exec(r.Context(), `UPDATE agents SET strategy_name=NULLIF($1,'') WHERE id=$2 AND ($1='' OR EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND NOT archived))`, *b.Strategy, r.PathValue("id"))
+		// the same per-strategy lock as archiving, so an assignment cannot slip in
+		// between the archive's "no agent uses it" check and its update
+		var updated int64
+		err := pgx.BeginFunc(r.Context(), s.st.Pool, func(tx pgx.Tx) error {
+			if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+*b.Strategy); err != nil {
+				return err
+			}
+			tag, err := tx.Exec(r.Context(), `UPDATE agents SET strategy_name=NULLIF($1,'') WHERE id=$2 AND ($1='' OR EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND NOT archived))`, *b.Strategy, r.PathValue("id"))
+			updated = tag.RowsAffected()
+			return err
+		})
 		if err != nil {
 			s.fail500(w, err)
 			return
 		}
-		if tag.RowsAffected() == 0 {
+		if updated == 0 {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown agent or strategy"})
 			return
 		}

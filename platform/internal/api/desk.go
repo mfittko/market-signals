@@ -70,16 +70,29 @@ func (s *Server) desk(w http.ResponseWriter, r *http.Request) {
 		s.fail500(w, err)
 		return
 	}
+	// The candle table is large. A skip scan visits each (instrument, granularity) once
+	// and reads its newest row from the primary key index, instead of every candle.
 	rows, err := s.st.Pool.Query(r.Context(), `
+		WITH RECURSIVE g(instrument, gran) AS (
+		  SELECT i.symbol, (SELECT min(granularity) FROM candles c WHERE c.instrument=i.symbol) FROM instruments i
+		  UNION ALL
+		  SELECT g.instrument, (SELECT min(granularity) FROM candles c WHERE c.instrument=g.instrument AND c.granularity > g.gran)
+		  FROM g WHERE g.gran IS NOT NULL
+		), cs AS (
+		  SELECT instrument, array_agg(gran ORDER BY gran) AS grans,
+		    max((SELECT max(time) FROM candles c WHERE c.instrument=g.instrument AND c.granularity=g.gran)) AS last
+		  FROM g WHERE gran IS NOT NULL GROUP BY instrument
+		)
 		SELECT i.symbol, i.name, i.market,
-		  COALESCE((SELECT array_agg(DISTINCT granularity ORDER BY granularity) FROM candles c WHERE c.instrument=i.symbol), '{}'),
-		  (SELECT max(time) FROM candles c WHERE c.instrument=i.symbol),
+		  COALESCE(cs.grans, '{}'),
+		  cs.last,
 		  (SELECT count(*) FROM signals s WHERE s.instrument=i.symbol),
 		  ls.signal, ls.time,
 		  (SELECT count(*) FROM trades t WHERE t.instrument=i.symbol),
 		  (SELECT count(*) FROM trades t WHERE t.instrument=i.symbol AND t.realized>0),
 		  COALESCE((SELECT sum(realized) FROM trades t WHERE t.instrument=i.symbol),0)
 		FROM instruments i
+		LEFT JOIN cs ON cs.instrument=i.symbol
 		LEFT JOIN LATERAL (SELECT signal, time FROM signals s WHERE s.instrument=i.symbol ORDER BY time DESC LIMIT 1) ls ON true
 		ORDER BY (SELECT count(*) FROM agents a WHERE a.instrument=i.symbol AND a.enabled) DESC, i.market, i.symbol`)
 	if err != nil {

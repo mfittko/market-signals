@@ -10,6 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// MaxSnapshotBytes caps a frozen snapshot when it is created, so reading it back
+// can always return whole, valid JSON.
+const MaxSnapshotBytes = 64000
+
 var (
 	// ErrStale rejects a worker whose attempt was reassigned, expired or finished.
 	ErrStale = errors.New("stale attempt: fence mismatch, lease expired or attempt no longer running")

@@ -86,7 +86,7 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
     if (key.trim()) patch.OPENAI_API_KEY = key.trim();
     if (akey.trim()) patch.ANTHROPIC_API_KEY = akey.trim();
     if (tokens.trim() && Number(tokens) !== s.maxCompletionTokens) patch.maxCompletionTokens = Number(tokens);
-    void run(patch, 'Saved. The engine uses the new provider for the next chat message.').then(() => { setKey(''); setAkey(''); });
+    void run(patch, 'Saved. The engine uses the new provider for chat, the signal filter and the bot from their next call.').then(() => { setKey(''); setAkey(''); });
   };
 
   return (

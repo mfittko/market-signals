@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -452,5 +453,20 @@ func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestIngestRejectsAnOversizedSnapshot(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	big := json.RawMessage(`{"pad":"` + strings.Repeat("x", MaxSnapshotBytes) + `"}`)
+	_, err := s.Ingest(ctx, IngestInput{IdemKey: "big", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "engine", Payload: big})
+	if err == nil {
+		t.Fatal("a snapshot over the cap must be refused, not stored and later cut into invalid JSON")
+	}
+	var n int
+	must(t, testPool.QueryRow(ctx, `SELECT count(*) FROM snapshots`).Scan(&n))
+	if n != 0 {
+		t.Fatalf("nothing may be stored for a refused snapshot, found %d", n)
 	}
 }

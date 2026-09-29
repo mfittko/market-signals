@@ -4,7 +4,8 @@
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
 #   scripts/switch-launchd.sh up         switch to this worktree (asks first; -y skips the question)
-#   scripts/switch-launchd.sh rollback   restore the original plists and the main checkout
+#   scripts/switch-launchd.sh rollback [--with-watcher]   restore the original server plist and the main checkout;
+#                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
 # main checkout's data/, so no state is copied or lost. Original plists are kept in ~/Library/LaunchAgents/.ms-backup.
@@ -23,6 +24,25 @@ die() { echo "error: $*" >&2; exit 1; }
 loaded() { launchctl print "gui/$UID_/$1" >/dev/null 2>&1; }
 equity() { curl -fsS -m 8 "$API/api/portfolio" | jq -c '.portfolio | {equity, cash, trades: (.trades | length), positions: (.positions | length)}'; }
 workdir() { /usr/libexec/PlistBuddy -c 'Print :WorkingDirectory' "$LA/$SRV.plist" 2>/dev/null || echo "?"; }
+
+# bootout returns before the job is gone, and a bootstrap right after can then fail.
+# unload waits for the job to disappear; load retries a few times.
+unload() {
+  loaded "$1" || return 0
+  launchctl bootout "gui/$UID_/$1" || true
+  local n=0
+  while loaded "$1"; do
+    n=$((n + 1)); [ "$n" -gt 20 ] && die "$1 did not unload; run: launchctl bootout gui/$UID_/$1"
+    sleep 0.5
+  done
+}
+load() {
+  local n=0
+  until launchctl bootstrap "gui/$UID_" "$LA/$1.plist" 2>/dev/null; do
+    n=$((n + 1)); [ "$n" -ge 5 ] && die "$1 did not load; run: $0 rollback"
+    sleep 1
+  done
+}
 
 wait_health() {
   for _ in $(seq 1 30); do curl -fsS -m 3 "$API/api/health" >/dev/null 2>&1 && return 0; sleep 1; done
@@ -66,8 +86,8 @@ up() {
   [ -f "$LA/$WATCH.plist" ] && command mv "$LA/$WATCH.plist" "$BK/$WATCH.plist.disabled"
 
   # a changed plist only takes effect after a full unload and load; kickstart alone would keep the old directory
-  if loaded "$SRV"; then launchctl bootout "gui/$UID_/$SRV"; fi
-  launchctl bootstrap "gui/$UID_" "$LA/$SRV.plist"
+  unload "$SRV"
+  load "$SRV"
 
   wait_health || die "engine did not answer within 30 seconds; run: $0 rollback"
   after="$(equity || echo unavailable)"
@@ -76,14 +96,16 @@ up() {
   echo; status
 }
 
+# The old five-minute watcher is restored only with --with-watcher: the server already
+# watches every pair, and two cycle owners send duplicate alerts.
 rollback() {
   [ -f "$BK/$SRV.plist" ] || die "no backup at $BK"
-  loaded "$SRV" && launchctl bootout "gui/$UID_/$SRV"
+  unload "$SRV"
   command cp -f "$BK/$SRV.plist" "$LA/$SRV.plist"
-  launchctl bootstrap "gui/$UID_" "$LA/$SRV.plist"
-  if [ -f "$BK/$WATCH.plist" ] && ! loaded "$WATCH"; then
+  load "$SRV"
+  if [ "${2:-}" = "--with-watcher" ] && [ -f "$BK/$WATCH.plist" ] && ! loaded "$WATCH"; then
     command cp -f "$BK/$WATCH.plist" "$LA/$WATCH.plist"
-    launchctl bootstrap "gui/$UID_" "$LA/$WATCH.plist"
+    load "$WATCH"
   fi
   wait_health || die "engine did not answer within 30 seconds"
   echo "rolled back."; status
@@ -92,6 +114,6 @@ rollback() {
 case "${1:-status}" in
   status) status ;;
   up) up "${2:-}" ;;
-  rollback) rollback ;;
+  rollback) rollback "$@" ;;
   *) die "usage: $0 status|up [-y]|rollback" ;;
 esac

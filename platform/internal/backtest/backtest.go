@@ -239,11 +239,30 @@ func Summarize(t []Trade) Stats {
 	return s
 }
 
-// Split cuts trades chronologically: the first `frac` of them are training, the rest are test.
-func Split(t []Trade, frac float64) (train, test []Trade) {
-	sort.Slice(t, func(a, b int) bool { return t[a].Entry.Before(t[b].Entry) })
-	k := int(math.Round(float64(len(t)) * frac))
-	return t[:k], t[k:]
+// cutTime is the time of the flip that starts the test part. Every candidate is split
+// at this one date, so train and test cover the same periods for all of them.
+func cutTime(flips []Flip, frac float64) time.Time {
+	ts := make([]time.Time, len(flips))
+	for i, f := range flips {
+		ts[i] = f.Time
+	}
+	sort.Slice(ts, func(a, b int) bool { return ts[a].Before(ts[b]) })
+	if len(ts) == 0 {
+		return time.Time{}
+	}
+	return ts[min(int(math.Round(float64(len(ts))*frac)), len(ts)-1)]
+}
+
+// SplitAt puts trades entered before cut in training and the rest in test.
+func SplitAt(t []Trade, cut time.Time) (train, test []Trade) {
+	for _, x := range t {
+		if x.Entry.Before(cut) {
+			train = append(train, x)
+		} else {
+			test = append(test, x)
+		}
+	}
+	return
 }
 
 type Candidate struct {
@@ -265,8 +284,8 @@ const (
 	MinTest  = 10
 )
 
-func evaluate(c []Candle, f features, flips []Flip, p Params) Candidate {
-	tr, te := Split(runWith(c, f, flips, p), 0.7)
+func evaluate(c []Candle, f features, flips []Flip, p Params, cut time.Time) Candidate {
+	tr, te := SplitAt(runWith(c, f, flips, p), cut)
 	return Candidate{Params: p, Train: Summarize(tr), Test: Summarize(te)}
 }
 
@@ -290,11 +309,12 @@ func Grid() []Params {
 // among those with enough training trades, next to the plain-flip baseline.
 func Search(c []Candle, flips []Flip, top int) Report {
 	f := indicators(c)
-	base := evaluate(c, f, flips, Params{StopATR: 1.5, RR: 2, Direction: "both"})
+	cut := cutTime(flips, 0.7)
+	base := evaluate(c, f, flips, Params{StopATR: 1.5, RR: 2, Direction: "both"}, cut)
 	r := Report{Baseline: base, Flips: len(flips)}
 	var all []Candidate
 	for _, p := range Grid() {
-		cd := evaluate(c, f, flips, p)
+		cd := evaluate(c, f, flips, p, cut)
 		r.Tried++
 		if cd.Train.Trades >= MinTrain {
 			all = append(all, cd)

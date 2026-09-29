@@ -488,7 +488,9 @@ func (im *importer) portfolio() error {
 	}
 	var peak sql.NullFloat64
 	_ = im.src.QueryRowContext(im.ctx, `SELECT value FROM bot_state WHERE key='peak_equity'`).Scan(&peak)
-	tag, err := im.tx.Exec(im.ctx, `INSERT INTO portfolio_account (id,starting_balance,cash,halted,peak_equity,created_at) VALUES (1,$1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+	tag, err := im.tx.Exec(im.ctx, `INSERT INTO portfolio_account (id,starting_balance,cash,halted,peak_equity,created_at) VALUES (1,$1,$2,$3,$4,$5)
+		ON CONFLICT (id) DO UPDATE SET cash=EXCLUDED.cash, halted=EXCLUDED.halted, peak_equity=EXCLUDED.peak_equity
+		WHERE (portfolio_account.cash, portfolio_account.halted, portfolio_account.peak_equity) IS DISTINCT FROM (EXCLUDED.cash, EXCLUDED.halted, EXCLUDED.peak_equity)`,
 		start, cash, halted != 0, nf(peak), t)
 	if err != nil {
 		return err
@@ -800,6 +802,38 @@ func (im *importer) invariants(o Options) error {
 	for name, t := range im.rep.Tables {
 		im.rep.check("rows:"+name, t.Destination >= t.Source, "source %d, destination %d, newly inserted %d", t.Source, t.Destination, t.Inserted)
 	}
+
+	// 1b. a console-authored version with the same name and number would make the
+	// insert skip the legacy row; the row counts alone would still pass
+	var clashes []string
+	srows, err := im.src.QueryContext(ctx, `SELECT name, version, prompt FROM strategies`)
+	if err != nil {
+		return err
+	}
+	type sv struct {
+		name, prompt string
+		version      int
+	}
+	var svs []sv
+	for srows.Next() {
+		var s sv
+		if err := srows.Scan(&s.name, &s.version, &s.prompt); err != nil {
+			srows.Close()
+			return err
+		}
+		svs = append(svs, s)
+	}
+	srows.Close()
+	for _, s := range svs {
+		var same bool
+		if err := im.tx.QueryRow(ctx, `SELECT COALESCE(bool_or(prompt=$3), false) FROM strategies WHERE name=$1 AND version=$2`, s.name, s.version, s.prompt).Scan(&same); err != nil {
+			return err
+		}
+		if !same {
+			clashes = append(clashes, fmt.Sprintf("%s v%d", s.name, s.version))
+		}
+	}
+	im.rep.check("legacy strategy versions kept intact", len(clashes) == 0, "%d clash with a different console version %v", len(clashes), clashes)
 
 	// 2. candles match per instrument and granularity
 	src := map[string]int{}

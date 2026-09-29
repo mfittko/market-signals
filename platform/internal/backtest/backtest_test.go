@@ -92,7 +92,7 @@ func TestSummarizeSplitAndHolds(t *testing.T) {
 	for i := range trades {
 		trades[i].Entry = t0.Add(time.Duration(i) * time.Hour)
 	}
-	tr, te := Split(trades, 0.6)
+	tr, te := SplitAt(trades, trades[3].Entry)
 	if len(tr) != 3 || len(te) != 2 || !tr[2].Entry.Before(te[0].Entry) {
 		t.Fatal("split must be chronological")
 	}
@@ -123,6 +123,30 @@ func TestSearchRanksOnTrainingOnly(t *testing.T) {
 	for _, cd := range r.Candidates {
 		if cd.Train.Trades < MinTrain {
 			t.Fatal("candidates need enough training trades")
+		}
+	}
+}
+
+func TestEveryCandidateIsSplitAtTheSameDate(t *testing.T) {
+	flips := []Flip{{Time: t0.Add(1 * time.Hour)}, {Time: t0.Add(2 * time.Hour)}, {Time: t0.Add(3 * time.Hour)}, {Time: t0.Add(4 * time.Hour)}, {Time: t0.Add(5 * time.Hour)}}
+	cut := cutTime(flips, 0.6)
+	if !cut.Equal(t0.Add(4 * time.Hour)) {
+		t.Fatalf("cut must be a flip time on the shared timeline, got %v", cut)
+	}
+	// trades of different candidates land on the same side of the same date
+	a := []Trade{{Entry: t0.Add(3 * time.Hour)}, {Entry: t0.Add(5 * time.Hour)}}
+	b := []Trade{{Entry: t0.Add(1 * time.Hour)}, {Entry: t0.Add(4 * time.Hour)}}
+	for _, ts := range [][]Trade{a, b} {
+		tr, te := SplitAt(ts, cut)
+		for _, x := range tr {
+			if !x.Entry.Before(cut) {
+				t.Fatal("training trade at or after the cut")
+			}
+		}
+		for _, x := range te {
+			if x.Entry.Before(cut) {
+				t.Fatal("test trade before the cut")
+			}
 		}
 	}
 }

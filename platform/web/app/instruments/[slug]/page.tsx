@@ -17,7 +17,14 @@ type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetai
 type NewsItem = { title: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
+// Keyed by slug: switching instruments unmounts the old view completely (data, timeframe,
+// tab, chat, pollers), so nothing from the previous instrument shows under the new URL.
 export default function InstrumentPage() {
+  const { slug } = useParams<{ slug: string }>();
+  return <InstrumentView key={slug} />;
+}
+
+function InstrumentView() {
   const { slug } = useParams<{ slug: string }>();
   const [gran, setGran] = useState<string>('');
   const [d, setD] = useState<InstrumentDetail | null>(null);

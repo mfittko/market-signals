@@ -56,7 +56,13 @@ func fakeEngine(t *testing.T) *httptest.Server {
 		io.WriteString(w, `{"method":"`+r.Method+`","origin":"`+r.Header.Get("Origin")+`"}`)
 	})
 	mux.HandleFunc("/api/portfolio-secret", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `leak`) })
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"ok":true}`) })
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"ok":true,"feed":[{"instrument":"WTICO/USD","granularity":"M5","lastCandleTime":"2026-01-01T10:05:00.000000000Z"}]}`)
+	})
+	mux.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
+		// deliberately unordered: the Desk must pick the newest by time
+		io.WriteString(w, `{"ok":true,"signals":[{"time":"2026-01-01T09:00:00Z","signal":"buy"},{"time":"2026-01-01T09:55:00Z","signal":"sell"}]}`)
+	})
 	s := httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
@@ -430,6 +436,9 @@ func TestStrategyVersionsSaveActivateAndAssign(t *testing.T) {
 	}
 	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/9/activate", "", "", nil); c != 404 {
 		t.Fatalf("unknown version: %d", c)
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/abc/activate", "", "", nil); c != 404 {
+		t.Fatalf("a non-numeric version must be a 404, not a server error: %d", c)
 	}
 	// a new name starts at version 1; bad input is refused
 	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Fresh/versions", "", `{"prompt":"x"}`, nil); c != 200 || out["version"] != float64(1) {

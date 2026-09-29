@@ -63,6 +63,9 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 	if in.IdemKey == "" || in.Instrument == "" || in.Granularity == "" || len(in.Payload) == 0 {
 		return res, errors.New("idemKey, instrument, granularity and payload are required")
 	}
+	if len(in.Payload) > MaxSnapshotBytes {
+		return res, fmt.Errorf("snapshot payload is %d bytes; the limit is %d", len(in.Payload), MaxSnapshotBytes)
+	}
 	if in.Trigger == "" {
 		in.Trigger = in.Event
 	}
