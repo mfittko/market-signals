@@ -7,6 +7,7 @@
 // the alert filter's fail-open, deliberately.
 import { createHash } from 'node:crypto';
 import { withDb, llmChat, sendNotification, llmUsageLine } from './supertrend.mjs';
+import { emitSnapshot, emitLegacyDecision } from './control-plane.mjs';
 
 const dbg = (msg) => process.stderr.write(`[bot] ${msg}\n`);
 import {
@@ -209,7 +210,7 @@ export const DECISION_SYSTEM = 'You are an automated trading strategy executing 
 // openPosition applied — {requestedNotional, effectiveNotional, bindingCap} —
 // read back from its journaled 'open'/'skip' row, so the audit trail shows
 // what happened, not just the LLM's raw ask.
-export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, toolDefs = null, execTool = null, strategyRow = null }) {
+export async function deliberate(dbPath, settings, { instrument, granularity, event, ctx, candleTime = null, toolDefs = null, execTool = null, strategyRow = null }) {
   const cfg = botConfig(settings);
   // Per-combo riskPct/allocationPct (#49/#51) live under settings.bot.bots and
   // are NOT BOT_DEFAULTS keys botConfig() would pick up on its own — fold in
@@ -225,6 +226,12 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
   if (strategyRow?.prompt) loop.strategy = strategyRow.prompt;
   const view = portfolioView(dbPath, cfg);
   const version = strategyVersion(loop.strategy);
+  // Frozen copy for the shadow agent runtime; resolves to null and never throws
+  // when the control plane is off or down. Not awaited: it cannot slow the decision.
+  const shadowKey = emitSnapshot({
+    instrument, granularity, event, candleTime, ctx, view, strategyRow,
+    strategyPrompt: loop.strategy, strategyVersion: version,
+  });
   const toolTrace = [];
   const allowedTools = new Set((toolDefs || []).map((t) => t.name));
   const tracedExec = execTool
@@ -316,6 +323,7 @@ export async function deliberate(dbPath, settings, { instrument, granularity, ev
     strategyVersion: version, strategyId: strategyRow?.id ?? null, strategyName: strategyRow?.name ?? null, strategyDbVersion: strategyRow?.version ?? null, toolTrace, instrumentContext: ctx,
     snapshot: { equity: view.equity, cash: view.cash, marginLocked: view.marginLocked, unrealized: view.unrealized, halted: view.halted, positions: view.positions },
   });
+  shadowKey.then((key) => emitLegacyDecision(key, { decision, executed, error })).catch(() => {});
   return { decision, executed, error, execSizing };
 }
 
@@ -396,7 +404,7 @@ export async function runBot(dbPath, settings, { instrument, granularity, candle
   if (buildCtx && (!ctx || Object.keys(ctx).length === 0)) ctx = await buildCtx();
 
   const result = await deliberate(dbPath, settings, {
-    instrument, granularity, event,
+    instrument, granularity, event, candleTime: candle?.time ?? null,
     ctx: { ...ctx, close: candle?.close, quote, flip: freshFlip, volumeImpulse: freshImpulse },
     toolDefs, execTool, strategyRow,
   });
