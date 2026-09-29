@@ -55,7 +55,7 @@ func (s *Store) emit(ctx context.Context, tx pgx.Tx, runID int64, attemptID *int
 	return err
 }
 
-// Ingest stores the snapshot and enqueues one run per matching enabled agent in
+// Ingest stores the snapshot and enqueues one run per matching enabled agent (or the one agent an operator names) in
 // a single transaction, so an accepted event can never exist without its runs.
 // The same idempotency key returns the original snapshot and runs.
 func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error) {
@@ -87,7 +87,7 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 	}
 
 	rows, err := tx.Query(ctx, `SELECT a.id, a.budgets, s.id FROM agents a JOIN sessions s ON s.agent_id=a.id
-		WHERE a.enabled AND a.instrument=$1 AND a.granularity=$2 AND ($3='' OR a.id=$3) ORDER BY a.id`,
+		WHERE (a.enabled OR $3<>'') AND a.instrument=$1 AND a.granularity=$2 AND ($3='' OR a.id=$3) ORDER BY a.id`,
 		in.Instrument, in.Granularity, in.AgentID)
 	if err != nil {
 		return res, err

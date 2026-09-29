@@ -734,8 +734,8 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 	}
 	sort.Strings(im.rep.Instruments)
 
-	// agents: one per legacy bot. The mock runs by default. The LLM twin stays
-	// disabled until the operator turns it on, so an import never spends money.
+	// agents: one LLM agent per legacy bot. It stays off until the operator turns
+	// it on, so an import never spends money. A manual entry check still runs it.
 	sb, err := os.ReadFile(o.SettingsPath)
 	if err != nil {
 		im.rep.Notes = append(im.rep.Notes, "settings unreadable, no agents created: "+err.Error())
@@ -772,9 +772,10 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 			strat = *bot.StrategyName
 		}
 		base := "legacy-" + strings.NewReplacer("/", "-").Replace(strings.ToLower(inst)) + "-" + strings.ToLower(gran)
-		for _, v := range []struct{ suffix, runtime string }{{"mock", "mock"}, {"llm", "llm"}} {
+		_ = enabled // the legacy bot's own on/off stays in the engine; the agent starts off
+		for _, v := range []struct{ suffix, runtime string }{{"llm", "llm"}} {
 			id := base + "-" + v.suffix
-			on := enabled && v.runtime == "mock"
+			on := false
 			tag, err := im.tx.Exec(im.ctx, `INSERT INTO agents (id,name,instrument,granularity,runtime,strategy_name,allowed_tools,enabled,legacy_bot)
 				VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,true) ON CONFLICT (id) DO NOTHING`,
 				id, fmt.Sprintf("%s %s · %s", inst, gran, v.runtime), inst, gran, v.runtime, strat, tools, on)

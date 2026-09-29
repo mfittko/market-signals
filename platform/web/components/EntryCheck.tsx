@@ -23,8 +23,8 @@ function verdict(run?: Run): { text: string; tone: 'good' | 'muted' | 'bad'; why
 export function EntryCheck({ agents }: { agents: DeskAgent[] }) {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState(false);
-  const on = agents.filter((a) => a.enabled);
-  const hasLlm = on.some((a) => a.runtime === 'llm');
+  // A manual check runs every LLM agent for this instrument, on or off. Each check is one model call per agent.
+  const on = agents.filter((a) => a.runtime === 'llm');
 
   async function start() {
     setBusy(true);
@@ -54,14 +54,11 @@ export function EntryCheck({ agents }: { agents: DeskAgent[] }) {
   return (
     <Card title="Entry check" aside={<span className="muted small">against live data</span>}>
       <p className="small muted" style={{ marginTop: 0 }}>
-        Freezes the live state and asks each active agent whether its entry conditions are met right now. Nothing is executed.
+        Freezes the live state and asks each agent to judge its own strategy rules against it. It works even when the agent is off. Nothing is executed.
       </p>
       <button onClick={start} disabled={busy || on.length === 0} style={{ width: '100%' }}>
-        {busy ? 'Starting…' : on.length === 0 ? 'Turn an agent on first' : `Check now (${on.length} agent${on.length === 1 ? '' : 's'})`}
+        {busy ? 'Starting…' : on.length === 0 ? 'No agent for this instrument' : `Check now (${on.length} agent${on.length === 1 ? '' : 's'})`}
       </button>
-      {!hasLlm && on.length > 0 && (
-        <p className="small muted">Only deterministic agents are on. They check for a fresh flip. Turn on an LLM agent to judge this instrument&apos;s own strategy rules.</p>
-      )}
       {items.map((i) => {
         const v = verdict(i.run);
         return (

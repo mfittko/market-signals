@@ -18,7 +18,7 @@ export const dbg = (msg) => process.stderr.write(`[supertrend] ${msg}\n`);
 import { dirname, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { buildPushoverPayload, resolvePushoverConfig, sendPushover } from './lib/pushover.mjs';
 
 const USAGE = `supertrend — Supertrend flip signals + inline backtest.
@@ -560,7 +560,7 @@ export async function llmRequest(settings, system, user, { schema = null, maxTok
     // and hooks, skills and session files are all off: chat cannot touch the machine.
     const model = effectiveModel(settings, 'claude-code');
     const sys = schema ? `${system}\n\nReply with ONLY a JSON object matching this JSON Schema, no prose:\n${JSON.stringify(schema)}` : system;
-    const args = ['-p', '--no-session-persistence', '--tools', '', '--setting-sources', '', '--disable-slash-commands', '--output-format', 'json', '--system-prompt', sys];
+    const args = ['-p', '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands', '--output-format', 'json', '--system-prompt', sys];
     if (model) args.push('--model', model);
     args.push(user);
     const bin = settings.claudeBin || join(homedir(), '.local/bin/claude');
@@ -778,12 +778,129 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
   throw new Error('tool loop exceeded 8 rounds');
 }
 
+// Tool loop for claude-code. The CLI runs with its own tools off, so the model
+// asks for OUR tools with `TOOL_CALL {json}` lines (one or several per reply).
+// We run them through execTool (the same clamped registry the API providers
+// use) and call again with the results appended. ponytail: one CLI call per
+// round, so 4 rounds max; move to an MCP server if latency matters.
+const CLAUDE_TOOL_ROUNDS = 4;
+const MAX_CALLS_PER_ROUND = 4;
+
+// Every `TOOL_CALL {json}` in the text, in order. Brace matching is string-aware,
+// so the calls may sit on separate lines or run together on one.
+export function parseToolCalls(text) {
+  const s = String(text);
+  const calls = [];
+  let at = s.indexOf('TOOL_CALL');
+  while (at >= 0) {
+    const start = s.indexOf('{', at);
+    if (start < 0) break;
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = start; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}' && --depth === 0) { end = i; break; }
+    }
+    if (end < 0) break;
+    try {
+      const call = JSON.parse(s.slice(start, end + 1));
+      if (typeof call?.name === 'string') calls.push({ name: call.name, input: call.input && typeof call.input === 'object' ? call.input : {} });
+    } catch { /* not a call: skip it */ }
+    at = s.indexOf('TOOL_CALL', end);
+  }
+  return calls;
+}
+export const parseToolCall = (text) => parseToolCalls(text)[0] ?? null;
+
+// One streaming CLI call. Text deltas go to onText as they arrive. Async, so a
+// slow reply never blocks the server's other requests. Falls back to the final
+// result text when the CLI sends no partial events.
+function claudeCodeStream(settings, system, user, { onText, onUsage, timeoutMs }) {
+  const model = effectiveModel(settings, 'claude-code');
+  const args = ['-p', '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--setting-sources', '', '--disable-slash-commands',
+    '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--system-prompt', system];
+  if (model) args.push('--model', model);
+  args.push(user);
+  const bin = settings.claudeBin || join(homedir(), '.local/bin/claude');
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(bin, args, {
+      cwd: tmpdir(), // keeps project CLAUDE.md and memory out of the prompt
+      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${join(homedir(), '.local/bin')}:${process.env.PATH || ''}` },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let buf = '', streamed = '', final = null, stderr = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('claude-code timed out')); }, timeoutMs);
+    const line = (raw) => {
+      let ev; try { ev = JSON.parse(raw); } catch { return; }
+      const d = ev.type === 'stream_event' && ev.event?.type === 'content_block_delta' && ev.event.delta?.type === 'text_delta' ? ev.event.delta.text : null;
+      if (d) { streamed += d; onText?.(d); }
+      else if (ev.type === 'result') final = ev;
+    };
+    child.stdout.on('data', (b) => { buf += b; let i; while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); } });
+    child.stderr.on('data', (b) => { stderr = (stderr + b).slice(-400); });
+    child.on('error', (err) => { clearTimeout(timer); reject(new Error(`claude-code failed: ${err.code || err.message}`.slice(0, 200))); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (buf.trim()) line(buf);
+      if (!final || final.is_error || typeof final.result !== 'string') {
+        return reject(new Error(`claude-code failed: ${String(final?.result ?? (stderr.trim().split('\n').pop() || `exit ${code}`)).slice(0, 150)}`));
+      }
+      const u = final.usage;
+      reportUsage(onUsage, {
+        provider: 'claude-code',
+        model: model || Object.keys(final.modelUsage || {})[0] || null,
+        usage: u ? { inputTokens: (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0), outputTokens: u.output_tokens ?? 0 } : null,
+      });
+      resolvePromise({ text: final.result.trim(), streamed: streamed.length > 0 });
+    });
+  });
+}
+
+async function claudeCodeToolLoop(settings, system, user, { toolDefs, execTool, onDelta, onUsage, timeoutMs }) {
+  const catalog = toolDefs.map((t) => `- ${t.name}: ${t.description} Input JSON schema: ${JSON.stringify(t.input_schema)}`).join('\n');
+  const sys = `${system}\n\nYou can call tools to fetch data. Available tools:\n${catalog}\n\n`
+    + 'To call tools, reply with ONLY TOOL_CALL lines, one per call, each exactly: TOOL_CALL {"name":"<tool>","input":{...}} and no other text. '
+    + 'You may request several tools in one reply. You will receive the results and can call more. '
+    + 'When you have what you need, reply with the final answer as normal text and no TOOL_CALL line.';
+  let transcript = user;
+  for (let round = 0; round <= CLAUDE_TOOL_ROUNDS; round++) {
+    const last = round === CLAUDE_TOOL_ROUNDS;
+    // Stream the answer as it arrives, but hold back the first characters: a reply
+    // that starts with TOOL_CALL is a tool request and must never reach the reader.
+    let head = '', releasing = false;
+    const onText = (d) => {
+      if (releasing) return onDelta?.(d);
+      head += d;
+      const t = head.trimStart();
+      if (t.length < 9 ? 'TOOL_CALL'.startsWith(t) : t.startsWith('TOOL_CALL')) return; // may be, or is, a tool request: never shown
+      releasing = true; onDelta?.(head);
+    };
+    const { text: reply } = await claudeCodeStream(settings, last ? `${sys}\nTool calls are no longer allowed. Answer now.` : sys, transcript, { onText, onUsage, timeoutMs });
+    const calls = last ? [] : parseToolCalls(reply).slice(0, MAX_CALLS_PER_ROUND);
+    if (!calls.length) {
+      if (!releasing) onDelta?.(reply); // nothing reached the reader yet (short reply, or no partial events): deliver it whole
+      return reply;
+    }
+    let results = '';
+    for (const call of calls) {
+      let out;
+      try { out = await execTool(call.name, call.input); } catch (err) { out = `error: ${err.message}`; }
+      const text = (typeof out === 'string' ? out : JSON.stringify(out)).slice(0, 8000);
+      results += `\n\n[you called ${call.name} ${JSON.stringify(call.input)}]\n[tool result]\n${text}\n[end tool result]`;
+    }
+    transcript += `${results}\n\nContinue: call more tools or give the final answer.`;
+  }
+}
+
 // Free-form ask against the configured provider (used by the chat sidebar).
 export async function llmChat(settings, system, user, { onDelta = null, toolDefs = null, execTool = null, onUsage = null } = {}) {
   const provider = resolveProvider(settings);
   const opts = { maxTokens: 2048, timeoutMs: 180000, onDelta, toolDefs, execTool, onUsage, provider };
   if (toolDefs && execTool && provider === 'anthropic') return anthropicToolLoop(settings, system, user, opts);
   if (toolDefs && execTool && (provider === 'openai' || provider === 'openai-compatible')) return openaiToolLoop(settings, system, user, opts);
+  if (toolDefs && execTool && provider === 'claude-code') return claudeCodeToolLoop(settings, system, user, { toolDefs, execTool, onDelta, onUsage, timeoutMs: 120000 });
   // pi (and tool-less fallbacks): context only — the sole tool surface is the
   // clamped skill registry via the API providers' native tool-calling.
   return llmRequest(settings, system, user, { maxTokens: 2048, timeoutMs: 180000, onDelta, onUsage });

@@ -1772,7 +1772,12 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
             toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-            execTool: (n, i) => { toolsUsed.push(n); return execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }); },
+            execTool: (n, i) => {
+              toolsUsed.push(n);
+              send({ type: 'tool', name: n, input: i, state: 'running' }); // progress for the console; the reply itself is unchanged
+              return Promise.resolve(execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
+                .finally(() => send({ type: 'tool', name: n, state: 'done' }));
+            },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
           });
           if (abandoned() || superseded()) return discardTurn();

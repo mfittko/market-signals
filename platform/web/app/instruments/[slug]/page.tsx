@@ -4,6 +4,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
+import { BotBadge, useActiveBots } from '@/lib/bots';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { EntryCheck } from '@/components/EntryCheck';
 import { ChatPanel } from '@/components/ChatPanel';
@@ -22,6 +23,8 @@ export default function InstrumentPage() {
   const [d, setD] = useState<InstrumentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { tick } = useLive();
+  const [tab, setTab] = useState<'signals' | 'trades'>('signals');
+  const bots = useActiveBots();
   const [allSig, setAllSig] = useState(false);
   const [allTr, setAllTr] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
@@ -74,7 +77,7 @@ export default function InstrumentPage() {
   return (
     <main className="wrap">
       <div className="top">
-        <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span></div>
+        <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span><BotBadge grans={bots?.get(d.symbol)} /></div>
         <div className="seg" role="group" aria-label="Granularity">
           {d.granularities.map((g) => <button key={g.granularity} aria-pressed={g.granularity === d.granularity} onClick={() => setGran(g.granularity)}>{g.granularity}</button>)}
         </div>
@@ -87,6 +90,8 @@ export default function InstrumentPage() {
         <Stat label="Realized (shown)" value={money(pnl)} tone={pnl >= 0 ? 'good' : 'bad'} />
       </div>
 
+      <div className="grid desk">
+        <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small">
           {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : liveErr ? 'imported history · engine offline' : 'imported history'}
@@ -101,9 +106,13 @@ export default function InstrumentPage() {
         {liveErr && <p className="small muted" role="status">Live data unavailable: {liveErr}. Showing imported history.</p>}
       </Card>
 
-      <div className="grid two">
-        <div className="grid">
-          <Card title="Signals">
+          <Card>
+            <div className="tabs" role="tablist" aria-label="History">
+              <button role="tab" id="tab-signals" aria-selected={tab === 'signals'} aria-controls="pane-history" onClick={() => setTab('signals')}>Signals <span className="muted small">{d.signals.length}</span></button>
+              <button role="tab" id="tab-trades" aria-selected={tab === 'trades'} aria-controls="pane-history" onClick={() => setTab('trades')}>Paper trades <span className="muted small">{d.trades.length}</span></button>
+            </div>
+            <div id="pane-history" role="tabpanel" aria-labelledby={`tab-${tab}`}>
+            {tab === 'signals' && (<>
             {d.signals.length === 0 ? <div className="empty">No signals.</div> : (
               <div className="scroll"><table>
                 <thead><tr><th>Time</th><th>Signal</th><th>Verdict</th><th>Reason</th></tr></thead>
@@ -118,8 +127,9 @@ export default function InstrumentPage() {
               </table></div>
             )}
             {d.signals.length > LIMIT && <button className="linkish" onClick={() => setAllSig(!allSig)}>{allSig ? "Show fewer" : `Show all ${d.signals.length}`}</button>}
-          </Card>
-          <Card title="Paper trades (previous bot versions)">
+            </>)}
+            {tab === 'trades' && (<>
+            <p className="small muted" style={{ marginTop: 0 }}>Closed paper trades from previous bot versions.</p>
             {d.trades.length === 0 ? <div className="empty">No trades for this instrument.</div> : (
               <div className="scroll"><table>
                 <thead><tr><th>Closed</th><th>Side</th><th>Entry</th><th>Exit</th><th>P&amp;L</th><th>Why</th></tr></thead>
@@ -135,6 +145,8 @@ export default function InstrumentPage() {
               </table></div>
             )}
             {d.trades.length > LIMIT && <button className="linkish" onClick={() => setAllTr(!allTr)}>{allTr ? "Show fewer" : `Show all ${d.trades.length}`}</button>}
+            </>)}
+            </div>
           </Card>
         </div>
 

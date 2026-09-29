@@ -44,6 +44,7 @@ func (s *Server) agentsByInstrument(r *http.Request) (map[string][]deskAgent, er
 		       lr.id, lr.status, lr.created_at::text
 		FROM agents a
 		LEFT JOIN LATERAL (SELECT id, status, created_at FROM runs WHERE agent_id=a.id ORDER BY id DESC LIMIT 1) lr ON true
+		WHERE a.runtime <> 'mock'
 		ORDER BY a.instrument, a.granularity, a.runtime, a.id`)
 	if err != nil {
 		return nil, err

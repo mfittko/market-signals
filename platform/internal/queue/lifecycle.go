@@ -48,7 +48,7 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, l
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var runID int64
 	err = tx.QueryRow(ctx, `SELECT r.id FROM runs r JOIN agents a ON a.id=r.agent_id
-		WHERE r.status='queued' AND r.run_after<=now() AND a.enabled AND a.runtime = ANY($1)
+		WHERE r.status='queued' AND r.run_after<=now() AND (a.enabled OR r.trigger LIKE 'operator:%') AND a.runtime = ANY($1)
 		ORDER BY r.run_after, r.id FOR UPDATE OF r SKIP LOCKED LIMIT 1`, runtimes).Scan(&runID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

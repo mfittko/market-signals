@@ -2296,3 +2296,30 @@ test('claude-code provider runs the CLI tool-less and parses the json envelope',
   writeFileSync(bin, `#!/bin/sh\necho '{"is_error":true,"result":"Not logged in"}'\n`);
   await assert.rejects(() => llmRequest(settings, 'S', 'U'), /claude-code failed: Not logged in/);
 });
+
+test('claude-code chat runs several tool calls per round, streams only the final answer', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmChat, parseToolCalls } = await import('../scripts/supertrend.mjs');
+  assert.deepEqual(parseToolCalls('TOOL_CALL {"name":"a","input":{"q":"}{"}} TOOL_CALL {"name":"b"}\nTOOL_CALL {"name":"c","input":{"n":1}}').map((c) => c.name), ['a', 'b', 'c']);
+  assert.deepEqual(parseToolCalls('The answer mentions TOOL_CALL but has no json'), []);
+  const dir = mkdtempSync(join(tmpdir(), 'cc-'));
+  const bin = join(dir, 'claude');
+  const ev = (text) => JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text } } });
+  const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
+  const ask = 'TOOL_CALL {"name":"get_news","input":{}} TOOL_CALL {"name":"get_x","input":{"n":2}}';
+  // first round asks for two tools at once; once results are in the prompt, answer in two deltas
+  writeFileSync(bin, `#!/bin/sh\ncase "$*" in *"[tool result]"*) echo '${ev('done: ')}'; echo '${ev('calm tape')}'; echo '${res('done: calm tape')}';; *) echo '${ev(ask.slice(0, 12))}'; echo '${ev(ask.slice(12))}'; echo '${res(ask)}';; esac\n`);
+  chmodSync(bin, 0o755);
+  const calls = [];
+  const deltas = [];
+  const out = await llmChat({ provider: 'claude-code', claudeBin: bin }, 'SYS', 'what is the news?', {
+    toolDefs: [{ name: 'get_news', description: 'headlines', input_schema: { type: 'object' } }, { name: 'get_x', description: 'x', input_schema: { type: 'object' } }],
+    execTool: async (n, i) => { calls.push([n, i]); return 'calm tape'; },
+    onDelta: (d) => deltas.push(d),
+  });
+  assert.equal(out, 'done: calm tape');
+  assert.deepEqual(calls, [['get_news', {}], ['get_x', { n: 2 }]]);
+  assert.deepEqual(deltas, ['done: ', 'calm tape']); // the TOOL_CALL round never reaches the reader
+});

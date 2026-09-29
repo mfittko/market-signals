@@ -112,8 +112,8 @@ func TestImportIsIdempotentAndChecksTheBooks(t *testing.T) {
 		t.Fatalf("trade must link to the strategy version recorded when it opened, got %q", hash)
 	}
 	pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE legacy_bot`).Scan(&n)
-	if n != 2 {
-		t.Fatalf("one mock and one llm agent per bot, got %d", n)
+	if n != 1 {
+		t.Fatalf("one llm agent per bot, got %d", n)
 	}
 	var llmOn bool
 	pool.QueryRow(ctx, `SELECT enabled FROM agents WHERE id='legacy-wtico-usd-m5-llm'`).Scan(&llmOn)

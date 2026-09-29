@@ -1,10 +1,16 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 
 type Thread = { id: number; title: string; created_at: string; messages: number };
-type Msg = { id: number | string; role: 'user' | 'assistant'; content: string };
+type Tool = { key: number; name: string; state: 'running' | 'done'; input?: Record<string, unknown> };
+type Msg = { id: number | string; role: 'user' | 'assistant'; content: string; tools?: Tool[] };
+
+// "hours 12, maxItems 10": enough to see what the copilot asked for.
+const args = (i?: Record<string, unknown>) => Object.entries(i ?? {}).slice(0, 3).map(([k, v]) => `${k} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(', ');
 
 const short = (iso: string) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
@@ -39,6 +45,16 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [msgs]);
 
+  // Seconds since the question was sent, so a slow reply reads as slow, not stuck.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) return;
+    const t0 = Date.now();
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
+
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     const message = text.trim();
@@ -67,9 +83,19 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
         let i: number;
         while ((i = buf.indexOf('\n\n')) >= 0) {
           const line = buf.slice(0, i).replace(/^data: /, ''); buf = buf.slice(i + 2);
-          let ev: { type: string; text?: string; id?: number; threadId?: number; reply?: string; error?: string; title?: string };
+          let ev: { type: string; text?: string; id?: number; threadId?: number; reply?: string; error?: string; title?: string; name?: string; state?: 'running' | 'done'; input?: Record<string, unknown> };
           try { ev = JSON.parse(line); } catch { continue; }
           if (ev.type === 'thread' && ev.id) { tid = ev.id; setThreadId(ev.id); }
+          else if (ev.type === 'tool' && ev.name) {
+            const name = ev.name;
+            setMsgs((m) => m.map((x) => {
+              if (x.id !== draftId) return x;
+              const tools = [...(x.tools ?? [])];
+              if (ev.state === 'running') tools.push({ key: tools.length, name, state: 'running', input: ev.input });
+              else { const t = tools.find((y) => y.name === name && y.state === 'running'); if (t) t.state = 'done'; }
+              return { ...x, tools };
+            }));
+          }
           else if (ev.type === 'delta') setMsgs((m) => m.map((x) => (x.id === draftId ? { ...x, content: x.content + (ev.text ?? '') } : x)));
           else if (ev.type === 'done') setMsgs((m) => m.map((x) => (x.id === draftId ? { ...x, content: ev.reply ?? x.content } : x)));
           else if (ev.type === 'error') throw new Error(ev.error || 'chat failed');
@@ -103,10 +129,22 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
       </div>
       <div className="chat-log" ref={log} role="log" aria-live="polite" aria-label="Conversation">
         {msgs.length === 0 && <p className="muted small">Ask about this chart. The copilot sees the live candles, signals, news and your standing rules. It cannot place trades.</p>}
-        {msgs.map((m) => (
+        {msgs.map((m, i) => (
           <div key={m.id} className={`bubble ${m.role}`}>
             <div className="small muted">{m.role === 'user' ? 'You' : 'Copilot'}</div>
-            <div className="bubble-t">{m.content || (busy ? 'Thinking…' : '')}</div>
+            {m.tools && m.tools.length > 0 && (
+              <ul className="tools" aria-label="Tools used">
+                {m.tools.map((t) => (
+                  <li key={t.key} className={t.state}><span className="dot" aria-hidden="true" />{t.name}{args(t.input) && <span className="muted"> · {args(t.input)}</span>}<span className="sr-only"> {t.state}</span></li>
+                ))}
+              </ul>
+            )}
+            {busy && i === msgs.length - 1 && !m.content && (
+              <div className="small muted think"><span className="dot pulse" aria-hidden="true" />{m.tools?.some((t) => t.state === 'running') ? 'Fetching data' : m.tools?.length ? 'Reading the results' : 'Thinking'}… {elapsed}s</div>
+            )}
+            {m.role === 'assistant' && m.content
+              ? <div className="bubble-t md"><Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" /> }}>{m.content}</Markdown></div>
+              : m.content ? <div className="bubble-t">{m.content}</div> : null}
           </div>
         ))}
       </div>

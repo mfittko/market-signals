@@ -287,6 +287,11 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The mock fixture agent "a1" is hidden from the desk; only real (llm) agents are shown.
+	if err := st.UpsertAgent(ctx, queue.Agent{ID: "a2", Name: "a2", Instrument: "WTICO/USD", Granularity: "M5", Runtime: "llm",
+		AllowedTools: []string{"get_snapshot"}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
 	code, body := call(t, "GET", hs.URL+"/api/v1/desk", "", "", nil)
 	if code != 200 {
 		t.Fatalf("desk: %d %v", code, body)
