@@ -260,3 +260,42 @@ func TestChartCandlesPrefersSnapshotAndRejectsForeignMoments(t *testing.T) {
 		t.Fatal("a foreign moment must not be drawn over live candles")
 	}
 }
+
+func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	for _, q := range []string{
+		`TRUNCATE candles, signals, trades, instruments CASCADE`,
+		`INSERT INTO instruments (symbol,name,market) VALUES ('WTICO/USD','WTI Oil','commodities'), ('XAU/USD','Gold','commodities')`,
+		`INSERT INTO candles VALUES ('WTICO/USD','M5','2026-01-01T10:00:00Z',1,2,1,1.5,10), ('WTICO/USD','M5','2026-01-01T10:05:00Z',1.5,2,1,1.6,NULL)`,
+		`INSERT INTO signals (instrument,granularity,time,kind,signal) VALUES ('WTICO/USD','M5','2026-01-01T10:00:00Z','supertrend-flip','sell')`,
+		`INSERT INTO trades (source_key,position_id,instrument,side,notional,units,entry_price,entry_time,close_price,close_time,leverage,realized,close_reason)
+		 VALUES ('t1',1,'WTICO/USD','long',100,1,1,now(),2,now(),20,5,'target'), ('t2',2,'WTICO/USD','long',100,1,1,now(),1,now(),20,-2,'stop')`,
+	} {
+		if _, err := st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, body := call(t, "GET", hs.URL+"/api/v1/desk", "", "", nil)
+	if code != 200 {
+		t.Fatalf("desk: %d %v", code, body)
+	}
+	rows := body["instruments"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("two instruments, got %d", len(rows))
+	}
+	wti := rows[0].(map[string]any) // the one with an enabled agent sorts first
+	if wti["symbol"] != "WTICO/USD" || wti["trades"].(float64) != 2 || wti["wins"].(float64) != 1 || wti["realized"].(float64) != 3 || wti["signals"].(float64) != 1 {
+		t.Fatalf("wrong summary: %v", wti)
+	}
+	if len(wti["agents"].([]any)) != 1 {
+		t.Fatalf("the agent must appear under its instrument: %v", wti["agents"])
+	}
+	code, d := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd?granularity=M5", "", "", nil)
+	if code != 200 || len(d["candles"].([]any)) != 2 || len(d["trades"].([]any)) != 2 {
+		t.Fatalf("detail: %d %v", code, d)
+	}
+	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope", "", "", nil); code != 404 {
+		t.Fatalf("unknown slug must be 404, got %d", code)
+	}
+}

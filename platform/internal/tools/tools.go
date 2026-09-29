@@ -20,6 +20,10 @@ import (
 
 const MaxOutputBytes = 8000
 
+// MaxSnapshotBytes bounds the run's own frozen input, which is capped when it is created.
+// A cut here would hand the agent invalid JSON, so it is far above the tool cap.
+const MaxSnapshotBytes = 64000
+
 type Def struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
@@ -79,13 +83,15 @@ func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) er
 	return json.Unmarshal(body, out)
 }
 
-func bound(v any) (string, error) {
+func bound(v any) (string, error) { return boundTo(v, MaxOutputBytes) }
+
+func boundTo(v any, max int) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return "", err
 	}
-	if len(b) > MaxOutputBytes {
-		return string(b[:MaxOutputBytes]) + `..."[truncated]`, nil
+	if len(b) > max {
+		return string(b[:max]) + `..."[truncated]`, nil
 	}
 	return string(b), nil
 }
@@ -112,7 +118,7 @@ func clampInt(args json.RawMessage, key string, def, lo, hi int) int {
 func Exec(ctx context.Context, eng *Engine, st *queue.Store, attemptID, fence int64, tc *queue.ToolContext, name string, args json.RawMessage) (string, error) {
 	switch name {
 	case "get_snapshot":
-		return bound(json.RawMessage(tc.Snapshot.Payload))
+		return boundTo(json.RawMessage(tc.Snapshot.Payload), MaxSnapshotBytes)
 	case "get_portfolio":
 		var raw struct {
 			Portfolio struct {

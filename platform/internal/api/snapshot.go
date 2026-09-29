@@ -131,3 +131,24 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	}
 	return out, "engine", nil
 }
+
+// withStrategy puts the agent's strategy into a snapshot. The agent's strategy
+// name picks the active, unarchived version from the imported history, so a
+// research run judges entry conditions with the same rules the old bot used.
+func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a queue.Agent) (json.RawMessage, error) {
+	if a.StrategyName == "" {
+		return payload, nil
+	}
+	var name, prompt string
+	var version int
+	err := s.st.Pool.QueryRow(ctx, `SELECT name, version, prompt FROM strategies WHERE name=$1 AND NOT archived ORDER BY active DESC, version DESC LIMIT 1`, a.StrategyName).Scan(&name, &version, &prompt)
+	if err != nil {
+		return payload, nil // no imported strategy of that name: keep the engine's own label
+	}
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return nil, err
+	}
+	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
+	return json.Marshal(m)
+}

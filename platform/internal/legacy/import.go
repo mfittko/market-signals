@@ -777,7 +777,7 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 			on := enabled && v.runtime == "mock"
 			tag, err := im.tx.Exec(im.ctx, `INSERT INTO agents (id,name,instrument,granularity,runtime,strategy_name,allowed_tools,enabled,legacy_bot)
 				VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,true) ON CONFLICT (id) DO NOTHING`,
-				id, fmt.Sprintf("%s %s (%s, %s)", inst, gran, v.runtime, orDash(strat)), inst, gran, v.runtime, strat, tools, on)
+				id, fmt.Sprintf("%s %s · %s", inst, gran, v.runtime), inst, gran, v.runtime, strat, tools, on)
 			if err != nil {
 				return err
 			}
@@ -790,13 +790,6 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 		}
 	}
 	return nil
-}
-
-func orDash(s string) string {
-	if s == "" {
-		return "no strategy"
-	}
-	return s
 }
 
 func (im *importer) invariants(o Options) error {

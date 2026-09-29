@@ -102,3 +102,23 @@ button:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visib
 .legend .sw { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--muted); vertical-align: middle; margin-right: 4px; }
 .legend .sw.dashed { border-top-style: dashed; } .legend .sw.dot { border-top-style: dotted; }
 .chart-card { margin-bottom: 16px; }
+.nav { display: flex; gap: 18px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 5; }
+.nav a { color: var(--muted); font-weight: 500; } .nav a:hover { color: var(--text); text-decoration: none; }
+.nav .brand { color: var(--text); font-weight: 700; margin-right: 8px; }
+.inst-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.inst { display: grid; gap: 8px; color: inherit; } .inst:hover { text-decoration: none; border-color: var(--accent); }
+.inst h3 { margin: 0; font-size: 15px; } .inst .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.good-t { color: var(--good); } .bad-t { color: var(--bad); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 4px 12px; cursor: pointer; font: inherit; }
+.seg button[aria-pressed=true] { background: var(--accent); color: #fff; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+@media (max-width: 560px) { .nav { gap: 12px; } }
+.agent-row { border-bottom: 1px solid var(--border); padding: 8px 0; } .agent-row:last-child { border-bottom: 0; }
+.agent-row summary { display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; list-style: none; }
+.agent-row summary::-webkit-details-marker { display: none; }
+.agent-row summary::before { content: '▸'; color: var(--muted); margin-right: 6px; } .agent-row[open] summary::before { content: '▾'; }
+.agent-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.agent-more { display: grid; gap: 6px; padding: 8px 0 2px 18px; }
+.linkish { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 8px 0 0; font: inherit; }
+.linkish:hover { text-decoration: underline; }

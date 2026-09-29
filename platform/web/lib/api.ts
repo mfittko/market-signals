@@ -62,6 +62,7 @@ export type Agent = {
   granularity: string;
   runtime: 'mock' | 'llm';
   model?: string;
+  strategyName?: string;
   allowedTools: string[];
   budgets: Record<string, number>;
   enabled: boolean;
@@ -132,3 +133,25 @@ export function engineDecision(r: Pick<Run, 'legacyDecision'>): Decision | undef
   if (!l) return undefined;
   return (l.decision ?? (l.action ? (l as Decision) : undefined)) as Decision | undefined;
 }
+
+export type DeskAgent = {
+  id: string; name: string; granularity: string; runtime: 'mock' | 'llm'; strategy?: string; enabled: boolean; legacy: boolean;
+  lastRunId?: number; lastStatus?: Status; lastAt?: string;
+};
+
+export type DeskRow = {
+  symbol: string; slug: string; name: string; market: string; granularities: string[];
+  dataThrough?: string; signals: number; lastSignal?: string; lastSignalAt?: string;
+  trades: number; wins: number; realized: number; agents: DeskAgent[];
+};
+
+export type InstrumentDetail = {
+  symbol: string; slug: string; name: string; market: string; granularity: string;
+  granularities: { granularity: string; candles: number; last: string }[];
+  candles: { time: string; open: number; high: number; low: number; close: number; volume: number }[];
+  signals: { granularity: string; time: string; kind: string; signal: string; price?: number; verdict?: string; reason?: string }[];
+  trades: { positionId: number; granularity?: string; side: 'long' | 'short'; entryPrice: number; entryTime: string; closePrice: number; closeTime: string; realized: number; closeReason: string; strategyHash?: string }[];
+  agents: DeskAgent[];
+};
+
+export const money = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;

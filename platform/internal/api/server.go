@@ -72,6 +72,8 @@ func (s *Server) routes() {
 	// operator console (loopback only; origin-guarded)
 	m.HandleFunc("GET /api/v1/health", s.health)
 	m.HandleFunc("GET /api/v1/agents", s.listAgents)
+	m.HandleFunc("GET /api/v1/desk", s.desk)
+	m.HandleFunc("GET /api/v1/instruments/{slug}", s.instrument)
 	m.HandleFunc("POST /api/v1/agents", s.upsertAgent)
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)
@@ -299,6 +301,9 @@ func (s *Server) triggerRun(w http.ResponseWriter, r *http.Request) {
 		payload, err = demoSnapshot(agent)
 	default:
 		payload, err = buildEngineSnapshot(r.Context(), s.eng, agent)
+		if err == nil {
+			payload, err = s.withStrategy(r.Context(), payload, agent)
+		}
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "start the engine or trigger a demo run"})
