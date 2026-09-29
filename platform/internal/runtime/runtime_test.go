@@ -281,8 +281,6 @@ func (b *blocking) Run(ctx context.Context, in runtime.Input) (*runtime.Output, 
 	close(b.started)
 	select {
 	case <-b.release:
-		h := struct{ a string }{}
-		_ = h
 		return &runtime.Output{Proposal: holdDecision()}, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -308,6 +306,23 @@ func TestOperatorCancelStopsARunningAttempt(t *testing.T) {
 	}
 	if d.Attempts[0].Status != "cancelled" {
 		t.Fatalf("attempt: %+v", d.Attempts[0])
+	}
+}
+
+func TestWorkerShutdownRequeuesTheRunInsteadOfFailingIt(t *testing.T) {
+	e := newEnv(t)
+	id := e.ingest(t, "k-shutdown")
+	b := &blocking{started: make(chan struct{}), release: make(chan struct{})}
+	w := e.worker(b)
+	ctx, stop := context.WithCancel(e.ctx)
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	<-b.started
+	stop()
+	<-done
+	d := e.waitStatus(t, id, "queued")
+	if d.Attempts[0].Status != "failed" {
+		t.Fatalf("shutdown must fail the attempt but requeue the run: run=%s attempt=%s", d.Run.Status, d.Attempts[0].Status)
 	}
 }
 

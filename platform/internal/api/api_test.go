@@ -665,3 +665,34 @@ func TestPositionsEndpoints(t *testing.T) {
 	}
 	resp.Body.Close()
 }
+
+// A DNS-rebinding page controls its Origin and its Host, so the two matching proves nothing.
+// The Host itself must be a name the server serves.
+func TestRebindingHostIsRefusedEvenWhenOriginMatches(t *testing.T) {
+	hs, _ := setup(t)
+	for _, method := range []string{"GET", "POST"} {
+		req, _ := http.NewRequest(method, hs.URL+"/api/v1/engine/settings", strings.NewReader(`{"OPENAI_BASE_URL":"https://attacker.example"}`))
+		req.Host = "attacker.example:8080"
+		req.Header.Set("Origin", "http://attacker.example:8080")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s with a foreign Host must be refused, got %d", method, resp.StatusCode)
+		}
+	}
+	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "[::1]:8080"} {
+		req, _ := http.NewRequest("GET", hs.URL+"/api/v1/health", nil)
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("loopback host %q must pass, got %d", host, resp.StatusCode)
+		}
+	}
+}

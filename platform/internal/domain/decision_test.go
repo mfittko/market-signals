@@ -131,3 +131,17 @@ func TestPlanValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestParseDecisionTakesTheLastObjectNotTheFirst(t *testing.T) {
+	d, err := ParseDecision(`I considered {"action":"open","side":"long","notional":1000,"stop":70} but the gate vetoes it. Final: {"action":"hold","reasoning":"vetoed"}`)
+	if err != nil || d.Action != "hold" {
+		t.Fatalf("the final object is the decision: %+v %v", d, err)
+	}
+	// an invalid last object must fail safe, not fall back to an earlier valid open
+	if d, err := ParseDecision(`{"action":"open","side":"long","notional":1000,"stop":70} then {"action":"open","side":"sideways"}`); err == nil {
+		t.Fatalf("an invalid final object must be an error, got %+v", d)
+	}
+	if _, err := ParseDecision(`no json here`); err == nil {
+		t.Fatal("no object is an error")
+	}
+}

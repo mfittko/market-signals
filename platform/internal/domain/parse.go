@@ -6,25 +6,31 @@ import (
 	"strings"
 )
 
-// ParseDecision finds the first JSON object in model text that decodes as a
-// decision and passes the shape rules. Surrounding prose, code fences and
-// earlier brace pairs are tolerated; anything else is an error, which callers
-// turn into a fail-safe hold.
+// ParseDecision returns the LAST decision-shaped JSON object in model text. The prompt ends the reply
+// with the decision, so an earlier object is a considered-and-rejected alternative or a quoted example
+// and must never become the proposal. If the last object fails the shape rules the result is that
+// error, not an earlier valid object; callers turn an error into a fail-safe hold. Surrounding prose
+// and code fences are tolerated.
 func ParseDecision(text string) (*Decision, error) {
-	var lastErr error = errors.New("no decision object in reply")
+	var last *Decision
+	var lastErr error
 	for i := 0; i < len(text); i++ {
 		if text[i] != '{' {
 			continue
 		}
+		dec := json.NewDecoder(strings.NewReader(text[i:]))
 		var d Decision
-		if err := json.NewDecoder(strings.NewReader(text[i:])).Decode(&d); err != nil || d.Action == "" {
+		if err := dec.Decode(&d); err != nil || d.Action == "" {
 			continue
 		}
-		if err := d.CheckShape(); err != nil {
-			lastErr = err
-			continue
-		}
-		return &d, nil
+		last, lastErr = &d, d.CheckShape()
+		i += int(dec.InputOffset()) - 1 // skip this object's inner braces
 	}
-	return nil, lastErr
+	if last == nil {
+		return nil, errors.New("no decision object in reply")
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return last, nil
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -46,7 +47,35 @@ func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.originGuard(s.mux) }
+func (s *Server) Handler() http.Handler { return s.hostGuard(s.originGuard(s.mux)) }
+
+// hostName strips the port from a Host header or an Origin host.
+func hostName(hostport string) string {
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	return strings.Trim(hostport, "[]")
+}
+
+// hostGuard refuses any request whose Host header is not a loopback name or a configured console
+// host. A DNS-rebinding page controls both its Origin and its Host, so matching the two proves
+// nothing: the Host itself must be one we serve. This covers reads as well as writes.
+func (s *Server) hostGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := hostName(r.Host)
+		ok := h == "localhost" || h == "127.0.0.1" || h == "::1"
+		for _, a := range s.cfg.AllowedOrigins {
+			if h == hostName(a) {
+				ok = true
+			}
+		}
+		if !ok {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "host not allowed"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // StartReaper resolves expired leases, wakes follow-ups and expires stale queue entries.
 func (s *Server) StartReaper(ctx context.Context, every time.Duration) {

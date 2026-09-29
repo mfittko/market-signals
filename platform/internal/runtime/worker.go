@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -184,8 +183,10 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 		log.Info("cancelled by operator")
 		return
 	case runErr != nil:
-		retry := !errors.Is(runErr, context.Canceled)
-		if err := w.Client.Fail(bg, att, runErr.Error(), retry); err != nil && !IsStale(err) {
+		// A shutdown cancel reaches here as context.Canceled; the run must be
+		// requeued for another worker, never failed for good. The queue's
+		// attempt budget still bounds genuine repeat failures.
+		if err := w.Client.Fail(bg, att, runErr.Error(), true); err != nil && !IsStale(err) {
 			log.Warn("fail report failed", "err", err)
 		}
 		log.Warn("attempt failed", "err", runErr)
@@ -206,8 +207,6 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 		log.Info("attempt finished", "status", res.Status, "action", out.Proposal.Action, "valid", res.Validation.Valid)
 	}
 }
-
-var _ = fmt.Sprintf
 
 // heartbeat defaults to a quarter of the 30-second server lease.
 func (w *Worker) heartbeat() time.Duration {
