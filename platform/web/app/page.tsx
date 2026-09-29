@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, money, type DeskRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
-import { Ago, Card, Stat } from '@/components/ui';
+import { Ago, Card } from '@/components/ui';
 
 export default function Desk() {
   const [rows, setRows] = useState<DeskRow[] | null>(null);
@@ -27,18 +27,14 @@ export default function Desk() {
 
   return (
     <main className="wrap">
-      <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Paper only · agents advise, nothing is traded</span></div></div>
+      <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Paper only · agents advise, nothing is traded</span>
+        {rows && trades > 0 && <Link href="/portfolio" className="small" title="Closed paper trades, including the previous bot versions">Realized <span className={total >= 0 ? 'good-t' : 'bad-t'}>{money(total)}</span> · {wins} of {trades} trades won</Link>}</div></div>
       {error && <div className="msg err" role="alert" style={{ marginBottom: 16 }}>Cannot reach the control plane: {error}</div>}
-      <div className="grid stats">
-        <Stat label="Instruments" value={rows?.length ?? '–'} hint={`${(rows ?? []).filter(isActive).length} with a bot or agent on`} />
-        <Stat label="Imported paper trades" value={trades} hint={trades ? `${Math.round((wins / trades) * 100)}% won` : undefined} />
-        <Stat label="Imported realized P&L" value={money(total)} tone={total >= 0 ? 'good' : 'bad'} hint="from the previous bot versions" />
-      </div>
       <div className="filters">
         <div className="seg" role="group" aria-label="Market">
           {markets.map((m) => <button key={m} aria-pressed={market === m} onClick={() => setMarket(m)}>{m}</button>)}
         </div>
-        <label className="switch"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Only instruments with a bot or agent on</label>
+        <label className="switch"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Only instruments with a bot or agent on ({(rows ?? []).filter(isActive).length} of {rows?.length ?? 0})</label>
       </div>
       {!rows ? <div className="empty">Loading…</div> : shown.length === 0 ? (
         <Card><div className="empty">No instruments match. Run the importer to bring in the previous engine&apos;s instruments and bots.</div></Card>
