@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import { api, slugOf, type PositionEvent, type ShadowPosition } from '@/lib/api';
-import { Card, Json, Stat } from '@/components/ui';
+import { Card, Json, Stat, Loading } from '@/components/ui';
 import { pnl } from '@/components/ShadowPositions';
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -19,7 +19,7 @@ export default function PositionPage({ params }: { params: Promise<{ id: string 
     return () => { alive = false; clearInterval(t); };
   }, [id]);
   if (err && !d) return <main className="wrap"><p className="msg err">{err}</p></main>;
-  if (!d) return <main className="wrap"><p className="muted">Loading…</p></main>;
+  if (!d) return <main className="wrap"><Loading full /></main>;
   const p = d.position, v = pnl(p);
   return (
     <main className="wrap grid">

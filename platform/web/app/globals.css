@@ -60,6 +60,10 @@ tbody tr.link:hover { background: var(--surface-2); cursor: pointer; }
 .mono { font-family: var(--mono); font-size: 12px; }
 .scroll { overflow-x: auto; }
 .empty { padding: 28px 8px; text-align: center; color: var(--muted); }
+.loading { min-height: 120px; display: grid; place-items: center; color: var(--muted); }
+.loading.full { min-height: 50vh; }
+.chart-wait { min-height: 420px; } /* chart 380 + legend row */
+@media (max-width: 560px) { .chart-wait { min-height: 340px; } .chart-aside { display: inline-block; min-height: 2.6em; } }
 button, select { font: inherit; }
 button { background: var(--accent); color: #fff; border: 0; border-radius: 7px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
 button:hover:not(:disabled) { filter: brightness(1.08); }

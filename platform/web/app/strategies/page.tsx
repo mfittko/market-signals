@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { Card } from '@/components/ui';
+import { Card, Loading } from '@/components/ui';
 import { Sharpen, type Scope } from '@/components/AutoGrill';
 import { StrategyWizard } from '@/components/StrategyWizard';
 
@@ -99,7 +99,7 @@ export default function StrategiesPage() {
             ))}
           </div>
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name" aria-label="Search strategies" style={{ width: "100%", boxSizing: "border-box", marginBottom: 8 }} />
-          {!list ? <p className="muted">Loading…</p> : shown.length === 0 ? <p className="muted">No {filter === "all" ? "" : FILTERS.find((f) => f[0] === filter)![1].toLowerCase() + " "}strategies{q ? " match" : ""}.</p> : (
+          {!list ? <Loading /> : shown.length === 0 ? <p className="muted">No {filter === "all" ? "" : FILTERS.find((f) => f[0] === filter)![1].toLowerCase() + " "}strategies{q ? " match" : ""}.</p> : (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
               {shown.map((s) => (
                 <li key={s.name}>

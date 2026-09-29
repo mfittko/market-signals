@@ -8,7 +8,7 @@ import { BotBadge, useActiveBots } from '@/lib/bots';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
-import { Card } from '@/components/ui';
+import { Card, Loading } from '@/components/ui';
 import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
@@ -74,7 +74,7 @@ function InstrumentView() {
   }, [slug]);
 
   if (error) return <main className="wrap"><Link href="/">← Desk</Link><div className="msg err" role="alert" style={{ marginTop: 12 }}>{error}</div></main>;
-  if (!d) return <main className="wrap"><div className="empty">Loading…</div></main>;
+  if (!d) return <main className="wrap"><Loading full /></main>;
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
@@ -86,9 +86,8 @@ function InstrumentView() {
     <main className="wrap">
       <div className="top">
         <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span><BotBadge grans={bots?.get(d.symbol)} />
-          {w.watched && (
-            <label className="chip" title="The engine looks for flips on this market and alerts you when the filter passes one."><input type="checkbox" checked={w.watched.has(`${d.symbol}|${d.granularity}`)} disabled={w.busy} onChange={() => void w.toggle(d.symbol, d.granularity)} /> Signal alerts {d.granularity}</label>
-          )}
+          {/* always rendered (disabled until the list arrives), so the header does not change height when it loads */}
+          <label className="chip" title="The engine looks for flips on this market and alerts you when the filter passes one."><input type="checkbox" checked={w.watched?.has(`${d.symbol}|${d.granularity}`) ?? false} disabled={w.busy || !w.watched} onChange={() => void w.toggle(d.symbol, d.granularity)} /> Signal alerts {d.granularity}</label>
           {w.err && <span className="msg err" role="alert">{w.err}</span>}</div>
         <div className="seg" role="group" aria-label="Granularity">
           {d.granularities.map((g) => <button key={g.granularity} aria-pressed={g.granularity === d.granularity} onClick={() => setGran(g.granularity)}>{g.granularity}{w.watched?.has(`${d.symbol}|${g.granularity}`) && <span title="Signal alerts on" aria-label="alerts on"> ●</span>}</button>)}
@@ -98,11 +97,14 @@ function InstrumentView() {
       <div className="grid desk">
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
-        <span className="muted small">
+        <span className="muted small chart-aside">
           {live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
           {lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
-        {candles.length ? (
+        {!live && !liveErr ? (
+          // Draw once, from the source that will stay: imported history first would jump when the live candles arrive.
+          <div className="chart-wait" aria-busy="true" />
+        ) : candles.length ? (
           <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}

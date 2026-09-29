@@ -4,7 +4,7 @@ import { useParams } from 'next/navigation';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, describe, engineDecision, type Decision, type RunDetail, type RunEvent } from '@/lib/api';
 import { useLive } from '@/lib/live';
-import { Ago, Card, ComparisonPill, Json, StatusPill } from '@/components/ui';
+import { Ago, Card, ComparisonPill, Json, StatusPill, Loading } from '@/components/ui';
 import { CandleChart, type Candle } from '@/components/CandleChart';
 
 const TERMINAL = ['succeeded', 'failed', 'cancelled', 'expired'];
@@ -27,7 +27,7 @@ export default function RunPage() {
   }, [id]);
 
   if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;
-  if (!d) return <main className="wrap"><div className="empty">Loading…</div></main>;
+  if (!d) return <main className="wrap"><Loading full /></main>;
 
   const { run, agent, snapshot, attempts, events } = d;
   const engine = engineDecision(run);

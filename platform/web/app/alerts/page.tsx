@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { fetchAlerts, type AlertEvent, type AlertKind } from '@/lib/alerts';
-import { Card } from '@/components/ui';
+import { Card, Loading } from '@/components/ui';
 
 const LABEL: Record<AlertKind, string> = { signal: 'Signals', proposal: 'Agent proposals', trade: 'Paper trades' };
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -29,7 +29,7 @@ export default function AlertsPage() {
           </select>{' '}
           <label><input type="checkbox" checked={passedOnly} onChange={(e) => setPassedOnly(e.target.checked)} /> hide filtered-out signals</label>
         </span>}>
-        {!events ? <p className="muted">Loading…</p> : shown.length === 0 ? <p className="muted">Nothing to show.</p> : (
+        {!events ? <Loading /> : shown.length === 0 ? <p className="muted">Nothing to show.</p> : (
           <div className="scroll"><table>
             <thead><tr><th>When</th><th>Type</th><th>What</th><th>Delivered</th></tr></thead>
             <tbody>{shown.map((e) => (

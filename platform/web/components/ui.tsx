@@ -1,5 +1,5 @@
 'use client';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { Comparison, Status } from '@/lib/api';
 import { useNow } from '@/lib/live';
 
@@ -75,4 +75,11 @@ export function Json({ value, max = 40 }: { value: unknown; max?: number }) {
       <pre>{text}</pre>
     </details>
   );
+}
+
+// Centered loading state. It stays blank for 200 ms, so a fast load never flashes text.
+export function Loading({ full = false }: { full?: boolean }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setShow(true), 200); return () => clearTimeout(t); }, []);
+  return <div className={`loading${full ? ' full' : ''}`} role="status" aria-live="polite">{show ? 'Loading…' : ''}</div>;
 }

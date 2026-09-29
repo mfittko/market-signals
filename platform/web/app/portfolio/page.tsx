@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Card, Stat } from '@/components/ui';
+import { Card, Stat, Loading } from '@/components/ui';
 import { ShadowPositions } from '@/components/ShadowPositions';
 import { EquityChart, type EquityPoint } from '@/components/EquityChart';
 
@@ -38,7 +38,7 @@ export default function PortfolioPage() {
   }, []);
 
   if (error && !p) return <p className="msg err">Engine unreachable: {error}</p>;
-  if (!p) return <p className="muted">Loading…</p>;
+  if (!p) return <Loading full />;
 
   const wins = p.trades.filter((t) => t.realized > 0).length;
   const realized = p.realizedTotal ?? p.trades.reduce((s, t) => s + t.realized, 0);

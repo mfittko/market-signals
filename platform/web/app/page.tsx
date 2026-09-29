@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, money, type DeskRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
-import { Ago, Card } from '@/components/ui';
+import { Ago, Card, Loading } from '@/components/ui';
 
 export default function Desk() {
   const [rows, setRows] = useState<DeskRow[] | null>(null);
@@ -36,7 +36,7 @@ export default function Desk() {
         </div>
         <label className="switch"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Only instruments with a bot or agent on ({(rows ?? []).filter(isActive).length} of {rows?.length ?? 0})</label>
       </div>
-      {!rows ? <div className="empty">Loading…</div> : shown.length === 0 ? (
+      {!rows ? <Loading /> : shown.length === 0 ? (
         <Card><div className="empty">No instruments match. Run the importer to bring in the previous engine&apos;s instruments and bots.</div></Card>
       ) : (
         <div className="inst-grid">

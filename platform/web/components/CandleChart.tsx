@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
@@ -47,10 +47,11 @@ function levels(d: Decision | undefined) {
 export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent, engine, supertrend, signals, trades, news }: Props) {
   // Draw at the real pixel width so text stays 11px on a phone instead of scaling down.
   const box = useRef<HTMLDivElement>(null);
-  const [W, setW] = useState(920);
+  const [W, setW] = useState(0); // 0 until measured, so the first paint is already at the real width
   const [hover, setHover] = useState<{ i: number; py: number } | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = box.current;
+    if (el) setW(Math.max(280, Math.round(el.clientWidth)));
     if (!el) return;
     const ro = new ResizeObserver(([e]) => setW(Math.max(280, Math.round(e.contentRect.width))));
     ro.observe(el);
@@ -58,7 +59,10 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   }, []);
   const narrow = W < 560;
   const H = narrow ? 300 : 380;
-  const PAD = { l: 8, r: narrow ? 104 : 150, t: 14, b: 32 };
+  // The right margin holds the price labels. Long labels ("agent stop 91.234", "entry 91.344") only exist on
+  // run pages, so other charts use a narrow margin and give the plot the space.
+  const longLabels = price != null || !!agent || !!engine;
+  const PAD = { l: 8, r: longLabels ? (narrow ? 104 : 150) : (narrow ? 80 : 88), t: 14, b: 32 };
   const fit = Math.max(10, Math.floor((W - PAD.l - PAD.r) / MIN_BAR));
   const candles = useMemo(() => all.slice(-fit), [all, fit]);
 
@@ -160,6 +164,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
     + ' Use the arrow keys to read single bars.';
   const hvText = hv ? `${stamp(hv.time)}: open ${hv.open}, high ${hv.high}, low ${hv.low}, close ${hv.close}, volume ${hv.volume}${hv.complete === false ? ', still forming' : ''}` : '';
 
+  if (!W) return <div ref={box} style={{ minHeight: 300 }} />; // reserves the space until the width is measured
   return (
     <div ref={box} style={{ position: 'relative' }}>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary} tabIndex={0}

@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, describe, engineDecision, type Agent, type Health, type RunRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
-import { Ago, Card, ComparisonPill, StatusPill } from '@/components/ui';
+import { Ago, Card, ComparisonPill, StatusPill, Loading } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
 
 export default function Home() {
@@ -77,7 +77,7 @@ export default function Home() {
 
       <div className="grid two">
         <Card title="Runs" aside={<span className="muted small">{summary}</span>}>
-          {!runs ? <div className="empty">Loading…</div> : shownRuns.length === 0 ? (
+          {!runs ? <Loading /> : shownRuns.length === 0 ? (
             <div className="empty">No runs yet. Start one from “Ask an agent now”, or enable the engine hook to record real events.</div>
           ) : (
             <div className="scroll">

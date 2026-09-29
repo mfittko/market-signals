@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Card } from '@/components/ui';
+import { Card, Loading } from '@/components/ui';
 import { AlertsCard, FilterCard, WatchersCard } from '@/components/MoreSettings';
 
 type BotEntry = { enabled?: boolean; allocationPct?: number | null; strategyName?: string; riskPct?: number | null };
@@ -44,7 +44,7 @@ export default function SettingsPage() {
   const { run, busy, msg } = useSave(reload);
 
   if (error) return <main className="wrap"><h1>Settings</h1><div className="msg err" role="alert">{error}</div></main>;
-  if (!s) return <main className="wrap"><div className="empty">Loading…</div></main>;
+  if (!s) return <main className="wrap"><Loading full /></main>;
 
   return (
     <main className="wrap">
