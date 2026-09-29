@@ -25,6 +25,8 @@ type Config struct {
 	IngestToken    string
 	EngineURL      string
 	AllowedOrigins []string
+	// Complete answers one plain chat turn for strategy coaching. Nil when no model is configured.
+	Complete func(ctx context.Context, messages []map[string]any) (string, error)
 }
 
 type Server struct {
@@ -82,6 +84,12 @@ func (s *Server) routes() {
 	}
 	m.HandleFunc("POST /api/v1/agents", s.upsertAgent)
 	m.HandleFunc("PATCH /api/v1/agents/{id}", s.patchAgent)
+	m.HandleFunc("GET /api/v1/strategies", s.listStrategies)
+	m.HandleFunc("POST /api/v1/strategies/grill", s.grill)
+	m.HandleFunc("GET /api/v1/strategies/{name}", s.getStrategy)
+	m.HandleFunc("POST /api/v1/strategies/{name}/versions", s.saveVersion)
+	m.HandleFunc("POST /api/v1/strategies/{name}/archive", s.setArchived)
+	m.HandleFunc("POST /api/v1/strategies/{name}/versions/{version}/activate", s.activateVersion)
 	m.HandleFunc("GET /api/v1/runs", s.listRuns)
 	m.HandleFunc("GET /api/v1/runs/{id}", s.getRun)
 	m.HandleFunc("GET /api/v1/runs/{id}/chart", s.runChart)
@@ -244,18 +252,33 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
 	var b struct {
-		Enabled *bool `json:"enabled"`
+		Enabled  *bool   `json:"enabled"`
+		Strategy *string `json:"strategy"`
 	}
 	if !decode(w, r, &b, 4<<10) {
 		return
 	}
-	if b.Enabled == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "enabled is required"})
+	if b.Enabled == nil && b.Strategy == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "enabled or strategy is required"})
 		return
 	}
-	if err := s.st.SetEnabled(r.Context(), r.PathValue("id"), *b.Enabled); err != nil {
-		s.runtimeErr(w, err)
-		return
+	if b.Strategy != nil {
+		// an agent may only point at a strategy that has a live version
+		tag, err := s.st.Pool.Exec(r.Context(), `UPDATE agents SET strategy_name=NULLIF($1,'') WHERE id=$2 AND ($1='' OR EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND NOT archived))`, *b.Strategy, r.PathValue("id"))
+		if err != nil {
+			s.fail500(w, err)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown agent or strategy"})
+			return
+		}
+	}
+	if b.Enabled != nil {
+		if err := s.st.SetEnabled(r.Context(), r.PathValue("id"), *b.Enabled); err != nil {
+			s.runtimeErr(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

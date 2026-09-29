@@ -52,7 +52,7 @@ load_env() {
 
 engine_url() {
   if [ -n "${MS_ENGINE_URL:-}" ]; then echo "$MS_ENGINE_URL"; return; fi
-  if curl -fsS -m 2 http://127.0.0.1:8787/api/health >/dev/null 2>&1; then echo http://127.0.0.1:8787; else echo ""; fi
+  if curl -fsS -m 6 http://127.0.0.1:8787/api/health >/dev/null 2>&1; then echo http://127.0.0.1:8787; else echo ""; fi
 }
 
 settings_file() {
@@ -80,24 +80,26 @@ up() {
   go build -o "$RUN/bin/" ./cmd/api ./cmd/worker
   local engine; engine="$(engine_url)"
 
+  # the model settings feed the worker (agent runs) and the control plane (strategy coaching)
+  local s; s="$(settings_file)"
+  if [ -n "$s" ] && [ -n "$(jq -r '.OPENAI_API_KEY // empty' "$s")" ]; then
+    export MS_LLM_BASE_URL MS_LLM_API_KEY MS_LLM_MODEL
+    MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL // "https://api.openai.com/v1"' "$s")"
+    MS_LLM_API_KEY="$(jq -r '.OPENAI_API_KEY' "$s")"
+    # these speak the OpenAI-compatible API, so take that model even when the chat provider is something else (claude-code, pi)
+    MS_LLM_MODEL="$(jq -r '(.models // {}) as $m | ($m["openai-compatible"] // $m["openai"] // $m[.provider // ""] // .model // empty)' "$s")"
+    [ -n "$MS_LLM_MODEL" ] || echo "note: no model in $s; the llm agent fails until MS_LLM_MODEL is set"
+    echo "LLM runtime: enabled (endpoint and key read from $s)"
+  else
+    echo "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works; strategy coaching is off."
+  fi
+
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
   fi
   wait_http http://127.0.0.1:8080/api/v1/health "control plane" 20
 
   if ! alive worker; then
-    local s; s="$(settings_file)"
-    if [ -n "$s" ] && [ -n "$(jq -r '.OPENAI_API_KEY // empty' "$s")" ]; then
-      export MS_LLM_BASE_URL MS_LLM_API_KEY MS_LLM_MODEL
-      MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL // "https://api.openai.com/v1"' "$s")"
-      MS_LLM_API_KEY="$(jq -r '.OPENAI_API_KEY' "$s")"
-      # the worker speaks the OpenAI-compatible API, so take that model even when the chat provider is something else (claude-code, pi)
-      MS_LLM_MODEL="$(jq -r '(.models // {}) as $m | ($m["openai-compatible"] // $m["openai"] // $m[.provider // ""] // .model // empty)' "$s")"
-      [ -n "$MS_LLM_MODEL" ] || echo "note: no model in $s; the llm agent fails until MS_LLM_MODEL is set"
-      echo "LLM runtime: enabled (endpoint and key read from $s)"
-    else
-      echo "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works."
-    fi
     start worker "$ROOT" "$RUN/bin/worker"
   fi
 

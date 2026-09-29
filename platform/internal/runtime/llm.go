@@ -223,3 +223,13 @@ func (l *LLM) maxTokens() int {
 	}
 	return 16384
 }
+
+// Complete runs one plain chat turn with no tools and returns the reply text.
+// The console uses it for strategy coaching, where the answer is prose for a human.
+func (l *LLM) Complete(ctx context.Context, messages []map[string]any) (string, error) {
+	msg, _, err := l.chat(ctx, map[string]any{"model": l.Cfg.Model, "messages": messages, "max_tokens": l.maxTokens()})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(contentOf(msg)), nil
+}

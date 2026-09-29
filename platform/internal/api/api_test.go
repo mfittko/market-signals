@@ -390,3 +390,166 @@ func TestEngineEventsGainIndicatorLevels(t *testing.T) {
 		t.Fatalf("existing indicators must stay, got %q", got)
 	}
 }
+
+func TestStrategyVersionsSaveActivateAndAssign(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Pool.Exec(ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,instrument,granularity,dedicated)
+		VALUES ('Trend',1,'v1 rules','import',now(),true,false,'WTICO/USD','M5',true)`); err != nil {
+		t.Fatal(err)
+	}
+	// an edit adds version 2, makes it the only active one and keeps the scope of v1
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  v2 rules  "}`, nil); c != 200 || out["version"] != float64(2) {
+		t.Fatalf("save: %d %v", c, out)
+	}
+	var active int
+	var inst string
+	if err := st.Pool.QueryRow(ctx, `SELECT version, instrument FROM strategies WHERE name='Trend' AND active`).Scan(&active, &inst); err != nil || active != 2 || inst != "WTICO/USD" {
+		t.Fatalf("active=%d inst=%q err=%v", active, inst, err)
+	}
+	// rollback
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/1/activate", "", "", nil); c != 200 {
+		t.Fatal(c)
+	}
+	var n int
+	_ = st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend' AND active AND version=1`).Scan(&n)
+	if n != 1 {
+		t.Fatal("v1 should be active again")
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/9/activate", "", "", nil); c != 404 {
+		t.Fatalf("unknown version: %d", c)
+	}
+	// a new name starts at version 1; bad input is refused
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Fresh/versions", "", `{"prompt":"x"}`, nil); c != 200 || out["version"] != float64(1) {
+		t.Fatalf("new: %d %v", c, out)
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  "}`, nil); c != 400 {
+		t.Fatal("empty prompt must be refused")
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/bad;name/versions", "", `{"prompt":"x"}`, nil); c != 400 {
+		t.Fatal("bad name must be refused")
+	}
+	// history is newest first
+	if c, out := call(t, "GET", hs.URL+"/api/v1/strategies/Trend", "", "", nil); c != 200 || len(out["versions"].([]any)) != 2 {
+		t.Fatalf("history: %d %v", c, out)
+	}
+	// assign, and refuse an unknown strategy
+	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Fresh"}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Nope"}`, nil); c != 404 {
+		t.Fatal("unknown strategy must be refused")
+	}
+	var got string
+	_ = st.Pool.QueryRow(ctx, `SELECT strategy_name FROM agents WHERE id='a1'`).Scan(&got)
+	if got != "Fresh" {
+		t.Fatalf("agent strategy %q", got)
+	}
+}
+
+func TestArchiveIsBlockedWhileAssignedAndReversible(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"Old", "Live"} {
+		if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/"+n+"/versions", "", `{"prompt":"x"}`, nil); c != 200 {
+			t.Fatal(c)
+		}
+	}
+	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Live"}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	// in use: refused, nothing changes
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Live/archive", "", `{"archived":true}`, nil); c != 409 || out["agents"] != float64(1) {
+		t.Fatalf("in use: %d %v", c, out)
+	}
+	// unused: archived hides it from snapshots, refuses edits and assignment, and shows in the list
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":true}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y"}`, nil); c != 409 {
+		t.Fatalf("edit of a archived strategy: %d", c)
+	}
+	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Old"}`, nil); c != 404 {
+		t.Fatalf("assigning a archived strategy: %d", c)
+	}
+	_, out := call(t, "GET", hs.URL+"/api/v1/strategies", "", "", nil)
+	archived := map[string]bool{}
+	for _, s := range out["strategies"].([]any) {
+		m := s.(map[string]any)
+		archived[m["name"].(string)] = m["archived"].(bool)
+	}
+	if !archived["Old"] || archived["Live"] {
+		t.Fatalf("list: %v", archived)
+	}
+	// restore
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":false}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y"}`, nil); c != 200 {
+		t.Fatalf("edit after restore: %d", c)
+	}
+}
+
+func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	ctx := context.Background()
+	for _, q := range []string{
+		`TRUNCATE trades, strategies`,
+		`INSERT INTO trades (source_key,position_id,instrument,side,notional,units,entry_price,entry_time,close_price,close_time,leverage,realized,close_reason,strategy_name)
+		 VALUES ('g1',1,'WTICO/USD','long',100,1,1,now(),2,now(),20,5,'target','Trend'), ('g2',2,'WTICO/USD','long',100,1,1,now(),1,now(),20,-2,'stop','Trend')`,
+	} {
+		if _, err := st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var seen []map[string]any
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(_ context.Context, m []map[string]any) (string, error) {
+		seen = m
+		return "Which timeframe confirms the flip?", nil
+	}}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs := httptest.NewServer(srv.Handler())
+	defer hs.Close()
+
+	c, out := call(t, "POST", hs.URL+"/api/v1/strategies/grill", "", `{"name":"Trend","mode":"refine","draft":"Enter on flips.","messages":[{"role":"user","content":"Start"}]}`, nil)
+	if c != 200 || out["reply"] != "Which timeframe confirms the flip?" {
+		t.Fatalf("%d %v", c, out)
+	}
+	ctxMsg := seen[1]["content"].(string)
+	if !strings.Contains(ctxMsg, "2 closed trades, 1 wins") || !strings.Contains(ctxMsg, "Enter on flips.") {
+		t.Fatalf("context lacks the record or the draft: %s", ctxMsg)
+	}
+	for _, bad := range []string{
+		`{"name":"Trend","messages":[]}`,
+		`{"name":"Trend","messages":[{"role":"assistant","content":"hi"}]}`,
+		`{"name":"Trend","messages":[{"role":"system","content":"x"}]}`,
+	} {
+		if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/grill", "", bad, nil); c != 400 {
+			t.Fatalf("%s: %d", bad, c)
+		}
+	}
+	// a strategy without trades must not invite the model to cite results
+	call(t, "POST", hs.URL+"/api/v1/strategies/grill", "", `{"name":"Fresh","mode":"create","messages":[{"role":"user","content":"Start"}]}`, nil)
+	if !strings.Contains(seen[1]["content"].(string), "Do not cite results") {
+		t.Fatal("no-record note missing")
+	}
+	// without a configured model the endpoint says so
+	off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i"}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	defer off.Close()
+	if c, _ := call(t, "POST", off.URL+"/api/v1/strategies/grill", "", `{"messages":[{"role":"user","content":"x"}]}`, nil); c != 503 {
+		t.Fatalf("no model: %d", c)
+	}
+	// a brand new strategy keeps the scope it was created with
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Scoped/versions", "", `{"prompt":"x","instrument":"XAG/USD","granularity":"H1"}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	var in, gr string
+	if err := st.Pool.QueryRow(ctx, `SELECT instrument, granularity FROM strategies WHERE name='Scoped'`).Scan(&in, &gr); err != nil || in != "XAG/USD" || gr != "H1" {
+		t.Fatalf("scope %q %q %v", in, gr, err)
+	}
+}

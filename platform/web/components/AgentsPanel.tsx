@@ -27,6 +27,8 @@ export function AgentsPanel({ agents, onChange }: { agents: DeskAgent[]; onChang
   const [busy, setBusy] = useState(false);
   const live = useRef(checks);
   live.current = checks;
+  const [strategies, setStrategies] = useState<string[]>([]);
+  useEffect(() => { api<{ strategies: { name: string; archived: boolean }[] }>("/strategies").then((r) => setStrategies(r.strategies.filter((s) => !s.archived).map((s) => s.name))).catch(() => {}); }, []);
   const llm = agents.filter((a) => a.runtime === 'llm');
 
   async function start(list: DeskAgent[]) {
@@ -97,6 +99,15 @@ export function AgentsPanel({ agents, onChange }: { agents: DeskAgent[]; onChang
                       {c?.runId && <Link href={`/runs/${c.runId}`}>Open run #{c.runId}</Link>}
                     </div>
                   )}
+                  <label className="small" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    Strategy
+                    <select value={a.strategy ?? ""} aria-label={`Strategy for ${a.granularity} ${a.runtime} agent`}
+                      onChange={async (e) => { await api(`/agents/${a.id}`, { method: "PATCH", body: JSON.stringify({ strategy: e.target.value }) }); onChange(); }}>
+                      <option value="">none</option>
+                      {(a.strategy && !strategies.includes(a.strategy) ? [a.strategy, ...strategies] : strategies).map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                    {a.strategy && <Link href={`/strategies?name=${encodeURIComponent(a.strategy)}`}>Read and edit</Link>}
+                  </label>
                   <div className="muted">{a.name}{a.legacy ? ' · from the previous bot map' : ''}</div>
                   {a.lastRunId && (
                     <div>

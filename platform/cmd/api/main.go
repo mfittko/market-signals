@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/api"
 	"github.com/mfittko/market-signals/platform/internal/db"
 	"github.com/mfittko/market-signals/platform/internal/queue"
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/migrations"
 )
 
@@ -58,7 +60,12 @@ func main() {
 		}
 	}
 	origins := strings.Split(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000"), ",")
-	srv := api.New(api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: *engine, AllowedOrigins: origins}, st, log)
+	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: *engine, AllowedOrigins: origins}
+	if key := os.Getenv("MS_LLM_API_KEY"); key != "" {
+		maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
+		cfg.Complete = runtime.NewLLM(runtime.LLMConfig{BaseURL: os.Getenv("MS_LLM_BASE_URL"), APIKey: key, Model: os.Getenv("MS_LLM_MODEL"), MaxTokens: maxTok}).Complete
+	}
+	srv := api.New(cfg, st, log)
 	srv.StartReaper(ctx, 3*time.Second)
 	hs := &http.Server{Addr: *addr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
