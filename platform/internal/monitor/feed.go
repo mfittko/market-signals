@@ -26,6 +26,11 @@ type chartResp struct {
 		Kind   string `json:"kind"`
 		Signal string `json:"signal"`
 	} `json:"signals"`
+	// the series is computed on completed candles only; the quote value includes the forming one
+	Supertrend []struct {
+		Time  string  `json:"time"`
+		Value float64 `json:"value"`
+	} `json:"supertrend"`
 	Quote struct {
 		Last       float64 `json:"last"`
 		Supertrend struct {
@@ -65,7 +70,7 @@ func (f EngineFeed) Market(ctx context.Context, instrument, granularity string) 
 			return m, err
 		}
 	}
-	m.Supertrend = tf.Quote.Supertrend.Value
+	m.Supertrend = completedSupertrend(tf)
 	for _, s := range tf.Signals {
 		e := Event{Time: parseTime(s.Time)}
 		switch s.Kind {
@@ -94,4 +99,21 @@ func (f EngineFeed) Market(ctx context.Context, instrument, granularity string) 
 		m.Halted = pf.Portfolio.Halted
 	}
 	return m, nil
+}
+
+// completedSupertrend returns the line as of the newest completed candle. The quote's value moves with
+// the forming candle, and a trailing stop must not follow a bar that can still retrace.
+func completedSupertrend(tf chartResp) float64 {
+	done := ""
+	for _, c := range tf.Candles {
+		if c.Complete == nil || *c.Complete {
+			done = c.Time
+		}
+	}
+	for i := len(tf.Supertrend) - 1; i >= 0; i-- {
+		if tf.Supertrend[i].Time <= done {
+			return tf.Supertrend[i].Value
+		}
+	}
+	return 0 // unknown: the trail rule then does nothing
 }

@@ -3,6 +3,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ms
       POSTGRES_PASSWORD: ms

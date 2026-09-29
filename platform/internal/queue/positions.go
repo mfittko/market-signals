@@ -112,13 +112,22 @@ func (s *Store) GetPosition(ctx context.Context, id int64) (*Position, []Positio
 	return &p, ev, rows.Err()
 }
 
-// SavePosition stores the monitor's state after a bar. It touches only an open position.
-func (s *Store) SavePosition(ctx context.Context, p Position) error {
-	plan, _ := json.Marshal(p.Plan)
+// SavePosition stores the monitor's state after a bar and returns the stop now on record.
+// It touches only an open position. A wake may have tightened the stop or replaced the
+// tripwires while the monitor waited on the feed, so the write can only move the stop
+// closer to price, never writes the plan, and merges the cooldown marks instead of
+// replacing them. The caller adopts the returned stop. A closed position returns 0.
+func (s *Store) SavePosition(ctx context.Context, p Position) (float64, error) {
 	fired, _ := json.Marshal(p.LastFired)
-	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET stop=$2, plan=$3, bars_held=$4, best=$5, last_close=$6, last_bar_time=$7, last_fired=$8
-		WHERE id=$1 AND status='open'`, p.ID, p.Stop, plan, p.BarsHeld, p.Best, p.LastClose, p.LastBarTime, fired)
-	return err
+	var stop float64
+	err := s.Pool.QueryRow(ctx, `UPDATE shadow_positions SET
+		  stop = CASE WHEN side='long' THEN GREATEST(stop,$2) ELSE LEAST(stop,$2) END,
+		  bars_held=$3, best=$4, last_close=$5, last_bar_time=$6, last_fired = last_fired || $7::jsonb
+		WHERE id=$1 AND status='open' RETURNING stop`, p.ID, p.Stop, p.BarsHeld, p.Best, p.LastClose, p.LastBarTime, fired).Scan(&stop)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return stop, err
 }
 
 // ClosePosition ends an open position. It reports whether this call closed it, so a
@@ -205,6 +214,16 @@ func applyWakeTx(ctx context.Context, tx pgx.Tx, runID int64, w domain.WakePosit
 	}
 	switch d.Action {
 	case "close":
+		// The snapshot can be minutes old by the time the model answers. The monitor keeps the last
+		// completed bar's close up to date, so prefer it when it is fresh: a stale fill must not beat the market.
+		var last float64
+		var lastAt *time.Time
+		if err := tx.QueryRow(ctx, `SELECT COALESCE(last_close,0), last_bar_time FROM shadow_positions WHERE id=$1`, w.ID).Scan(&last, &lastAt); err != nil {
+			return err
+		}
+		if last > 0 && lastAt != nil && at.Sub(*lastAt) < 3*time.Minute {
+			price = last
+		}
 		ok, err := closePositionTx(ctx, tx, w.ID, price, at, "agent_close")
 		if err != nil {
 			return err
@@ -262,6 +281,13 @@ func (s *Store) RecordWake(ctx context.Context, id, runID int64, payload map[str
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	var noted bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM position_events WHERE position_id=$1 AND kind='wake' AND (payload->>'runId')::bigint=$2)`, id, runID).Scan(&noted); err != nil {
+		return err
+	}
+	if noted {
+		return nil
+	}
 	payload["runId"] = runID
 	if _, err := tx.Exec(ctx, `UPDATE shadow_positions SET wakes=wakes+1 WHERE id=$1`, id); err != nil {
 		return err

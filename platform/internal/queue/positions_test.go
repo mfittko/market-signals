@@ -140,7 +140,9 @@ func TestClosePositionResolvesOnceAndSaveOnlyTouchesOpenPositions(t *testing.T) 
 		t.Fatalf("%+v", q)
 	}
 	q.Stop = 50
-	must(t, s.SavePosition(ctx, *q))
+	if st, err := s.SavePosition(ctx, *q); err != nil || st != 0 {
+		t.Fatalf("a closed position reports no stop: %v %v", st, err)
+	}
 	if r, _, _ := s.GetPosition(ctx, id); r.Stop == 50 {
 		t.Fatal("a closed position must not change")
 	}
@@ -185,5 +187,89 @@ func TestThreeUnansweredWakesInARowRaiseAttentionAndAreCountedOnce(t *testing.T)
 	runAs(t, s, ctx, "monitor", wakePayload(id, 98), domain.Decision{Action: "hold", Reasoning: "fine"})
 	if q, _, _ := s.GetPosition(ctx, id); q.FailedWakes != 0 {
 		t.Fatalf("an answer must reset the streak: %d", q.FailedWakes)
+	}
+}
+
+// A wake can tighten the stop or replace the tripwires while the monitor waits on the feed.
+// The monitor's later save must never undo either.
+func TestMonitorSaveNeverWidensTheStopOrRewritesThePlan(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	runAs(t, s, ctx, "engine", entryPayload, openDecision())
+	ps, _ := s.ListPositions(ctx, "open", 1)
+	id := ps[0].ID
+	stale, _, _ := s.GetPosition(ctx, id) // what the monitor read at the start of its tick
+	long := stale.Side == "long"
+
+	tighter := stale.Stop + 4
+	if !long {
+		tighter = stale.Stop - 4
+	}
+	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET stop=$2, plan=jsonb_set(plan,'{tripwires}','[]'::jsonb), last_fired='{}' WHERE id=$1`, id, tighter)
+	must(t, err)
+
+	stale.BarsHeld, stale.LastClose = 7, stale.EntryPrice
+	stale.LastFired = map[string]int{"adverse_atr": 3}
+	got, err := s.SavePosition(ctx, *stale) // carries the old stop and the old plan
+	must(t, err)
+	if got != tighter {
+		t.Fatalf("the stored stop must stay at the tighter value %v, got %v", tighter, got)
+	}
+	after, _, _ := s.GetPosition(ctx, id)
+	if after.Stop != tighter || len(after.Plan.Tripwires) != 0 {
+		t.Fatalf("the wake's stop and tripwires must survive: %+v", after)
+	}
+	if after.BarsHeld != 7 || after.LastFired["adverse_atr"] != 3 {
+		t.Fatalf("the monitor's own progress must be saved: %+v", after)
+	}
+}
+
+// The session keeps the twenty newest notes, oldest first. A wrong sort once pinned the first notes forever.
+func TestSessionKeepsTheNewestTwentyNotesInOrder(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	for i := 0; i < 25; i++ {
+		runAs(t, s, ctx, "engine", entryPayload, domain.Hold("wait"))
+	}
+	var n int
+	var first, last int64
+	var maxRun int64
+	must(t, s.Pool.QueryRow(ctx, `SELECT max(id) FROM runs`).Scan(&maxRun))
+	must(t, s.Pool.QueryRow(ctx, `SELECT jsonb_array_length(notes), (notes->0->>'run')::bigint, (notes->-1->>'run')::bigint FROM sessions LIMIT 1`).Scan(&n, &first, &last))
+	if n != 20 || last != maxRun || first != maxRun-19 {
+		t.Fatalf("want 20 notes for runs %d..%d, got %d notes for %d..%d", maxRun-19, maxRun, n, first, last)
+	}
+}
+
+// A woken close fills at the monitor's fresh bar close, not at a snapshot the model took minutes ago.
+func TestWakeCloseFillsAtTheFreshBarCloseWhenTheMonitorHasOne(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	runAs(t, s, ctx, "engine", entryPayload, openDecision())
+	ps, _ := s.ListPositions(ctx, "open", 1)
+	id := ps[0].ID
+	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET last_close=101, last_bar_time=now() WHERE id=$1`, id)
+	must(t, err)
+	runAs(t, s, ctx, "monitor", wakePayload(id, 105), domain.Decision{Action: "close", PositionID: id})
+	q, _, _ := s.GetPosition(ctx, id)
+	if q.Status != "closed" || q.ExitPrice == nil || *q.ExitPrice != 101 {
+		t.Fatalf("the fill must use the fresh bar close (101), not the stale snapshot (105): %+v", q)
+	}
+}
+
+// Follow-up wakes are not retries: a run that used its follow-ups still gets its retry budget.
+func TestFollowupsDoNotConsumeTheRetryBudget(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	_, err := s.Ingest(ctx, IngestInput{IdemKey: "fu-budget", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "engine", Trigger: "test", Payload: json.RawMessage(entryPayload), AgentID: "a1"})
+	must(t, err)
+	c := claim(t, s, ctx, "w")
+	must(t, err)
+	_, err = s.Pool.Exec(ctx, `UPDATE runs SET attempts_made=3, followups_used=2, max_attempts=3 WHERE id=$1`, c.Run.ID)
+	must(t, err)
+	st, err := s.Fail(ctx, c.Attempt.ID, c.Attempt.Fence, "transient", true)
+	must(t, err)
+	if st != "queued" {
+		t.Fatalf("a retryable error after two follow-ups must still be retried, got %q", st)
 	}
 }

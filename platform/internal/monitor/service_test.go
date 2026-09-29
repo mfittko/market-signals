@@ -214,11 +214,34 @@ func TestNoWakeForADisabledAgentButThePlanStillApplies(t *testing.T) {
 	if err := r.st.SetEnabled(r.ctx, "a1", false); err != nil {
 		t.Fatal(err)
 	}
-	r.bar(0, 100, 100.2, 98.3, 98.4)
+	r.bar(0, 100, 100.2, 98.3, 98.4) // the tripwire fires on the newest bar
+	r.tick()
+	if r.wakeRuns() != 0 || r.events()["wake_skipped"] != 1 || r.pos().Status != "open" {
+		t.Fatalf("runs=%d events=%v status=%s", r.wakeRuns(), r.events(), r.pos().Status)
+	}
 	r.bar(1, 98.4, 98.5, 97.5, 97.8) // then the stop fills
 	r.tick()
-	if r.wakeRuns() != 0 || r.events()["wake_skipped"] != 1 || r.pos().Status != "closed" {
-		t.Fatalf("runs=%d events=%v status=%s", r.wakeRuns(), r.events(), r.pos().Status)
+	if r.wakeRuns() != 0 || r.pos().Status != "closed" {
+		t.Fatalf("the plan still applies with the agent off: runs=%d status=%s", r.wakeRuns(), r.pos().Status)
+	}
+}
+
+// A catch-up replays bars that closed earlier. ATR, the Supertrend line and the kill switch are known as of
+// now, so they may judge only the newest bar. Otherwise a halt that began a minute ago would close a bar
+// that closed before the halt.
+func TestCatchUpJudgesEarlierBarsWithoutTodaysKnowledge(t *testing.T) {
+	r := newRig(t, &domain.Plan{Trail: &domain.Trail{Kind: "atr", Mult: 2}})
+	r.feed.m.ATR, r.feed.m.Halted = 1, true
+	r.bar(0, 100, 100.5, 99.8, 100.2)
+	r.bar(1, 100.2, 100.6, 99.9, 100.3)
+	r.bar(2, 100.3, 100.7, 100.0, 100.4)
+	r.tick()
+	p := r.pos()
+	if p.Status != "closed" || p.ExitReason != "kill_switch" {
+		t.Fatalf("the halt applies to the newest bar: %s %s", p.Status, p.ExitReason)
+	}
+	if p.BarsHeld != 2 || p.ExitTime == nil || !p.ExitTime.Equal(r.base.Add(2*time.Minute)) {
+		t.Fatalf("bars before the newest must have passed untouched, exit=%v held=%d", p.ExitTime, p.BarsHeld)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"sort"
 	"time"
 
@@ -126,13 +127,23 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 		prevBar = q.EntryTime
 	}
 	newBars := 0
+	var newest time.Time
+	if n := len(m.Bars); n > 0 {
+		newest = m.Bars[n-1].Time
+	}
 	for _, b := range m.Bars {
 		// the first bar to judge opens at or after the entry, so no bar is judged against a stop it could not have known
 		if (!lastBar.IsZero() && !b.Time.After(lastBar)) || (lastBar.IsZero() && b.Time.Before(q.EntryTime)) {
 			continue
 		}
 		newBars++
-		env := Env{ATR: m.ATR, Supertrend: m.Supertrend, Halted: m.Halted}
+		// ATR, the Supertrend line and the kill switch are known as of now. Applying them to a bar that
+		// closed earlier in a catch-up would judge that bar with information it did not have, so only the
+		// newest bar gets them; earlier bars are judged against the stop, target and time stop alone.
+		var env Env
+		if b.Time.Equal(newest) {
+			env = Env{ATR: m.ATR, Supertrend: m.Supertrend, Halted: m.Halted}
+		}
 		// a signal on the position's timeframe is known when its candle closes, not when it opens;
 		// it counts on the one M1 bar during which it became known
 		barEnd, prevEnd := b.Time.Add(time.Minute), prevBar.Add(time.Minute)
@@ -168,10 +179,17 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 			}
 			return nil
 		}
-		q.Stop, q.Plan, q.BarsHeld, q.Best, q.LastClose, q.LastFired = pos.Stop, pos.Plan, pos.BarsHeld, pos.Best, pos.LastClose, pos.LastFired
-		if err := s.Store.SavePosition(ctx, q); err != nil {
+		q.Stop, q.BarsHeld, q.Best, q.LastClose, q.LastFired = pos.Stop, pos.BarsHeld, pos.Best, pos.LastClose, pos.LastFired
+		stored, err := s.Store.SavePosition(ctx, q)
+		if err != nil {
 			return err
 		}
+		if stored == 0 { // closed meanwhile, for example by a wake
+			return nil
+		}
+		// a wake may have tightened the stop while the feed was slow; judge the next bar against it
+		pos.Stop = tighter(pos.Side, pos.Stop, stored)
+		q.Stop = pos.Stop
 		if res.Trailed {
 			_ = s.Store.AddPositionEvent(ctx, q.ID, "trail", map[string]any{"stop": pos.Stop, "bar": b.Time})
 		}
@@ -192,7 +210,7 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 			}
 			pos.LastFired[k] = pos.BarsHeld
 			q.LastFired = pos.LastFired
-			if err := s.Store.SavePosition(ctx, q); err != nil {
+			if _, err := s.Store.SavePosition(ctx, q); err != nil {
 				return err
 			}
 			s.wake(ctx, q, tw, m.Bars[len(m.Bars)-1].Time, m.Price, m)
@@ -257,10 +275,19 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 		s.Log.Error("wake ingest", "position", q.ID, "err", err)
 		return
 	}
-	if !res.Runs[0].Created { // the same bar and tripwire were already woken for
-		return
+	// Record even when the run already existed: a crash between the enqueue and this call must not leave
+	// a wake the counters and the in-flight check cannot see. RecordWake ignores a run it has noted.
+	if err := s.Store.RecordWake(ctx, q.ID, res.Runs[0].RunID, map[string]any{"tripwire": tw.Kind, "bar": barTime, "price": price}); err != nil {
+		s.Log.Error("record wake", "position", q.ID, "run", res.Runs[0].RunID, "err", err)
 	}
-	_ = s.Store.RecordWake(ctx, q.ID, res.Runs[0].RunID, map[string]any{"tripwire": tw.Kind, "bar": barTime, "price": price})
+}
+
+// tighter returns whichever stop sits closer to price for the side.
+func tighter(side string, a, b float64) float64 {
+	if side == "long" {
+		return math.Max(a, b)
+	}
+	return math.Min(a, b)
 }
 
 func pct(side string, entry, price float64) float64 {

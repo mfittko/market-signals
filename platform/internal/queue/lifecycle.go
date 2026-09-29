@@ -296,8 +296,8 @@ func addUsage(existing []byte, add map[string]float64) []byte {
 func (s *Store) touchSession(ctx context.Context, tx pgx.Tx, runID int64, note map[string]any) error {
 	b, _ := json.Marshal(note)
 	_, err := tx.Exec(ctx, `UPDATE sessions SET notes = (
-		SELECT COALESCE(jsonb_agg(e), '[]'::jsonb) FROM (
-			SELECT e FROM jsonb_array_elements(notes || $2::jsonb) WITH ORDINALITY t(e, n) ORDER BY n DESC LIMIT 20) x)
+		SELECT COALESCE(jsonb_agg(e ORDER BY n), '[]'::jsonb) FROM (
+			SELECT e, n FROM jsonb_array_elements(notes || $2::jsonb) WITH ORDINALITY t(e, n) ORDER BY n DESC LIMIT 20) x)
 		WHERE id=(SELECT session_id FROM runs WHERE id=$1)`, runID, "["+string(b)+"]")
 	return err
 }
@@ -492,7 +492,8 @@ func (s *Store) Fail(ctx context.Context, attemptID, fence int64, msg string, re
 
 func (s *Store) requeueOrFail(ctx context.Context, tx pgx.Tx, runID, attemptID int64, msg string, retryable bool) (string, error) {
 	var made, max int
-	if err := tx.QueryRow(ctx, `SELECT attempts_made, max_attempts FROM runs WHERE id=$1`, runID).Scan(&made, &max); err != nil {
+	// follow-up wakes are not retries, so they do not count against max_attempts
+	if err := tx.QueryRow(ctx, `SELECT attempts_made - followups_used, max_attempts FROM runs WHERE id=$1`, runID).Scan(&made, &max); err != nil {
 		return "", err
 	}
 	if retryable && made < max {
