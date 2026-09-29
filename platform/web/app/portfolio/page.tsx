@@ -1,8 +1,9 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card, Stat } from '@/components/ui';
+import { EquityChart, type EquityPoint } from '@/components/EquityChart';
 
 type Trade = {
   id: number; instrument: string; side: 'long' | 'short'; notional: number; entry_price: number; entry_time: string;
@@ -19,34 +20,6 @@ const money = (v: number | undefined, signed = false) =>
 const tone = (v: number | undefined) => (v == null || v === 0 ? undefined : v > 0 ? 'good' : 'bad') as 'good' | 'bad' | undefined;
 const short = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const slug = (s: string) => s.toLowerCase().replace('/', '-');
-
-// Equity after each closed trade, oldest first, ending at the live equity.
-function curve(p: Portfolio) {
-  const closed = [...p.trades].sort((a, b) => +new Date(a.close_time) - +new Date(b.close_time));
-  const pts = [{ t: closed.length ? +new Date(closed[0].entry_time) : Date.now(), v: p.startingBalance }];
-  let v = p.startingBalance;
-  for (const t of closed) { v += t.realized; pts.push({ t: +new Date(t.close_time), v }); }
-  pts.push({ t: Date.now(), v: p.equity });
-  return pts;
-}
-
-function EquityCurve({ p }: { p: Portfolio }) {
-  const pts = useMemo(() => curve(p), [p]);
-  const W = 640, H = 160, pad = 6;
-  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
-  const lo = Math.min(...pts.map((x) => x.v), p.startingBalance), hi = Math.max(...pts.map((x) => x.v), p.startingBalance);
-  const y = (v: number) => pad + (H - 2 * pad) * (1 - (v - lo) / Math.max(hi - lo, 1e-9));
-  const x = (t: number) => pad + (W - 2 * pad) * ((t - t0) / (t1 - t0));
-  const d = pts.map((q, i) => `${i ? 'L' : 'M'}${x(q.t).toFixed(1)},${y(q.v).toFixed(1)}`).join(' ');
-  const up = p.equity >= p.startingBalance;
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Equity from ${money(p.startingBalance)} to ${money(p.equity)}`} style={{ width: '100%', height: 'auto' }}>
-      <line x1={pad} x2={W - pad} y1={y(p.startingBalance)} y2={y(p.startingBalance)} stroke="currentColor" strokeOpacity=".25" strokeDasharray="4 4" />
-      <path d={d} fill="none" stroke={up ? 'var(--good)' : 'var(--bad)'} strokeWidth="2" strokeLinejoin="round" />
-      <text x={W - pad} y={y(p.startingBalance) - 4} textAnchor="end" fontSize="14" fill="currentColor" opacity=".6">start {money(p.startingBalance)}</text>
-    </svg>
-  );
-}
 
 export default function PortfolioPage() {
   const [p, setP] = useState<Portfolio | null>(null);
@@ -69,6 +42,12 @@ export default function PortfolioPage() {
   const wins = p.trades.filter((t) => t.realized > 0).length;
   const realized = p.realizedTotal ?? p.trades.reduce((s, t) => s + t.realized, 0);
   const ret = ((p.equity - p.startingBalance) / p.startingBalance) * 100;
+  // Equity after each closed trade, oldest first, ending at the live equity.
+  const byClose = [...p.trades].sort((a, b) => +new Date(a.close_time) - +new Date(b.close_time));
+  let run = p.startingBalance;
+  const points: EquityPoint[] = [{ t: byClose.length ? +new Date(byClose[0].entry_time) : Date.now(), v: run, label: "start" }];
+  for (const t of byClose) { run += t.realized; points.push({ t: +new Date(t.close_time), v: run, label: `${t.instrument} ${t.realized >= 0 ? "+" : ""}${t.realized.toFixed(2)}` }); }
+  points.push({ t: Date.now(), v: p.equity, label: "now" });
   const closed = showAll ? p.trades : p.trades.slice(0, 10);
 
   return (
@@ -83,7 +62,7 @@ export default function PortfolioPage() {
         <Stat label="Today" value={money(p.dayPnl, true)} tone={tone(p.dayPnl)} />
       </div>
 
-      <Card title="Equity"><EquityCurve p={p} /></Card>
+      <Card title="Equity"><EquityChart points={points} baseline={p.startingBalance} /></Card>
 
       <Card title={`Open positions (${p.positions.length})`}>
         {p.positions.length === 0 ? <p className="muted">No open positions.</p> : (
