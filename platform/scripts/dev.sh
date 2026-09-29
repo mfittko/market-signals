@@ -91,7 +91,8 @@ up() {
       export MS_LLM_BASE_URL MS_LLM_API_KEY MS_LLM_MODEL
       MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL // "https://api.openai.com/v1"' "$s")"
       MS_LLM_API_KEY="$(jq -r '.OPENAI_API_KEY' "$s")"
-      MS_LLM_MODEL="$(jq -r '(.models // {}) as $m | ($m[.provider // ""] // .model // empty)' "$s")"
+      # the worker speaks the OpenAI-compatible API, so take that model even when the chat provider is something else (claude-code, pi)
+      MS_LLM_MODEL="$(jq -r '(.models // {}) as $m | ($m["openai-compatible"] // $m["openai"] // $m[.provider // ""] // .model // empty)' "$s")"
       [ -n "$MS_LLM_MODEL" ] || echo "note: no model in $s; the llm agent fails until MS_LLM_MODEL is set"
       echo "LLM runtime: enabled (endpoint and key read from $s)"
     else

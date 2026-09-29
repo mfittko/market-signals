@@ -34,6 +34,7 @@ import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './
 import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailByComboInDb, earliestAttributedEntry, GATE_DISAGREEMENT_NEED, GATE_DISAGREEMENT_NOTE_THRESHOLD, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
+import { indicatorSummary } from './lib/indicator-summary.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -1220,6 +1221,17 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           url: /^https?:\/\/\S+$/i.test((r.url || '').trim()) ? r.url.trim() : null,
         }));
         return json(res, 200, { ok: true, instrument, hours, items });
+      }
+      // Indicator numbers a strategy prompt asks about (ATR, EMAs, Bollinger, extremes).
+      // Read-only; computed from completed candles by the same code the chart uses.
+      if (url.pathname === '/api/indicators' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
+        if (!/^[MH]\d{1,2}$/.test(granularity)) return json(res, 400, { ok: false, error: 'bad granularity' });
+        const data = await chartData(dbPath, instrument, { granularity, fetcher, count: 300 });
+        return json(res, 200, { ok: true, instrument, granularity, indicators: indicatorSummary(data.candles) });
       }
       // Read-only advisory context the bot sees at a decision point: the trader's
       // standing rules and the sentinel news block. `news=fresh` may spend the

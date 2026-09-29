@@ -84,6 +84,13 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 	if chart.AxisGate != nil {
 		snap["axisGate"] = chart.AxisGate
 	}
+	// indicator levels a strategy prompt refers to (ATR, EMAs, Bollinger, recent extremes); a failure only omits them
+	var ind struct {
+		Indicators map[string]any `json:"indicators"`
+	}
+	if err := eng.Get(ctx, "/api/indicators", q, &ind); err == nil && ind.Indicators != nil {
+		snap["indicators"] = ind.Indicators
+	}
 	// advisory context the old bot also saw; a failure only omits it
 	var dc struct {
 		TraderMemories any `json:"traderMemories"`
@@ -168,4 +175,29 @@ func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a qu
 	}
 	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
 	return json.Marshal(m)
+}
+
+// withIndicators adds the engine's indicator levels to a snapshot that lacks them.
+// Complete-candle values hold until the bar closes, so a fetch moments after the
+// event matches the moment it describes. A failure leaves the payload unchanged.
+func (s *Server) withIndicators(ctx context.Context, instrument, granularity string, payload json.RawMessage) json.RawMessage {
+	var m map[string]any
+	if json.Unmarshal(payload, &m) != nil {
+		return payload
+	}
+	if _, has := m["indicators"]; has {
+		return payload
+	}
+	var ind struct {
+		Indicators map[string]any `json:"indicators"`
+	}
+	q := url.Values{"instrument": {instrument}, "granularity": {granularity}}
+	if err := s.eng.Get(ctx, "/api/indicators", q, &ind); err != nil || ind.Indicators == nil {
+		return payload
+	}
+	m["indicators"] = ind.Indicators
+	if out, err := json.Marshal(m); err == nil {
+		return out
+	}
+	return payload
 }

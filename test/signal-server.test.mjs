@@ -3026,3 +3026,17 @@ test('news endpoint lists recent headlines for one instrument, newest first, url
     assert.equal((await fetch(`${base}/api/news?instrument=${encodeURIComponent('a b')}`)).status, 400);
   });
 });
+
+test('indicators endpoint serves the strategy-prompt numbers read-only and rejects bad input', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const r = await (await fetch(`${base}/api/indicators?instrument=WTICO/USD&granularity=M5`)).json();
+    assert.equal(r.ok, true);
+    if (r.indicators) { // the fixture may hold too little history; when it does not, the shape must hold
+      assert.equal(typeof r.indicators.atr14, 'number');
+      assert.ok('extremes' in r.indicators && 'bollinger' in r.indicators);
+    }
+    assert.equal((await fetch(`${base}/api/indicators?instrument=${encodeURIComponent('a b')}`)).status, 400);
+    assert.equal((await fetch(`${base}/api/indicators?granularity=x`)).status, 400);
+    assert.notEqual((await fetch(`${base}/api/indicators`, { method: 'POST', body: '{}' })).status, 200);
+  });
+});

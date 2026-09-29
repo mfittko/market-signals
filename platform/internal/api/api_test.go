@@ -47,6 +47,9 @@ func fakeEngine(t *testing.T) *httptest.Server {
 		}
 		io.WriteString(w, `{"ok":true,"items":[{"title":"Tanker hit","source":"gdelt","time":"2026-01-01T10:00:00Z","escalation":true}]}`)
 	})
+	mux.HandleFunc("/api/indicators", func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"ok":true,"indicators":{"atr14":0.42,"extremes":{"high":99}}}`)
+	})
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"method":"`+r.Method+`","origin":"`+r.Header.Get("Origin")+`"}`)
 	})
@@ -362,5 +365,28 @@ func TestEngineProxyAllowlist(t *testing.T) {
 	}
 	if code, _ := get("DELETE", "/api/v1/engine/settings"); code != 404 {
 		t.Fatalf("DELETE settings should be refused, got %d", code)
+	}
+}
+
+func TestEngineEventsGainIndicatorLevels(t *testing.T) {
+	hs, st := setup(t)
+	send := func(key, payload string) string {
+		body := `{"idempotencyKey":"` + key + `","instrument":"WTICO/USD","granularity":"M5","event":"flip","payload":` + payload + `}`
+		if code, out := call(t, "POST", hs.URL+"/api/v1/events", "i", body, nil); code != 202 {
+			t.Fatalf("ingest: %d %v", code, out)
+		}
+		var got string
+		if err := st.Pool.QueryRow(context.Background(), `SELECT payload->'indicators'->>'atr14' FROM snapshots WHERE idem_key=$1`, key).Scan(&got); err != nil {
+			// a NULL means the key is absent
+			return ""
+		}
+		return got
+	}
+	if got := send("ind-1", `{"asOf":"x"}`); got != "0.42" {
+		t.Fatalf("the engine's indicator levels must be added to the snapshot, got %q", got)
+	}
+	// numbers the engine already supplied are never overwritten
+	if got := send("ind-2", `{"indicators":{"atr14":7}}`); got != "7" {
+		t.Fatalf("existing indicators must stay, got %q", got)
 	}
 }

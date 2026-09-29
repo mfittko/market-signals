@@ -412,7 +412,7 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b, 512<<10) {
 		return
 	}
-	res, err := s.st.Ingest(r.Context(), queue.IngestInput{IdemKey: b.IdempotencyKey, Instrument: b.Instrument, Granularity: b.Granularity, Event: b.Event, Source: "engine", Payload: b.Payload})
+	res, err := s.st.Ingest(r.Context(), queue.IngestInput{IdemKey: b.IdempotencyKey, Instrument: b.Instrument, Granularity: b.Granularity, Event: b.Event, Source: "engine", Payload: s.withIndicators(r.Context(), b.Instrument, b.Granularity, b.Payload)})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return

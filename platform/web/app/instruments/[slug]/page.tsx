@@ -6,9 +6,8 @@ import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
-import { EntryCheck } from '@/components/EntryCheck';
+import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
-import { AgentList } from '@/components/AgentList';
 import { Card, Stat } from '@/components/ui';
 
 const LIMIT = 10;
@@ -151,7 +150,7 @@ export default function InstrumentPage() {
         </div>
 
         <div className="grid">
-          <EntryCheck agents={d.agents} />
+          <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
           <Card title="News" aside={<span className="muted small">last 72h · {news.length}</span>}>
             {news.length === 0 ? <div className="empty">No cached headlines.</div> : (
@@ -165,9 +164,6 @@ export default function InstrumentPage() {
               </ul>
             )}
             {news.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${news.length}`}</button>}
-          </Card>
-          <Card title="Agents" aside={<span className="muted small">{d.agents.filter((a) => a.enabled).length} on</span>}>
-            {d.agents.length === 0 ? <div className="empty">No agent for this instrument yet.</div> : <AgentList agents={d.agents} onChange={load} />}
           </Card>
         </div>
       </div>
