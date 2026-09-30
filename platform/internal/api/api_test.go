@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -451,6 +452,38 @@ func TestEngineEventsGainIndicatorLevels(t *testing.T) {
 	// numbers the engine already supplied are never overwritten
 	if got := send("ind-2", `{"indicators":{"atr14":7}}`); got != "7" {
 		t.Fatalf("existing indicators must stay, got %q", got)
+	}
+}
+
+func TestStrategyNamesAreUniqueIgnoringCaseAndHaveNoTrailingSpace(t *testing.T) {
+	hs, st := setup(t)
+	if _, err := st.Pool.Exec(context.Background(), `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	save := func(name string) int {
+		c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/"+url.PathEscape(name)+"/versions", "", `{"prompt":"rules"}`, nil)
+		return c
+	}
+	if c := save("Trend"); c != 200 {
+		t.Fatalf("create: %d", c)
+	}
+	if c := save("Trend"); c != 200 {
+		t.Fatalf("a new version of the same name: %d", c)
+	}
+	if c := save("trend"); c != 409 {
+		t.Fatalf("a name differing only in case must be refused, got %d", c)
+	}
+	for _, bad := range []string{"Trend ", " Trend", "A "} {
+		if c := save(bad); c != 400 {
+			t.Fatalf("%q must be refused, got %d", bad, c)
+		}
+	}
+	if c := save("Trend 2"); c != 200 {
+		t.Fatalf("an inner space is fine: %d", c)
+	}
+	var n int
+	if err := st.Pool.QueryRow(context.Background(), `SELECT count(DISTINCT name) FROM strategies`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("strategies %d %v", n, err)
 	}
 }
 

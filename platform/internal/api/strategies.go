@@ -20,7 +20,11 @@ const maxPrompt = 32 << 10
 
 var errArchived = errors.New("strategy is archived")
 
-var strategyName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 _.\-]{0,63}$`)
+var errNameTaken = errors.New("strategy name differs only in case")
+
+// A name starts with a letter or digit and does not end with a space, so "Trend" and
+// "Trend " cannot become two strategies. Case is checked in saveVersion.
+var strategyName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9 _.\-]{0,62}[A-Za-z0-9_.\-])?$`)
 
 type strategySummary struct {
 	Name          string    `json:"name"`
@@ -126,7 +130,7 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 	b.Prompt = strings.TrimSpace(b.Prompt)
 	switch {
 	case !strategyName.MatchString(name):
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name: letters, digits, space, dot, dash or underscore, up to 64"})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name: letters, digits, space, dot, dash or underscore, up to 64, no leading or trailing space"})
 		return
 	case b.Prompt == "":
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "prompt is empty"})
@@ -137,9 +141,20 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	var version int
 	err := pgx.BeginFunc(r.Context(), s.st.Pool, func(tx pgx.Tx) error {
-		// serialize concurrent saves of one strategy so versions stay unique and one is active
+		// serialize creates of names that differ only in case, then saves of this one strategy
+		// so versions stay unique and one is active
+		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy-name:"+strings.ToLower(name)); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+name); err != nil {
 			return err
+		}
+		var exact, folded int
+		if err := tx.QueryRow(r.Context(), `SELECT count(*) FILTER (WHERE name=$1), count(*) FROM strategies WHERE lower(name)=lower($1)`, name).Scan(&exact, &folded); err != nil {
+			return err
+		}
+		if exact == 0 && folded > 0 {
+			return errNameTaken
 		}
 		var archived bool
 		if err := tx.QueryRow(r.Context(), `SELECT COALESCE(bool_or(archived),false) FROM strategies WHERE name=$1`, name).Scan(&archived); err != nil {
@@ -161,6 +176,10 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, errArchived) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "this strategy is archived; restore it before editing"})
+		return
+	}
+	if errors.Is(err, errNameTaken) {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "a strategy with this name in different case exists; use that name"})
 		return
 	}
 	if err != nil {
