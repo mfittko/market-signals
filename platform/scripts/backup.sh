@@ -5,8 +5,9 @@
 #
 #   scripts/backup.sh [dest-dir]      dump into <dest-dir>/<timestamp>/ (default: <main checkout>/tmp/backups)
 #   scripts/backup.sh restore <dir>   restore the Postgres dump from a backup directory (asks first)
+#   scripts/backup.sh prune <dest-dir> apply the retention rule below without taking a backup
 #
-# Backups keep only the newest 14 timestamped folders. SQLite copies use the online backup API, so they are
+# Backups keep only the newest 14 folders this script wrote. SQLite copies use the online backup API, so they are
 # consistent while the engine runs. Files are mode 600 because settings.json holds API keys.
 set -euo pipefail
 
@@ -26,10 +27,20 @@ restore() {
   echo "restored."
 }
 
+# Only folders this script wrote are pruned: the exact timestamp name AND the marker file inside.
+# A destination that also holds the user's own folders (2023-03-taxes, 20240101-000000 copies) keeps them.
+STAMP='[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]'
+MARKER=.ms-backup
+prune() {
+  local root="${1:-}"; [ -d "$root" ] || die "usage: $0 prune <dest-dir>"
+  for d in "$root"/$STAMP; do if [ -f "$d/$MARKER" ]; then echo "$d"; fi; done | sort -r | tail -n +"$((KEEP + 1))" |
+    while read -r old; do rm -rf -- "$old"; done
+}
+
 backup() {
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
   local root="${1:-$MAIN/tmp/backups}" out; out="$root/$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$out" && chmod 700 "$out"
+  mkdir -p "$out" && chmod 700 "$out" && : > "$out/$MARKER"
   docker exec "$PG" pg_dump -U ms -d ms --format=custom --no-owner > "$out/console.pgdump"
   for f in candles.db signals.db; do [ -f "$MAIN/data/$f" ] && sqlite3 "$MAIN/data/$f" ".backup '$out/$f'"; done
   for f in settings.json notes.md; do [ -f "$MAIN/data/$f" ] && command cp -p "$MAIN/data/$f" "$out/$f"; done
@@ -40,12 +51,12 @@ backup() {
     [ -f "$out/$f" ] || continue
     [ "$(sqlite3 "$out/$f" 'pragma integrity_check')" = ok ] || die "the SQLite copy failed its integrity check: $out/$f"
   done
-  # retention: newest $KEEP folders that look like timestamps
-  ls -1d "$root"/[0-9]*-[0-9]* 2>/dev/null | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do rm -rf -- "$old"; done
+  prune "$root"
   echo "backup written to $out ($(du -sh "$out" | cut -f1))"
 }
 
 case "${1:-}" in
   restore) restore "${2:-}" ;;
+  prune) prune "${2:-}" ;;
   *) backup "${1:-}" ;;
 esac
