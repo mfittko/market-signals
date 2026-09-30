@@ -6,11 +6,11 @@ The epic text is not edited yet. The section "Proposed epic changes" says what w
 
 ## 1. What exists
 
-Measured on the branch, not estimated.
+The figures below are measured on the branch.
 
 | Area | State |
 |---|---|
-| Control plane | Go, standard library router, pgx, three SQL migrations. About 8,200 lines of source, 127 tests, run with the race detector in CI. |
+| Control plane | Go, standard library router, pgx, three SQL migrations. About 8,200 lines of source, 129 tests, run with the race detector in CI. |
 | Queue | Leases, fencing tokens, heartbeats, bounded retry, expiry, cancel, timed follow-ups, event catch-up over server-sent events. |
 | Worker | Separate process. Two runtimes: an OpenAI-compatible model loop with a bounded tool loop, and a deterministic mock. Allowlisted read tools scoped to the agent's instrument. |
 | Decisions | Typed proposals, deterministic checks, fail-safe hold on any malformed, late or failed result. |
@@ -18,8 +18,8 @@ Measured on the branch, not estimated.
 | Importer | Copies SQLite history into Postgres. Refuses to commit unless cash reconciles with realized profit. Re-runs insert nothing. |
 | Console | Next.js, nine routes: desk, instrument with live chart and chat, portfolio, positions, strategies with wizard, guided grill and backtest grill, runs, alerts, settings. |
 | Ops | Postgres in Docker, launchd jobs for the console stack, one idempotent install script, backup script. |
-| Engine | An opt-in snapshot hook, read-only routes for indicators, news and decision context, a `claude-code` chat provider, an alert link setting. Off unless configured. |
-| CI | Go tests, console type check and the existing end-to-end walkthrough run on the PR. |
+| Engine | An opt-in snapshot hook, routes for indicators, news and decision context, a `claude-code` provider, and an alert link setting. The indicators route fetches upstream candles and saves them to SQLite. The `claude-code` provider serves chat, and also the alert filter, rechecks and the bot when selected. Only the snapshot hook is off unless configured. |
+| CI | Go tests and the console type check run on the PR. |
 
 The engine keeps sole ownership of the paper portfolio. Nothing in `platform/` writes to it.
 
@@ -39,9 +39,9 @@ The engine keeps sole ownership of the paper portfolio. Nothing in `platform/` w
 
 1. A vertical slice with the console first found more real defects than any review. Most of the bugs fixed late were visible only in the running app. Keep slices thin and keep the console in every slice.
 2. The epic stops at "the agent proposes". A proposal that opens a position needs a lifecycle: exits, trailing, wakes, budgets. The monitor is not in the epic and it is most of the safety story. It belongs in the plan.
-3. A strategy is the agent's real configuration. Authoring, versioning, review by a coach and backtest evidence turned out to be a product surface, not a side feature.
+3. A strategy is the agent's real configuration. Authoring, versioning, review by a coach and backtest evidence turned out to be a product surface.
 4. Agents are only as good as the context in the snapshot. Indicator levels, freshness and news were a larger lever than the runtime choice.
-5. The engine can stay authoritative for a long time. The prototype runs beside it with one opt-in hook. This makes the Go port of the domain a separate, later decision and not a prerequisite for agents.
+5. The engine can stay authoritative for a long time. The prototype runs beside it with one opt-in hook. This makes the Go port of the domain a separate, later decision. Agents can ship before it.
 6. Several review rounds found the same classes of defect: lookahead on unfinished bars, stale writers, unbounded outputs, browser-reachable settings. Each now has a regression test. These are the standing checks for any new slice.
 
 ## 4. Deviations from the epic, and whether to keep them

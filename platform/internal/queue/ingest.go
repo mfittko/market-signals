@@ -17,7 +17,7 @@ type IngestInput struct {
 	Instrument  string
 	Granularity string
 	Event       string
-	Source      string // engine | operator | demo
+	Source      string // engine | operator | monitor | demo
 	Trigger     string // free-form: flip, impulse, review, operator, demo
 	Payload     json.RawMessage
 	AgentID     string // optional: restrict to one agent

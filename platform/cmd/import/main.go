@@ -21,7 +21,7 @@ import (
 )
 
 func main() {
-	sqlite := flag.String("sqlite", "../data/candles.db", "legacy SQLite file (a private copy is read, the file is never opened)")
+	sqlite := flag.String("sqlite", "../data/candles.db", "legacy SQLite file (read once, read-only, to make a private copy with VACUUM INTO; the import reads only that copy)")
 	settings := flag.String("settings", "../data/settings.json", "legacy settings.json (only the bot map is read)")
 	symbols := flag.String("symbols", "../config/candle-symbols.json", "validated candle symbols")
 	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env)")
