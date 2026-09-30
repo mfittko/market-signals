@@ -279,7 +279,10 @@ LaunchAgent never loads `.env`); `.env` covers CLI and test runs only.
 
 Edited from the settings modal, or by hand. Provider resolution is
 **explicit-first** (`resolveProvider`): `"provider": "pi"` forces the pi
-coding agent CLI, `"anthropic"` forces the Anthropic API, `"openai"` forces the
+coding agent CLI, `"claude-code"` forces the Claude Code CLI (headless `claude -p`
+with its own tools, settings, skills and sessions off; it uses the operator's Claude
+Code login, so no key is stored; `claudeBin` overrides the binary path, default
+`~/.local/bin/claude`), `"anthropic"` forces the Anthropic API, `"openai"` forces the
 official OpenAI API, `"openai-compatible"` forces any OpenAI-compatible endpoint
 (`OPENAI_BASE_URL` required), `"none"` disables LLM features; empty/absent falls
 back to key-derived auto (`ANTHROPIC_API_KEY` wins over `OPENAI_API_KEY`; an
@@ -288,7 +291,7 @@ per provider** via a `models` map (`models[provider]`) so switching providers
 never sends one provider's model slug to another; the flat `model` is the active
 provider's fallback. The settings modal renders a **contextual provider panel**
 — pick a provider and only its relevant fields (model, base URL, key,
-`maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`,
+`maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`, `claudeBin`,
 `notifierBin`, `port`, `instrument`, `instruments` (dropdown CSV),
 `granularity`, `freshBars`, `watchers`, `bot` (per-combo bot config), `info`
 (overlays toggle). Speech-to-text (chat mic button, #137): `sttOpenaiKey` (a

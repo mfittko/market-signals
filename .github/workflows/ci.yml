@@ -19,3 +19,55 @@ jobs:
         run: find skills scripts -name '*.mjs' -print -exec node --check {} +
       - name: Unit tests
         run: npm test
+
+  platform-go:
+    runs-on: ubuntu-latest
+    # The queue, runtime, monitor and importer tests need a real Postgres; without
+    # one they skip, so the service is what makes this job meaningful.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ms
+          POSTGRES_PASSWORD: ms
+          POSTGRES_DB: ms_test
+        ports:
+          - 5544:5432
+        options: >-
+          --health-cmd "pg_isready -U ms -d ms_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    defaults:
+      run:
+        working-directory: platform
+    env:
+      MS_TEST_DATABASE_URL: postgres://ms:ms@127.0.0.1:5544/ms_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+          cache-dependency-path: platform/go.sum
+      - name: Go tests (race detector, one package at a time because they share the database)
+        run: go test -p 1 -race ./...
+
+  platform-console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/web
+    steps:
+      - uses: actions/checkout@v4
+      # the console is locked with pnpm (pnpm-lock.yaml), so npm ci has no lockfile to install from
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: platform/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: pnpm typecheck

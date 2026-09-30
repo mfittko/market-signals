@@ -3,12 +3,15 @@
 # five-minute watcher job that duplicates the server's own watcher cycle.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
-#   scripts/switch-launchd.sh up         switch to this worktree (asks first; -y skips the question)
+#   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   switch to this worktree (asks first; -y skips the question)
 #   scripts/switch-launchd.sh rollback [--with-watcher]   restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
 # main checkout's data/, so no state is copied or lost. Original plists are kept in ~/Library/LaunchAgents/.ms-backup.
+#
+# `up` repoints the live KeepAlive server, which the spike itself must never do. It refuses to run
+# unless MS_ALLOW_LIVE_SWITCH=1 is set, so only an explicit operator decision can move the live engine.
 set -euo pipefail
 
 WT="$(cd "$(dirname "$0")/../.." && pwd)"                     # worktree root
@@ -59,6 +62,7 @@ status() {
 }
 
 up() {
+  [ "${MS_ALLOW_LIVE_SWITCH:-}" = 1 ] || die "up repoints the live server; set MS_ALLOW_LIVE_SWITCH=1 to confirm this is an operator decision"
   command -v jq >/dev/null || die "jq is required"
   [ -f "$LA/$SRV.plist" ] || [ -f "$BK/$SRV.plist" ] || die "no $SRV plist found"
   [ -f "$WT/scripts/signal-server.mjs" ] || die "worktree has no engine scripts"
@@ -115,5 +119,5 @@ case "${1:-status}" in
   status) status ;;
   up) up "${2:-}" ;;
   rollback) rollback "$@" ;;
-  *) die "usage: $0 status|up [-y]|rollback" ;;
+  *) die "usage: $0 status|up [-y]|rollback [--with-watcher]  (up needs MS_ALLOW_LIVE_SWITCH=1)" ;;
 esac

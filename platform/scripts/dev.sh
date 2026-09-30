@@ -4,7 +4,8 @@
 #   scripts/dev.sh down    stop app processes (add --db to stop Postgres too)
 #   scripts/dev.sh status  show what is running
 #   scripts/dev.sh logs    tail all logs
-# Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable; read-only GETs),
+# Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
+#              GETs; the console proxy also forwards POST /settings, /chat, /memories and DELETE /threads.
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker only).
 set -euo pipefail
 cd "$(dirname "$0")/.."

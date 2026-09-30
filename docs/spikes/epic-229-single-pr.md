@@ -42,7 +42,7 @@ Constraints that still hold for a one-PR spike:
 3. Parity cannot be proven in one pass. The epic needs shadow runs on recorded data over time, so the spike can show that the boundaries work, not that the migration is safe.
 4. Cutover, rollback and backup rehearsal are operational steps. A prototype can script them but cannot prove them.
 5. Epics 123 and 36 conflict with parts of the plan. The spike must record which decisions it assumed.
-6. The prototype must not touch the live KeepAlive server or the supertrend alert agent. Run it on a copy of `data/` and a separate port.
+6. The prototype must not touch the live KeepAlive server or the supertrend alert agent. Run it on a copy of `data/` and a separate port. `platform/scripts/switch-launchd.sh up` is the one operator tool that repoints the live server, and it refuses to run without `MS_ALLOW_LIVE_SWITCH=1`.
 
 What a one-PR spike can cover:
 
@@ -62,11 +62,11 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Run history UI | Works. Next.js 16 console with live updates, audit trail, cancel, dark mode, phone width. |
 | Postgres and Go skeleton | Works with stdlib HTTP and hand-written SQL. Chi and sqlc were not needed to prove the boundary. |
 | Restricted runtime on Pi | Not built. `pi --help` shows a `--tools` allowlist and `--no-builtin-tools`, so a Pi worker needs an extension that exposes the market tools. That extension is the open question. |
-| SQLite importer | Not built. |
+| SQLite importer | Built (`platform/cmd/import`). One transaction, dry run by default. It commits only when every invariant holds, including cash reconciliation, so open source positions block a commit. |
 | Go port of portfolio and fills | Not built. Estimated as the largest remaining cost. |
 | Parity and shadow qualification | Not provable in a spike. Needs recorded data and time. |
 
-Test evidence: 33 Go tests (race detector clean, real Postgres), 7 Node bridge tests, all 682 existing Node tests unchanged, an end-to-end smoke script, and a browser check of both themes and phone width.
+Test evidence: 104 Go tests (race detector clean, real Postgres), 689 Node tests including the 7 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
 
 Behavior worth knowing before deciding:
 
@@ -81,6 +81,6 @@ Graduate. The agent boundary is proven end to end, and it fits the epic's first 
 1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the 4-line engine hook behind an off-by-default flag.
 2. Land the console.
 3. Decide the Pi question with an extension spike before choosing a runtime for execution-eligible bots.
-4. Only then start the importer and the Go domain port, each against recorded fixtures.
+4. Only then harden the importer and start the Go domain port, each against recorded fixtures.
 
 Discard the branch history but keep the design. The queue tests are the most reusable part.

@@ -96,8 +96,9 @@ uiReview:
         - { action: select, selector: "#f-llmFallbackProvider", value: "anthropic", name: select-fallback-provider }
         - { action: click, selector: "#cfg button", name: save-llm-fallback }
 
-# Dev-loop queue board (operator, 2026-07-22): user project 5 is the queue.
-queue:
+# Dev-loop tracker board (operator, 2026-07-22): user project 5 is the queue.
+# Lives under tracker.board; the installed CLI rejects the old queue.board key.
+tracker:
   board:
     number: 5
 

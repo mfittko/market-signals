@@ -27,9 +27,10 @@ scripts/dev.sh down
 
 In the console:
 
-1. Pick an agent, choose "Bundled demo event (offline)" and press Run. The mock agent finishes in about a second.
-2. Choose "Current engine state (live)" to freeze what the engine sees now. The engine must be reachable.
-   The launcher connects to `127.0.0.1:8787` when it is up. Only read-only GET calls are made.
+1. Pick an agent under "New research run" and press Run. The run freezes what the engine sees now, so the engine
+   must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
+2. The control plane reads the engine with GET calls. The console proxy also forwards a fixed allowlist of engine
+   writes: `POST /settings`, `POST /chat`, `POST /memories` and `DELETE /threads`. Nothing reaches the portfolio.
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 
@@ -41,7 +42,9 @@ the run wait, release the worker and resume as a second attempt.
 
 ## Feed it real engine events
 
-Start the engine with the hook enabled. Use a copy of `data/` so nothing touches the live database.
+Start the engine with the hook enabled. Use a copy of `data/` so nothing touches the live database. The copy
+listens on port 4123, so start the stack with `MS_ENGINE_URL=http://127.0.0.1:4123 scripts/dev.sh up` to make
+live-engine runs read the same copy.
 
 ```sh
 MS_NO_NOTIFY=1 MS_CONTROL_PLANE_URL=http://127.0.0.1:8080 MS_INGEST_TOKEN=$(grep INGEST platform/.dev/env | cut -d= -f2) \
@@ -88,4 +91,12 @@ node --test test/control-plane.test.mjs       # from the repo root
 | Pi runtime | not built; see the spike findings |
 | Checkpoint and resume | reported as unsupported; an interrupted attempt is recorded and a bounded replacement starts fresh |
 | Auth | loopback only, bearer tokens for worker and engine endpoints, origin guard on browser writes |
-| Importer, Go port of the portfolio engine | not built |
+| Go port of the portfolio engine | not built |
+
+## Import the legacy history
+
+`go run ./cmd/import` copies the SQLite history (candles, signals, trades, bot journal, account, strategies, chat,
+standing rules, prompt versions and rechecks) and the bot map into
+Postgres in one transaction. Without `-commit` it is a dry run that rolls back. It commits only when every
+invariant holds, including that cash reconciles with realized profit. Open positions in the source fail that
+check, so close them first. `go run ./cmd/import -h` lists the flags.
