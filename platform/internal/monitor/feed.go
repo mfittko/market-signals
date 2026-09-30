@@ -8,7 +8,10 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
 
-// EngineFeed reads the running engine. Every call is a read-only GET.
+// EngineFeed reads the running engine with GET calls. A GET /api/chart has side effects on
+// the engine: when its stored candles are stale, the engine fetches live candles from its
+// upstream provider and upserts them into its SQLite before it answers. The monitor polls
+// M1 for every instrument with an open shadow position, so it drives that traffic.
 type EngineFeed struct{ Eng *tools.Engine }
 
 type chartResp struct {

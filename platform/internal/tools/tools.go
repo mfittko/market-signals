@@ -51,7 +51,8 @@ func Definitions() []Def {
 	}
 }
 
-// Engine reads the deterministic engine's read-only HTTP API.
+// Engine reads the deterministic engine's HTTP API with GET calls. A chart GET can make the
+// engine fetch upstream candles and store them in its SQLite.
 type Engine struct {
 	BaseURL string
 	Client  *http.Client

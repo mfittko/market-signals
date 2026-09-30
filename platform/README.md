@@ -29,7 +29,10 @@ In the console:
 
 1. Pick an agent under "New research run" and press Run. The run freezes what the engine sees now, so the engine
    must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
-2. The control plane reads the engine with GET calls. The console proxy also forwards a fixed allowlist of engine
+2. The control plane reads the engine with GET calls. These calls are not free of side effects: when the
+   engine's stored candles are stale, a chart GET makes the engine fetch live candles from its upstream provider
+   and upsert them into its SQLite. The position monitor polls M1 charts every 15 seconds for each instrument
+   with an open shadow position, and tool calls, snapshots and the live route read charts too. The console proxy also forwards a fixed allowlist of engine
    writes: `POST /settings`, `POST /chat`, `POST /memories` and `DELETE /threads`. A settings write may carry only
    the keys the console Settings page edits (model, watchers, alerts, signal filter and news). The proxy refuses
    every other key with 403, including the paper bot switches and allocation (`bot`), executable paths (keys

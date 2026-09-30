@@ -73,6 +73,7 @@ Behavior worth knowing before deciding:
 
 - A reasoning model (DeepSeek on the configured endpoint) spent its whole completion budget on hidden reasoning at 2,048 tokens and returned no answer. The runtime now defaults to 16,384 and fails safe to a hold when a reply is empty.
 - An operator run against the live engine sees the latest signal, which can be hours old. Snapshots now carry the flip age, and the mock agent holds on a stale flip. The LLM agent still sometimes acts on one.
+- The control plane reads the engine with GET calls, but those calls have side effects. A chart GET on stale data makes the engine fetch live candles from its upstream provider and upsert them into its SQLite. The position monitor polls M1 every 15 seconds for each instrument with an open shadow position.
 - The forming candle is dropped from snapshots and from the candle tool. The live quote is labelled provisional. Agents that see a provisional price can schedule a follow-up.
 
 ## Recommendation
