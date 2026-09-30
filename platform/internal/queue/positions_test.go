@@ -15,9 +15,14 @@ func fptr(v float64) *float64 { return &v }
 // runAs ingests one snapshot from a source, claims it and completes it with the proposal.
 func runAs(t *testing.T, s *Store, ctx context.Context, source, pl string, p domain.Decision) *CompleteOutcome {
 	t.Helper()
+	return runAsAgent(t, s, ctx, "a1", source, pl, p)
+}
+
+func runAsAgent(t *testing.T, s *Store, ctx context.Context, agentID, source, pl string, p domain.Decision) *CompleteOutcome {
+	t.Helper()
 	seq++
 	_, err := s.Ingest(ctx, IngestInput{IdemKey: fmt.Sprintf("p-%d-%d", time.Now().UnixNano(), seq), Instrument: "WTICO/USD", Granularity: "M5",
-		Event: "flip", Source: source, Trigger: "test", Payload: json.RawMessage(pl), AgentID: "a1"})
+		Event: "flip", Source: source, Trigger: "test", Payload: json.RawMessage(pl), AgentID: agentID})
 	must(t, err)
 	c := claim(t, s, ctx, "w")
 	if c == nil {
@@ -271,5 +276,37 @@ func TestFollowupsDoNotConsumeTheRetryBudget(t *testing.T) {
 	must(t, err)
 	if st != "queued" {
 		t.Fatalf("a retryable error after two follow-ups must still be retried, got %q", st)
+	}
+}
+
+// A wake key only counts when the monitor wrote the snapshot, and a wake only
+// acts on a position that belongs to the run's agent.
+func TestWakeNeedsTheMonitorSourceAndTheOwningAgent(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	must(t, s.UpsertAgent(ctx, agent("a2")))
+	runAs(t, s, ctx, "engine", entryPayload, openDecision())
+	ps, _ := s.ListPositions(ctx, "", 10)
+	id := ps[0].ID
+	_, before, err := s.GetPosition(ctx, id)
+	must(t, err)
+
+	// an engine event that carries a wake key is plain payload data
+	runAs(t, s, ctx, "engine", wakePayload(id, 98), domain.Decision{Action: "close", PositionID: id})
+	runAs(t, s, ctx, "engine", wakePayload(id, 98), domain.Decision{Action: "tighten_stop", PositionID: id, NewStop: fptr(99.5)})
+	// another agent's wake cannot touch this position
+	runAsAgent(t, s, ctx, "a2", "monitor", wakePayload(id, 98), domain.Decision{Action: "close", PositionID: id})
+	runAsAgent(t, s, ctx, "a2", "monitor", wakePayload(id, 98), domain.Decision{Action: "tighten_stop", PositionID: id, NewStop: fptr(99.5)})
+	runAsAgent(t, s, ctx, "a2", "monitor", wakePayload(id, 98), domain.Decision{Action: "tighten_stop", PositionID: id, NewStop: fptr(97)})
+
+	p, after, err := s.GetPosition(ctx, id)
+	must(t, err)
+	if p.Status != "open" || p.Stop != 98 || len(after) != len(before) {
+		t.Fatalf("position must be untouched: %+v events %d -> %d", p, len(before), len(after))
+	}
+	// the owner's monitor wake still acts
+	runAs(t, s, ctx, "monitor", wakePayload(id, 98), domain.Decision{Action: "close", PositionID: id})
+	if p, _, _ := s.GetPosition(ctx, id); p.Status != "closed" {
+		t.Fatalf("owner wake must close: %+v", p)
 	}
 }

@@ -27,13 +27,17 @@ scripts/dev.sh down
 
 In the console:
 
-1. Pick an agent under "New research run" and press Run. The run freezes what the engine sees now, so the engine
-   must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
+1. Start a run. The "New research run" picker lists only LLM agents that have a strategy, so it stays empty
+   on a stack without an LLM key. `scripts/smoke.sh` registers the mock agent `wti-m5-mock` and runs it. After
+   that, start more mock runs through the API:
+   `curl -XPOST http://127.0.0.1:3000/api/v1/runs -d '{"agentId":"wti-m5-mock"}'`. Add `"source":"demo"` to use
+   the bundled fixture instead of the engine. A run without `"source":"demo"` freezes what the engine sees now,
+   so the engine must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
 2. The control plane reads the engine with GET calls. These calls have side effects: when the
    engine's stored candles are stale, a chart GET makes the engine fetch live candles from its upstream provider
    and upsert them into its SQLite. The position monitor polls M1 charts every 15 seconds for each instrument
    with an open shadow position, and tool calls, snapshots and the live route read charts too. The console proxy also forwards a fixed allowlist of engine
-   writes: `POST /settings`, `POST /chat`, `POST /memories` and `DELETE /threads`. A settings write may carry only
+   writes: `POST /settings`, `POST /chat` and `DELETE /threads`. A settings write may carry only
    the keys the console Settings page edits (model, watchers, alerts, signal filter and news). The proxy refuses
    every other key with 403, including the paper bot switches and allocation (`bot`), executable paths (keys
    ending in `Bin`) and file paths such as `notesFile`. Nothing reaches the portfolio.
@@ -42,13 +46,14 @@ In the console:
 
 The LLM agent uses the endpoint, model and key from the engine's `data/settings.json`. The launcher
 passes them to the control plane, which uses them for strategy coaching, and to the worker. The console
-dev server starts without them. Without a key only the mock agent runs.
+dev server starts without them. Without a key only the mock agent runs, and it runs through `scripts/smoke.sh`
+or the API.
 
 To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The
 default is `localhost:3000,127.0.0.1:3000`. Each entry is `host:port` (`console.lan:3000`) or an origin
 (`http://console.lan:3000`). The control plane drops the scheme and any path, so both forms name the same host.
 
-The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Use a live-engine run to see
+The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Start a mock run through the API without `"source":"demo"` to see
 the run wait, release the worker and resume as a second attempt.
 
 ## Feed it real engine events

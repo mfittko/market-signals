@@ -6,7 +6,7 @@
 #   scripts/dev.sh logs    tail all logs
 # Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
 #              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
-#              the console proxy also forwards POST /settings, /chat, /memories and DELETE /threads.
+#              the console proxy also forwards POST /settings, POST /chat and DELETE /threads.
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
 #              control plane for strategy coaching; the console starts without them).
 # Secrets: .dev/env (mode 600, gitignored) holds the worker and ingest tokens and the Postgres password, generated
@@ -97,13 +97,30 @@ up() {
   local engine; engine="$(engine_url)"
 
   # the model settings feed the worker (agent runs) and the control plane (strategy coaching)
-  local s; s="$(settings_file)"
+  local s flavor=""; s="$(settings_file)"
+  # The engine's rule (resolveProvider, openaiEndpoint and effectiveModel in scripts/supertrend.mjs):
+  # a non-blank OPENAI_BASE_URL means the openai-compatible flavor and its base URL; a blank one means
+  # official OpenAI at its fixed URL. An explicit openai-compatible provider without a base URL is a
+  # misconfiguration, so the key goes nowhere. The model comes from models[flavor], then the flat model
+  # when the flavor is the active provider, then the engine default for official OpenAI.
   if [ -n "$s" ] && [ -n "$(jq -r '.OPENAI_API_KEY // empty' "$s")" ]; then
+    flavor="$(jq -r '(.OPENAI_BASE_URL // "" | gsub("^\\s+|\\s+$"; "")) as $b
+      | if $b != "" then "openai-compatible" elif .provider == "openai-compatible" then "" else "openai" end' "$s")"
+  fi
+  if [ -n "$flavor" ]; then
     export MS_LLM_BASE_URL MS_LLM_API_KEY MS_LLM_MODEL
-    MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL // "https://api.openai.com/v1"' "$s")"
+    if [ "$flavor" = openai ]; then
+      MS_LLM_BASE_URL="https://api.openai.com/v1"
+    else
+      MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL | gsub("^\\s+|\\s+$"; "")' "$s")"
+    fi
     MS_LLM_API_KEY="$(jq -r '.OPENAI_API_KEY' "$s")"
-    # these speak the OpenAI-compatible API, so take that model even when the chat provider is something else (claude-code, pi)
-    MS_LLM_MODEL="$(jq -r '(.models // {}) as $m | ($m["openai-compatible"] // $m["openai"] // $m[.provider // ""] // .model // empty)' "$s")"
+    MS_LLM_MODEL="$(jq -r --arg f "$flavor" '(.provider // "") as $p
+      | (if ($p | IN("pi","claude-code","none","anthropic","openai","openai-compatible"))
+           then (if $p == "openai" then $f else $p end)
+         elif .ANTHROPIC_API_KEY then "anthropic" else $f end) as $active
+      | (.models // {})[$f] // (if $active == $f then .model else null end)
+        // (if $f == "openai" then "gpt-5.4-mini" else null end) // empty' "$s")"
     [ -n "$MS_LLM_MODEL" ] || echo "note: no model in $s; the llm agent fails until MS_LLM_MODEL is set"
     echo "LLM runtime: enabled (endpoint and key read from $s)"
   else

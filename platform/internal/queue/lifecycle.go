@@ -357,7 +357,12 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	_ = json.Unmarshal(payload, &pm)
 	maxAge := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
 	var val domain.Validation
-	wake := domain.WakeFromPayload(pm)
+	// Only the monitor writes wake snapshots. Engine events are stored verbatim,
+	// so a "wake" key in any other source is plain payload data.
+	var wake *domain.WakePosition
+	if snapSource == "monitor" {
+		wake = domain.WakeFromPayload(pm)
+	}
 	if wake != nil {
 		// a tripwire wake has its own, narrower action set
 		val = domain.ValidateWake(proposal, *wake, taken, time.Now(), maxAge)
@@ -411,13 +416,22 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 		}
 		// a final, valid result moves the shadow book: a wake acts on its position, an engine entry opens one
 		switch {
-		case wake != nil && val.Valid:
-			if err := applyWakeTx(ctx, tx, l.runID, *wake, proposal, val.PriceUsed, time.Now()); err != nil {
+		case wake != nil:
+			// a run may only act on its own agent's position
+			var owned bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM shadow_positions WHERE id=$1 AND agent_id=$2)`, wake.ID, agentID).Scan(&owned); err != nil {
 				return nil, err
 			}
-		case wake != nil:
-			if err := addPositionEvent(ctx, tx, wake.ID, "wake_hold", map[string]any{"runId": l.runID, "tripwire": wake.Alert, "rejected": val.Reasons}); err != nil {
-				return nil, err
+			switch {
+			case !owned:
+			case val.Valid:
+				if err := applyWakeTx(ctx, tx, l.runID, *wake, proposal, val.PriceUsed, time.Now()); err != nil {
+					return nil, err
+				}
+			default:
+				if err := addPositionEvent(ctx, tx, wake.ID, "wake_hold", map[string]any{"runId": l.runID, "tripwire": wake.Alert, "rejected": val.Reasons}); err != nil {
+					return nil, err
+				}
 			}
 		case val.Valid && proposal.Action == "open" && snapSource == "engine":
 			if err := openPositionTx(ctx, tx, l.runID, agent, proposal, val.PriceUsed, taken); err != nil {
