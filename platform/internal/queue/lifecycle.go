@@ -462,9 +462,11 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 				}
 			}
 		case val.Valid && proposal.Action == "open" && snapSource == "engine":
-			// the entry was validated against the snapshot, so the position sits on the snapshot market even if the agent was re-scoped since
+			// the entry was validated against the snapshot, so the position sits on the snapshot market even if the agent was re-scoped since.
+			// It starts at the decision time, not the snapshot time: the agent may have read candles newer than the snapshot,
+			// and the monitor must only judge bars that closed after the agent decided. The freshness limit bounds the price gap.
 			agent.Instrument, agent.Granularity = snapInstrument, snapGran
-			if err := openPositionTx(ctx, tx, l.runID, agent, proposal, val.PriceUsed, taken); err != nil {
+			if err := openPositionTx(ctx, tx, l.runID, agent, proposal, val.PriceUsed, dbNow); err != nil {
 				return nil, err
 			}
 		}

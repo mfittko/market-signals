@@ -23,7 +23,20 @@ mkdir -p "$RUN/bin"
 die() { echo "error: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 is required"; }
 
-alive() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+# A pid file can outlive its process, and the number can then belong to an unrelated program. So a pid counts as
+# ours only when it is running and its command line is the expected program: the built binary for api and worker,
+# and the pnpm or next process for web.
+alive() {
+  [ -f "$RUN/$1.pid" ] || return 1
+  local pid cmd; pid="$(cat "$RUN/$1.pid")"
+  kill -0 "$pid" 2>/dev/null || return 1
+  cmd="$(ps -o command= -p "$pid" 2>/dev/null)" || return 1
+  case "$1" in
+    api|worker) [[ "$cmd" == *"$RUN/bin/$1"* ]] ;;
+    web) [[ "$cmd" == *pnpm* || "$cmd" == *next* ]] ;;
+    *) return 1 ;;
+  esac
+}
 
 stop_one() {
   if alive "$1"; then

@@ -363,3 +363,32 @@ func TestARescopedAgentKeepsItsEntryOnTheSnapshotMarket(t *testing.T) {
 		t.Fatalf("the position must sit on the snapshot market: %+v", ps)
 	}
 }
+
+// The agent decides from live data, after the snapshot was taken. The position starts when it decided, so the monitor
+// never judges a bar the agent had already read.
+func TestEntryStartsAtTheDecisionNotAtTheSnapshot(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	seq++
+	_, err := s.Ingest(ctx, IngestInput{IdemKey: fmt.Sprintf("late-%d-%d", time.Now().UnixNano(), seq), Instrument: "WTICO/USD", Granularity: "M5",
+		Event: "flip", Source: "engine", Trigger: "test", Payload: json.RawMessage(entryPayload), AgentID: "a1"})
+	must(t, err)
+	c := claim(t, s, ctx, "w")
+	if c == nil {
+		t.Fatal("nothing to claim")
+	}
+	time.Sleep(1100 * time.Millisecond) // the agent works for a while after the snapshot
+	p := openDecision()
+	_, err = s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: &p})
+	must(t, err)
+	ps, err := s.ListPositions(ctx, "open", 1)
+	must(t, err)
+	if len(ps) != 1 {
+		t.Fatalf("want one position, got %d", len(ps))
+	}
+	var taken time.Time
+	must(t, s.Pool.QueryRow(ctx, `SELECT taken_at FROM snapshots ORDER BY id DESC LIMIT 1`).Scan(&taken))
+	if !ps[0].EntryTime.After(taken.Add(time.Second)) {
+		t.Fatalf("the entry must start when the agent decided (%s), not at the snapshot (%s)", ps[0].EntryTime, taken)
+	}
+}

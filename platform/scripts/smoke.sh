@@ -2,7 +2,7 @@
 # End-to-end check of a running stack (scripts/dev.sh up). Uses only the mock agent, so it needs no model or network.
 # Safe against a live stack (set MS_CONSOLE_PORT when the console is not on port 3000): every agent, event and run it creates uses the private agent smoke-mock on the private
 # instrument SMOKE/TEST, which no real agent shares, so no real agent receives its events or opens a position.
-# The smoke agent is switched off again on exit.
+# On exit the smoke agent is switched off and its private shadow position is deleted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . .dev/env
@@ -29,7 +29,14 @@ smoke_agent() { # enabled: true or false
   curl -fsS -XPOST "$API/agents" -d '{"id":"smoke-mock","name":"Smoke test (deterministic mock)","instrument":"SMOKE/TEST","granularity":"M5","runtime":"mock",
     "allowedTools":["get_snapshot","get_portfolio","get_recent_candles","get_recent_signals","schedule_followup"],"enabled":'"$1"'}' >/dev/null
 }
-trap 'smoke_agent false >/dev/null 2>&1 || true' EXIT
+# The engine-event step makes the mock agent open a shadow position on SMOKE/TEST. There is no close route, so the exit
+# cleanup removes that private position (its events go with it), and nothing of the smoke run is left in the book.
+smoke_cleanup() {
+  smoke_agent false >/dev/null 2>&1 || true
+  printf "DELETE FROM shadow_positions WHERE agent_id='smoke-mock' AND instrument='SMOKE/TEST';\n" \
+    | MS_DB_PASSWORD="$MS_DB_PASSWORD" docker compose exec -T postgres psql -q -U ms -d ms >/dev/null 2>&1 || true
+}
+trap smoke_cleanup EXIT
 smoke_agent true || fail "could not create the mock agent"
 ok "registered the private mock agent smoke-mock"
 
