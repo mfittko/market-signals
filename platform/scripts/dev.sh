@@ -5,8 +5,10 @@
 #   scripts/dev.sh status  show what is running
 #   scripts/dev.sh logs    tail all logs
 # Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
-#              GETs; the console proxy also forwards POST /settings, /chat, /memories and DELETE /threads.
-#              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker only).
+#              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
+#              the console proxy also forwards POST /settings, /chat, /memories and DELETE /threads.
+#              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
+#              control plane for strategy coaching; the console starts without them).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
