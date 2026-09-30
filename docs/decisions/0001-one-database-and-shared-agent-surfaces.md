@@ -17,7 +17,7 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 
 ## Decision
 
-1. The end state is one database, PostgreSQL. SQLite remains only as an import source and a legacy concern. This retires the dual-backend decision in the portability epic. Until the cutover (step 4 of the migration note: SQLite becomes import-only) the ownership table below applies per domain, and no dual-backend abstraction is built in the engine.
+1. The end state is one database, PostgreSQL. SQLite remains only as an import source and a legacy concern. This retires the dual-backend decision in the portability epic. Until the cutover (step 4 of the migration note: SQLite becomes import-only) the ownership table below applies per domain, and no dual-backend abstraction is built in the engine. The portability epic's open question of one step or per domain is closed as per domain: the migration note's "Why not in one step" section explains why a single cutover puts the live paper account and alerts at risk.
 2. Redis is not planned. This revises the portability epic, which listed Redis for caches, throttles, locks and sessions. Revisit Redis only on a measured need. The triggers are:
    - more than one API instance, or
    - a latency target that Postgres notifications cannot meet.
@@ -33,7 +33,6 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 | Strategies | Engine (SQLite). | Migration step 1 (strategies) completes: console edits reach the engine, the engine reads the active version from Postgres, and it has run on that version for several days without incident. Until then console edits are drafts. |
 | Candles and signals | Engine, which also writes a copy to Postgres. | Daily row counts per instrument and timeframe match for several days. Then the platform becomes the reader of record and the writer moves in the cutover step. |
 | Portfolio and bots | Engine (SQLite ledger). The platform never writes to it. | The Go port runs in shadow beside the ledger and every trade and the equity curve match. |
-| Paper execution (later) | Engine, through a narrow validating API. The agent never touches the ledger. | Moves with portfolio and bots. The authority ladder is in the [epic status note](https://github.com/mfittko/market-signals/blob/spike/epic-229/platform/docs/epic-status-and-plan.md). |
 | Chat threads | Engine (SQLite). | Flips only after open question 2 is answered and a new record supersedes this row. Until then the engine stays the writer. |
 | Alert state | Engine (SQLite). | Moves with portfolio and bots. |
 | Provider budgets and circuit state | Engine (SQLite). | The importer gap (budgets, circuit state, correlation state) is closed, then the writer moves with the engine domain that spends the budget. |
