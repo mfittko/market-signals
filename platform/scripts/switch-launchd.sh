@@ -188,7 +188,7 @@ up() {
 rollback() {
   [ -f "$BK/$SRV.plist" ] || die "no backup at $BK"
   remove_console
-  edit_settings 'del(.consoleUrl)'
+  edit_settings 'del(.consoleUrl)' || echo "warning: could not clear consoleUrl from settings; continuing rollback" >&2
   unload "$SRV"
   command cp -f "$BK/$SRV.plist" "$LA/$SRV.plist"
   load "$SRV"

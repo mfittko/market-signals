@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { changedPatch } from '@/lib/settings-merge';
 import { Card, Loading } from '@/components/ui';
 import { AlertsCard, FilterCard, WatchersCard } from '@/components/MoreSettings';
 
@@ -21,13 +22,18 @@ async function save(patch: object) {
   return api<{ ok: boolean; error?: string }>('/engine/settings', { method: 'POST', body: JSON.stringify(patch) });
 }
 
-function useSave(reload: () => Promise<void>) {
+function useSave(reload: () => Promise<void>, loaded: Settings | null) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const run = async (patch: object, text = 'Saved.') => {
     if (busy) return;
     setBusy(true); setMsg(null);
-    try { await save(patch); setMsg({ ok: true, text }); await reload(); }
+    try {
+      // Re-read just before writing. Send only what the operator changed against the values the form loaded.
+      const fresh = await api<Settings>('/engine/settings');
+      await save(changedPatch((loaded ?? {}) as Record<string, unknown>, fresh as Record<string, unknown>, patch as Record<string, unknown>));
+      setMsg({ ok: true, text }); await reload();
+    }
     catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
     finally { setBusy(false); }
   };
@@ -42,7 +48,7 @@ export default function SettingsPage() {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
-  const { run, busy, msg } = useSave(reload);
+  const { run, busy, msg } = useSave(reload, s);
 
   if (error) return <main className="wrap"><h1>Settings</h1><div className="msg err" role="alert">{error}</div></main>;
   if (!s) return <main className="wrap"><Loading full /></main>;
