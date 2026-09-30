@@ -163,6 +163,10 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		grans = append(grans, g.Granularity)
 	}
 	grows.Close()
+	if err := grows.Err(); err != nil {
+		s.fail500(w, err)
+		return
+	}
 
 	chosen := r.URL.Query().Get("granularity")
 	found := false
@@ -194,6 +198,10 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 			candles = append(candles, c)
 		}
 		crow.Close()
+		if err := crow.Err(); err != nil {
+			s.fail500(w, err)
+			return
+		}
 	}
 
 	type sig struct {
@@ -221,6 +229,10 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		sigs = append(sigs, g)
 	}
 	srow.Close()
+	if err := srow.Err(); err != nil {
+		s.fail500(w, err)
+		return
+	}
 
 	type trade struct {
 		PositionID   int64     `json:"positionId"`
@@ -250,6 +262,10 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		trades = append(trades, t)
 	}
 	trow.Close()
+	if err := trow.Err(); err != nil {
+		s.fail500(w, err)
+		return
+	}
 
 	ag, err := s.agentsByInstrument(r)
 	if err != nil {
