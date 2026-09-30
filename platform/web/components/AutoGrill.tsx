@@ -5,7 +5,7 @@ import { GrillPanel } from '@/components/GrillPanel';
 
 export type Scope = { instrument: string; granularity: string };
 type Stats = { trades: number; winRate: number; expectancy: number; profitFactor: number; maxDrawdownR: number };
-type Params = { stopAtr: number; rr: number; minAdx: number; minVolume: number };
+type Params = { stopAtr: number; rr: number; maxBars: number; minAdx: number; minVolume: number };
 type Cand = { params: Params; train: Stats; test: Stats; holds?: boolean };
 type Result = {
   backtest: { instrument: string; granularity: string; from: string; to: string; candles: number; flips: number; tried: number; baseline: Cand; candidates: Cand[]; caveats: string[] };
@@ -14,7 +14,7 @@ type Result = {
 };
 
 const r2 = (v: number) => (v >= 0 ? '' : '−') + Math.abs(v).toFixed(2);
-const describe = (p: Params) => [`${p.stopAtr} ATR stop`, p.rr ? `${p.rr}R target` : 'exit on reversal', p.minAdx ? `ADX ≥ ${p.minAdx}` : null, p.minVolume ? `volume ≥ ${p.minVolume}×` : null].filter(Boolean).join(' · ');
+const describe = (p: Params) => [`${p.stopAtr} ATR stop`, p.rr ? `${p.rr}R target` : 'no target', `exit on reversal or after ${p.maxBars} bars`, p.minAdx ? `ADX ≥ ${p.minAdx}` : null, p.minVolume ? `volume ≥ ${p.minVolume}×` : null].filter(Boolean).join(' · ');
 
 function Row({ label, c }: { label: string; c: Cand }) {
   const good = c.holds;

@@ -27,11 +27,12 @@ type Flip struct {
 	Dir  int       // +1 buy, -1 sell
 }
 
-// Params are one candidate setting. Zero means the option is off.
+// Params are one candidate setting. A zero filter or target is off. MaxBars 0
+// means the DefaultMaxBars time stop; every replay has a time stop.
 type Params struct {
 	StopATR   float64 `json:"stopAtr"`
 	RR        float64 `json:"rr"`      // target as a multiple of the stop distance
-	MaxBars   int     `json:"maxBars"` // time stop
+	MaxBars   int     `json:"maxBars"` // time stop in bars; 0 means DefaultMaxBars
 	MinADX    float64 `json:"minAdx"`
 	MinVolume float64 `json:"minVolume"` // volume ratio against the prior 20 bars
 	Direction string  `json:"direction"` // both | long | short
@@ -57,6 +58,8 @@ const (
 	period    = 14
 	volWindow = 20
 	warmup    = 3 * period // indicators need history before they are meaningful
+	// DefaultMaxBars closes a trade that has hit no stop, target or reversal.
+	DefaultMaxBars = 200
 )
 
 type features struct{ atr, adx, vol []float64 }
@@ -152,7 +155,7 @@ func runWith(c []Candle, f features, flips []Flip, p Params) []Trade {
 	}
 	maxBars := p.MaxBars
 	if maxBars <= 0 {
-		maxBars = 200
+		maxBars = DefaultMaxBars
 	}
 	var out []Trade
 	busyUntil := -1 // one position at a time, like the bot
@@ -195,7 +198,7 @@ func runWith(c []Candle, f features, flips []Flip, p Params) []Trade {
 				tr.Reason, last = "stop", j
 			case hitTarget:
 				exit, tr.Reason, last = target, "target", j
-			case flipBar[j] == -fl.Dir && j > i+1 && flipBar[j] != 0:
+			case flipBar[j] == -fl.Dir: // the entry bar counts: its close follows the entry at its open
 				exit, tr.Reason, last = b.Close, "reversal", j
 			case j == i+maxBars:
 				exit, tr.Reason, last = b.Close, "time", j
@@ -302,7 +305,7 @@ func Grid() []Params {
 		for _, rr := range []float64{0, 1.5, 2, 3} {
 			for _, adx := range []float64{0, 20, 25, 30} {
 				for _, vol := range []float64{0, 1, 1.3} {
-					g = append(g, Params{StopATR: stop, RR: rr, MinADX: adx, MinVolume: vol, Direction: "both"})
+					g = append(g, Params{StopATR: stop, RR: rr, MaxBars: DefaultMaxBars, MinADX: adx, MinVolume: vol, Direction: "both"})
 				}
 			}
 		}
@@ -315,7 +318,7 @@ func Grid() []Params {
 func Search(c []Candle, flips []Flip, top int) Report {
 	f := indicators(c)
 	cut := cutTime(flips, 0.7)
-	base := evaluate(c, f, flips, Params{StopATR: 1.5, RR: 2, Direction: "both"}, cut)
+	base := evaluate(c, f, flips, Params{StopATR: 1.5, RR: 2, MaxBars: DefaultMaxBars, Direction: "both"}, cut)
 	r := Report{Baseline: base, Flips: len(flips)}
 	var all []Candidate
 	for _, p := range Grid() {

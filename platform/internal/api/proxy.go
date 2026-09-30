@@ -16,6 +16,10 @@ import (
 // engineRoutes is the allowlist of engine routes the console may reach through
 // /api/v1/engine/. Everything else answers 404, so the proxy never becomes a
 // general gateway to the engine. Secrets come back masked from the engine itself.
+// POST /chat reaches the engine copilot and its write tools: save_memory stores a
+// standing note that the signal filter and the paper bot's deliberation read as
+// advisory text, and save_strategy and save_gate_prompt store inactive drafts.
+// No chat tool places or changes a trade or writes paper bot settings.
 var engineRoutes = map[string]bool{
 	"GET /settings": true, "POST /settings": true,
 	"GET /threads": true, "DELETE /threads": true,

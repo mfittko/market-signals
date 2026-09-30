@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -180,7 +181,14 @@ func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a qu
 		return nil, errors.New("snapshot payload must be a JSON object")
 	}
 	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
-	return json.Marshal(m)
+	// json.Marshal would grow each <, > and & in a prompt to 6 bytes
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(m); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // withIndicators adds the engine's indicator levels to a snapshot that lacks them.

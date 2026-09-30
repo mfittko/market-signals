@@ -40,7 +40,11 @@ In the console:
    writes: `POST /settings`, `POST /chat` and `DELETE /threads`. A settings write may carry only
    the keys the console Settings page edits (model, watchers, alerts, signal filter and news). The proxy refuses
    every other key with 403, including the paper bot switches and allocation (`bot`), executable paths (keys
-   ending in `Bin`) and file paths such as `notesFile`. Nothing reaches the portfolio.
+   ending in `Bin`) and file paths such as `notesFile`. `POST /chat` reaches the engine copilot and its
+   write tools. The copilot can save a standing note with `save_memory`, and the signal filter and the paper
+   bot's deliberation read that note as advisory text. It can also save strategy and gate-prompt drafts,
+   which stay inactive until the operator activates them in the engine. Chat cannot place, close or change a
+   trade, and it cannot change the paper bot settings.
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 

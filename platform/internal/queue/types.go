@@ -12,10 +12,13 @@ import (
 )
 
 // MaxSnapshotBytes caps a frozen snapshot when it is created, so reading it back
-// can always return whole, valid JSON.
-const MaxSnapshotBytes = 64000
+// can always return whole, valid JSON. It leaves room for a full 32 KB strategy
+// prompt on top of the engine snapshot.
+const MaxSnapshotBytes = 96000
 
 var (
+	// ErrSnapshotTooLarge refuses a snapshot over MaxSnapshotBytes.
+	ErrSnapshotTooLarge = errors.New("snapshot payload is over the size limit")
 	// ErrStale rejects a worker whose attempt was reassigned, expired or finished.
 	ErrStale = errors.New("stale attempt: fence mismatch, lease expired or attempt no longer running")
 	// ErrCancelled tells a worker the operator cancelled the run.

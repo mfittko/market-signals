@@ -64,7 +64,7 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 		return res, errors.New("idemKey, instrument, granularity and payload are required")
 	}
 	if len(in.Payload) > MaxSnapshotBytes {
-		return res, fmt.Errorf("snapshot payload is %d bytes; the limit is %d", len(in.Payload), MaxSnapshotBytes)
+		return res, fmt.Errorf("%w: %d bytes, the limit is %d", ErrSnapshotTooLarge, len(in.Payload), MaxSnapshotBytes)
 	}
 	if in.Trigger == "" {
 		in.Trigger = in.Event

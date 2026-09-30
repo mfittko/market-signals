@@ -17,7 +17,7 @@ import (
 // flip rule family, not the prompt itself, and the response says so.
 
 const autoGrillSystem = `You are a trading-strategy coach revising a strategy prompt from backtest evidence.
-The evidence is a replay of Supertrend flips on one instrument and timeframe with candidate stop, target, ADX and volume settings. Results are in R, the multiples of the initial stop distance. Candidates are ranked on training trades and judged on later test trades. "holds" is true only when the test result beat the plain-flip baseline with enough test trades.
+The evidence is a replay of Supertrend flips on one instrument and timeframe with candidate stop, target, ADX and volume settings. Every replayed trade also closes on an opposite flip and at its time stop (timeStop bars held); target=0.0R means no target. Results are in R, the multiples of the initial stop distance. Candidates are ranked on training trades and judged on later test trades. "holds" is true only when the test result beat the plain-flip baseline with enough test trades.
 The backtest cannot replay the prompt itself, because a model judges the prompt. It only measures which filters and risk settings help flips on this data.
 Reply with ONE JSON object and nothing else, no code fences:
 {"findings":[{"issue":"<what the evidence shows>","fix":"<what to change>"}],
@@ -140,8 +140,8 @@ func evidenceText(inst, gran string, from, to time.Time, rep backtest.Report, ca
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Backtest evidence for %s %s, %s to %s, %d flips, %d settings tried.\n", inst, gran, from.Format("2006-01-02"), to.Format("2006-01-02"), rep.Flips, rep.Tried)
 	line := func(tag string, p backtest.Params, tr, te backtest.Stats, holds *bool) {
-		fmt.Fprintf(&sb, "- %s stop=%.1fATR target=%.1fR minADX=%.0f minVolume=%.1f | train: %d trades, win %.0f%%, expectancy %.2fR, PF %.2f | test: %d trades, win %.0f%%, expectancy %.2fR, PF %.2f, maxDD %.1fR",
-			tag, p.StopATR, p.RR, p.MinADX, p.MinVolume, tr.Trades, tr.WinRate*100, tr.Expectancy, tr.ProfitFac, te.Trades, te.WinRate*100, te.Expectancy, te.ProfitFac, te.MaxDD)
+		fmt.Fprintf(&sb, "- %s stop=%.1fATR target=%.1fR timeStop=%dbars minADX=%.0f minVolume=%.1f | train: %d trades, win %.0f%%, expectancy %.2fR, PF %.2f | test: %d trades, win %.0f%%, expectancy %.2fR, PF %.2f, maxDD %.1fR",
+			tag, p.StopATR, p.RR, p.MaxBars, p.MinADX, p.MinVolume, tr.Trades, tr.WinRate*100, tr.Expectancy, tr.ProfitFac, te.Trades, te.WinRate*100, te.Expectancy, te.ProfitFac, te.MaxDD)
 		if holds != nil {
 			fmt.Fprintf(&sb, " | holds=%v", *holds)
 		}

@@ -67,7 +67,7 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Go port of portfolio and fills | Not built. Estimated as the largest remaining cost. |
 | Parity and shadow qualification | Not provable in a spike. Needs recorded data and time. |
 
-Test evidence: 120 Go tests (race detector clean, real Postgres), 694 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
+Test evidence: 122 Go tests (race detector clean, real Postgres), 694 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
 
 Behavior worth knowing before deciding:
 

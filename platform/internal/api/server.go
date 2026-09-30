@@ -426,6 +426,10 @@ func (s *Server) triggerRun(w http.ResponseWriter, r *http.Request) {
 		IdemKey: fmt.Sprintf("%s-%s-%d", src, agent.ID, time.Now().UnixNano()), Instrument: agent.Instrument, Granularity: agent.Granularity,
 		Event: "operator", Source: src, Trigger: "operator:" + src, Payload: payload, AgentID: agent.ID,
 	})
+	if errors.Is(err, queue.ErrSnapshotTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "hint": "shorten the agent's strategy prompt"})
+		return
+	}
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -450,9 +454,16 @@ func (s *Server) cancelRun(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// streamLookback is how many event ids behind the cursor each stream poll
+// re-reads to catch transactions that commit out of id order.
+const streamLookback = 200
+
 // stream is a Server-Sent Events feed over the durable event log. Each frame
-// carries the event id, so a reconnecting client resumes with Last-Event-ID
-// and loses nothing. SSE is transport only; the queue is the source of truth.
+// carries the event id, so a reconnecting client resumes with Last-Event-ID.
+// A late-committed event arrives out of id order, and a reconnect can repeat
+// events sent after it. The console refetches state on each event, so a
+// duplicate is harmless.
+// SSE is transport only; the queue is the source of truth.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -486,6 +497,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	fmt.Fprintf(w, "retry: 2000\n: connected after=%d\n\n", after)
 	fl.Flush()
+	start, sent := after, map[int64]bool{}
 	poll := time.NewTicker(600 * time.Millisecond)
 	ping := time.NewTicker(15 * time.Second)
 	defer poll.Stop()
@@ -498,16 +510,34 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
 		case <-poll.C:
-			evs, err := s.st.EventsAfter(r.Context(), after, 200)
+			// Event ids are allocated at INSERT and become visible at COMMIT, so
+			// a multi-event transaction can commit ids below the cursor after a
+			// later short one. Each poll re-reads streamLookback ids behind the
+			// cursor and skips ids it already sent.
+			// ponytail: an id window; a transaction that stays open while more
+			// than streamLookback later ids commit is still missed.
+			floor := max(start, after-streamLookback)
+			evs, err := s.st.EventsAfter(r.Context(), floor, streamLookback+200)
 			if err != nil {
 				return
 			}
+			n := 0
 			for _, e := range evs {
+				if sent[e.ID] {
+					continue
+				}
+				sent[e.ID] = true
 				b, _ := json.Marshal(e)
 				fmt.Fprintf(w, "id: %d\nevent: run\ndata: %s\n\n", e.ID, b)
-				after = e.ID
+				after = max(after, e.ID)
+				n++
 			}
-			if len(evs) > 0 {
+			for id := range sent {
+				if id <= after-streamLookback {
+					delete(sent, id)
+				}
+			}
+			if n > 0 {
 				fl.Flush()
 			}
 		}

@@ -890,9 +890,11 @@ async function claudeCodeToolLoop(settings, system, user, { toolDefs, execTool, 
       releasing = true; onDelta?.(head);
     };
     let { text: reply } = await claudeCodeStream(settings, last ? `${sys}\nTool calls are no longer allowed. Answer now.` : sys, transcript, { onText, onUsage, timeoutMs });
-    const calls = last ? [] : parseToolCalls(reply).slice(0, MAX_CALLS_PER_ROUND);
+    // Calls run only from a reply that holds nothing but TOOL_CALL spans. A span after
+    // prose can be quoted from untrusted tool output (news text), so it never runs.
+    const calls = last || stripToolCalls(reply) !== '' ? [] : parseToolCalls(reply).slice(0, MAX_CALLS_PER_ROUND);
     if (!calls.length) {
-      // a tool request that cannot run (last round, or not parseable) never reaches the reader or the thread:
+      // a tool request that does not run (last round, after prose, or not parseable) never reaches the reader or the thread:
       // TOOL_CALL spans after prose are cut from the answer, and an answer with nothing left becomes the fallback
       const kept = stripToolCalls(reply);
       if (kept !== reply.trim()) reply = kept || CLAUDE_TOOL_FALLBACK;

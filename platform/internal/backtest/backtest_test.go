@@ -64,6 +64,11 @@ func TestTargetStopAndReversalExits(t *testing.T) {
 	if len(tr) != 1 || tr[0].Reason != "reversal" {
 		t.Fatalf("%+v", tr)
 	}
+	// an opposite flip at the close of the entry bar closes the trade on that bar
+	tr = Run(c, []Flip{{Time: c[60].Time, Dir: 1}, {Time: c[61].Time, Dir: -1}, {Time: c[62].Time, Dir: 1}}, Params{StopATR: 5, RR: 0, Direction: "both"})
+	if len(tr) != 2 || tr[0].Reason != "reversal" || !tr[1].Entry.Equal(c[63].Time) {
+		t.Fatalf("%+v", tr)
+	}
 }
 
 func TestFiltersAndOnePositionAtATime(t *testing.T) {

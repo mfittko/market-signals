@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -242,6 +243,103 @@ func TestStreamResumesFromLastEventID(t *testing.T) {
 		t.Fatalf("expected catch-up to start at event 2, got %v", ids)
 	}
 	_ = st
+}
+
+func TestStreamDeliversAnEventThatCommitsAfterAHigherID(t *testing.T) {
+	hs, st := setup(t)
+	_, out := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"demo"}`, nil)
+	runID := int64(out["runs"].([]any)[0].(map[string]any)["runId"].(float64))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", hs.URL+"/api/v1/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	ids := make(chan int64, 16)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if l := sc.Text(); strings.HasPrefix(l, "id: ") {
+				n, _ := strconv.ParseInt(strings.TrimPrefix(l, "id: "), 10, 64)
+				ids <- n
+			}
+		}
+		close(ids)
+	}()
+	next := func() int64 {
+		select {
+		case n, ok := <-ids:
+			if !ok {
+				t.Fatal("stream closed")
+			}
+			return n
+		case <-ctx.Done():
+			t.Fatal("no event within the timeout")
+		}
+		return 0
+	}
+	ins := `INSERT INTO run_events (run_id, kind, payload) VALUES ($1, 'test', '{}') RETURNING id`
+	// the slow transaction takes the lower id and holds it uncommitted
+	tx, err := st.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var low, high int64
+	if err := tx.QueryRow(ctx, ins, runID).Scan(&low); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Pool.QueryRow(ctx, ins, runID).Scan(&high); err != nil {
+		t.Fatal(err)
+	}
+	if got := next(); got != high {
+		t.Fatalf("first frame: want %d, got %d", high, got)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := next(); got != low {
+		t.Fatalf("the late commit must still stream: want %d, got %d", low, got)
+	}
+}
+
+func TestOperatorRunKeepsALongStrategyPromptUnescapedAndRefusesAnOversizedOne(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	put := func(name, prompt string) {
+		t.Helper()
+		if _, err := st.Pool.Exec(ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES ($1,1,$2,'test',now(),true,false,false)`, name, prompt); err != nil {
+			t.Fatal(err)
+		}
+		if c, out := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"`+name+`"}`, nil); c != 200 {
+			t.Fatalf("assign: %d %v", c, out)
+		}
+	}
+	// a full-size prompt full of <, > and & fits once the encoder leaves them alone
+	rule := "close > EMA & ADX < 25. "
+	put("Symbols", strings.Repeat(rule, maxPrompt/len(rule)))
+	code, out := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"engine"}`, nil)
+	if code != 202 {
+		t.Fatalf("a full-size strategy prompt must fit the snapshot: %d %v", code, out)
+	}
+	d, err := st.GetRun(ctx, int64(out["runs"].([]any)[0].(map[string]any)["runId"].(float64)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(d.Snapshot.Payload), rule) {
+		t.Fatal("the stored prompt must keep <, > and & as written")
+	}
+	// a prompt that escapes past the cap gets a clear 413
+	put("Control", strings.Repeat("\x01", maxPrompt))
+	code, out = call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"engine"}`, nil)
+	if code != 413 || !strings.Contains(out["error"].(string), "size limit") {
+		t.Fatalf("an oversized snapshot must be a 413 with a reason: %d %v", code, out)
+	}
 }
 
 func TestRunChartPrefersFrozenCandlesAndFallsBackToCompleteEngineCandles(t *testing.T) {

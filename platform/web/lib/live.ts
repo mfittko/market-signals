@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 // One EventSource per page. The server resumes from Last-Event-ID after a
-// drop, so nothing is missed; consumers refetch state when `tick` changes.
+// drop and re-reads a window behind its cursor for late commits; consumers
+// refetch state when `tick` changes.
 export function useLive(filter?: (e: { runId: number; kind: string }) => boolean) {
   const [tick, setTick] = useState(0);
   const [connected, setConnected] = useState(false);
