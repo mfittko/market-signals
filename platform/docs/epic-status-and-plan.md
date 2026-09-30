@@ -10,7 +10,7 @@ The figures below are measured on the branch.
 
 | Area | State |
 |---|---|
-| Control plane | Go, standard library router, pgx, three SQL migrations. About 8,200 lines of source, 135 tests, run with the race detector in CI. |
+| Control plane | Go, standard library router, pgx, three SQL migrations. About 8,200 lines of source, 137 tests, run with the race detector in CI. |
 | Queue | Leases, fencing tokens, heartbeats, bounded retry, expiry, cancel, timed follow-ups, event catch-up over server-sent events. |
 | Worker | Separate process. Two runtimes: an OpenAI-compatible model loop with a bounded tool loop, and a deterministic mock. Allowlisted read tools scoped to the agent's instrument. |
 | Decisions | Typed proposals, deterministic checks, fail-safe hold on any malformed, late or failed result. |
