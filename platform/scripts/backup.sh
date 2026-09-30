@@ -12,7 +12,8 @@
 set -euo pipefail
 
 WT="$(cd "$(dirname "$0")/../.." && pwd)"
-MAIN="$(cd "$(git -C "$WT" rev-parse --git-common-dir)/.." && pwd)"
+. "$(dirname "$0")/main-root.sh"
+MAIN="$(main_root "$WT")"
 PG="${MS_PG_CONTAINER:-platform-postgres-1}"
 KEEP=14
 

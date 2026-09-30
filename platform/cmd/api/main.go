@@ -6,6 +6,7 @@ import (
 	"flag"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -65,13 +66,7 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	var origins []string
-	for _, o := range strings.Split(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000"), ",") {
-		if o = strings.TrimSpace(o); o != "" {
-			origins = append(origins, o)
-		}
-	}
-	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: *engine, AllowedOrigins: origins}
+	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: *engine, AllowedOrigins: parseOrigins(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000"))}
 	if key := os.Getenv("MS_LLM_API_KEY"); key != "" {
 		maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
 		cfg.Complete = runtime.NewLLM(runtime.LLMConfig{BaseURL: os.Getenv("MS_LLM_BASE_URL"), APIKey: key, Model: os.Getenv("MS_LLM_MODEL"), MaxTokens: maxTok}).Complete
@@ -111,4 +106,24 @@ func seedAgents(ctx context.Context, st *queue.Store) error {
 		}
 	}
 	return nil
+}
+
+// parseOrigins turns the comma-separated MS_ALLOWED_ORIGINS into host:port entries. An entry may be
+// host:port or an origin such as http://host:3000; the scheme and any path are dropped.
+func parseOrigins(s string) []string {
+	var out []string
+	for _, o := range strings.Split(s, ",") {
+		o = strings.TrimSpace(o)
+		if strings.Contains(o, "://") {
+			if u, err := url.Parse(o); err == nil {
+				o = u.Host
+			}
+		} else if i := strings.IndexByte(o, '/'); i >= 0 {
+			o = o[:i]
+		}
+		if o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }

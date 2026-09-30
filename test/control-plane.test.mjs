@@ -10,6 +10,16 @@ import { botConfig, portfolioView } from '../scripts/portfolio.mjs';
 
 const WTI = 'WTICO/USD';
 const ENV = { MS_CONTROL_PLANE_URL: 'http://cp.test', MS_INGEST_TOKEN: 'tok' };
+// Saves the two control-plane variables and returns a function that puts them back exactly: unset stays unset.
+function saveCpEnv() {
+  const saved = { MS_CONTROL_PLANE_URL: process.env.MS_CONTROL_PLANE_URL, MS_INGEST_TOKEN: process.env.MS_INGEST_TOKEN };
+  return () => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  };
+}
 const view = { equity: 10000.123, cash: 9000, halted: false, positions: [{ id: 3, instrument: WTI, side: 'long', notional: 500, entry_price: 87, stop: 86, target: null, secret: 'x' }] };
 const params = {
   instrument: WTI, granularity: 'M5', event: 'flip', candleTime: '2026-07-22T10:00:00Z', strategyVersion: 'abcd1234',
@@ -94,7 +104,7 @@ test('deliberate sends the snapshot before the decision and the engine decision 
   writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho '{"action":"hold","reasoning":"checked"}'\n`);
   chmodSync(bin, 0o755);
   const settings = { provider: 'pi', piBin: bin, bot: { enabled: true, riskPct: 100 } };
-  const prev = { ...process.env };
+  const restoreEnv = saveCpEnv();
   process.env.MS_CONTROL_PLANE_URL = `http://127.0.0.1:${server.address().port}`;
   process.env.MS_INGEST_TOKEN = 'tok';
   try {
@@ -108,9 +118,7 @@ test('deliberate sends the snapshot before the decision and the engine decision 
     assert.ok(requests[1].url.includes(requests[0].body.idempotencyKey));
     assert.equal(requests[0].auth, 'Bearer tok');
   } finally {
-    process.env.MS_CONTROL_PLANE_URL = prev.MS_CONTROL_PLANE_URL ?? '';
-    if (prev.MS_CONTROL_PLANE_URL === undefined) delete process.env.MS_CONTROL_PLANE_URL;
-    if (prev.MS_INGEST_TOKEN === undefined) delete process.env.MS_INGEST_TOKEN;
+    restoreEnv();
     await new Promise((r) => server.close(r));
   }
 });
@@ -121,7 +129,9 @@ test('an unreachable control plane cannot change or delay a bot decision', async
   writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho '{"action":"hold","reasoning":"checked"}'\n`);
   chmodSync(bin, 0o755);
   const settings = { provider: 'pi', piBin: bin, bot: { enabled: true, riskPct: 100 } };
+  const restoreEnv = saveCpEnv();
   process.env.MS_CONTROL_PLANE_URL = 'http://control-plane.invalid';
+  delete process.env.MS_INGEST_TOKEN;
   // A control plane that never answers: the decision must resolve without it.
   const realFetch = globalThis.fetch;
   const hung = [];
@@ -137,6 +147,6 @@ test('an unreachable control plane cannot change or delay a bot decision', async
     assert.ok(portfolioView(db, botConfig(settings)).journal.some((j) => j.action === 'decision'));
   } finally {
     globalThis.fetch = realFetch;
-    delete process.env.MS_CONTROL_PLANE_URL;
+    restoreEnv();
   }
 });

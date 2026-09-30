@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// The engine's shapes: M<n> is n minutes and H<n> is n hours, n is 1 to 99 with no leading zero (scripts/strategies.mjs scope rule).
+// M<n> is n minutes and H<n> is n hours, n is 1 to 99 with no leading zero. This rule is stricter
+// than the engine regex /^[MH]\d{1,2}$/ in scripts/strategies.mjs, which also accepts M0, M05 and H00.
 var granularityShape = regexp.MustCompile(`^([MH])([1-9][0-9]?)$`)
 
 // InstrumentShape is the engine's instrument symbol rule.

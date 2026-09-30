@@ -44,6 +44,10 @@ The LLM agent uses the endpoint, model and key from the engine's `data/settings.
 passes them to the control plane, which uses them for strategy coaching, and to the worker. The console
 dev server starts without them. Without a key only the mock agent runs.
 
+To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The
+default is `localhost:3000,127.0.0.1:3000`. Each entry is `host:port` (`console.lan:3000`) or an origin
+(`http://console.lan:3000`). The control plane drops the scheme and any path, so both forms name the same host.
+
 The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Use a live-engine run to see
 the run wait, release the worker and resume as a second attempt.
 

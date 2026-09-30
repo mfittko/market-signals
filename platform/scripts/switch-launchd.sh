@@ -15,7 +15,8 @@
 set -euo pipefail
 
 WT="$(cd "$(dirname "$0")/../.." && pwd)"                     # worktree root
-MAIN="$(cd "$(git -C "$WT" rev-parse --git-common-dir)/.." && pwd)"  # main checkout
+. "$(dirname "$0")/main-root.sh"
+MAIN="$(main_root "$WT")"  # main checkout
 LA="$HOME/Library/LaunchAgents"
 BK="$LA/.ms-backup"
 UID_="$(id -u)"
