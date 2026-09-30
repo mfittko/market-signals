@@ -49,7 +49,7 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 	}
 	done := []map[string]any{}
 	for _, c := range chart.Candles {
-		if ok, _ := c["complete"].(bool); ok {
+		if tools.Formed(c) {
 			done = append(done, c)
 		}
 	}
@@ -132,7 +132,8 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	var raw struct {
 		Candles []struct {
 			chartCandle
-			Complete bool `json:"complete"`
+			Complete *bool `json:"complete"`
+			Partial  bool  `json:"partial"`
 		} `json:"candles"`
 	}
 	q := url.Values{"instrument": {instrument}, "granularity": {granularity}}
@@ -141,7 +142,7 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	}
 	out := []chartCandle{}
 	for _, c := range raw.Candles {
-		if c.Complete {
+		if (c.Complete == nil || *c.Complete) && !c.Partial {
 			out = append(out, c.chartCandle)
 		}
 	}

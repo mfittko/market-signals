@@ -20,10 +20,11 @@ func toolEnv(t *testing.T) (*Engine, *queue.ToolContext, *[]string) {
 	})
 	mux.HandleFunc("/api/chart", func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.URL.Query().Get("instrument")+"|"+r.URL.Query().Get("granularity"))
+		// stored history carries no complete field, as the engine serves it
 		w.Write([]byte(`{"candles":[
-			{"time":"t1","open":1,"high":2,"low":1,"close":1.5,"volume":10,"complete":true},
-			{"time":"t2","open":1.5,"high":2,"low":1,"close":1.6,"volume":11,"complete":true},
-			{"time":"t3","open":1.6,"high":2,"low":1,"close":1.7,"volume":5,"complete":false}]}`))
+			{"time":"t1","open":1,"high":2,"low":1,"close":1.5,"volume":10},
+			{"time":"t2","open":1.5,"high":2,"low":1,"close":1.6,"volume":11},
+			{"time":"t3","open":1.6,"high":2,"low":1,"close":1.7,"volume":5,"complete":false,"partial":true}]}`))
 	})
 	mux.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, "signals limit="+r.URL.Query().Get("limit"))

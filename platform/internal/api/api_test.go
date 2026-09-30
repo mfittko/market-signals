@@ -28,7 +28,7 @@ func fakeEngine(t *testing.T) *httptest.Server {
 		}
 		json.NewEncoder(w).Encode(map[string]any{
 			"candles": []map[string]any{
-				{"time": "2026-01-01T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 10, "complete": true},
+				{"time": "2026-01-01T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 10}, // stored bars carry no complete field
 				{"time": "2026-01-01T10:05:00Z", "open": 1.5, "high": 2, "low": 1, "close": 1.6, "volume": 5, "complete": false, "partial": true},
 			},
 			"signal": map[string]any{"signal": "sell", "time": "2026-01-01T09:55:00Z", "price": 1.4},

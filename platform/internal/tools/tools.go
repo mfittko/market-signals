@@ -135,6 +135,15 @@ func boundTo(v any, max int) (string, error) {
 	return string(b), nil
 }
 
+// Formed reports whether an engine chart candle is a closed bar. Stored history
+// carries no complete field; only the forming tail is marked complete:false or
+// partial:true.
+func Formed(c map[string]any) bool {
+	complete, set := c["complete"].(bool)
+	partial, _ := c["partial"].(bool)
+	return (!set || complete) && !partial
+}
+
 func clampInt(args json.RawMessage, key string, def, lo, hi int) int {
 	var m map[string]any
 	_ = json.Unmarshal(args, &m)
@@ -195,7 +204,7 @@ func Exec(ctx context.Context, eng *Engine, st *queue.Store, attemptID, fence in
 		done := []map[string]any{}
 		dropped := 0
 		for _, c := range raw.Candles {
-			if complete, _ := c["complete"].(bool); !complete {
+			if !Formed(c) {
 				dropped++
 				continue
 			}
