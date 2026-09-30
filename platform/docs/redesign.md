@@ -142,6 +142,8 @@ Rules for the importer:
    - Trade profit and loss recomputed from fills equals the old total.
    - Equity recomputed from the opening balance and closed trades matches the old portfolio row.
    - Every strategy version referenced by a trade exists after import.
+
+   The importer checks row counts, candles per instrument and granularity, that cash reconciles with realized profit, and that legacy strategy versions stay intact. It does not yet recompute trade profit from fills.
 5. Imported history is immutable and marked `legacy`, so nobody mistakes it for an agent decision.
 
 ## 6. Build order
@@ -149,7 +151,7 @@ Rules for the importer:
 | Step | Content | Effort | Status |
 |---|---|---|---|
 | 1 | Instruments table, agent per instrument, instrument switcher, seeded from config | 1 day | Built |
-| 2 | Importer dry run with the invariants above, candles and signals first | 1 to 2 days | Built (`platform/cmd/import`) |
+| 2 | Importer dry run with the invariants it implements (listed under the importer rules), candles and signals first | 1 to 2 days | Built (`platform/cmd/import`) |
 | 3 | Importer for strategies, trades, journal, chat, standing rules | 1 to 2 days | Built (`platform/cmd/import`) |
 | 4 | Desk and agent pages, attention queue | 2 to 3 days | Built as the Desk and the instrument page. Needs-attention flags show on shadow positions. |
 | 5 | Exit plan in the proposal schema, monitor loop, tripwire evaluator, wake runs, in shadow mode | 3 to 4 days | Built (`platform/internal/monitor`) |

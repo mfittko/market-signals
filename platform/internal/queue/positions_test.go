@@ -340,3 +340,26 @@ func TestWakeNeedsTheMonitorSourceAndTheOwningAgent(t *testing.T) {
 		t.Fatalf("owner wake must close: %+v", p)
 	}
 }
+
+func TestARescopedAgentKeepsItsEntryOnTheSnapshotMarket(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	_, err := s.Ingest(ctx, IngestInput{IdemKey: fmt.Sprintf("rescope-%d", time.Now().UnixNano()), Instrument: "WTICO/USD", Granularity: "M5",
+		Event: "flip", Source: "engine", Trigger: "test", Payload: json.RawMessage(entryPayload), AgentID: "a1"})
+	must(t, err)
+	c := claim(t, s, ctx, "w")
+	if c == nil {
+		t.Fatal("nothing to claim")
+	}
+	// the operator moves the agent to another market while the attempt runs
+	_, err = s.Pool.Exec(ctx, `UPDATE agents SET instrument='XAU/USD', granularity='H1' WHERE id='a1'`)
+	must(t, err)
+	p := openDecision()
+	_, err = s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: &p})
+	must(t, err)
+	ps, err := s.ListPositions(ctx, "open", 10)
+	must(t, err)
+	if len(ps) != 1 || ps[0].Instrument != "WTICO/USD" || ps[0].Granularity != "M5" {
+		t.Fatalf("the position must sit on the snapshot market: %+v", ps)
+	}
+}

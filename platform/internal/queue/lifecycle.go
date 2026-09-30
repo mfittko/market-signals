@@ -363,10 +363,10 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	var payload []byte
 	var taken, dbNow time.Time // both from the database clock, which stamped taken_at
 	var runUsage, attUsage []byte
-	var snapInstrument, snapSource string
+	var snapInstrument, snapGran, snapSource string
 	var followups int
-	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, sn.source, r.usage, r.followups_used, clock_timestamp() FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
-		Scan(&agentID, &payload, &taken, &snapInstrument, &snapSource, &runUsage, &followups, &dbNow); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, sn.granularity, sn.source, r.usage, r.followups_used, clock_timestamp() FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
+		Scan(&agentID, &payload, &taken, &snapInstrument, &snapGran, &snapSource, &runUsage, &followups, &dbNow); err != nil {
 		return nil, err
 	}
 	if agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID)); err != nil {
@@ -458,6 +458,8 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 				}
 			}
 		case val.Valid && proposal.Action == "open" && snapSource == "engine":
+			// the entry was validated against the snapshot, so the position sits on the snapshot market even if the agent was re-scoped since
+			agent.Instrument, agent.Granularity = snapInstrument, snapGran
 			if err := openPositionTx(ctx, tx, l.runID, agent, proposal, val.PriceUsed, taken); err != nil {
 				return nil, err
 			}

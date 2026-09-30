@@ -1174,3 +1174,14 @@ func TestInstrumentSignalsKeepUpWithTheEngine(t *testing.T) {
 		t.Fatalf("imported history alone: %v", got)
 	}
 }
+
+func TestParseTurnRejectsAnOverLongPromptInsteadOfClippingIt(t *testing.T) {
+	long := `{"prompt":"` + strings.Repeat("a", maxPrompt+1) + `","summary":"rewritten"}`
+	if parseTurn(long) != nil {
+		t.Fatal("an over-long prompt must not parse into a clipped turn")
+	}
+	ok := `{"prompt":"` + strings.Repeat("a", maxPrompt) + `","summary":"rewritten"}`
+	if p := parseTurn(ok); p == nil || len(p.Prompt) != maxPrompt {
+		t.Fatal("a prompt at the limit must parse whole")
+	}
+}

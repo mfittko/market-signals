@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 		fmt.Println("FAIL: postgres unavailable and required (CI or MS_REQUIRE_DB=1):", err)
 		os.Exit(1)
 	} else if err != nil {
-		fmt.Println("SKIP: postgres unavailable (run `docker compose up -d postgres` in platform/):", err)
+		fmt.Println("SKIP: postgres unavailable (start it with scripts/dev.sh up, see platform/README.md):", err)
 		os.Exit(0)
 	}
 	if err := db.Migrate(ctx, testPool, migrations.FS); err != nil {

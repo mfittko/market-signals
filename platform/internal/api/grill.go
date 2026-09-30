@@ -10,7 +10,7 @@ import (
 
 // Grill mode: a coach interviews the trader about one strategy, one question at a
 // time, grounded in that strategy's paper-trade record, and proposes a revised
-// prompt in a fenced block. The console applies the block to its editor. Nothing
+// prompt in the "prompt" field of its JSON reply. The console applies that field to its editor. Nothing
 // is saved until the trader saves a new version.
 
 const grillSystem = `You are a trading-strategy coach. The trader keeps strategies as short prompts. An automated analyst reads a strategy prompt together with a frozen market snapshot and proposes an entry or a hold. The analyst sees: an axis gate (trend strength ADX, direction, impulse, location, exhaustion), ATR, EMA 20/50/200, Bollinger position, RSI, VWAP distance, volume ratio, 20-bar extremes, higher-timeframe trends, the Supertrend flip and its age, standing rules and news headlines.
@@ -158,6 +158,7 @@ func clipStr(s string, n int) string {
 
 // parseTurn reads the coach's JSON object, tolerating prose or code fences around it.
 // It returns nil when the reply is not usable, and the console then shows the raw text.
+// A prompt over maxPrompt also makes the reply unusable, so an over-long prompt is never applied cut short.
 // Field sizes are capped and at most one option keeps the recommended mark.
 func parseTurn(reply string) *grillTurn {
 	i, j := strings.Index(reply, "{"), strings.LastIndex(reply, "}")
@@ -170,7 +171,9 @@ func parseTurn(reply string) *grillTurn {
 	}
 	t.Question, t.Why = clipStr(t.Question, 400), clipStr(t.Why, 400)
 	t.Recommendation, t.Change, t.Summary = clipStr(t.Recommendation, 600), clipStr(t.Change, 300), clipStr(t.Summary, 300)
-	t.Prompt = clipStr(t.Prompt, maxPrompt)
+	if t.Prompt = strings.TrimSpace(t.Prompt); len(t.Prompt) > maxPrompt {
+		return nil
+	}
 	if len(t.Findings) > 3 {
 		t.Findings = t.Findings[:3]
 	}

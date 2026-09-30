@@ -23,7 +23,7 @@ export default function PositionPage({ id }: { id: string }) {
   return (
     <main className="wrap grid">
       <h1><Link href={`/instruments/${slugOf(p.instrument)}`}>{p.instrument}</Link> {p.granularity} {p.side} <span className="muted">advisory #{p.id}</span></h1>
-      {p.needsAttention && <p className="msg err">This position needs attention: a failed agent wake, a gap in the price feed, or an unknown granularity. The stop stays in force. Check the events below.</p>}
+      {p.needsAttention && <p className="msg err">This position needs attention: a failed agent wake, a gap in the price feed, an unknown granularity, or an agent that moved to another instrument or timeframe. The stop stays in force. Check the events below.</p>}
       <div className="grid stats">
         <Stat label={p.status === 'open' ? 'Unrealized' : 'Realized'} value={`${v > 0 ? '+' : ''}${v.toFixed(2)}`} tone={v === 0 ? undefined : v > 0 ? 'good' : 'bad'} hint={p.status === 'closed' ? `${p.exitReason}, after ${p.barsHeld} min` : `${p.barsHeld} min held`} />
         <Stat label="Entry" value={p.entryPrice} hint={when(p.entryTime)} />

@@ -85,4 +85,4 @@ Graduate. The agent boundary is proven end to end, and it fits the epic's first 
 3. Decide the Pi question with an extension spike before choosing a runtime for execution-eligible bots.
 4. Only then harden the importer and start the Go domain port, each against recorded fixtures.
 
-Keep the design and start the delivery work on a fresh branch history. The queue tests are the most reusable part.
+Keep the design. The prototype does not merge as the final architecture, and follow-up issues carry the remaining work. The merge decision stays with the owner. The queue tests are the most reusable part.

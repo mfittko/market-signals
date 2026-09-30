@@ -293,7 +293,7 @@ provider's fallback. The settings modal renders a **contextual provider panel**
 — pick a provider and only its relevant fields (model, base URL, key,
 `maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`, `claudeBin`,
 `notifierBin`, `port`, `instrument`, `instruments` (dropdown CSV),
-`granularity`, `freshBars`, `watchers`, `bot` (per-combo bot config), `info`
+`granularity`, `freshBars`, `consoleUrl`, `watchers`, `bot` (per-combo bot config), `info`
 (overlays toggle). Speech-to-text (chat mic button, #137): `sttOpenaiKey` (a
 **real** OpenAI key — kept separate from the LLM `OPENAI_API_KEY`, which may be a
 chat-only proxy with no transcription endpoint), `sttOpenaiBaseUrl` (default

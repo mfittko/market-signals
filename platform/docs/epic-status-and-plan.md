@@ -1,7 +1,7 @@
 # Epic status and adapted plan
 
 This note compares the epic (https://github.com/mfittko/market-signals/issues/229) with what the prototype in `platform/` delivers.
-It keeps every original idea. It changes the order of work where building the prototype taught us something.
+The plan below reorders the epic's work where the prototype taught us something; every original idea stays in it.
 The epic text is not edited yet. The section "Proposed epic changes" says what would change there.
 
 ## 1. What exists
@@ -38,7 +38,7 @@ The engine keeps sole ownership of the paper portfolio. Nothing in `platform/` w
 ## 3. What building it taught us
 
 1. A vertical slice with the console first found more real defects than any review. Most of the bugs fixed late were visible only in the running app. Keep slices thin and keep the console in every slice.
-2. The epic stops at "the agent proposes". A proposal that opens a position needs a lifecycle: exits, trailing, wakes, budgets. The monitor is not in the epic and it is most of the safety story. It belongs in the plan.
+2. The epic stops at "the agent proposes". A proposal that opens a position needs a lifecycle: exits, trailing, wakes, budgets. The epic omits the monitor, which carries most of the safety story. It belongs in the plan.
 3. A strategy is the agent's real configuration. Authoring, versioning, review by a coach and backtest evidence turned out to be a product surface.
 4. Agents are only as good as the context in the snapshot. Indicator levels, freshness and news were a larger lever than the runtime choice.
 5. The engine can stay authoritative for a long time. The prototype runs beside it with one opt-in hook. This makes the Go port of the domain a separate, later decision. Agents can ship before it.
@@ -56,9 +56,9 @@ The engine keeps sole ownership of the paper portfolio. Nothing in `platform/` w
 
 ## 5. Adapted sequence
 
-The original phases stay as the destination. The order changes so that value arrives earlier and risk stays bounded.
+This sequence reaches the original phases in a new order, so value arrives earlier and risk stays bounded.
 
-A. Land the prototype. Advisory only. This is the current PR.
+A. Review the prototype. Advisory only. The prototype does not merge as the final architecture. Follow-up issues carry the remaining work. The merge decision stays with the owner.
 
 B. Make it the daily driver. No new trading authority.
 - Separate development and live databases, and a second console port.

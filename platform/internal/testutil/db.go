@@ -54,7 +54,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 		t.Fatal("postgres unavailable and required (CI or MS_REQUIRE_DB=1):", perr)
 	}
 	if perr != nil {
-		t.Skip("postgres unavailable (docker compose up -d postgres in platform/):", perr)
+		t.Skip("postgres unavailable (start it with scripts/dev.sh up, see platform/README.md):", perr)
 	}
 	ctx := context.Background()
 	for _, q := range []string{
