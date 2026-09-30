@@ -52,7 +52,7 @@ jobs:
           go-version-file: platform/go.mod
           cache-dependency-path: platform/go.sum
       - name: Go tests (race detector, one package at a time because they share the database)
-        run: go test -p 1 -race ./...
+        run: go test -p 1 -race -count=1 ./...
 
   platform-console:
     runs-on: ubuntu-latest
