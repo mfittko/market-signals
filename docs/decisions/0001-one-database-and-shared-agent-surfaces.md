@@ -35,7 +35,7 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 | Portfolio and bots | Engine (SQLite ledger). The platform never writes to it. | The Go port runs in shadow beside the ledger and every trade and the equity curve match. |
 | Chat threads | Engine (SQLite). | Flips only after open question 2 is answered and a new record supersedes this row. Until then the engine stays the writer. |
 | Alert state | Engine (SQLite). | Moves with portfolio and bots. |
-| Provider budgets and circuit state | Engine (SQLite). | The importer gap (budgets, circuit state, correlation state) is closed, then the writer moves with the engine domain that spends the budget. |
+| Provider budgets and circuit state | Engine (SQLite). | The importer gap (budgets, circuit state, correlation state) is closed, then the writer moves only after every domain that spends the budget has flipped. Until then the engine stays the writer and the platform only reads budget state. |
 
 Each step needs a backup, a dry-run import and a working rollback, as listed in the [migration note](https://github.com/mfittko/market-signals/blob/spike/epic-229/platform/docs/postgres-migration.md).
 
