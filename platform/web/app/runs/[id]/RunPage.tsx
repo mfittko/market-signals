@@ -159,7 +159,7 @@ function Event({ e }: { e: RunEvent }) {
           {p.text?.trim() && <details className="json"><summary>reply</summary><pre>{p.text}</pre></details>}
         </div>
       );
-    case 'interim_proposal': return <div className="ev-prop"><span className="k">Interim proposal</span> {describe(p.proposal)} <span className="muted">(will be re-run with fresh state)</span></div>;
+    case 'interim_proposal': return <div className="ev-prop"><span className="k">Interim proposal</span> {describe(p.proposal)} <span className="muted">(the follow-up run checks it against the original snapshot)</span></div>;
     case 'proposal': return <div className="ev-prop"><span className="k">Final proposal</span> {describe(p.proposal)}</div>;
     case 'proposal_rejected': return <div className="ev-reject"><span className="k">Proposal rejected</span> {describe(p.proposal)} <span className="muted">{p.validation?.reasons?.join('; ')}</span></div>;
     case 'waiting': return <div className="ev-wait"><span className="k">Waiting {p.seconds}s</span> {p.reason}</div>;
