@@ -69,10 +69,10 @@ changes or delays a bot decision.
 | Duplicate completion is a no-op | `queue_test.go` duplicate completion |
 | Cancel discards a racing completion and leaves no proposal | `queue_test.go`, `runtime_test.go` cancel |
 | Tool allowlist and budget are enforced at execution, every denial audited | `queue_test.go`, `api_test.go` |
-| Instrument scope comes from the snapshot, not from model arguments | `api_test.go` |
+| Instrument scope comes from the snapshot and ignores model arguments | `api_test.go` |
 | Forming candles never reach an agent | `api_test.go` |
 | Failure, malformed output, exhausted attempts and expiry all end in a recorded hold | `queue_test.go`, `runtime_test.go` |
-| An invalid proposal (wrong-side stop, halted, stale, foreign position) is rejected, never committed | `domain/decision_test.go`, `queue_test.go` |
+| An invalid proposal (wrong-side stop, halted, stale, foreign position) is rejected and stays uncommitted | `domain/decision_test.go`, `queue_test.go` |
 | Timed follow-up releases the worker and resumes with a fresh attempt | `queue_test.go` |
 | The engine keeps deciding when the control plane is down | `test/control-plane.test.mjs` |
 

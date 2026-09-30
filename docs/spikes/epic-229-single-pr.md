@@ -38,9 +38,9 @@ Scope of the epic as written:
 Constraints that still hold for a one-PR spike:
 
 1. A spike is throwaway and has no size threshold. The size budget, gate fan-out and partial-merge concerns do not apply. The spike profile makes gates advisory and skips required CI.
-2. The go/no-go at the end of the first phase is a result the spike produces, not a blocker. If the restricted-runtime check fails, the spike records that finding and discards the rest.
-3. Parity cannot be proven in one pass. The epic needs shadow runs on recorded data over time, so the spike can show that the boundaries work, not that the migration is safe.
-4. Cutover, rollback and backup rehearsal are operational steps. A prototype can script them but cannot prove them.
+2. The spike produces the go/no-go at the end of the first phase as one of its results. If the restricted-runtime check fails, the spike records that finding and discards the rest.
+3. Parity needs shadow runs on recorded data over time, and one pass cannot supply them. The spike can show that the boundaries work. Migration safety stays open until those shadow runs exist.
+4. Cutover, rollback and backup rehearsal are operational steps. A prototype can script them. Proof needs a rehearsal on the real setup.
 5. Epics 123 and 36 conflict with parts of the plan. The spike must record which decisions it assumed.
 6. The prototype must not touch the live KeepAlive server or the supertrend alert agent. Run it on a copy of `data/` and a separate port. `platform/scripts/switch-launchd.sh up` is the one operator tool that repoints the live server, and it refuses to run without `MS_ALLOW_LIVE_SWITCH=1`.
 
@@ -50,6 +50,7 @@ What a one-PR spike can cover:
 - A Go and Postgres skeleton with a dry-run importer against a disposable copy of the SQLite data.
 - A Next.js shell reading the Go API.
 - A Go port of one domain module, portfolio and fills, to measure the true cost of the full port. The full domain port is the part most likely to exceed a time box.
+- One engine change outside the first slice: a `claude-code` LLM provider. It adds a provider path to `llmRequest` (alert filter, rechecks, bot) and `llmChat`, sends chat tool events over the SSE stream, and adds the provider to the dashboard options. The engine uses it only when the `provider` setting selects it.
 
 Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in `platform/README.md`):
 
@@ -76,11 +77,11 @@ Behavior worth knowing before deciding:
 
 ## Recommendation
 
-Graduate. The agent boundary is proven end to end, and it fits the epic's first slice at a small size. Turn the prototype into a phased plan instead of a big-bang port:
+Graduate. The agent boundary is proven end to end, and it fits the epic's first slice at a small size. Turn the prototype into a phased plan:
 
 1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the 4-line engine hook behind an off-by-default flag.
 2. Land the console.
 3. Decide the Pi question with an extension spike before choosing a runtime for execution-eligible bots.
 4. Only then harden the importer and start the Go domain port, each against recorded fixtures.
 
-Discard the branch history but keep the design. The queue tests are the most reusable part.
+Keep the design and start the delivery work on a fresh branch history. The queue tests are the most reusable part.

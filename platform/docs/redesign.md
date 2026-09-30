@@ -4,7 +4,7 @@ Status: proposal on the spike branch. Nothing here is merged.
 
 ## 1. Position watching: poll deterministically, wake the model on exceptions
 
-The answer to "should an agent poll while in a position" is yes, with one rule: the model never polls. A deterministic monitor polls. The model wakes only when a tripwire fires.
+The answer to "should an agent poll while in a position" is yes, with one rule: a deterministic monitor does the polling, and the model wakes only when a tripwire fires.
 
 What the old bot does today (scripts/bot.mjs):
 - Every cycle, without a model: simulate stop and target fills on the completed candle, mark to market, check the drawdown kill switch.
@@ -21,7 +21,7 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
    - `trail`: a deterministic trailing rule (for example the Supertrend line, or N times ATR)
    - `max_bars`: time stop
    - `tripwires`: a list of declarative wake conditions
-2. Tripwires are data, not code. The vocabulary is small and fixed:
+2. Tripwires are declarative data with a small, fixed vocabulary:
    - `close_beyond(level)`, `price_cross(level, dir)`
    - `adverse_pct(x)`, `adverse_atr(x)`
    - `bars_in_trade(n)` without progress toward target
@@ -31,7 +31,7 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
    - `feed_stale(minutes)`
 3. A monitor loop in the control plane evaluates the plan on every closed M1 candle for an open position. It calls no model. It does four things:
    - Fills stops and targets with the existing pessimistic rule (stop wins when both touch).
-   - Applies the trailing rule. A stop may only move toward price, never away.
+   - Applies the trailing rule. A stop may only move toward price.
    - Enforces the time stop and the kill switch.
    - Raises a wake event when a tripwire fires.
 4. A wake event creates a normal run with a reason (`tripwire:adverse_atr`), a fresh immutable snapshot that includes the position and its plan, and a dedup key of position id plus tripwire. The model is then restricted to four actions: `hold`, `close`, `tighten_stop(new_stop)`, `set_tripwires(list)`.
@@ -57,20 +57,20 @@ Keep, and make central:
 | Signal history with realized outcomes | Honest track record per signal. |
 | Filter verdict on each flip | The model sanity check is the point of the tool. |
 | Paper-trading bots with fail-safe holds | Becomes the agent model. |
-| Virtual portfolio, halt and reset | Keep, but one source of truth. |
-| Chat copilot | Keep, but scoped to the object on screen. |
+| Virtual portfolio, halt and reset | Keep, with one source of truth. |
+| Chat copilot | Keep, scoped to the object on screen. |
 | Multi-instrument switching | Becomes the instrument registry. |
 | Health strip | Becomes the attention queue. |
 | Scheduler and keep-fresh | Becomes the ingest jobs. |
 
-Keep, but reshape:
+Keep and reshape:
 
 | Feature | Change |
 |---|---|
 | Strategies (versioned prompt plus spec) | Keep versions. Drop the name-binding and per-combo scope machinery. An agent points at one strategy version. |
 | Memories and notes file | Two stores for one idea. Merge into one store of standing rules with scope: global, instrument or agent. |
 | Gate prompts | Merge into the agent's versioned prompt. Two of four gates were editable, which is an unfinished feature. |
-| Volume impulse lane | Becomes a trigger type an agent can subscribe to, not a separate signal kind. |
+| Volume impulse lane | Becomes a trigger type that agents subscribe to. The separate impulse signal kind goes away. |
 | Evaluation and baselines | Keep. It is how strategy versions get compared. Move it next to the version list. |
 | Indicators beyond Supertrend | Keep as chart layers, off by default. |
 
@@ -95,7 +95,7 @@ Add, because it is missing:
 
 ## 3. Information architecture
 
-The old UI is organised around the chart. The new one is organised around the agent, because that is what the user actually manages.
+The new UI is organised around the agent, because the agent is what the user manages.
 
 1. Desk (home). One row per agent, grouped by instrument. Each row shows state (flat, watching a position, halted, waiting), profit and loss, last decision and the next wake reason. Above the rows sits the attention queue.
 2. Agent page. State header, chart with the position plan drawn on it (stop, target, trail, tripwires), a timeline of runs, watch ticks and wakes, the strategy version with its record, and controls: pause, switch between shadow and paper, force a review.
@@ -103,7 +103,7 @@ The old UI is organised around the chart. The new one is organised around the ag
 4. Instruments. The registry. Enabling an instrument creates agents from a strategy template. Each instrument shows regime, feed health and its agents.
 5. Performance. One page and one source of truth for equity, positions, trades and per-strategy-version results including baselines.
 6. Copilot. A side panel on every page. It knows the object on screen (agent, run or instrument). It uses the same read tools as agents through the same gateway. It can propose changes such as a draft strategy or a standing rule. A human activates them. Backends: Claude Code, API providers, pi.
-7. Settings. Providers, data sources, notifications. Three tabs, no more.
+7. Settings. Three tabs: providers, data sources and notifications.
 8. Research (later). Backtests and autonomous campaigns, fed by the same data.
 
 ## 4. More instruments
@@ -134,7 +134,7 @@ Source: `data/candles.db` (191 MB). It holds every table.
 | news, news_provider_observations, articles | 66k, 23k, 1k | news: last 30 days only. Observations and articles: skip. |
 
 Rules for the importer:
-1. Read-only. Open a copy of the file, never the live one.
+1. Read-only. Open a copy of the file and leave the live one untouched.
 2. Idempotent. Every imported row carries a `source_key` with a unique constraint, so a re-run only adds new rows. This also lets the importer run repeatedly until cutover.
 3. Dry run first. It prints counts per table and the invariants below, and writes nothing.
 4. Invariants it must prove before it commits:
@@ -154,6 +154,6 @@ Rules for the importer:
 | 4 | Desk and agent pages, attention queue | 2 to 3 days |
 | 5 | Exit plan in the proposal schema, monitor loop, tripwire evaluator, wake runs, in shadow mode | 3 to 4 days |
 | 6 | Performance page, copilot panel with Claude Code backend | 2 to 3 days |
-| 7 | Shadow comparison of tripwires against the old bot's review events | needs calendar time, not effort |
+| 7 | Shadow comparison of tripwires against the old bot's review events | calendar time while shadow data accumulates |
 
 Steps 1 to 3 are safe to build now. Step 5 is the design decision to confirm before building.
