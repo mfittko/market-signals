@@ -24,6 +24,7 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const openId = useRef<number | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const q = `instrument=${encodeURIComponent(symbol)}&granularity=${granularity}`;
 
@@ -31,16 +32,18 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
     try { setThreads((await api<{ threads: Thread[] }>(`/engine/threads?${q}`)).threads); setError(null); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, [q]);
-  useEffect(() => { setThreadId(null); setMsgs([]); void loadThreads(); return () => abort.current?.abort(); }, [loadThreads]);
+  useEffect(() => { openId.current = null; setThreadId(null); setMsgs([]); void loadThreads(); return () => abort.current?.abort(); }, [loadThreads]);
 
   const open = async (id: number | null) => {
     abort.current?.abort();
+    openId.current = id;
     setThreadId(id); setBusy(false); setError(null);
     if (id == null) { setMsgs([]); return; }
     try {
       const r = await api<{ messages: Msg[] }>(`/engine/messages?thread=${id}`);
+      if (openId.current !== id) return; // a later open already owns the log
       setMsgs(r.messages.filter((m) => m.role === 'user' || m.role === 'assistant'));
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (openId.current === id) setError(e instanceof Error ? e.message : String(e)); }
   };
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [msgs]);

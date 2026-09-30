@@ -39,8 +39,8 @@ Constraints that still hold for a one-PR spike:
 
 1. A spike is throwaway and has no size threshold. The size budget, gate fan-out and partial-merge concerns do not apply. The spike profile makes gates advisory and skips required CI.
 2. The spike produces the go/no-go at the end of the first phase as one of its results. If the restricted-runtime check fails, the spike records that finding and discards the rest.
-3. Parity needs shadow runs on recorded data over time, and one pass cannot supply them. The spike can show that the boundaries work. Migration safety stays open until those shadow runs exist.
-4. Cutover, rollback and backup rehearsal are operational steps. A prototype can script them, and proving them takes a rehearsal on the real setup.
+3. Parity needs shadow runs on recorded data over time. One pass yields no such runs. The spike shows that the boundaries work. Migration safety stays open until the shadow runs exist.
+4. Cutover, rollback and backup rehearsal are operational steps. The prototype scripts them. Proving them takes a rehearsal on the real setup.
 5. Epics 123 and 36 conflict with parts of the plan. The spike must record which decisions it assumed.
 6. The prototype runs its own Postgres, control plane and console on separate ports. It leaves the live KeepAlive server running unchanged and reaches the live engine only through a small sanctioned surface. `platform/scripts/dev.sh` sets `MS_ENGINE_URL` to the live engine on 127.0.0.1:8787 by default. Chart polls through that engine fetch upstream candles and upsert them into the live SQLite database. The console Settings page writes the live `settings.json`, limited to an allowlist of keys. `platform/scripts/switch-launchd.sh up` is the one operator tool that repoints the live server, and it refuses to run without `MS_ALLOW_LIVE_SWITCH=1`. It also stops and disables the supertrend watcher LaunchAgent. `switch-launchd.sh rollback` restores the original server and leaves that watcher off unless the operator adds `--with-watcher`.
 
@@ -67,7 +67,7 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Go port of portfolio and fills | Not built. Estimated as the largest remaining cost. |
 | Parity and shadow qualification | Not provable in a spike. Needs recorded data and time. |
 
-Test evidence: 135 Go tests (race detector clean, real Postgres), 712 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
+Test evidence: 135 Go tests (race detector clean, real Postgres), 714 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
 
 Behavior worth knowing before deciding:
 

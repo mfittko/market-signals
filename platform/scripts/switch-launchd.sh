@@ -105,7 +105,7 @@ console_health() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" >/dev/n
 # Alert links open the new console once settings.json carries consoleUrl. Writing the same value again changes nothing.
 edit_settings() { # jq filter args...
   local tmp; tmp="$(mktemp "$SETTINGS.XXXXXX")"
-  jq "$@" "$SETTINGS" >"$tmp" || { rm -f "$tmp"; die "could not edit $SETTINGS"; }
+  jq "$@" "$SETTINGS" >"$tmp" || { rm -f "$tmp"; return 1; }
   command mv -f "$tmp" "$SETTINGS"
 }
 
@@ -169,7 +169,7 @@ up() {
   if loaded "$WATCH"; then launchctl bootout "gui/$UID_/$WATCH"; fi
   [ -f "$LA/$WATCH.plist" ] && command mv "$LA/$WATCH.plist" "$BK/$WATCH.plist.disabled"
 
-  edit_settings --arg u "http://127.0.0.1:$PORT" '.consoleUrl = $u'
+  edit_settings --arg u "http://127.0.0.1:$PORT" '.consoleUrl = $u' || die "could not edit $SETTINGS"
 
   # a changed plist only takes effect after a full unload and load; kickstart alone would keep the old directory
   unload "$SRV"

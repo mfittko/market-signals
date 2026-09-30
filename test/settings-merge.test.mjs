@@ -23,3 +23,17 @@ test('merges only the edited model entry into the fresh map', () => {
   assert.deepEqual(changedPatch(loaded, fresh, { provider: 'openai', models: { ...loaded.models, openai: 'c' } }).models, { openai: 'c', anthropic: 'NEW' });
   assert.equal(changedPatch(loaded, fresh, { models: loaded.models }).models, undefined);
 });
+test('the card baseline advances after each save, so a second save sends only its own change', () => {
+  const base = { freshBars: 3, ind: 'ema' };
+  const fresh = { freshBars: 3, ind: 'ema' };
+  const first = changedPatch(base, fresh, { freshBars: 5, ind: 'ema' });
+  assert.deepEqual(first, { freshBars: 5 });
+  Object.assign(base, first);
+  // the engine changed ind meanwhile; the form still shows the old ind and must not revert it
+  assert.deepEqual(changedPatch(base, { freshBars: 5, ind: 'bb' }, { freshBars: 5, ind: 'ema' }), {});
+  assert.deepEqual(changedPatch(base, { freshBars: 5, ind: 'bb' }, { freshBars: 6, ind: 'ema' }), { freshBars: 6 });
+});
+test('a form default equal to the initial form value is not sent for an absent key', () => {
+  const base = { NEWSAPI_AI_MODE: 'auto', GNEWS_MODE: 'off' };
+  assert.deepEqual(changedPatch(base, { NEWSAPI_AI_MODE: 'off' }, { NEWSAPI_AI_MODE: 'auto', GNEWS_MODE: 'off', freshBars: 4 }), { freshBars: 4 });
+});

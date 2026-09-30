@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
@@ -40,9 +40,12 @@ function InstrumentView() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
 
+  const latestLoad = useRef('');
   const load = useCallback(async () => {
+    const key = `${slug}|${gran}`; latestLoad.current = key;
     try {
       const r = await api<InstrumentDetail>(`/instruments/${slug}${gran ? `?granularity=${gran}` : ''}`);
+      if (latestLoad.current !== key) return; // a later selection already owns the page
       setD(r); setError(null);
       // The server falls back to an imported granularity when the requested one has none; follow it so title, button, filter and live candles agree.
       if (r.granularity && r.granularity !== gran) setGran(r.granularity);

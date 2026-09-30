@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api, describe, engineDecision, type Decision, type RunDetail, type RunEvent, type Tripwire } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, Json, StatusPill, Loading } from '@/components/ui';
@@ -18,12 +18,16 @@ export default function RunPage() {
   const [chartError, setChartError] = useState<string | null>(null);
   const { tick } = useLive((e) => String(e.runId) === id);
 
+  const loadId = useRef(id);
   const load = useCallback(async () => {
-    try { setD(await api<RunDetail>(`/runs/${id}`)); setError(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    loadId.current = id;
+    try { const r = await api<RunDetail>(`/runs/${id}`); if (loadId.current !== id) return; setD(r); setError(null); } catch (e) { if (loadId.current === id) setError(e instanceof Error ? e.message : String(e)); }
   }, [id]);
   useEffect(() => { void load(); }, [load, tick]);
   useEffect(() => {
-    api<{ candles: Candle[]; source: string; reason?: string }>(`/runs/${id}/chart`).then((c) => { setChart(c); setChartError(null); }).catch((e) => setChartError(e instanceof Error ? e.message : String(e)));
+    let dead = false;
+    api<{ candles: Candle[]; source: string; reason?: string }>(`/runs/${id}/chart`).then((c) => { if (!dead) { setChart(c); setChartError(null); } }).catch((e) => { if (!dead) setChartError(e instanceof Error ? e.message : String(e)); });
+    return () => { dead = true; };
   }, [id]);
 
   if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/runs">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;

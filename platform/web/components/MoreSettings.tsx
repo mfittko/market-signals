@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { DEFAULT_PREFS, loadPrefs, savePrefs, useWatchers, type NotifyPrefs } from '@/lib/alerts';
@@ -10,7 +10,8 @@ export type MoreSettingsData = {
   NEWSAPI_AI_MODE?: string; GNEWS_MODE?: string; sentinelSourceFootnotes?: string | boolean;
   PUSHOVER_ENABLED?: string | boolean; PUSHOVER_USER?: string; PUSHOVER_TOKEN?: string; notifierBin?: string;
 };
-type Run = (patch: object, text?: string) => Promise<void>;
+type Base = { current: Record<string, unknown> };
+type Run = (patch: object, text: string | undefined, base: Base) => Promise<boolean>;
 const MASK = '•••';
 const GRANS = ['M1', 'M5', 'M15', 'H1'];
 const on = (v: unknown) => v === true || v === '1' || v === 'true' || v === 'on';
@@ -46,6 +47,7 @@ export function AlertsCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   const [prefs, setPrefs] = useState<NotifyPrefs>(DEFAULT_PREFS);
   useEffect(() => setPrefs(loadPrefs()), []);
   const [user, setUser] = useState(''); const [token, setToken] = useState('');
+  const bl = useRef<Record<string, unknown>>({ PUSHOVER_ENABLED: on(s.PUSHOVER_ENABLED) ? '1' : '0', PUSHOVER_USER: s.PUSHOVER_USER, PUSHOVER_TOKEN: s.PUSHOVER_TOKEN });
   const set = (k: keyof NotifyPrefs, v: boolean) => { const p = { ...prefs, [k]: v }; setPrefs(p); savePrefs(p); };
   return (
     <Card title="Alerts and notifications">
@@ -62,14 +64,14 @@ export function AlertsCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
             <p className="small muted">They fire while a console tab is open. Each preference applies to this browser only.</p>
           </>}
         </div>
-        <label><span><input type="checkbox" checked={on(s.PUSHOVER_ENABLED)} disabled={busy} onChange={(e) => void run({ PUSHOVER_ENABLED: e.target.checked ? '1' : '0' })} /> Pushover on the phone for signals</span></label>
+        <label><span><input type="checkbox" checked={on(s.PUSHOVER_ENABLED)} disabled={busy} onChange={(e) => void run({ PUSHOVER_ENABLED: e.target.checked ? '1' : '0' }, undefined, bl)} /> Pushover on the phone for signals</span></label>
         <label>Pushover user key {s.PUSHOVER_USER === MASK && <span className="muted small">(stored, leave blank to keep)</span>}
           <input type="password" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="off" placeholder={s.PUSHOVER_USER === MASK ? MASK : ''} /></label>
         <label>Pushover app token {s.PUSHOVER_TOKEN === MASK && <span className="muted small">(stored, leave blank to keep)</span>}
           <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={s.PUSHOVER_TOKEN === MASK ? MASK : ''} /></label>
         <div><button type="button" disabled={busy || (!user.trim() && !token.trim())} onClick={() => {
           const patch: Record<string, string> = {}; if (user.trim()) patch.PUSHOVER_USER = user.trim(); if (token.trim()) patch.PUSHOVER_TOKEN = token.trim();
-          void run(patch).then(() => { setUser(''); setToken(''); });
+          void run(patch, undefined, bl).then(() => { setUser(''); setToken(''); });
         }}>Save Pushover keys</button></div>
       </div>
     </Card>
@@ -85,6 +87,12 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   const [keep, setKeep] = useState(on(s.keepFresh));
   const [foot, setFoot] = useState(on(s.sentinelSourceFootnotes));
   const [news, setNews] = useState(s.NEWSAPI_AI_MODE ?? 'auto'); const [gnews, setGnews] = useState(s.GNEWS_MODE ?? 'off');
+  // baseline: the form's own initial values, advanced after each successful save. A key the operator leaves alone is not sent.
+  const bl = useRef<Record<string, unknown>>({
+    ind: f.ind.trim() || null, freshBars: num(f.freshBars), impulseVolMult: num(f.impulseVolMult), impulseVolWindow: num(f.impulseVolWindow),
+    impulseCooldownBars: num(f.impulseCooldownBars), filterMaxCompletionTokens: num(f.filterMaxCompletionTokens),
+    keepFresh: keep ? '1' : '0', sentinelSourceFootnotes: foot ? '1' : '0', NEWSAPI_AI_MODE: news, GNEWS_MODE: gnews,
+  });
   // numeric fields refuse non-numbers natively: Number("abc") would send NaN, which JSON turns into a silent reset
   const field = (k: keyof typeof f, label: string, hint?: string, numeric = true) => (
     <label>{label}{hint && <span className="muted small"> ({hint})</span>}<input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...(numeric ? { inputMode: 'decimal' as const, pattern: '\\s*\\d*(\\.\\d+)?\\s*', title: 'a number, or blank for the default' } : {})} /></label>
@@ -95,7 +103,7 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
       ind: f.ind.trim() || null, freshBars: num(f.freshBars), impulseVolMult: num(f.impulseVolMult), impulseVolWindow: num(f.impulseVolWindow),
       impulseCooldownBars: num(f.impulseCooldownBars), filterMaxCompletionTokens: num(f.filterMaxCompletionTokens),
       keepFresh: keep ? '1' : '0', sentinelSourceFootnotes: foot ? '1' : '0', NEWSAPI_AI_MODE: news, GNEWS_MODE: gnews,
-    }, 'Saved. The engine reads these on its next cycle.');
+    }, 'Saved. The engine reads these on its next cycle.', bl);
   };
   return (
     <Card title="Signal filter, indicators and news">

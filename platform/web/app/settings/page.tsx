@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { changedPatch } from '@/lib/settings-merge';
 import { Card, Loading } from '@/components/ui';
@@ -22,19 +22,21 @@ async function save(patch: object) {
   return api<{ ok: boolean; error?: string }>('/engine/settings', { method: 'POST', body: JSON.stringify(patch) });
 }
 
-function useSave(reload: () => Promise<void>, loaded: Settings | null) {
+type Base = { current: Record<string, unknown> };
+function useSave(reload: () => Promise<void>) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const run = async (patch: object, text = 'Saved.') => {
-    if (busy) return;
+  const run = async (patch: object, text = 'Saved.', base: Base): Promise<boolean> => {
+    if (busy) return false;
     setBusy(true); setMsg(null);
     try {
-      // Re-read just before writing. Send only what the operator changed against the values the form loaded.
+      // Re-read just before writing. Send only what the operator changed against the card baseline: the values it last loaded or saved.
       const fresh = await api<Settings>('/engine/settings');
-      await save(changedPatch((loaded ?? {}) as Record<string, unknown>, fresh as Record<string, unknown>, patch as Record<string, unknown>));
-      setMsg({ ok: true, text }); await reload();
+      await save(changedPatch(base.current, fresh as Record<string, unknown>, patch as Record<string, unknown>));
+      Object.assign(base.current, patch);
+      setMsg({ ok: true, text }); await reload(); return true;
     }
-    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
+    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); return false; }
     finally { setBusy(false); }
   };
   return { run, busy, msg };
@@ -48,7 +50,7 @@ export default function SettingsPage() {
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
-  const { run, busy, msg } = useSave(reload, s);
+  const { run, busy, msg } = useSave(reload);
 
   if (error) return <main className="wrap"><h1>Settings</h1><div className="msg err" role="alert">{error}</div></main>;
   if (!s) return <main className="wrap"><Loading full /></main>;
@@ -72,7 +74,7 @@ export default function SettingsPage() {
   );
 }
 
-type Run = (patch: object, text?: string) => Promise<void>;
+type Run = (patch: object, text: string | undefined, base: Base) => Promise<boolean>;
 
 function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
   const active = s.activeProvider ?? s.provider ?? 'none';
@@ -83,17 +85,19 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
   const [akey, setAkey] = useState('');
   const [tokens, setTokens] = useState(String(s.maxCompletionTokens ?? ''));
   const needsBase = provider === 'openai-compatible';
+  // baseline: what this card last loaded or saved, advanced by run() after each successful save
+  const bl = useRef<Record<string, unknown>>({ provider: active, models: s.models ?? {}, OPENAI_BASE_URL: s.OPENAI_BASE_URL ?? '', maxCompletionTokens: s.maxCompletionTokens });
   const onProvider = (p: string) => { setProvider(p); setModel(s.models?.[p] ?? ''); };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     const patch: Record<string, unknown> = { provider };
-    if (model.trim()) patch.models = { ...(s.models ?? {}), [provider]: model.trim() };
-    if (needsBase && base.trim() !== (s.OPENAI_BASE_URL ?? '')) patch.OPENAI_BASE_URL = base.trim();
+    if (model.trim()) patch.models = { ...(bl.current.models as Record<string, string>), [provider]: model.trim() };
+    if (needsBase) patch.OPENAI_BASE_URL = base.trim();
     if (key.trim()) patch.OPENAI_API_KEY = key.trim();
     if (akey.trim()) patch.ANTHROPIC_API_KEY = akey.trim();
-    if (tokens.trim() && Number(tokens) !== s.maxCompletionTokens) patch.maxCompletionTokens = Number(tokens);
-    void run(patch, 'Saved. The engine uses the new provider for chat, the signal filter and the bot from their next call.').then(() => { setKey(''); setAkey(''); });
+    if (tokens.trim()) patch.maxCompletionTokens = Number(tokens);
+    void run(patch, 'Saved. The engine uses the new provider for chat, the signal filter and the bot from their next call.', bl).then(() => { setKey(''); setAkey(''); });
   };
 
   return (
