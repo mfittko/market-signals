@@ -18,6 +18,11 @@ import (
 
 const maxPrompt = 32 << 10
 
+// maxPromptBody caps a request that carries one prompt. JSON escaping grows a byte to
+// at most six (\u00XX), so a prompt at maxPrompt always fits and the decoded length
+// check answers instead of the body reader.
+const maxPromptBody = 6*maxPrompt + 16<<10
+
 var errArchived = errors.New("strategy is archived")
 
 var errNameTaken = errors.New("strategy name differs only in case")
@@ -124,10 +129,16 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		Instrument  string `json:"instrument"`  // scope for a brand new strategy
 		Granularity string `json:"granularity"` // ignored when an earlier version exists
 	}
-	if !decode(w, r, &b, maxPrompt+1024) {
+	if !decode(w, r, &b, maxPromptBody) {
 		return
 	}
 	b.Prompt = strings.TrimSpace(b.Prompt)
+	if b.Instrument != "" || b.Granularity != "" {
+		if err := checkScope(b.Instrument, b.Granularity); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+	}
 	switch {
 	case !strategyName.MatchString(name):
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name: letters, digits, space, dot, dash or underscore, up to 64, no leading or trailing space"})
@@ -156,8 +167,10 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		if exact == 0 && folded > 0 {
 			return errNameTaken
 		}
+		// archived means every version is archived, the same rule as the list and setArchived;
+		// an imported name with one archived old version stays editable
 		var archived bool
-		if err := tx.QueryRow(r.Context(), `SELECT COALESCE(bool_or(archived),false) FROM strategies WHERE name=$1`, name).Scan(&archived); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT COALESCE(bool_and(archived),false) FROM strategies WHERE name=$1`, name).Scan(&archived); err != nil {
 			return err
 		}
 		if archived {

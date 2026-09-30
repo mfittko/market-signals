@@ -42,7 +42,7 @@ func (s *Server) autoGrill(w http.ResponseWriter, r *http.Request) {
 		Granularity string `json:"granularity"`
 		Draft       string `json:"draft"`
 	}
-	if !decode(w, r, &b, 64<<10) {
+	if !decode(w, r, &b, maxPromptBody) {
 		return
 	}
 	if b.Instrument == "" || b.Granularity == "" {

@@ -852,3 +852,76 @@ func TestRebindingHostIsRefusedEvenWhenOriginMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentScopeMustUseTheEngineShapes(t *testing.T) {
+	hs, _ := setup(t)
+	agent := func(inst, gran string) string {
+		return `{"id":"s1","instrument":"` + inst + `","granularity":"` + gran + `","runtime":"mock"}`
+	}
+	for _, g := range []string{"M5", "H4", "M10"} {
+		if c, out := call(t, "POST", hs.URL+"/api/v1/agents", "", agent("WTICO/USD", g), nil); c != 200 {
+			t.Fatalf("%s: %d %v", g, c, out)
+		}
+	}
+	for _, bad := range [][2]string{{"WTICO/USD", "5m"}, {"WTICO/USD", "M"}, {"WTICO/USD", "m5"}, {"WTICO/USD", "D1"}, {"WTICO/USD", ""}, {"WTI USD", "M5"}, {"W", "M5"}} {
+		if c, _ := call(t, "POST", hs.URL+"/api/v1/agents", "", agent(bad[0], bad[1]), nil); c != 400 {
+			t.Fatalf("%v must be refused, got %d", bad, c)
+		}
+	}
+	// a new strategy's scope follows the same rules
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Scoped2/versions", "", `{"prompt":"x","instrument":"XAG/USD","granularity":"5m"}`, nil); c != 400 {
+		t.Fatalf("bad strategy scope: %d", c)
+	}
+}
+
+func TestRunWithAnUnknownSourceIsRefused(t *testing.T) {
+	hs, _ := setup(t)
+	for _, src := range []string{"dem", "Demo", "live"} {
+		if c, _ := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"`+src+`"}`, nil); c != 400 {
+			t.Fatalf("%q must be refused, got %d", src, c)
+		}
+	}
+}
+
+func TestAnImportedStrategyWithOneArchivedOldVersionStaysEditable(t *testing.T) {
+	hs, st := setup(t)
+	if _, err := st.Pool.Exec(context.Background(), `TRUNCATE strategies;
+		INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES
+		  ('Mixed',1,'old','import',now(),false,true,false), ('Mixed',2,'live','import',now(),true,false,false)`); err != nil {
+		t.Fatal(err)
+	}
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Mixed/versions", "", `{"prompt":"v3"}`, nil); c != 200 || out["version"] != float64(3) {
+		t.Fatalf("save: %d %v", c, out)
+	}
+}
+
+func TestAPromptAtTheLimitFitsTheBodyWhateverItsEscaping(t *testing.T) {
+	hs, _ := setup(t)
+	// control characters are the worst case: JSON writes each one as six bytes
+	body := func(n int) string {
+		b, _ := json.Marshal(map[string]string{"prompt": "a" + strings.Repeat("\x01", n-2) + "a"})
+		return string(b)
+	}
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Escaped/versions", "", body(maxPrompt), nil); c != 200 {
+		t.Fatalf("at the limit: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Escaped/versions", "", body(maxPrompt+1), nil); c != 413 {
+		t.Fatalf("over the limit must be the prompt message: %d %v", c, out)
+	}
+	draft, _ := json.Marshal(map[string]string{"instrument": "WTICO/USD", "granularity": "M5", "draft": strings.Repeat("\x01", maxPrompt+1)})
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/autogrill", "", string(draft), nil); c != 400 || out["error"] == nil || !strings.Contains(out["error"].(string), "draft is over") {
+		t.Fatalf("an escaped draft over the limit must get the draft message: %d %v", c, out)
+	}
+}
+
+func TestGrillTurnMarksTheLongestOptionNamedInTheRecommendation(t *testing.T) {
+	tr := parseTurn(`{"question":"q","options":[{"label":"2 ATR"},{"label":"1.2 ATR"}],"recommendation":"Take 1.2 ATR."}`)
+	if tr == nil || tr.Options[0].Recommended || !tr.Options[1].Recommended {
+		t.Fatalf("%+v", tr)
+	}
+	// two labels of the same length named in the text leave the pick to the trader
+	tr = parseTurn(`{"question":"q","options":[{"label":"1 ATR"},{"label":"2 ATR"}],"recommendation":"Between 1 ATR and 2 ATR."}`)
+	if tr == nil || tr.Options[0].Recommended || tr.Options[1].Recommended {
+		t.Fatalf("%+v", tr)
+	}
+}

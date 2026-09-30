@@ -195,12 +195,24 @@ func parseTurn(reply string) *grillTurn {
 	}
 	t.Options = kept
 	// the model sometimes names its pick in the recommendation text without setting the flag
+	// the longest label named wins, so "1.2 ATR" beats "2 ATR"; a tie at that length marks none
 	if !seen {
+		rec := strings.ToLower(t.Recommendation)
+		best, bestLen, tie := -1, 0, false
 		for k := range t.Options {
-			if strings.Contains(strings.ToLower(t.Recommendation), strings.ToLower(t.Options[k].Label)) {
-				t.Options[k].Recommended = true
-				break
+			l := t.Options[k].Label
+			if !strings.Contains(rec, strings.ToLower(l)) {
+				continue
 			}
+			switch {
+			case len(l) > bestLen:
+				best, bestLen, tie = k, len(l), false
+			case len(l) == bestLen:
+				tie = true
+			}
+		}
+		if best >= 0 && !tie {
+			t.Options[best].Recommended = true
 		}
 	}
 	if t.Question == "" && t.Prompt == "" && len(t.Findings) == 0 {

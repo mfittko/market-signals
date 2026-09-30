@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/mfittko/market-signals/platform/fixtures"
+	"github.com/mfittko/market-signals/platform/internal/domain"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
@@ -275,6 +276,10 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id, instrument, granularity and runtime (mock|llm) are required"})
 		return
 	}
+	if err := checkScope(a.Instrument, a.Granularity); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
 	if err := a.Budgets.Check(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
@@ -300,6 +305,15 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// checkScope applies the engine's instrument and granularity rules, so every consumer can rely on them.
+func checkScope(instrument, granularity string) error {
+	if !domain.InstrumentShape.MatchString(instrument) {
+		return fmt.Errorf("instrument %q is not an instrument symbol", instrument)
+	}
+	_, err := domain.GranularityDuration(granularity)
+	return err
 }
 
 func (s *Server) patchAgent(w http.ResponseWriter, r *http.Request) {
@@ -377,6 +391,11 @@ func (s *Server) triggerRun(w http.ResponseWriter, r *http.Request) {
 		Source  string `json:"source"`
 	}
 	if !decode(w, r, &b, 4<<10) {
+		return
+	}
+	// a misspelled source must not start a live engine run
+	if b.Source != "" && b.Source != "engine" && b.Source != "demo" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "source must be engine or demo"})
 		return
 	}
 	agent, err := s.st.GetAgent(r.Context(), b.AgentID)
