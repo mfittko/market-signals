@@ -453,6 +453,11 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 	if code != 200 || len(d["candles"].([]any)) != 2 || len(d["trades"].([]any)) != 2 {
 		t.Fatalf("detail: %d %v", code, d)
 	}
+	// an alert link can name a granularity that was never imported; the response names the fallback so the page can follow it
+	code, d = call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd?granularity=M15", "", "", nil)
+	if code != 200 || d["granularity"] != "M5" || len(d["candles"].([]any)) != 2 {
+		t.Fatalf("a granularity with no imported candles must fall back to M5 and say so: %d %v", code, d)
+	}
 	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope", "", "", nil); code != 404 {
 		t.Fatalf("unknown slug must be 404, got %d", code)
 	}

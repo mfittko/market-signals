@@ -92,6 +92,7 @@ type SnapshotFacts struct {
 	Instrument string
 	Price      float64
 	Halted     bool
+	Equity     float64          // portfolio equity; 0 when the snapshot carries none
 	Positions  map[int64]string // position id -> instrument
 	TakenAt    time.Time
 }
@@ -110,6 +111,9 @@ func FactsFromPayload(instrument string, payload map[string]any, takenAt time.Ti
 		}
 	}
 	if pf, ok := payload["portfolio"].(map[string]any); ok {
+		if e, ok := pf["equity"].(float64); ok {
+			f.Equity = e
+		}
 		if h, ok := pf["halted"].(bool); ok {
 			f.Halted = h
 		}
@@ -154,6 +158,11 @@ func ValidateProposal(d Decision, f SnapshotFacts, now time.Time, maxAge time.Du
 		if f.Price <= 0 {
 			fail("snapshot has no price to size against")
 			break
+		}
+		// The shadow position is unlevered and its P/L scales with notional, so notional may not exceed
+		// the account's equity. A snapshot without equity carries no bound.
+		if f.Equity > 0 && d.Notional > f.Equity {
+			fail(fmt.Sprintf("notional %v exceeds portfolio equity %v", d.Notional, f.Equity))
 		}
 		long := d.Side == "long"
 		if (long && d.Stop >= f.Price) || (!long && d.Stop <= f.Price) {

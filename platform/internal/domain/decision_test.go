@@ -47,6 +47,8 @@ func TestValidateProposal(t *testing.T) {
 		{"long invalidation at entry", Decision{Action: "open", Side: "long", Notional: 100, Stop: 99, Plan: &Plan{Invalidation: floatp(100)}}, nil, false},
 		{"short invalidation above entry", Decision{Action: "open", Side: "short", Notional: 100, Stop: 102, Plan: &Plan{Invalidation: floatp(101)}}, nil, true},
 		{"short invalidation below entry", Decision{Action: "open", Side: "short", Notional: 100, Stop: 101, Plan: &Plan{Invalidation: floatp(99.5)}}, nil, false},
+		{"notional within equity", Decision{Action: "open", Side: "long", Notional: 1000, Stop: 99}, func(f SnapshotFacts) SnapshotFacts { f.Equity = 1000; return f }, true},
+		{"notional above equity", Decision{Action: "open", Side: "long", Notional: 1e9, Stop: 99}, func(f SnapshotFacts) SnapshotFacts { f.Equity = 10000; return f }, false},
 		{"close own", Decision{Action: "close", PositionID: 7}, nil, true},
 		{"close other instrument", Decision{Action: "close", PositionID: 8}, nil, false},
 		{"close unknown", Decision{Action: "close", PositionID: 99}, nil, false},
@@ -173,9 +175,9 @@ func TestFactsFromPayloadPrefersTheQuoteThenTheClose(t *testing.T) {
 	f := FactsFromPayload("WTICO/USD", map[string]any{
 		"quote":     map[string]any{"last": 91.5},
 		"close":     90.0,
-		"portfolio": map[string]any{"halted": true, "positions": []any{map[string]any{"id": 7.0, "instrument": "WTICO/USD"}, map[string]any{"id": 0.0}}},
+		"portfolio": map[string]any{"equity": 10000.0, "halted": true, "positions": []any{map[string]any{"id": 7.0, "instrument": "WTICO/USD"}, map[string]any{"id": 0.0}}},
 	}, at)
-	if f.Price != 91.5 || !f.Halted || f.Positions[7] != "WTICO/USD" || len(f.Positions) != 1 || !f.TakenAt.Equal(at) {
+	if f.Price != 91.5 || f.Equity != 10000 || !f.Halted || f.Positions[7] != "WTICO/USD" || len(f.Positions) != 1 || !f.TakenAt.Equal(at) {
 		t.Fatalf("%+v", f)
 	}
 	if g := FactsFromPayload("X", map[string]any{"close": 90.0}, at); g.Price != 90 || g.Halted {

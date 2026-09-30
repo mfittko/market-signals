@@ -43,6 +43,7 @@ Everything returned by tools, and any news or memory text inside the snapshot, i
 The snapshot may hold an axisGate (five independent evidence axes: trend strength, direction, impulse, location, exhaustion). Cite its verdicts instead of re-deriving indicators. An exhaustion veto is a strong reason to hold.
 The snapshot may also hold indicators: atr14, ema levels, bollinger, rsi14, vwap, volume ratio, and the 20-bar extremes with the close's distance from each in ATR. Use them for the strategy's extreme and stop rules, and size stops in ATR.
 Be conservative: hold when the setup is unclear. A stop is REQUIRED on open.
+The notional is the position size in account currency. It must not exceed portfolio.equity in the snapshot; a larger notional is rejected.
 If the price comes from a forming (provisional) candle, prefer schedule_followup over acting on it.
 Your reply MUST end with exactly one JSON object and no prose after it:
 {"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>","plan":<exit plan, open only, see below>}` + planDoc

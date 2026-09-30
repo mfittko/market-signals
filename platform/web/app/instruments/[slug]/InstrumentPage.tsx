@@ -44,7 +44,8 @@ function InstrumentView() {
     try {
       const r = await api<InstrumentDetail>(`/instruments/${slug}${gran ? `?granularity=${gran}` : ''}`);
       setD(r); setError(null);
-      if (!gran) setGran(r.granularity);
+      // The server falls back to an imported granularity when the requested one has none; follow it so title, button, filter and live candles agree.
+      if (r.granularity && r.granularity !== gran) setGran(r.granularity);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   }, [slug, gran]);
   useEffect(() => { void load(); }, [load, tick]);

@@ -192,6 +192,8 @@ func (s *Store) RaiseAttention(ctx context.Context, id int64, kind string, paylo
 
 // openPositionTx records the shadow position for an accepted entry. A second open
 // for the same agent, or a repeat for the same run, is ignored by the unique indexes.
+// An ignored open from another run leaves an open_ignored event on the position the
+// agent already holds, so the audit trail explains the missing position.
 func openPositionTx(ctx context.Context, tx pgx.Tx, runID int64, a Agent, d domain.Decision, price float64, at time.Time) error {
 	plan := domain.Plan{}
 	if d.Plan != nil {
@@ -203,7 +205,16 @@ func openPositionTx(ctx context.Context, tx pgx.Tx, runID int64, a Agent, d doma
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$7) ON CONFLICT DO NOTHING RETURNING id`,
 		a.ID, runID, a.Instrument, a.Granularity, d.Side, d.Notional, price, at, d.Stop, d.Target, pb).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // the agent already holds a position, or this run already opened one
+		var held, heldRun int64
+		err := tx.QueryRow(ctx, `SELECT id, run_id FROM shadow_positions WHERE agent_id=$1 AND status='open'`, a.ID).Scan(&held, &heldRun)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && heldRun == runID) {
+			return nil // this run already opened its position
+		}
+		if err != nil {
+			return err
+		}
+		return addPositionEvent(ctx, tx, held, "open_ignored", map[string]any{"runId": runID, "side": d.Side, "price": price,
+			"why": fmt.Sprintf("the agent already holds position %d", held)})
 	}
 	if err != nil {
 		return err

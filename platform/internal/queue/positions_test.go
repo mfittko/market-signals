@@ -60,6 +60,36 @@ func TestAcceptedEngineEntryOpensOneShadowPositionWithItsPlan(t *testing.T) {
 	}
 }
 
+func TestAnOpenIgnoredForAHeldPositionLeavesAnEventOnIt(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	runAs(t, s, ctx, "engine", entryPayload, openDecision())
+	ps, err := s.ListPositions(ctx, "open", 10)
+	must(t, err)
+	if len(ps) != 1 {
+		t.Fatalf("positions %+v", ps)
+	}
+	second := openDecision()
+	second.Side, second.Stop, second.Target = "short", 102, fptr(95)
+	runAs(t, s, ctx, "engine", entryPayload, second)
+	_, evs, err := s.GetPosition(ctx, ps[0].ID)
+	must(t, err)
+	var ignored []PositionEvent
+	for _, e := range evs {
+		if e.Kind == "open_ignored" {
+			ignored = append(ignored, e)
+		}
+	}
+	if len(ignored) != 1 {
+		t.Fatalf("one open_ignored event expected on the held position: %+v", evs)
+	}
+	var p map[string]any
+	must(t, json.Unmarshal(ignored[0].Payload, &p))
+	if p["side"] != "short" || p["runId"].(float64) == float64(ps[0].RunID) || p["why"] != fmt.Sprintf("the agent already holds position %d", ps[0].ID) {
+		t.Fatalf("the event must name the ignored open and the held position: %v", p)
+	}
+}
+
 func TestOnlyValidEngineEntriesOpenPositions(t *testing.T) {
 	s, ctx := fresh(t)
 	must(t, s.UpsertAgent(ctx, agent("a1")))
