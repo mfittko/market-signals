@@ -72,7 +72,7 @@ func (s *Store) ListPositions(ctx context.Context, status string, limit int) ([]
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := s.Pool.Query(ctx, `SELECT `+positionCols+` FROM shadow_positions WHERE ($1='' OR status=$1) ORDER BY (status='open') DESC, COALESCE(exit_time, entry_time) DESC LIMIT $2`, status, limit)
+	rows, err := s.Pool.Query(ctx, `SELECT `+positionCols+` FROM shadow_positions WHERE ($1='' OR status=$1) ORDER BY (status='open') DESC, COALESCE(exit_time, entry_time) DESC, id DESC LIMIT $2`, status, limit)
 	if err != nil {
 		return nil, err
 	}

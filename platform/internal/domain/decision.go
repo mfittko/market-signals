@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -71,7 +72,7 @@ func (d Decision) CheckShape() error {
 // Hold builds a fail-safe hold.
 func Hold(reason string) Decision {
 	if len(reason) > 200 {
-		reason = reason[:200]
+		reason = strings.ToValidUTF8(reason[:200], "")
 	}
 	return Decision{Action: "hold", Reasoning: reason}
 }

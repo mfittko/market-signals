@@ -78,7 +78,7 @@ export default function Home() {
       <div className="grid two">
         <Card title="Runs" aside={<span className="muted small">{summary}</span>}>
           {!runs ? <Loading /> : shownRuns.length === 0 ? (
-            <div className="empty">No runs yet. Start one from “Ask an agent now”, or enable the engine hook to record real events.</div>
+            <div className="empty">No runs yet. Start one from “New research run”, or enable the engine hook to record real events.</div>
           ) : (
             <div className="scroll">
               <table>

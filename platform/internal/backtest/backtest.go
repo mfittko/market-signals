@@ -187,7 +187,12 @@ func runWith(c []Candle, f features, flips []Flip, p Params) []Trade {
 			hitTarget := target != 0 && ((d > 0 && b.High >= target) || (d < 0 && b.Low <= target))
 			switch {
 			case hitStop:
-				exit, tr.Reason, last = stop, "stop", j
+				// a bar that opens through the stop fills at its open, the worse price
+				exit = stop
+				if (d > 0 && b.Open < stop) || (d < 0 && b.Open > stop) {
+					exit = b.Open
+				}
+				tr.Reason, last = "stop", j
 			case hitTarget:
 				exit, tr.Reason, last = target, "target", j
 			case flipBar[j] == -fl.Dir && j > i+1 && flipBar[j] != 0:

@@ -185,15 +185,15 @@ func (s *Store) SetLegacy(ctx context.Context, idemKey string, legacy json.RawMe
 
 // recompute derives comparison from proposal and legacy decision.
 func (s *Store) recompute(ctx context.Context, tx pgx.Tx, runID int64) error {
-	var proposal, legacy []byte
+	var proposal, validation, legacy []byte
 	var source string
-	if err := tx.QueryRow(ctx, `SELECT r.proposal, r.legacy_decision, sn.source FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, runID).Scan(&proposal, &legacy, &source); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT r.proposal, r.validation, r.legacy_decision, sn.source FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, runID).Scan(&proposal, &validation, &legacy, &source); err != nil {
 		return err
 	}
 	cmp := "pending"
 	switch {
 	case proposal != nil && legacy != nil:
-		cmp = compareJSON(proposal, legacy)
+		cmp = compareJSON(proposal, validation, legacy)
 	case proposal != nil && source != "engine":
 		cmp = "no_legacy"
 	}
@@ -201,10 +201,15 @@ func (s *Store) recompute(ctx context.Context, tx pgx.Tx, runID int64) error {
 	return err
 }
 
-func compareJSON(proposal, legacy []byte) string {
+// compareJSON compares the effective outcome with the engine's decision. A
+// rejected proposal never stands, so its effective outcome is a hold.
+func compareJSON(proposal, validation, legacy []byte) string {
 	var p struct {
 		Action string `json:"action"`
 		Side   string `json:"side"`
+	}
+	var v struct {
+		Valid *bool `json:"valid"`
 	}
 	var l struct {
 		Decision struct {
@@ -216,6 +221,9 @@ func compareJSON(proposal, legacy []byte) string {
 	}
 	if json.Unmarshal(proposal, &p) != nil || json.Unmarshal(legacy, &l) != nil {
 		return "pending"
+	}
+	if validation != nil && json.Unmarshal(validation, &v) == nil && v.Valid != nil && !*v.Valid {
+		p.Action, p.Side = "hold", ""
 	}
 	la, ls := l.Decision.Action, l.Decision.Side
 	if la == "" { // bare decision object

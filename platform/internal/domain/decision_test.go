@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func facts() SnapshotFacts {
@@ -131,6 +132,9 @@ func TestPlanValidation(t *testing.T) {
 	if err := good.Check("long"); err != nil {
 		t.Fatal(err)
 	}
+	if err := good.Check(""); err == nil {
+		t.Error("a plan without a side was accepted")
+	}
 }
 
 func TestParseDecisionTakesTheLastObjectNotTheFirst(t *testing.T) {
@@ -194,5 +198,12 @@ func TestPnLIsSignedBySideAndSafeOnBadEntry(t *testing.T) {
 	}
 	if PnL("long", 1000, 0, 101) != 0 {
 		t.Fatal("a zero entry price must not divide")
+	}
+}
+
+func TestHoldReasonIsCutOnARuneBoundary(t *testing.T) {
+	r := Hold(strings.Repeat("a", 199) + "ü and more").Reasoning
+	if !utf8.ValidString(r) || len(r) > 200 {
+		t.Fatalf("reason %q is not valid UTF-8 within 200 bytes", r)
 	}
 }

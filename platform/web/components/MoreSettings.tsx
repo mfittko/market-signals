@@ -88,8 +88,9 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   const [keep, setKeep] = useState(on(s.keepFresh));
   const [foot, setFoot] = useState(on(s.sentinelSourceFootnotes));
   const [news, setNews] = useState(s.NEWSAPI_AI_MODE ?? 'auto'); const [gnews, setGnews] = useState(s.GNEWS_MODE ?? 'off');
-  const field = (k: keyof typeof f, label: string, hint?: string) => (
-    <label>{label}{hint && <span className="muted small"> ({hint})</span>}<input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} /></label>
+  // numeric fields refuse non-numbers natively: Number("abc") would send NaN, which JSON turns into a silent reset
+  const field = (k: keyof typeof f, label: string, hint?: string, numeric = true) => (
+    <label>{label}{hint && <span className="muted small"> ({hint})</span>}<input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} {...(numeric ? { inputMode: 'decimal' as const, pattern: '\\s*\\d*(\\.\\d+)?\\s*', title: 'a number, or blank for the default' } : {})} /></label>
   );
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,7 +103,7 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   return (
     <Card title="Signal filter, indicators and news">
       <form className="form" onSubmit={submit}>
-        {field('ind', 'Chart indicators', 'comma list, for example ema,bb,vwap,rsi')}
+        {field('ind', 'Chart indicators', 'comma list, for example ema,bb,vwap,rsi', false)}
         {field('freshBars', 'Fresh flip window', 'bars')}
         {field('impulseVolMult', 'Impulse volume multiple', 'at least 1')}
         {field('impulseVolWindow', 'Impulse volume window', 'bars')}

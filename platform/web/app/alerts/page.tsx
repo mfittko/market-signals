@@ -1,11 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { fetchAlerts, type AlertEvent, type AlertKind } from '@/lib/alerts';
+import { fetchAlerts, timeMs, type AlertEvent, type AlertKind } from '@/lib/alerts';
 import { Card, Loading } from '@/components/ui';
 
 const LABEL: Record<AlertKind, string> = { signal: 'Signals', proposal: 'Agent proposals', trade: 'Paper trades' };
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const when = (iso: string) => new Date(timeMs(iso)).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
 export default function AlertsPage() {
   const [events, setEvents] = useState<AlertEvent[] | null>(null);

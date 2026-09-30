@@ -1,6 +1,6 @@
 'use client';
 import { useEffect } from 'react';
-import { fetchAlerts, loadPrefs, loadSeen, saveSeen } from '@/lib/alerts';
+import { fetchAlerts, loadPrefs, loadSeen, saveSeen, timeMs } from '@/lib/alerts';
 
 // Raises desktop notifications for new alert events while any console tab is open.
 // The first poll only records what already exists, so opening the console never floods.
@@ -19,7 +19,7 @@ export function Notifier() {
         if (next.has(e.id)) continue;
         next.add(e.id);
         // a signal older than 30 minutes is history, not news
-        const fresh = Date.now() - +new Date(e.at) < 30 * 60_000;
+        const fresh = Date.now() - timeMs(e.at) < 30 * 60_000;
         if (seen && fresh && prefs[e.kind] && (e.kind !== 'signal' || e.tone)) {
           const n = new Notification(e.title, { body: e.detail.slice(0, 180), tag: e.id });
           n.onclick = () => { window.focus(); if (e.href) window.location.href = e.href; n.close(); };

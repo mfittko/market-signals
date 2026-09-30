@@ -26,7 +26,7 @@ export default function RunPage() {
     api<{ candles: Candle[]; source: string }>(`/runs/${id}/chart`).then((c) => { setChart(c); setChartError(null); }).catch((e) => setChartError(e instanceof Error ? e.message : String(e)));
   }, [id]);
 
-  if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;
+  if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/runs">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;
   if (!d) return <main className="wrap"><Loading full /></main>;
 
   const { run, agent, snapshot, attempts, events } = d;
@@ -36,7 +36,7 @@ export default function RunPage() {
 
   return (
     <main className="wrap">
-      <p className="crumb"><Link href="/">Back to runs</Link></p>
+      <p className="crumb"><Link href="/runs">Back to runs</Link></p>
       <div className="top">
         <div className="left">
           <h1>Run #{run.id}</h1>

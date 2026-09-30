@@ -12,6 +12,10 @@ type Trade = { id: number; instrument: string; side: string; realized: number; c
 type Open = { id: number; instrument: string; side: string; entry_price: number; entry_time: string };
 
 const slug = (s: string) => s.toLowerCase().replace('/', '-');
+
+// The engine writes nanosecond timestamps. WebKit cannot parse more than three
+// fractional digits, so trim them before parsing.
+export const timeMs = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
 const money = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
 const combos = (csv: string | undefined) => [...new Set((csv ?? '').split(',').map((c) => c.trim()))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
 
@@ -50,7 +54,7 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
   }
   // ids must be unique: React keys and the notifier's "already seen" set both rely on it
   const unique = [...new Map(out.map((e) => [e.id, e])).values()];
-  return unique.sort((a, b) => +new Date(b.at) - +new Date(a.at));
+  return unique.sort((a, b) => timeMs(b.at) - timeMs(a.at));
 }
 
 // Desktop notification preferences live in this browser only.

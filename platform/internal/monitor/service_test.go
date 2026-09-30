@@ -54,8 +54,14 @@ func newRig(t *testing.T, plan *domain.Plan) *rig {
 	if _, err := st.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, queue.CompleteInput{Proposal: &domain.Decision{Action: "open", Side: "long", Notional: 1000, Stop: 98, Target: &tgt, Plan: plan}}); err != nil {
 		t.Fatal(err)
 	}
+	// base follows the stored entry time, which is the database clock: a host clock
+	// near a minute boundary could put the first bar before the entry
+	ps, err := st.ListPositions(ctx, "open", 1)
+	if err != nil || len(ps) == 0 {
+		t.Fatal("no open position", err)
+	}
 	f := &fakeFeed{}
-	r := &rig{t: t, ctx: ctx, st: st, feed: f, base: time.Now().Truncate(time.Minute).Add(time.Minute)}
+	r := &rig{t: t, ctx: ctx, st: st, feed: f, base: ps[0].EntryTime.Truncate(time.Minute).Add(time.Minute)}
 	r.svc = &Service{Store: st, Feed: f, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return r.base.Add(30 * time.Minute) }}
 	return r
 }

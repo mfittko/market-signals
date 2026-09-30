@@ -173,6 +173,9 @@ func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a qu
 	if err := json.Unmarshal(payload, &m); err != nil {
 		return nil, err
 	}
+	if m == nil {
+		return nil, errors.New("snapshot payload must be a JSON object")
+	}
 	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
 	return json.Marshal(m)
 }
@@ -182,7 +185,7 @@ func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a qu
 // event matches the moment it describes. A failure leaves the payload unchanged.
 func (s *Server) withIndicators(ctx context.Context, instrument, granularity string, payload json.RawMessage) json.RawMessage {
 	var m map[string]any
-	if json.Unmarshal(payload, &m) != nil {
+	if json.Unmarshal(payload, &m) != nil || m == nil { // a null payload has no map to extend
 		return payload
 	}
 	if _, has := m["indicators"]; has {

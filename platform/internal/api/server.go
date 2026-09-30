@@ -419,10 +419,18 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	after := int64(-1)
-	if v := r.Header.Get("Last-Event-ID"); v != "" {
-		after, _ = strconv.ParseInt(v, 10, 64)
-	} else if v := r.URL.Query().Get("after"); v != "" {
-		after, _ = strconv.ParseInt(v, 10, 64)
+	v := r.Header.Get("Last-Event-ID")
+	if v == "" {
+		v = r.URL.Query().Get("after")
+	}
+	if v != "" {
+		// a malformed cursor would parse as 0 and replay the whole log
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Last-Event-ID and after must be an integer event id"})
+			return
+		}
+		after = n
 	}
 	if after < 0 { // live only: start from the newest event
 		st, err := s.st.Stats(r.Context())

@@ -141,7 +141,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	grans := []string{}
-	grows, err := s.st.Pool.Query(ctx, `SELECT granularity, count(*), max(time) FROM candles WHERE instrument=$1 GROUP BY 1 ORDER BY 2 DESC`, symbol)
+	grows, err := s.st.Pool.Query(ctx, `SELECT granularity, count(*), max(time) FROM candles WHERE instrument=$1 GROUP BY 1 ORDER BY 2 DESC, 1`, symbol)
 	if err != nil {
 		s.fail500(w, err)
 		return

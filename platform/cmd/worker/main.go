@@ -28,6 +28,10 @@ func main() {
 	conc := flag.Int("concurrency", 2, "runs executed at once")
 	flag.Parse()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if *conc <= 0 {
+		log.Error("-concurrency must be at least 1", "got", *conc)
+		os.Exit(2)
+	}
 	token := os.Getenv("MS_WORKER_TOKEN")
 	if token == "" {
 		log.Error("MS_WORKER_TOKEN must be set")

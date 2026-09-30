@@ -270,6 +270,26 @@ func TestWorkerRunsAnEventToAValidatedShadowProposal(t *testing.T) {
 }
 
 // blocking runs until released or cancelled, then proposes a hold.
+// lockedBuf collects worker logs so a test can wait for an outcome instead of sleeping.
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func (l *lockedBuf) has(s string) bool { return strings.Contains(l.String(), s) }
+
 type blocking struct {
 	started chan struct{}
 	release chan struct{}
@@ -331,6 +351,8 @@ func TestReassignedWorkerCannotOverwriteTheNewOwnersResult(t *testing.T) {
 	id := e.ingest(t, "k1")
 	slow := &blocking{started: make(chan struct{}), release: make(chan struct{})}
 	w := e.worker(slow)
+	logs := &lockedBuf{}
+	w.Log = slog.New(slog.NewTextHandler(logs, nil))
 	ctx, cancel := context.WithCancel(e.ctx)
 	defer cancel()
 	go w.Run(ctx)
@@ -353,7 +375,14 @@ func TestReassignedWorkerCannotOverwriteTheNewOwnersResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(slow.release) // the stale worker now tries to finish
-	time.Sleep(600 * time.Millisecond)
+	// wait until the stale worker has given up, whichever way it learned it lost the run
+	deadline := time.Now().Add(10 * time.Second)
+	for !logs.has("completion rejected as stale") && !logs.has("attempt reassigned") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the stale worker never gave up: %s", logs.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	d := e.waitStatus(t, id, "succeeded")
 	if d.Run.StopReason != "new-owner" {
 		t.Fatalf("the stale worker overwrote the result: %+v", d.Run)

@@ -14,9 +14,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -691,7 +693,9 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 			} `json:"markets"`
 		}
 		if json.Unmarshal(b, &f) == nil {
-			for market, list := range f.Markets {
+			// sorted, so a symbol listed in two markets always lands in the same one
+			for _, market := range slices.Sorted(maps.Keys(f.Markets)) {
+				list := f.Markets[market]
 				for _, s := range list {
 					names[s.Symbol] = [2]string{s.Name, market}
 				}
@@ -700,7 +704,7 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 	} else {
 		im.rep.Notes = append(im.rep.Notes, "symbols file unreadable: "+err.Error())
 	}
-	rows, err := im.tx.Query(im.ctx, `SELECT DISTINCT instrument FROM candles UNION SELECT DISTINCT instrument FROM signals UNION SELECT DISTINCT instrument FROM trades`)
+	rows, err := im.tx.Query(im.ctx, `SELECT DISTINCT instrument FROM candles UNION SELECT DISTINCT instrument FROM signals UNION SELECT DISTINCT instrument FROM trades ORDER BY 1`)
 	if err != nil {
 		return err
 	}
@@ -724,7 +728,7 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 		}
 		all[s] = true
 	}
-	for s := range all {
+	for _, s := range slices.Sorted(maps.Keys(all)) {
 		n, ok := names[s]
 		if !ok {
 			n = [2]string{s, "unknown"}
@@ -799,7 +803,8 @@ func (im *importer) invariants(o Options) error {
 	ctx := im.ctx
 
 	// 1. every table holds at least what the source held
-	for name, t := range im.rep.Tables {
+	for _, name := range slices.Sorted(maps.Keys(im.rep.Tables)) {
+		t := im.rep.Tables[name]
 		im.rep.check("rows:"+name, t.Destination >= t.Source, "source %d, destination %d, newly inserted %d", t.Source, t.Destination, t.Inserted)
 	}
 
@@ -876,18 +881,30 @@ func (im *importer) invariants(o Options) error {
 	im.rep.check("candles per instrument and granularity", len(short) == 0, "%d groups checked, %d short %v", len(src), len(short), short)
 
 	// 3. account: cash minus the starting balance equals realized profit while no position is open
+	// The import must not commit unless cash reconciles, so every case where it
+	// cannot be checked is a failed check, never a skip.
+	const cashCheck = "cash reconciles with realized profit"
 	var start, cash float64
-	if err := im.tx.QueryRow(ctx, `SELECT starting_balance, cash FROM portfolio_account WHERE id=1`).Scan(&start, &cash); err == nil {
+	err = im.tx.QueryRow(ctx, `SELECT starting_balance, cash FROM portfolio_account WHERE id=1`).Scan(&start, &cash)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		im.rep.check(cashCheck, false, "no portfolio account row to reconcile")
+	case err != nil:
+		return err
+	default:
 		var realized float64
 		if err := im.tx.QueryRow(ctx, `SELECT COALESCE(sum(realized),0) FROM trades`).Scan(&realized); err != nil {
 			return err
 		}
-		open, _ := im.srcCount(`SELECT count(*) FROM positions`)
+		open, err := im.srcCount(`SELECT count(*) FROM positions`)
+		if err != nil {
+			return err
+		}
 		if open == 0 {
-			im.rep.check("cash reconciles with realized profit", math.Abs((cash-start)-realized) < 0.01,
+			im.rep.check(cashCheck, math.Abs((cash-start)-realized) < 0.01,
 				"cash %.4f - start %.4f = %.4f, sum of trades %.4f", cash, start, cash-start, realized)
 		} else {
-			im.rep.Notes = append(im.rep.Notes, fmt.Sprintf("%d open positions in the source: cash reconciliation skipped, open positions are not imported", open))
+			im.rep.check(cashCheck, false, "%d open positions in the source: cash cannot reconcile, close them before importing", open)
 		}
 	}
 

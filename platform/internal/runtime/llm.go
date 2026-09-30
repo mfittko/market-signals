@@ -216,7 +216,7 @@ func orStr(v, d string) string {
 
 func clip(s string, n int) string {
 	if len(s) > n {
-		return s[:n] + "…"
+		return strings.ToValidUTF8(s[:n], "") + "…" // drop a rune cut in half
 	}
 	return s
 }

@@ -470,3 +470,19 @@ func TestIngestRejectsAnOversizedSnapshot(t *testing.T) {
 		t.Fatalf("nothing may be stored for a refused snapshot, found %d", n)
 	}
 }
+
+func TestRejectedProposalComparesAsHold(t *testing.T) {
+	open := []byte(`{"action":"open","side":"long"}`)
+	legacyOpen := []byte(`{"action":"open","side":"long"}`)
+	legacyHold := []byte(`{"action":"hold"}`)
+	rejected := []byte(`{"valid":false}`)
+	if got := compareJSON(open, rejected, legacyOpen); got != "differ" {
+		t.Errorf("rejected open vs engine open: %s, want differ", got)
+	}
+	if got := compareJSON(open, rejected, legacyHold); got != "agree" {
+		t.Errorf("rejected open vs engine hold: %s, want agree", got)
+	}
+	if got := compareJSON(open, []byte(`{"valid":true}`), legacyOpen); got != "agree" {
+		t.Errorf("valid open vs engine open: %s, want agree", got)
+	}
+}

@@ -45,8 +45,12 @@ func (s *Server) autoGrill(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b, 64<<10) {
 		return
 	}
-	if b.Instrument == "" || b.Granularity == "" || len(b.Draft) > maxPrompt {
+	if b.Instrument == "" || b.Granularity == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "instrument and granularity are required"})
+		return
+	}
+	if len(b.Draft) > maxPrompt {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("draft is over %d bytes", maxPrompt)})
 		return
 	}
 	candles, flips, from, to, err := s.loadHistory(r.Context(), b.Instrument, b.Granularity)

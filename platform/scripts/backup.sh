@@ -36,7 +36,10 @@ backup() {
   chmod 600 "$out"/*
   # prove the dump is readable before trusting it
   docker exec -i "$PG" pg_restore --list < "$out/console.pgdump" >/dev/null || die "the Postgres dump is not readable: $out"
-  for f in candles.db signals.db; do [ -f "$out/$f" ] && [ "$(sqlite3 "$out/$f" 'pragma integrity_check')" = ok ] || true; done
+  for f in candles.db signals.db; do
+    [ -f "$out/$f" ] || continue
+    [ "$(sqlite3 "$out/$f" 'pragma integrity_check')" = ok ] || die "the SQLite copy failed its integrity check: $out/$f"
+  done
   # retention: newest $KEEP folders that look like timestamps
   ls -1d "$root"/[0-9]*-[0-9]* 2>/dev/null | sort -r | tail -n +"$((KEEP + 1))" | while read -r old; do rm -rf -- "$old"; done
   echo "backup written to $out ($(du -sh "$out" | cut -f1))"

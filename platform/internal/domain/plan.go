@@ -100,8 +100,12 @@ func CheckTripwires(ts []Tripwire) error {
 	return nil
 }
 
-// Check validates a plan for an entry on the given side.
+// Check validates a plan for an entry on the given side. The monitor reads
+// invalidation and adverse moves against the side, so the side must be known.
 func (p Plan) Check(side string) error {
+	if side != "long" && side != "short" {
+		return fmt.Errorf("plan needs side long|short, got %q", side)
+	}
 	if p.Invalidation != nil && !pos(*p.Invalidation) {
 		return fmt.Errorf("invalidation must be a positive price")
 	}

@@ -96,7 +96,7 @@ func (s *Server) grillContext(ctx context.Context, name, mode, draft, brief stri
 		FROM trades WHERE strategy_name=$1`, name).Scan(&n, &wins, &total, &best, &worst); err == nil && n > 0 {
 		fmt.Fprintf(&sb, "Paper-trade record: %d closed trades, %d wins, net %.2f, best %.2f, worst %.2f.\n", n, wins, total, best, worst)
 		if rows, err := s.st.Pool.Query(ctx, `SELECT instrument, side, close_reason, count(*), round(sum(realized)::numeric,2)
-			FROM trades WHERE strategy_name=$1 GROUP BY 1,2,3 ORDER BY 4 DESC LIMIT 12`, name); err == nil {
+			FROM trades WHERE strategy_name=$1 GROUP BY 1,2,3 ORDER BY 4 DESC, 1, 2, 3 LIMIT 12`, name); err == nil {
 			defer rows.Close()
 			sb.WriteString("Breakdown (instrument, side, close reason, trades, net):\n")
 			for rows.Next() {
@@ -140,7 +140,7 @@ type grillTurn struct {
 func clipStr(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) > n {
-		return s[:n]
+		return strings.ToValidUTF8(s[:n], "") // drop a rune cut in half
 	}
 	return s
 }

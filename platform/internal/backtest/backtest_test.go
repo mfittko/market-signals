@@ -150,3 +150,17 @@ func TestEveryCandidateIsSplitAtTheSameDate(t *testing.T) {
 		}
 	}
 }
+
+func TestAGapThroughTheStopFillsAtTheOpen(t *testing.T) {
+	c := series(ramp(200, 100, 1))
+	// bar 65 gaps far below any long stop from a buy at bar 60
+	c[65].Open, c[65].High, c[65].Low, c[65].Close = 90, 90.5, 89, 90
+	tr := Run(c, []Flip{{Time: c[60].Time, Dir: 1}}, Params{StopATR: 1.5, RR: 0, Direction: "both"})
+	if len(tr) != 1 || tr[0].Reason != "stop" {
+		t.Fatalf("%+v", tr)
+	}
+	// entry is bar 61's open (160), 1R is 1.5 ATR (about 3): a fill at 90 is far worse than -1R
+	if tr[0].R > -10 {
+		t.Fatalf("a gap through the stop must fill at the open, got R %v", tr[0].R)
+	}
+}
