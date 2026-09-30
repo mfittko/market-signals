@@ -247,7 +247,12 @@ func (s *Store) AuthorizeTool(ctx context.Context, attemptID, fence int64, name 
 	return &tc, nil
 }
 
+// FollowupMargin is the time a follow-up reserves for the resumed attempt to run.
+const FollowupMargin = 60 * time.Second
+
 // SetPendingWait stores a follow-up request made through the schedule_followup tool.
+// The resumed attempt is validated and filled against this run's frozen snapshot,
+// so the delay must end inside the agent's freshness budget, less FollowupMargin.
 func (s *Store) SetPendingWait(ctx context.Context, attemptID, fence int64, seconds int, reason string) error {
 	if seconds < 10 || seconds > 3600 {
 		return fmt.Errorf("follow-up delay must be 10-3600 seconds, got %d", seconds)
@@ -263,6 +268,21 @@ func (s *Store) SetPendingWait(ctx context.Context, attemptID, fence int64, seco
 	}
 	if err := l.current(); err != nil {
 		return err
+	}
+	var agentID string
+	var taken time.Time
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.taken_at FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).Scan(&agentID, &taken); err != nil {
+		return err
+	}
+	agent, err := scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID))
+	if err != nil {
+		return err
+	}
+	budget := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
+	limit := int((budget - time.Since(taken) - FollowupMargin) / time.Second)
+	if seconds > limit {
+		return fmt.Errorf("follow-up delay of %d seconds is over the limit of %d seconds: the resumed attempt is judged against this run's snapshot, which must be under %d seconds old, and %d seconds are reserved for the resumed attempt; finish now or ask for a shorter delay",
+			seconds, max(limit, 0), agent.Budgets.FreshnessSeconds, int(FollowupMargin/time.Second))
 	}
 	b, _ := json.Marshal(map[string]any{"seconds": seconds, "reason": reason})
 	if _, err := tx.Exec(ctx, `UPDATE attempts SET pending_wait=$2 WHERE id=$1`, attemptID, b); err != nil {

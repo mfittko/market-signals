@@ -46,7 +46,7 @@ func Definitions() []Def {
 			obj(map[string]any{"count": map[string]any{"type": "integer", "minimum": 1, "maximum": 120}})},
 		{"get_recent_signals", "Recent supertrend signals for this agent's instrument and granularity, newest first.",
 			obj(map[string]any{"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}})},
-		{"schedule_followup", "Ask to be re-run with fresh state after a delay (10-3600 seconds). Your current proposal is recorded as interim.",
+		{"schedule_followup", "Ask to be re-run after a delay (10-3600 seconds). Your current proposal is recorded as interim. The resumed run is validated and filled against this run's frozen snapshot, so the delay must end inside your freshness budget (default 900 seconds from the snapshot time) with 60 seconds left for the resumed run. A longer delay is refused with the current limit.",
 			obj(map[string]any{"seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 3600}, "reason": map[string]any{"type": "string"}})},
 	}
 }

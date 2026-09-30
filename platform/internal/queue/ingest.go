@@ -57,7 +57,8 @@ func (s *Store) emit(ctx context.Context, tx pgx.Tx, runID int64, attemptID *int
 
 // Ingest stores the snapshot and enqueues one run per matching enabled agent (or the one agent an operator names) in
 // a single transaction, so an accepted event can never exist without its runs.
-// The same idempotency key returns the original snapshot and runs.
+// The same idempotency key returns the original snapshot and runs and enqueues nothing new,
+// even for an agent that starts matching after the first delivery.
 func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error) {
 	var res IngestResult
 	if in.IdemKey == "" || in.Instrument == "" || in.Granularity == "" || len(in.Payload) == 0 {
@@ -85,6 +86,20 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 		if err := tx.QueryRow(ctx, `SELECT id FROM snapshots WHERE idem_key=$1`, in.IdemKey).Scan(&res.SnapshotID); err != nil {
 			return res, err
 		}
+		// a replayed key enqueues nothing: it returns the runs the first delivery created
+		rows, err := tx.Query(ctx, `SELECT id, agent_id FROM runs WHERE snapshot_id=$1 AND ($2='' OR agent_id=$2) ORDER BY agent_id`, res.SnapshotID, in.AgentID)
+		if err != nil {
+			return res, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ref RunRef
+			if err := rows.Scan(&ref.RunID, &ref.AgentID); err != nil {
+				return res, err
+			}
+			res.Runs = append(res.Runs, ref)
+		}
+		return res, rows.Err()
 	default:
 		return res, err
 	}

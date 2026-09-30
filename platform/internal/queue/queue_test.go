@@ -115,12 +115,15 @@ func TestIngestIsIdempotentAndScoped(t *testing.T) {
 	in := IngestInput{IdemKey: "same", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "engine", Payload: payload()}
 	r1, err := s.Ingest(ctx, in)
 	must(t, err)
+	// an agent that starts matching after the first delivery gets no run from a replay
+	off.Enabled = true
+	must(t, s.UpsertAgent(ctx, off))
 	r2, err := s.Ingest(ctx, in)
 	must(t, err)
 	if len(r1.Runs) != 1 || r1.Runs[0].AgentID != "a1" || !r1.Runs[0].Created {
 		t.Fatalf("first ingest: %+v", r1)
 	}
-	if r2.NewSnap || r2.Runs[0].Created || r2.Runs[0].RunID != r1.Runs[0].RunID {
+	if r2.NewSnap || len(r2.Runs) != 1 || r2.Runs[0].Created || r2.Runs[0].RunID != r1.Runs[0].RunID {
 		t.Fatalf("replay must return the original run: %+v", r2)
 	}
 	var n int
@@ -374,6 +377,26 @@ func TestFollowupWaitsReleasesTheWorkerAndResumes(t *testing.T) {
 	must(t, err)
 	if out.Status != "succeeded" {
 		t.Fatalf("got %s", out.Status)
+	}
+}
+
+func TestFollowupPastTheFreshnessBudgetIsRefused(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1")
+	a.Budgets.FreshnessSeconds = 120
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	// 120 s budget minus the 60 s margin leaves about 60 s for the delay
+	err := s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 90, "wait for the next bar")
+	if err == nil || !strings.Contains(err.Error(), "over the limit of 59 seconds") && !strings.Contains(err.Error(), "over the limit of 60 seconds") {
+		t.Fatalf("a delay past the freshness budget must be refused with the limit: %v", err)
+	}
+	must(t, s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 30, "check the close"))
+	out, err := s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: hold()})
+	must(t, err)
+	if out.Status != "waiting_for_event" {
+		t.Fatalf("a delay inside the budget must still wait: %s", out.Status)
 	}
 }
 

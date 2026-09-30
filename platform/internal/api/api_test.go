@@ -342,6 +342,14 @@ func TestOperatorRunKeepsALongStrategyPromptUnescapedAndRefusesAnOversizedOne(t 
 	}
 }
 
+func TestWithIndicatorsKeepsSymbolsUnescaped(t *testing.T) {
+	s := &Server{eng: tools.NewEngine(fakeEngine(t).URL)}
+	out := s.withIndicators(context.Background(), "WTICO/USD", "M5", json.RawMessage(`{"strategy":{"prompt":"close > EMA & ADX < 25"}}`))
+	if !strings.Contains(string(out), "close > EMA & ADX < 25") || !strings.Contains(string(out), `"atr14"`) {
+		t.Fatalf("the indicator pass must add indicators and keep <, > and & as written: %s", out)
+	}
+}
+
 func TestRunChartPrefersFrozenCandlesAndFallsBackToCompleteEngineCandles(t *testing.T) {
 	hs, st := setup(t)
 	ctx := context.Background()

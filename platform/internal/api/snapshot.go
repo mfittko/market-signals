@@ -181,7 +181,12 @@ func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a qu
 		return nil, errors.New("snapshot payload must be a JSON object")
 	}
 	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
-	// json.Marshal would grow each <, > and & in a prompt to 6 bytes
+	return marshalSnapshot(m)
+}
+
+// marshalSnapshot encodes a snapshot payload without HTML escaping. json.Marshal
+// would grow each <, > and & in a prompt to 6 bytes and can push it over the size cap.
+func marshalSnapshot(m map[string]any) (json.RawMessage, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -210,7 +215,7 @@ func (s *Server) withIndicators(ctx context.Context, instrument, granularity str
 		return payload
 	}
 	m["indicators"] = ind.Indicators
-	if out, err := json.Marshal(m); err == nil {
+	if out, err := marshalSnapshot(m); err == nil {
 		return out
 	}
 	return payload
