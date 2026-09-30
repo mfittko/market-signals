@@ -36,7 +36,7 @@ function build(f: F): string {
     'Risk:',
     `- Place the stop ${f.stop} ATR from the entry, and beyond the nearest 20-bar extreme when that is further.`,
     ...(f.rr > 0 ? [`- Set the target at ${f.rr} times the stop distance.`] : []),
-    ...(f.maxBars > 0 ? [`- Close the trade after ${f.maxBars} bars without progress.`] : []),
+    ...(f.maxBars > 0 ? [`- Close the trade after ${f.maxBars} one-minute bars (${f.maxBars} minutes) without progress.`] : []),
     '',
     'Hold when any condition is unclear, when the flip is stale, or when the higher-timeframe trend disagrees.',
   ];
@@ -141,7 +141,7 @@ export function StrategyWizard({ existing, onDone, onCancel }: { existing: strin
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <label className="field"><span>Stop distance (ATR)</span><input type="number" min={0.1} step={0.1} value={f.stop} onChange={(e) => set('stop', +e.target.value)} style={{ width: 110 }} /></label>
           <label className="field"><span>Target (times the stop, 0 = none)</span><input type="number" min={0} step={0.5} value={f.rr} onChange={(e) => set('rr', Math.max(0, +e.target.value))} style={{ width: 110 }} /></label>
-          <label className="field"><span>Time stop (bars, 0 = none)</span><input type="number" min={0} step={1} value={f.maxBars} onChange={(e) => set('maxBars', Math.max(0, Math.round(+e.target.value)))} style={{ width: 110 }} /></label>
+          <label className="field"><span>Time stop (minutes held, 0 = none)</span><input type="number" min={0} step={1} value={f.maxBars} onChange={(e) => set('maxBars', Math.max(0, Math.round(+e.target.value)))} style={{ width: 110 }} /><span className="muted small">Counted in one-minute bars, whatever the chart timeframe.</span></label>
         </div>
       )}
 
