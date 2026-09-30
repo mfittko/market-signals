@@ -291,3 +291,70 @@ func TestStaleFeedWakesOnceThenWaitsForBarsAgain(t *testing.T) {
 		t.Fatalf("a stale feed wakes the agent once: %d", r.wakeRuns())
 	}
 }
+
+func TestFlipOnAnyEngineGranularityIsKnownWhenItsCandleCloses(t *testing.T) {
+	r := newRig(t, &domain.Plan{Tripwires: []domain.Tripwire{{Kind: "opposite_flip"}}})
+	r.setGranularity("H2")
+	// an H2 sell flip whose candle opens at the base minute closes two hours later
+	r.feed.m.Flips = []Event{{Time: r.base, Dir: -1}}
+	for i := 0; i <= 118; i++ {
+		r.bar(i, 100, 100.3, 99.7, 100)
+	}
+	r.tick()
+	if r.wakeRuns() != 0 {
+		t.Fatal("the H2 candle has not closed yet")
+	}
+	r.bar(119, 100, 100.3, 99.7, 100)
+	r.tick()
+	if r.wakeRuns() != 1 {
+		t.Fatalf("the flip became known when the H2 candle closed; wakes=%d", r.wakeRuns())
+	}
+}
+
+func TestUnknownGranularityAsksForAttentionAndKeepsTheStop(t *testing.T) {
+	r := newRig(t, &domain.Plan{Tripwires: []domain.Tripwire{{Kind: "opposite_flip"}}})
+	r.setGranularity("5m")
+	r.feed.m.Flips = []Event{{Time: r.base, Dir: -1}}
+	r.bar(0, 100, 100.3, 99.7, 100)
+	r.tick()
+	r.bar(1, 100, 100.3, 99.7, 100)
+	r.tick()
+	if p := r.pos(); !p.NeedsAttention || r.events()["attention"] != 1 || r.wakeRuns() != 0 {
+		t.Fatalf("attention=%v events=%v wakes=%d", p.NeedsAttention, r.events(), r.wakeRuns())
+	}
+	r.bar(2, 99, 99.2, 97.5, 98.5)
+	r.tick()
+	if p := r.pos(); p.Status != "closed" || p.ExitReason != "stop" {
+		t.Fatalf("the stop still applies: %s %v", p.Status, p.ExitReason)
+	}
+}
+
+func TestAWindowThatNoLongerReachesTheLastBarIsAFeedGap(t *testing.T) {
+	r := newRig(t, nil)
+	r.bar(0, 100, 100.3, 99.7, 100)
+	r.tick()
+	if r.pos().NeedsAttention {
+		t.Fatal("a contiguous window is no gap")
+	}
+	// the monitor was away longer than the feed's window: the oldest bar it now sees is hours later
+	r.feed.m.Bars = nil
+	r.bar(200, 100, 100.3, 99.7, 100)
+	r.bar(201, 100, 100.3, 99.7, 100)
+	r.tick()
+	r.bar(202, 100, 100.3, 99.7, 100)
+	r.tick()
+	p := r.pos()
+	if !p.NeedsAttention || r.events()["feed_gap"] != 1 || p.LastBarTime == nil || !p.LastBarTime.Equal(r.base.Add(202*time.Minute)) {
+		t.Fatalf("attention=%v events=%v last=%v", p.NeedsAttention, r.events(), p.LastBarTime)
+	}
+}
+
+// setGranularity moves the agent and its position to another timeframe, so wakes still match the agent.
+func (r *rig) setGranularity(g string) {
+	r.t.Helper()
+	for _, q := range []string{`UPDATE agents SET granularity=$1 WHERE id='a1'`, `UPDATE shadow_positions SET granularity=$1 WHERE agent_id='a1'`} {
+		if _, err := r.st.Pool.Exec(r.ctx, q, g); err != nil {
+			r.t.Fatal(err)
+		}
+	}
+}

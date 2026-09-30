@@ -180,6 +180,16 @@ func (s *Store) AddPositionEvent(ctx context.Context, id int64, kind string, pay
 	return err
 }
 
+// RaiseAttention records the event and asks the operator to look at the position.
+func (s *Store) RaiseAttention(ctx context.Context, id int64, kind string, payload any) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE shadow_positions SET needs_attention=true WHERE id=$1`, id); err != nil {
+			return err
+		}
+		return addPositionEvent(ctx, tx, id, kind, payload)
+	})
+}
+
 // openPositionTx records the shadow position for an accepted entry. A second open
 // for the same agent, or a repeat for the same run, is ignored by the unique indexes.
 func openPositionTx(ctx context.Context, tx pgx.Tx, runID int64, a Agent, d domain.Decision, price float64, at time.Time) error {

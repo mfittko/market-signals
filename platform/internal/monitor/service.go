@@ -130,6 +130,22 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 	var newest time.Time
 	if n := len(m.Bars); n > 0 {
 		newest = m.Bars[n-1].Time
+		// the feed serves a fixed window of recent bars; when its oldest bar is later than the next
+		// bar this position needs, the bars in between were never judged against the exit plan
+		if m.Bars[0].Time.After(prevBar.Add(time.Minute)) {
+			if err := s.Store.RaiseAttention(ctx, q.ID, "feed_gap", map[string]any{"from": prevBar, "to": m.Bars[0].Time,
+				"note": "bars in this span were not judged; the exit plan applies from the next available bar"}); err != nil {
+				return err
+			}
+		}
+	}
+	// an unknown granularity has no candle close time, so its flips and impulses cannot be placed;
+	// they are ignored, the stop and target still apply, and the operator is asked to look
+	candle, gerr := domain.GranularityDuration(q.Granularity)
+	if gerr != nil && !q.NeedsAttention {
+		if err := s.Store.RaiseAttention(ctx, q.ID, "attention", map[string]any{"why": gerr.Error() + "; flip and impulse tripwires are off"}); err != nil {
+			return err
+		}
 	}
 	for _, b := range m.Bars {
 		// the first bar to judge opens at or after the entry, so no bar is judged against a stop it could not have known
@@ -151,7 +167,10 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 			prevEnd = q.EntryTime
 		}
 		becameKnown := func(e Event) bool {
-			k := e.Time.Add(granDur(q.Granularity))
+			if gerr != nil {
+				return false
+			}
+			k := e.Time.Add(candle)
 			return k.After(prevEnd) && !k.After(barEnd) && k.After(q.EntryTime)
 		}
 		for _, f := range m.Flips {
@@ -303,19 +322,3 @@ func pct(side string, entry, price float64) float64 {
 
 // SortBars orders bars ascending; feeds call it before returning.
 func SortBars(b []Bar) { sort.Slice(b, func(i, j int) bool { return b[i].Time.Before(b[j].Time) }) }
-
-func granDur(g string) time.Duration {
-	switch g {
-	case "M5":
-		return 5 * time.Minute
-	case "M15":
-		return 15 * time.Minute
-	case "M30":
-		return 30 * time.Minute
-	case "H1":
-		return time.Hour
-	case "H4":
-		return 4 * time.Hour
-	}
-	return time.Minute
-}
