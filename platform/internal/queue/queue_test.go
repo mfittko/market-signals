@@ -389,8 +389,14 @@ func TestFollowupPastTheFreshnessBudgetIsRefused(t *testing.T) {
 	c := claim(t, s, ctx, "w")
 	// 120 s budget minus the 60 s margin leaves about 60 s for the delay
 	err := s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 90, "wait for the next bar")
-	if err == nil || !strings.Contains(err.Error(), "over the limit of 59 seconds") && !strings.Contains(err.Error(), "over the limit of 60 seconds") {
-		t.Fatalf("a delay past the freshness budget must be refused with the limit: %v", err)
+	if err == nil {
+		t.Fatal("a delay past the freshness budget must be refused")
+	}
+	// the limit shrinks as the snapshot ages, so accept a few seconds of test runtime
+	var limit int
+	_, after, _ := strings.Cut(err.Error(), "over the limit of ")
+	if _, serr := fmt.Sscanf(after, "%d seconds", &limit); serr != nil || limit < 50 || limit > 60 {
+		t.Fatalf("the refusal must name a limit near 60 seconds: %v", err)
 	}
 	must(t, s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 30, "check the close"))
 	out, err := s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: hold()})

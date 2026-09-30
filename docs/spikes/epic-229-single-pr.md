@@ -59,7 +59,7 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Runtime spike: restricted tools, denied tool, cancellation | Works. Allowlist, budget and scope are enforced at execution in the gateway. Cancel discards a racing completion. |
 | Snapshot and enqueue | Works. One transaction commits snapshot and runs. Same key is idempotent. Snapshot rows are immutable by trigger. |
 | Agent, session, run, attempt lifecycle | Works. Leases, fencing tokens, bounded retry, expiry, wake from timed follow-up. Interrupted attempts start a fresh replacement. |
-| Shadow run of a real bot | Works. The Node engine sends the snapshot before its decision and its own decision after. The change to `bot.mjs` adds 10 lines and edits 2: one snapshot before the decision and one report of the engine's decision after it. It fails open. |
+| Shadow run of a real bot | Works. The Node engine sends the snapshot before its decision and its own decision after. The change to `bot.mjs` adds 8 lines and edits 2: one snapshot before the decision and one report of the engine's decision after it. It fails open. |
 | Run history UI | Works. Next.js 16 console with live updates, audit trail, cancel, dark mode, phone width. |
 | Postgres and Go skeleton | Works with stdlib HTTP and hand-written SQL, which was enough to prove the boundary. Chi and sqlc stay optional for the delivery phase. |
 | Restricted runtime on Pi | Not built. `pi --help` shows a `--tools` allowlist and `--no-builtin-tools`, so a Pi worker needs an extension that exposes the market tools. That extension is the open question. |
@@ -67,7 +67,7 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Go port of portfolio and fills | Not built. Estimated as the largest remaining cost. |
 | Parity and shadow qualification | Not provable in a spike. Needs recorded data and time. |
 
-Test evidence: 124 Go tests (race detector clean, real Postgres), 696 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
+Test evidence: 124 Go tests (race detector clean, real Postgres), 697 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
 
 Behavior worth knowing before deciding:
 
@@ -80,7 +80,7 @@ Behavior worth knowing before deciding:
 
 Graduate. The agent boundary is proven end to end, and it fits the epic's first slice at a small size. Turn the prototype into a phased plan:
 
-1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the engine hook in `bot.mjs` (about 12 lines) behind an off-by-default flag.
+1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the engine hook in `bot.mjs` (8 added lines and 2 edited lines) behind an off-by-default flag.
 2. Land the console.
 3. Decide the Pi question with an extension spike before choosing a runtime for execution-eligible bots.
 4. Only then harden the importer and start the Go domain port, each against recorded fixtures.

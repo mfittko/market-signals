@@ -270,8 +270,8 @@ func (s *Store) SetPendingWait(ctx context.Context, attemptID, fence int64, seco
 		return err
 	}
 	var agentID string
-	var taken time.Time
-	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.taken_at FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).Scan(&agentID, &taken); err != nil {
+	var taken, dbNow time.Time // both from the database clock, which stamped taken_at
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.taken_at, clock_timestamp() FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).Scan(&agentID, &taken, &dbNow); err != nil {
 		return err
 	}
 	agent, err := scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID))
@@ -279,7 +279,7 @@ func (s *Store) SetPendingWait(ctx context.Context, attemptID, fence int64, seco
 		return err
 	}
 	budget := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
-	limit := int((budget - time.Since(taken) - FollowupMargin) / time.Second)
+	limit := int((budget - dbNow.Sub(taken) - FollowupMargin) / time.Second)
 	if seconds > limit {
 		return fmt.Errorf("follow-up delay of %d seconds is over the limit of %d seconds: the resumed attempt is judged against this run's snapshot, which must be under %d seconds old, and %d seconds are reserved for the resumed attempt; finish now or ask for a shorter delay",
 			seconds, max(limit, 0), agent.Budgets.FreshnessSeconds, int(FollowupMargin/time.Second))
@@ -357,12 +357,12 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	var agent Agent
 	var agentID string
 	var payload []byte
-	var taken time.Time
+	var taken, dbNow time.Time // both from the database clock, which stamped taken_at
 	var runUsage, attUsage []byte
 	var snapInstrument, snapSource string
 	var followups int
-	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, sn.source, r.usage, r.followups_used FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
-		Scan(&agentID, &payload, &taken, &snapInstrument, &snapSource, &runUsage, &followups); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.payload, sn.taken_at, sn.instrument, sn.source, r.usage, r.followups_used, clock_timestamp() FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).
+		Scan(&agentID, &payload, &taken, &snapInstrument, &snapSource, &runUsage, &followups, &dbNow); err != nil {
 		return nil, err
 	}
 	if agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID)); err != nil {
@@ -385,9 +385,9 @@ func (s *Store) Complete(ctx context.Context, attemptID, fence int64, in Complet
 	}
 	if wake != nil {
 		// a tripwire wake has its own, narrower action set
-		val = domain.ValidateWake(proposal, *wake, taken, time.Now(), maxAge)
+		val = domain.ValidateWake(proposal, *wake, taken, dbNow, maxAge)
 	} else {
-		val = domain.ValidateProposal(proposal, domain.FactsFromPayload(snapInstrument, pm, taken), time.Now(), maxAge)
+		val = domain.ValidateProposal(proposal, domain.FactsFromPayload(snapInstrument, pm, taken), dbNow, maxAge)
 	}
 	if !val.Valid {
 		// an invalid proposal can never stand: record it, but the outcome is a hold

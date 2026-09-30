@@ -10,16 +10,16 @@ import (
 func slug(symbol string) string { return strings.ToLower(strings.ReplaceAll(symbol, "/", "-")) }
 
 type deskAgent struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Granularity string  `json:"granularity"`
-	Runtime     string  `json:"runtime"`
-	Strategy    string  `json:"strategy,omitempty"`
-	Enabled     bool    `json:"enabled"`
-	Legacy      bool    `json:"legacy"`
-	LastRunID   *int64  `json:"lastRunId,omitempty"`
-	LastStatus  *string `json:"lastStatus,omitempty"`
-	LastAt      *string `json:"lastAt,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Granularity string     `json:"granularity"`
+	Runtime     string     `json:"runtime"`
+	Strategy    string     `json:"strategy,omitempty"`
+	Enabled     bool       `json:"enabled"`
+	Legacy      bool       `json:"legacy"`
+	LastRunID   *int64     `json:"lastRunId,omitempty"`
+	LastStatus  *string    `json:"lastStatus,omitempty"`
+	LastAt      *time.Time `json:"lastAt,omitempty"`
 }
 
 type deskRow struct {
@@ -42,7 +42,7 @@ type deskRow struct {
 func (s *Server) agentsByInstrument(r *http.Request) (map[string][]deskAgent, error) {
 	rows, err := s.st.Pool.Query(r.Context(), `
 		SELECT a.instrument, a.id, a.name, a.granularity, a.runtime, COALESCE(a.strategy_name,''), a.enabled, a.legacy_bot,
-		       lr.id, lr.status, lr.created_at::text
+		       lr.id, lr.status, lr.created_at
 		FROM agents a
 		LEFT JOIN LATERAL (SELECT id, status, created_at FROM runs WHERE agent_id=a.id ORDER BY id DESC LIMIT 1) lr ON true
 		WHERE a.runtime <> 'mock'

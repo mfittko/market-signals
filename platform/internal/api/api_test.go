@@ -419,6 +419,9 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 		AllowedTools: []string{"get_snapshot"}, Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.Ingest(ctx, queue.IngestInput{IdemKey: "desk1", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "demo", Payload: json.RawMessage(`{"close":1}`)}); err != nil {
+		t.Fatal(err)
+	}
 	code, body := call(t, "GET", hs.URL+"/api/v1/desk", "", "", nil)
 	if code != 200 {
 		t.Fatalf("desk: %d %v", code, body)
@@ -433,6 +436,11 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 	}
 	if len(wti["agents"].([]any)) != 1 {
 		t.Fatalf("the agent must appear under its instrument: %v", wti["agents"])
+	}
+	// the console hands lastAt to new Date(), so it must be RFC 3339
+	lastAt, _ := wti["agents"].([]any)[0].(map[string]any)["lastAt"].(string)
+	if _, err := time.Parse(time.RFC3339, lastAt); err != nil {
+		t.Fatalf("lastAt must be RFC 3339: %q", lastAt)
 	}
 	// freshness comes from the engine when it answers, and the newest signal wins whatever the order
 	if wti["live"] != true || wti["dataThrough"] != "2026-01-01T10:05:00Z" || wti["lastSignal"] != "sell" || wti["lastSignalAt"] != "2026-01-01T09:55:00Z" {
