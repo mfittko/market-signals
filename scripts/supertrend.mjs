@@ -785,6 +785,7 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
 // round, so 4 rounds max; move to an MCP server if latency matters.
 const CLAUDE_TOOL_ROUNDS = 4;
 const MAX_CALLS_PER_ROUND = 4;
+export const CLAUDE_TOOL_FALLBACK = 'The model sent a tool request instead of an answer, so there is no answer this time. Ask again.';
 
 // Every `TOOL_CALL {json}` in the text, in order. Brace matching is string-aware,
 // so the calls may sit on separate lines or run together on one.
@@ -877,9 +878,11 @@ async function claudeCodeToolLoop(settings, system, user, { toolDefs, execTool, 
       if (t.length < 9 ? 'TOOL_CALL'.startsWith(t) : t.startsWith('TOOL_CALL')) return; // may be, or is, a tool request: never shown
       releasing = true; onDelta?.(head);
     };
-    const { text: reply } = await claudeCodeStream(settings, last ? `${sys}\nTool calls are no longer allowed. Answer now.` : sys, transcript, { onText, onUsage, timeoutMs });
+    let { text: reply } = await claudeCodeStream(settings, last ? `${sys}\nTool calls are no longer allowed. Answer now.` : sys, transcript, { onText, onUsage, timeoutMs });
     const calls = last ? [] : parseToolCalls(reply).slice(0, MAX_CALLS_PER_ROUND);
     if (!calls.length) {
+      // a tool request that cannot run (last round, or not parseable) never reaches the reader or the thread
+      if (!releasing && reply.trimStart().startsWith('TOOL_CALL')) reply = CLAUDE_TOOL_FALLBACK;
       if (!releasing) onDelta?.(reply); // nothing reached the reader yet (short reply, or no partial events): deliver it whole
       return reply;
     }

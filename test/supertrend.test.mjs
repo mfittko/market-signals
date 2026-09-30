@@ -2323,3 +2323,22 @@ test('claude-code chat runs several tool calls per round, streams only the final
   assert.deepEqual(calls, [['get_news', {}], ['get_x', { n: 2 }]]);
   assert.deepEqual(deltas, ['done: ', 'calm tape']); // the TOOL_CALL round never reaches the reader
 });
+
+test('claude-code chat never returns raw TOOL_CALL text, on the last round or when it cannot be parsed', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmChat, CLAUDE_TOOL_FALLBACK } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'cc-'));
+  const bin = join(dir, 'claude');
+  const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
+  const toolDefs = [{ name: 'get_news', description: 'headlines', input_schema: { type: 'object' } }];
+  for (const [label, reply] of [['always asks for a tool', 'TOOL_CALL {"name":"get_news","input":{}}'], ['cannot be parsed', 'TOOL_CALL {"name":']]) {
+    writeFileSync(bin, `#!/bin/sh\necho '${res(reply)}'\n`);
+    chmodSync(bin, 0o755);
+    const deltas = [];
+    const out = await llmChat({ provider: 'claude-code', claudeBin: bin }, 'SYS', 'news?', { toolDefs, execTool: async () => 'calm', onDelta: (d) => deltas.push(d) });
+    assert.equal(out, CLAUDE_TOOL_FALLBACK, label);
+    assert.deepEqual(deltas, [CLAUDE_TOOL_FALLBACK], label);
+  }
+});
