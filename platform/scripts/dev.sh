@@ -106,7 +106,8 @@ up() {
 
   if ! alive web; then
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
-    start web "$ROOT/web" pnpm dev
+    # the console never calls a model, so it does not inherit the LLM key
+    start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
 

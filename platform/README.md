@@ -30,12 +30,15 @@ In the console:
 1. Pick an agent under "New research run" and press Run. The run freezes what the engine sees now, so the engine
    must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
 2. The control plane reads the engine with GET calls. The console proxy also forwards a fixed allowlist of engine
-   writes: `POST /settings`, `POST /chat`, `POST /memories` and `DELETE /threads`. Nothing reaches the portfolio.
+   writes: `POST /settings`, `POST /chat`, `POST /memories` and `DELETE /threads`. The proxy refuses settings
+   that switch the engine paper bots, set their allocation or name an executable (`bot`, keys ending in `Bin`).
+   Nothing reaches the portfolio.
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 
 The LLM agent uses the endpoint, model and key from the engine's `data/settings.json`. The launcher
-passes them to the worker process only. Without a key only the mock agent runs.
+passes them to the control plane, which uses them for strategy coaching, and to the worker. The console
+dev server starts without them. Without a key only the mock agent runs.
 
 The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Use a live-engine run to see
 the run wait, release the worker and resume as a second attempt.

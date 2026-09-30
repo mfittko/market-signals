@@ -22,6 +22,14 @@ curl -fsS "$WEB/health" | jq -e '.ok and (.stats.workers | map(select(.online)) 
   || fail "no online worker via the console proxy"
 ok "console proxy reaches the control plane and a worker is online"
 
+# a fresh stack has no agents, so create the deterministic mock agent the checks below use
+if ! curl -fsS "$API/agents" | jq -e '.agents | map(select(.id=="wti-m5-mock")) | length > 0' >/dev/null; then
+  curl -fsS -XPOST "$API/agents" -d '{"id":"wti-m5-mock","name":"WTI M5 (deterministic mock)","instrument":"WTICO/USD","granularity":"M5","runtime":"mock",
+    "allowedTools":["get_snapshot","get_portfolio","get_recent_candles","get_recent_signals","schedule_followup"],"enabled":true}' >/dev/null \
+    || fail "could not create the mock agent"
+  ok "created the mock agent wti-m5-mock"
+fi
+
 R="$(curl -fsS -XPOST "$WEB/runs" -d '{"agentId":"wti-m5-mock","source":"demo"}' | jq -r '.runs[0].runId')"
 wait_status "$R" succeeded 20
 curl -fsS "$API/runs/$R" | jq -e '.run.validation.valid and (.run.validation.committed|not) and .run.proposal.action=="open"' >/dev/null \
