@@ -535,7 +535,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	start, sent := after, map[int64]bool{}
 	// A page that shows one instrument also asks to hear about that instrument's engine signals. A nil channel
 	// blocks forever, so a stream without the parameter simply never receives this case.
-	var sigNotice <-chan struct{}
+	var sigNotice <-chan string
 	if slug := r.URL.Query().Get("instrument"); slug != "" {
 		if sym, ok := s.symbolForSlug(r.Context(), slug); ok {
 			sub, leave := s.subscribeSignals(sym)
@@ -554,8 +554,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
-		case <-sigNotice:
-			fmt.Fprint(w, "event: signal\ndata: {}\n\n") // no id: the browser refetches the list, and a reconnect does too
+		case kind := <-sigNotice:
+			fmt.Fprintf(w, "event: %s\ndata: {}\n\n", kind) // no id: the browser refetches, and a reconnect does too
 			fl.Flush()
 		case <-poll.C:
 			// Event ids are allocated at INSERT and become visible at COMMIT, so

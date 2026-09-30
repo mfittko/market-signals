@@ -109,7 +109,7 @@ func (s *Server) news(w http.ResponseWriter, r *http.Request) {
 	}
 	var out json.RawMessage
 	q := url.Values{"instrument": {symbol}, "hours": {strconv.Itoa(hours)}, "limit": {"60"}}
-	if err := s.eng.GetCached(r.Context(), time.Minute, "/api/news", q, &out); err != nil {
+	if err := s.eng.GetCached(r.Context(), newsTTL, "/api/news", q, &out); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable, so news cannot be read"})
 		return
 	}

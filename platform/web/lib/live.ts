@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 // refetch when the stream opens again.
 export function useLive(filter?: (e: { runId: number; kind: string }) => boolean, instrument?: string) {
   const [tick, setTick] = useState(0);
+  const [newsTick, setNewsTick] = useState(0);
   const [connected, setConnected] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const filterRef = useRef(filter);
@@ -34,9 +35,10 @@ export function useLive(filter?: (e: { runId: number; kind: string }) => boolean
       bump();
     });
     es.addEventListener('signal', bump);
+    es.addEventListener('news', () => setNewsTick((t) => t + 1));
     return () => { es.close(); if (timer.current) clearTimeout(timer.current); };
   }, [instrument]);
-  return { tick, connected };
+  return { tick, newsTick, connected };
 }
 export function useNow(every = 5000) {
   const [now, setNow] = useState(() => Date.now());

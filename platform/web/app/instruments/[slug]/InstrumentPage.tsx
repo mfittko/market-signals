@@ -29,7 +29,7 @@ function InstrumentView() {
   const [gran, setGran] = useState<string>(useSearchParams().get('granularity') ?? '');
   const [d, setD] = useState<InstrumentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { tick } = useLive(undefined, slug);
+  const { tick, newsTick } = useLive(undefined, slug);
   const [tab, setTab] = useState<'signals' | 'trades'>('signals');
   const bots = useActiveBots();
   const w = useWatchers();
@@ -72,7 +72,7 @@ function InstrumentView() {
     let dead = false;
     api<{ items: NewsItem[] }>(`/instruments/${slug}/news?hours=72`).then((r) => { if (!dead) setNews(r.items ?? []); }).catch(() => { if (!dead) setNews([]); });
     return () => { dead = true; };
-  }, [slug]);
+  }, [slug, newsTick]);
 
   if (error) return <main className="wrap"><Link href="/">← Desk</Link><div className="msg err" role="alert" style={{ marginTop: 12 }}>{error}</div></main>;
   if (!d) return <main className="wrap"><Loading full /></main>;

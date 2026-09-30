@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -23,7 +24,7 @@ type sigHub struct {
 
 type sigSub struct {
 	symbol string
-	ch     chan struct{} // one pending notice is enough, since the browser refetches everything
+	ch     chan string // "signal" or "news"; a full buffer drops a repeat, since the browser refetches everything
 }
 
 func newSigHub() *sigHub { return &sigHub{subs: map[*sigSub]struct{}{}, every: 5 * time.Second} }
@@ -31,7 +32,7 @@ func newSigHub() *sigHub { return &sigHub{subs: map[*sigSub]struct{}{}, every: 5
 // subscribe registers a browser for one instrument and starts the shared watcher if it is not running.
 func (s *Server) subscribeSignals(symbol string) (*sigSub, func()) {
 	h := s.hub
-	sub := &sigSub{symbol: symbol, ch: make(chan struct{}, 1)}
+	sub := &sigSub{symbol: symbol, ch: make(chan string, 4)}
 	h.mu.Lock()
 	h.subs[sub] = struct{}{}
 	start := !h.running
@@ -62,20 +63,21 @@ func (h *sigHub) symbols() []string {
 	return out
 }
 
-func (h *sigHub) notify(symbol string) {
+func (h *sigHub) notify(symbol, kind string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for sub := range h.subs {
 		if sub.symbol == symbol {
 			select {
-			case sub.ch <- struct{}{}:
+			case sub.ch <- kind:
 			default:
 			}
 		}
 	}
 }
 
-// watchSignals runs while any browser is subscribed. The first look at an instrument sets the baseline, and later
+// watchSignals runs while any browser is subscribed. The first look at an instrument sets the baseline for its
+// signals and its news, and later
 // changes are announced. It stops by itself when the last browser leaves.
 func (s *Server) watchSignals() {
 	h := s.hub
@@ -94,24 +96,27 @@ func (s *Server) watchSignals() {
 		}
 		for _, sym := range syms {
 			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-			d, ok := s.signalDigest(ctx, sym)
+			for kind, digest := range map[string]func(context.Context, string) (string, bool){"signal": s.signalDigest, "news": s.newsDigest} {
+				d, ok := digest(ctx, sym)
+				if !ok {
+					continue // the engine did not answer; keep the old baseline
+				}
+				key := kind + "|" + sym
+				if prev, seen := last[key]; seen && prev != d {
+					h.notify(sym, kind)
+				}
+				last[key] = d
+			}
 			cancel()
-			if !ok {
-				continue // the engine did not answer; keep the old baseline
-			}
-			if prev, seen := last[sym]; seen && prev != d {
-				h.notify(sym)
-			}
-			last[sym] = d
 		}
 		// forget instruments nobody watches any more, so a return later starts from a fresh baseline
 		live := map[string]bool{}
 		for _, sym := range syms {
-			live[sym] = true
+			live["signal|"+sym], live["news|"+sym] = true, true
 		}
-		for sym := range last {
-			if !live[sym] {
-				delete(last, sym)
+		for key := range last {
+			if !live[key] {
+				delete(last, key)
 			}
 		}
 		time.Sleep(h.every)
@@ -143,6 +148,30 @@ func (s *Server) signalDigest(ctx context.Context, symbol string) (string, bool)
 			v = *g.Verdict
 		}
 		lines = append(lines, fmt.Sprintf("%s|%s|%s|%s|%s", g.Granularity, g.Time, g.Kind, g.Signal, v))
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:8]), true
+}
+
+// newsTTL is short so that a refetch right after a news notice sees the new items.
+const newsTTL = 5 * time.Second
+
+// newsDigest fingerprints the engine's news list the page shows (the last 72 hours).
+func (s *Server) newsDigest(ctx context.Context, symbol string) (string, bool) {
+	var out struct {
+		Items []struct {
+			Title string `json:"title"`
+			Time  string `json:"time"`
+		} `json:"items"`
+	}
+	q := url.Values{"instrument": {symbol}, "hours": {"72"}, "limit": {"60"}}
+	if err := s.eng.Get(ctx, "/api/news", q, &out); err != nil {
+		return "", false
+	}
+	lines := make([]string, 0, len(out.Items))
+	for _, it := range out.Items {
+		lines = append(lines, it.Time+"|"+it.Title)
 	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))

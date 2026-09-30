@@ -1201,7 +1201,7 @@ func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
 		}
 	}
 	var mu sync.Mutex
-	verdict := "suppress"
+	verdict, headline := "suppress", "Tanker hit"
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -1212,6 +1212,16 @@ func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
 			return
 		}
 		io.WriteString(w, `{"signals":[{"granularity":"M5","time":"2026-01-01T10:00:00Z","kind":"supertrend-flip","signal":"sell","verdict":"`+v+`"}]}`)
+	})
+	mux.HandleFunc("/api/news", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		h := headline
+		mu.Unlock()
+		if r.URL.Query().Get("instrument") != "WTICO/USD" {
+			io.WriteString(w, `{"ok":true,"items":[]}`)
+			return
+		}
+		io.WriteString(w, `{"ok":true,"items":[{"title":"`+h+`","time":"2026-01-01T10:00:00Z"}]}`)
 	})
 	eng := httptest.NewServer(mux)
 	t.Cleanup(eng.Close)
@@ -1260,6 +1270,18 @@ func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the watching browser was not told about the change")
+	}
+	// a new headline is announced as news, and only to the browser watching that instrument
+	mu.Lock()
+	headline = "Pipeline restart"
+	mu.Unlock()
+	select {
+	case e := <-wti:
+		if e != "event: news" {
+			t.Fatalf("got %s", e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watching browser was not told about the new headline")
 	}
 	select {
 	case e := <-gold:
