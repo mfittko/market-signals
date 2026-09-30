@@ -183,8 +183,8 @@ func TestToolGatewayEnforcesScopeAllowlistAndDropsProvisionalCandles(t *testing.
 			t.Errorf("%s must be forbidden, got %d", n, code)
 		}
 	}
-	// wrong fence
-	code, _ = call(t, "POST", hs.URL+"/api/v1/runtime/tools/call", "w", `{"attemptId":`+jn(id)+`,"fence":1,"name":"get_snapshot","args":{}}`, nil)
+	// wrong fence: fence_seq is global and a fresh database hands out 1, so derive a value that cannot match
+	code, _ = call(t, "POST", hs.URL+"/api/v1/runtime/tools/call", "w", `{"attemptId":`+jn(id)+`,"fence":`+jn(fence+1)+`,"name":"get_snapshot","args":{}}`, nil)
 	if code != 409 {
 		t.Fatalf("wrong fence: %d", code)
 	}
@@ -386,6 +386,12 @@ func TestEngineProxyAllowlist(t *testing.T) {
 	for _, p := range []string{"/api/v1/engine/portfolio-secret", "/api/v1/engine/health", "/api/v1/engine/../x"} {
 		if code, _ := get("GET", p); code != 404 {
 			t.Fatalf("%s should be refused, got %d", p, code)
+		}
+	}
+	// standing rules the bot reads are not a console surface
+	for _, m := range []string{"GET", "POST"} {
+		if code, _ := get(m, "/api/v1/engine/memories"); code != 404 {
+			t.Fatalf("%s memories should be refused, got %d", m, code)
 		}
 	}
 	if code, _ := get("DELETE", "/api/v1/engine/settings"); code != 404 {

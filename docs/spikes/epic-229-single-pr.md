@@ -42,7 +42,7 @@ Constraints that still hold for a one-PR spike:
 3. Parity needs shadow runs on recorded data over time, and one pass cannot supply them. The spike can show that the boundaries work. Migration safety stays open until those shadow runs exist.
 4. Cutover, rollback and backup rehearsal are operational steps. A prototype can script them. Proof needs a rehearsal on the real setup.
 5. Epics 123 and 36 conflict with parts of the plan. The spike must record which decisions it assumed.
-6. The prototype must not touch the live KeepAlive server or the supertrend alert agent. Run it on a copy of `data/` and a separate port. `platform/scripts/switch-launchd.sh up` is the one operator tool that repoints the live server, and it refuses to run without `MS_ALLOW_LIVE_SWITCH=1`.
+6. The prototype runs its own Postgres, control plane and console on separate ports. It does not restart or reconfigure the live KeepAlive server. It reaches the live engine through a small sanctioned surface. `platform/scripts/dev.sh` sets `MS_ENGINE_URL` to the live engine on 127.0.0.1:8787 by default. Chart polls through that engine fetch upstream candles and upsert them into the live SQLite database. The console Settings page writes the live `settings.json`, limited to an allowlist of keys. `platform/scripts/switch-launchd.sh up` is the one operator tool that repoints the live server, and it refuses to run without `MS_ALLOW_LIVE_SWITCH=1`. It also stops and disables the supertrend watcher LaunchAgent. `switch-launchd.sh rollback` restores the original server and leaves that watcher off unless the operator adds `--with-watcher`.
 
 What a one-PR spike can cover:
 

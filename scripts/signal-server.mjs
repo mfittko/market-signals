@@ -1223,7 +1223,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         return json(res, 200, { ok: true, instrument, hours, items });
       }
       // Indicator numbers a strategy prompt asks about (ATR, EMAs, Bollinger, extremes).
-      // Read-only; computed from completed candles by the same code the chart uses.
+      // Computed from completed candles by the same code the chart uses. Like /api/chart it
+      // fetches upstream candles and saves them to SQLite.
       if (url.pathname === '/api/indicators' && req.method === 'GET') {
         const cfg = readSettings(settingsPath);
         const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;

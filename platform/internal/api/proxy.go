@@ -19,9 +19,8 @@ import (
 var engineRoutes = map[string]bool{
 	"GET /settings": true, "POST /settings": true,
 	"GET /threads": true, "DELETE /threads": true,
-	"GET /messages": true,
-	"POST /chat":    true,
-	"GET /memories": true, "POST /memories": true,
+	"GET /messages":  true,
+	"POST /chat":     true,
 	"GET /portfolio": true, "GET /signals": true,
 }
 

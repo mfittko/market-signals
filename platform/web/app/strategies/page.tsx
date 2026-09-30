@@ -66,7 +66,7 @@ export default function StrategiesPage() {
   const shown = (list ?? []).filter((s) => matches(s, filter) && s.name.toLowerCase().includes(q.trim().toLowerCase()));
   const cur = list?.find((s) => s.name === sel);
   const archived = !!cur?.archived;
-  const active = versions.find((v) => v.active) ?? (archived ? versions[0] : undefined);
+  const active = versions.find((v) => v.active) ?? versions[0];
   const base = versions.find((v) => v.version === compare) ?? active;
   const dirty = active != null && draft.trim() !== active.prompt.trim();
   const diff = useMemo(() => (base ? diffLines(base.prompt, draft) : []), [base, draft]);
@@ -121,7 +121,7 @@ export default function StrategiesPage() {
           </Card></div>
         ) : sel && active && (
           <div className="grid">
-            <Card title={`${sel} · ${archived ? "archived" : `v${active.version} active`}`} aside={archived
+            <Card title={`${sel} · ${archived ? "archived" : active.active ? `v${active.version} active` : `no active version, showing v${active.version}`}`} aside={archived
               ? <button className="ghost" disabled={busy} onClick={() => void run(() => api(`/strategies/${encodeURIComponent(sel)}/archive`, { method: "POST", body: JSON.stringify({ archived: false }) }), "Restored.")}>Restore</button>
               : <button className="ghost" disabled={busy || (cur?.agents ?? 0) > 0} title={(cur?.agents ?? 0) > 0 ? "Assign its agents another strategy first" : "Archive this strategy"}
                   onClick={() => { if (confirm(`Archive ${sel}? It leaves the default list and no agent can use it. You can restore it later.`)) void run(() => api(`/strategies/${encodeURIComponent(sel)}/archive`, { method: "POST", body: JSON.stringify({ archived: true }) }), "Archived. Find it under the Archived filter."); }}>Archive</button>}>
