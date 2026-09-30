@@ -150,6 +150,10 @@ func (s *Store) Heartbeat(ctx context.Context, attemptID, fence int64, lease tim
 	if _, err := tx.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + make_interval(secs => $2) WHERE id=$1`, attemptID, lease.Seconds()); err != nil {
 		return false, err
 	}
+	// a worker with every slot busy sends no claim, so its heartbeat keeps it online
+	if _, err := tx.Exec(ctx, `UPDATE workers SET last_seen=now() WHERE id=(SELECT worker_id FROM attempts WHERE id=$1)`, attemptID); err != nil {
+		return false, err
+	}
 	return l.cancelRequested, tx.Commit(ctx)
 }
 

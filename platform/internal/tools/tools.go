@@ -220,7 +220,14 @@ func Exec(ctx context.Context, eng *Engine, st *queue.Store, attemptID, fence in
 		if len(done) > n {
 			done = done[len(done)-n:]
 		}
-		return bound(map[string]any{"instrument": tc.Snapshot.Instrument, "granularity": tc.Snapshot.Granularity, "candles": done, "provisionalDropped": dropped})
+		// drop the oldest bars until the whole answer fits, so it stays valid JSON and keeps the newest bars
+		for {
+			out, err := boundTo(map[string]any{"instrument": tc.Snapshot.Instrument, "granularity": tc.Snapshot.Granularity, "candles": done, "provisionalDropped": dropped}, 1<<30)
+			if err != nil || len(out) <= MaxOutputBytes || len(done) <= 1 {
+				return out, err
+			}
+			done = done[1:]
+		}
 	case "get_recent_signals":
 		n := clampInt(args, "limit", 10, 1, 20)
 		var raw struct {

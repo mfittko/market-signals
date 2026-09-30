@@ -13,6 +13,9 @@ import (
 // engineSignals returns the engine's newest signals for every timeframe of an instrument.
 // A timeframe the engine cannot answer contributes nothing, and the imported rows still show.
 func (s *Server) engineSignals(ctx context.Context, symbol string, grans []string) []liveSignal {
+	// the whole fan-out gets 3 seconds, so a slow engine cannot stall the page
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var out []liveSignal

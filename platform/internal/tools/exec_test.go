@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -112,5 +113,34 @@ func TestClampIntAndDefinitions(t *testing.T) {
 		if !names[want] {
 			t.Fatalf("missing tool %s", want)
 		}
+	}
+}
+
+func TestRecentCandlesStayValidJSONWithTheNewestBarAtTheMaximumCount(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString(`{"candles":[`)
+	for i := 0; i < 200; i++ {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		fmt.Fprintf(&sb, `{"time":"2026-01-01T09:00:00.123456789Z#%03d","open":71.123456,"high":72.123456,"low":70.123456,"close":71.5,"volume":123456}`, i)
+	}
+	sb.WriteString(`]}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(sb.String())) }))
+	defer srv.Close()
+	tc := &queue.ToolContext{}
+	tc.Snapshot.Instrument, tc.Snapshot.Granularity = "WTICO/USD", "M5"
+	out, err := Exec(context.Background(), NewEngine(srv.URL), nil, 0, 0, tc, "get_recent_candles", json.RawMessage(`{"count":120}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Candles []map[string]any `json:"candles"`
+	}
+	if err := json.Unmarshal([]byte(out), &c); err != nil || len(c.Candles) == 0 {
+		t.Fatalf("output must be valid JSON with candles: %v %.80s", err, out)
+	}
+	if last := c.Candles[len(c.Candles)-1]["time"]; !strings.HasSuffix(last.(string), "#199") {
+		t.Fatalf("newest candle must be kept, got %v", last)
 	}
 }

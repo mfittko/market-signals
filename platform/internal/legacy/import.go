@@ -549,6 +549,9 @@ func (im *importer) chat() error {
 			fmt.Sprintf("thread:%d", id), title, ns(inst), ns(gran), t)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	n, err := im.send(b)
 	if err != nil {
 		return err
@@ -744,6 +747,9 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 		seen = append(seen, s)
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	all := map[string]bool{}
 	for s := range names {
 		all[s] = true

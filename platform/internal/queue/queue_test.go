@@ -518,3 +518,20 @@ func TestRejectedProposalComparesAsHold(t *testing.T) {
 		t.Errorf("valid open vs engine open: %s, want agree", got)
 	}
 }
+
+func TestHeartbeatKeepsABusyWorkerOnline(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "busy")
+	if _, err := testPool.Exec(ctx, `UPDATE workers SET last_seen = now() - interval '1 minute' WHERE id='busy'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	var online bool
+	if err := testPool.QueryRow(ctx, `SELECT last_seen > now() - interval '15 seconds' FROM workers WHERE id='busy'`).Scan(&online); err != nil || !online {
+		t.Fatalf("a heartbeat must refresh the worker: %v %v", online, err)
+	}
+}

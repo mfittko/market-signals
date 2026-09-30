@@ -95,7 +95,7 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     void run({
-      ...(f.ind.trim() ? { ind: f.ind.trim() } : {}), freshBars: num(f.freshBars), impulseVolMult: num(f.impulseVolMult), impulseVolWindow: num(f.impulseVolWindow),
+      ind: f.ind.trim() || null, freshBars: num(f.freshBars), impulseVolMult: num(f.impulseVolMult), impulseVolWindow: num(f.impulseVolWindow),
       impulseCooldownBars: num(f.impulseCooldownBars), filterMaxCompletionTokens: num(f.filterMaxCompletionTokens),
       keepFresh: keep ? '1' : '0', sentinelSourceFootnotes: foot ? '1' : '0', NEWSAPI_AI_MODE: news, GNEWS_MODE: gnews,
     }, 'Saved. The engine reads these on its next cycle.');
