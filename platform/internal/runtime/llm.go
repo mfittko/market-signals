@@ -132,7 +132,13 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		msgs = append(msgs, msg)
 		for _, c := range calls {
 			out.Usage["toolCalls"]++
-			res, isErr, err := in.Tools.Call(ctx, c.name, json.RawMessage(orStr(c.args, "{}")))
+			args := orStr(c.args, "{}")
+			if !json.Valid([]byte(args)) {
+				// the model can fix its own arguments; a run error would retry the same mistake
+				msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": c.id, "content": "TOOL ERROR:\narguments are not valid JSON: " + clip(args, 200)})
+				continue
+			}
+			res, isErr, err := in.Tools.Call(ctx, c.name, json.RawMessage(args))
 			if err != nil {
 				return nil, err
 			}

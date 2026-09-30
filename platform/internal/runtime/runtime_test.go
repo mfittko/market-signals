@@ -148,6 +148,23 @@ func TestLLMToolLoopAndUntrustedResults(t *testing.T) {
 	}
 }
 
+func TestLLMMalformedToolArgumentsGoBackToTheModel(t *testing.T) {
+	bad := map[string]any{"role": "assistant", "content": "", "tool_calls": []any{map[string]any{"id": "c1", "type": "function", "function": map[string]any{"name": "get_portfolio", "arguments": `{"n":`}}}}
+	srv, reqs := fakeLLM(t, bad, text(`{"action":"hold","reasoning":"fixed"}`))
+	ft := &fakeTools{out: map[string]string{"get_portfolio": "{}"}}
+	out, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), input(ft, 0))
+	if err != nil || out.Proposal.Action != "hold" || out.Proposal.Reasoning != "fixed" {
+		t.Fatalf("%+v %v", out, err)
+	}
+	if len(ft.calls) != 0 {
+		t.Fatalf("malformed arguments must not reach the gateway: %v", ft.calls)
+	}
+	second, _ := json.Marshal((*reqs)[1])
+	if !strings.Contains(string(second), "TOOL ERROR") || !strings.Contains(string(second), "not valid JSON") {
+		t.Fatalf("the model must see a tool error it can correct: %s", second)
+	}
+}
+
 func TestLLMFailsSafeToHold(t *testing.T) {
 	cases := map[string]map[string]any{
 		"prose only":     text("I think we should buy."),
