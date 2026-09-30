@@ -2297,6 +2297,26 @@ test('claude-code provider runs the CLI tool-less and parses the json envelope',
   await assert.rejects(() => llmRequest(settings, 'S', 'U'), /claude-code failed: Not logged in/);
 });
 
+test('claude-code stream keeps a multibyte char whole when stdout splits it across chunks', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmChat } = await import('../scripts/supertrend.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'cc-'));
+  const bin = join(dir, 'claude');
+  // "é" is the two bytes \303\251; each line is written in two parts with a pause between the bytes
+  const delta = '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"caf';
+  const result = '{"type":"result","is_error":false,"result":"caf';
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s\\303' '${delta}'\nsleep 0.2\nprintf '\\251"}}}\\n'\nprintf '%s\\303' '${result}'\nsleep 0.2\nprintf '\\251"}\\n'\n`);
+  chmodSync(bin, 0o755);
+  const deltas = [];
+  const out = await llmChat({ provider: 'claude-code', claudeBin: bin }, 'SYS', 'USER', {
+    toolDefs: [{ name: 'get_news', description: 'headlines', input_schema: { type: 'object' } }], execTool: async () => '', onDelta: (d) => deltas.push(d),
+  });
+  assert.equal(out, 'café');
+  assert.deepEqual(deltas, ['café']);
+});
+
 test('claude-code chat runs several tool calls per round, streams only the final answer', async () => {
   const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');

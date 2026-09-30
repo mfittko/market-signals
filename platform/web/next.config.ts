@@ -10,6 +10,9 @@ const config: NextConfig = {
   // The rewrite proxy drops a response that stays silent past this timeout (default 30 s).
   // A chat round can think for minutes, so match the Go proxy's 180 s header budget.
   experimental: { proxyTimeout: 180_000 },
+  // Compression makes the proxy buffer the /api/v1/stream SSE response, so no
+  // event reaches the browser. The console runs on loopback and gains nothing from gzip.
+  compress: false,
   async rewrites() {
     return [{ source: '/api/v1/:path*', destination: `${api}/api/v1/:path*` }];
   },

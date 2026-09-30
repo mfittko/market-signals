@@ -3023,6 +3023,27 @@ test('decision-context serves the standing rules and cached news read-only, and 
   });
 });
 
+test('decision-context news=fresh reads the cache and never calls a news provider', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ NEWSAPI_AI_KEY: 'nai-test', NEWSAPI_AI_MODE: 'auto' }));
+  const real = globalThis.fetch;
+  const external = [];
+  globalThis.fetch = (u, o) => {
+    if (String(u).startsWith('http://127.0.0.1')) return real(u, o);
+    external.push(String(u));
+    return Promise.reject(new Error('offline'));
+  };
+  try {
+    await withServer(dir, async ({ base }) => {
+      const res = await (await real(`${base}/api/decision-context?instrument=WTICO/USD&news=fresh`)).json();
+      assert.equal(res.ok, true);
+    });
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.deepEqual(external, [], 'a GET spends no paid-provider budget');
+});
+
 test('news endpoint lists recent headlines for one instrument, newest first, urls sanitised', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, dbPath }) => {

@@ -850,6 +850,7 @@ function claudeCodeStream(settings, system, user, { onText, onUsage, timeoutMs }
       if (d) { streamed += d; onText?.(d); }
       else if (ev.type === 'result') final = ev;
     };
+    child.stdout.setEncoding('utf8'); // a multibyte char split across chunks decodes whole
     child.stdout.on('data', (b) => { buf += b; let i; while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); } });
     child.stderr.on('data', (b) => { stderr = (stderr + b).slice(-400); });
     child.on('error', (err) => { clearTimeout(timer); reject(new Error(`claude-code failed: ${err.code || err.message}`.slice(0, 200))); });

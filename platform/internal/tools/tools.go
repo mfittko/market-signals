@@ -240,7 +240,7 @@ func Exec(ctx context.Context, eng *Engine, st *queue.Store, attemptID, fence in
 			return "", fmt.Errorf("bad arguments: %w", err)
 		}
 		if len(a.Reason) > 200 {
-			a.Reason = a.Reason[:200]
+			a.Reason = strings.ToValidUTF8(a.Reason[:200], "")
 		}
 		if err := st.SetPendingWait(ctx, attemptID, fence, a.Seconds, a.Reason); err != nil {
 			return "", err

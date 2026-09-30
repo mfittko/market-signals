@@ -493,7 +493,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		after = st.LatestEvt
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	fmt.Fprintf(w, "retry: 2000\n: connected after=%d\n\n", after)
 	fl.Flush()

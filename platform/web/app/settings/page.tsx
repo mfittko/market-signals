@@ -96,7 +96,7 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
         <label>Provider
           <select value={provider} onChange={(e) => onProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
         </label>
-        {provider !== 'none' && provider !== 'pi' && provider !== 'claude-code' && (
+        {provider !== 'none' && provider !== 'pi' && (
           <label>Model
             <input value={model} onChange={(e) => setModel(e.target.value)} placeholder={s.providerDefaultModels?.[provider] ?? ''} autoCapitalize="off" spellCheck={false} />
           </label>
