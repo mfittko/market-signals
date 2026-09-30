@@ -3,16 +3,19 @@
 // hands the control plane a frozen copy of a decision point, then the engine's
 // own decision for comparison. Every failure is swallowed — a slow or absent
 // control plane must never delay or change a bot decision.
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 const TIMEOUT_MS = 2000;
 
 export const controlPlaneEnabled = (env = process.env) => Boolean((env.MS_CONTROL_PLANE_URL || '').trim());
 
-// Same decision point => same key, so a re-run of a cycle enqueues nothing new.
-export function snapshotKey({ instrument, granularity, event, candleTime, strategyVersion }) {
+// One key per deliberation. A bot on a bar longer than its cycle deliberates
+// several times on the same candle, and each deliberation needs its own run and
+// its own engine decision to compare against. The deliberation id keeps those
+// keys apart; re-sending one deliberation keeps its key and enqueues nothing new.
+export function snapshotKey({ instrument, granularity, event, candleTime, strategyVersion, deliberationId }) {
   return createHash('sha256')
-    .update([instrument, granularity, event, candleTime ?? '', strategyVersion ?? ''].join('|'))
+    .update([instrument, granularity, event, candleTime ?? '', strategyVersion ?? '', deliberationId ?? ''].join('|'))
     .digest('hex')
     .slice(0, 32);
 }
@@ -60,12 +63,13 @@ async function post(path, body, { env = process.env, fetchImpl = globalThis.fetc
 }
 
 // Enqueue the snapshot. Resolves to the idempotency key, or null when disabled
-// or unreachable. Never rejects.
+// or unreachable. Never rejects. Each call is a new deliberation unless the
+// caller passes its own deliberationId.
 export async function emitSnapshot(params, opts = {}) {
   const env = opts.env ?? process.env;
   if (!controlPlaneEnabled(env)) return null;
   try {
-    const key = snapshotKey(params);
+    const key = snapshotKey({ ...params, deliberationId: params.deliberationId ?? randomUUID() });
     await post('/api/v1/events', {
       idempotencyKey: key, instrument: params.instrument, granularity: params.granularity, event: params.event,
       payload: buildSnapshot(params),

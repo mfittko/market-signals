@@ -34,6 +34,18 @@ test('snapshot key is stable per decision point and differs across them', () => 
   assert.notEqual(a, snapshotKey({ ...params, candleTime: '2026-07-22T10:05:00Z' }));
   assert.notEqual(a, snapshotKey({ ...params, event: 'review' }));
   assert.notEqual(a, snapshotKey({ ...params, strategyVersion: 'ffff0000' }));
+  assert.notEqual(a, snapshotKey({ ...params, deliberationId: 'd2' }));
+});
+
+test('two deliberations on the same candle get two snapshot keys, one deliberation keeps its key', async () => {
+  const keys = [];
+  const fetchImpl = async (url, init) => { keys.push(JSON.parse(init.body).idempotencyKey); return { ok: true, json: async () => ({}) }; };
+  const first = await emitSnapshot(params, { env: ENV, fetchImpl });
+  const second = await emitSnapshot(params, { env: ENV, fetchImpl });
+  assert.notEqual(first, second);
+  assert.deepEqual(keys, [first, second]);
+  const resent = { ...params, deliberationId: 'd1' };
+  assert.equal(await emitSnapshot(resent, { env: ENV, fetchImpl }), await emitSnapshot(resent, { env: ENV, fetchImpl }));
 });
 
 test('snapshot freezes the decision point and copies only known position fields', () => {
@@ -50,7 +62,7 @@ test('snapshot freezes the decision point and copies only known position fields'
 test('emitSnapshot posts to the ingest endpoint with the bearer token', async () => {
   let seen;
   const key = await emitSnapshot(params, { env: ENV, fetchImpl: async (url, init) => { seen = { url, init }; return { ok: true, json: async () => ({}) }; } });
-  assert.equal(key, snapshotKey(params));
+  assert.match(key, /^[0-9a-f]{32}$/);
   assert.equal(seen.url, 'http://cp.test/api/v1/events');
   assert.equal(seen.init.headers.authorization, 'Bearer tok');
   const body = JSON.parse(seen.init.body);
