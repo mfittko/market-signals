@@ -31,7 +31,7 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 | Domain | Authoritative writer now | Flip condition |
 |---|---|---|
 | Strategies | Engine (SQLite). | Migration step 1 (strategies) completes: console edits reach the engine, the engine reads the active version from Postgres, and it has run on that version for several days without incident. Until then console edits are drafts. |
-| Candles and signals | Engine (SQLite), which also writes a copy to Postgres. | Daily row counts per instrument and timeframe match for several days. Then the platform becomes the reader of record and the writer moves in the cutover step. |
+| Candles and signals | Engine (SQLite). The platform importer copies history to Postgres one way. | Migration step 2 (the engine writes both databases) is built, then daily row counts per instrument and timeframe match for several days. Then the platform becomes the reader of record and the writer moves in the cutover step. |
 | Portfolio and bots | Engine (SQLite ledger). The platform never writes to it. | The Go port runs in shadow beside the ledger and every trade and the equity curve match. |
 | Chat threads | Engine (SQLite). | Flips only after open question 2 is answered and a new record supersedes this row. Until then the engine stays the writer. |
 | Alert state | Engine (SQLite). | Moves with portfolio and bots. |
