@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { api, money, type InstrumentDetail } from '@/lib/api';
 import { useLive } from '@/lib/live';
@@ -26,7 +26,7 @@ export default function InstrumentPage() {
 
 function InstrumentView() {
   const { slug } = useParams<{ slug: string }>();
-  const [gran, setGran] = useState<string>('');
+  const [gran, setGran] = useState<string>(useSearchParams().get('granularity') ?? '');
   const [d, setD] = useState<InstrumentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { tick } = useLive();

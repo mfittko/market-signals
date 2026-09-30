@@ -78,24 +78,7 @@ settings_file() {
   return 0
 }
 
-up() {
-  need docker; need go; need pnpm; need jq; need openssl
-  load_env
-  docker compose up -d postgres >/dev/null
-  for _ in $(seq 1 30); do
-    docker compose exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
-    sleep 1
-  done
-  # POSTGRES_PASSWORD applies only when the volume is first created, so set the role password
-  # to the generated one every time; a volume created before the password existed keeps working.
-  # The local socket in the container needs no password. The SQL goes through stdin, off the process list.
-  printf "ALTER ROLE ms PASSWORD '%s';\n" "$MS_DB_PASSWORD" | docker compose exec -T postgres psql -q -U ms -d ms >/dev/null
-  docker compose exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='ms_test'" | grep -q 1 \
-    || docker compose exec -T postgres psql -U ms -d ms -c "CREATE DATABASE ms_test" >/dev/null
-
-  go build -o "$RUN/bin/" ./cmd/api ./cmd/worker
-  local engine; engine="$(engine_url)"
-
+llm_env() {
   # the model settings feed the worker (agent runs) and the control plane (strategy coaching)
   local s flavor=""; s="$(settings_file)"
   # The engine's rule (resolveProvider, openaiEndpoint and effectiveModel in scripts/supertrend.mjs):
@@ -126,6 +109,49 @@ up() {
   else
     echo "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works; strategy coaching is off."
   fi
+}
+
+db_up() {
+  need docker; need jq; need openssl
+  load_env
+  docker compose up -d postgres >/dev/null
+  for _ in $(seq 1 30); do
+    docker compose exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
+    sleep 1
+  done
+  # POSTGRES_PASSWORD applies only when the volume is first created, so set the role password
+  # to the generated one every time; a volume created before the password existed keeps working.
+  # The local socket in the container needs no password. The SQL goes through stdin, off the process list.
+  printf "ALTER ROLE ms PASSWORD '%s';\n" "$MS_DB_PASSWORD" | docker compose exec -T postgres psql -q -U ms -d ms >/dev/null
+  docker compose exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='ms_test'" | grep -q 1 \
+    || docker compose exec -T postgres psql -U ms -d ms -c "CREATE DATABASE ms_test" >/dev/null
+}
+
+# run <api|worker|web>: one service in the foreground, for a supervisor such as launchd.
+# The engine URL is not probed here: the engine may start after this service, and the control plane retries.
+run() {
+  load_env; llm_env
+  case "${1:-}" in
+    api) cd "$ROOT"; MS_ENGINE_URL="${MS_ENGINE_URL:-http://127.0.0.1:8787}" exec "$RUN/bin/api" ;;
+    worker) cd "$ROOT"; exec "$RUN/bin/worker" ;;
+    web) cd "$ROOT/web"
+      # same rule as `up`: the console inherits no model key, database password or service token
+      exec env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
+        -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN \
+        pnpm exec next start -p "${MS_CONSOLE_PORT:-3737}" -H 127.0.0.1 ;;
+    *) die "usage: $0 run api|worker|web" ;;
+  esac
+}
+
+up() {
+  need docker; need go; need pnpm; need jq; need openssl
+  load_env
+  db_up
+
+  go build -o "$RUN/bin/" ./cmd/api ./cmd/worker
+  local engine; engine="$(engine_url)"
+
+  llm_env
 
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
@@ -170,6 +196,8 @@ case "${1:-up}" in
   up) up ;;
   down) down "${2:-}" ;;
   status) status ;;
+  db) db_up ;;
+  run) run "${2:-}" ;;
   logs) tail -n 40 -f "$RUN"/api.log "$RUN"/worker.log "$RUN"/web.log ;;
-  *) die "usage: $0 up|down|status|logs" ;;
+  *) die "usage: $0 up|down|status|logs|db|run" ;;
 esac

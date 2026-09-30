@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification, filterHealth, FILTER_HEALTH_WINDOW, FILTER_HEALTH_WARN_RATE } from '../scripts/supertrend.mjs';
+import { computeSupertrend, detectFlips, backtestFlips, storeCandles, recordSignal, signalOutcomes, withDb, excursionSince, sendNotification, chartDeepLink, filterHealth, FILTER_HEALTH_WINDOW, FILTER_HEALTH_WARN_RATE } from '../scripts/supertrend.mjs';
 
 // Synthetic series: flat, crash, rally, crash — must flip sell, buy, sell.
 function series(closes) {
@@ -2386,4 +2386,12 @@ test('claude-code chat never runs a TOOL_CALL span after prose and cuts it from 
   assert.equal(out, 'The tape is calm.');
   assert.deepEqual(deltas, ['The tape is calm.']);
   assert.equal(calls, 0);
+});
+
+test('chartDeepLink opens the old dashboard by default and the console instrument page when consoleUrl is set', () => {
+  const t = '2026-09-30T10:00:00Z';
+  assert.match(chartDeepLink({ port: 8787 }, 'WTICO/USD', 'M5', t), /^http:\/\/127\.0\.0\.1:8787\/\?instrument=WTICO%2FUSD&granularity=M5&t=/);
+  const link = chartDeepLink({ consoleUrl: 'http://127.0.0.1:3737/ ' }, 'WTICO/USD', 'M5', t, 'volume-impulse');
+  assert.equal(link, `http://127.0.0.1:3737/instruments/wtico-usd?granularity=M5&t=${encodeURIComponent(t)}&kind=volume-impulse`);
+  assert.match(chartDeepLink({ consoleUrl: 'javascript:alert(1)' }, 'XAG/USD', 'H1', t), /^http:\/\/127\.0\.0\.1:8787\//, 'a non-http value is ignored');
 });

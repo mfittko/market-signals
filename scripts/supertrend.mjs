@@ -1277,12 +1277,18 @@ export async function buildFilterPayload({ dbPath, instrument, granularity, sig,
 
 // One deep-link URL shape for every alert (flip or impulse): opens the chart
 // at the signal's instrument/granularity/time.
-function chartDeepLink(settings, instrument, granularity, time, kind = 'supertrend-flip') {
+export function chartDeepLink(settings, instrument, granularity, time, kind = 'supertrend-flip') {
   const portNum = Number(settings.port);
   const port = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535 ? portNum : 8787;
   // kind disambiguates same-bar rows (the PK allows a flip AND an impulse on
   // one bar); flip links stay unchanged so nothing bookmarked breaks.
   const kindParam = kind && kind !== 'supertrend-flip' ? `&kind=${encodeURIComponent(kind)}` : '';
+  // With a console URL configured, the alert opens the instrument page of the new console.
+  const consoleUrl = typeof settings.consoleUrl === 'string' ? settings.consoleUrl.trim().replace(/\/+$/, '') : '';
+  if (/^https?:\/\//.test(consoleUrl)) {
+    const slug = String(instrument).toLowerCase().replace(/\//g, '-');
+    return `${consoleUrl}/instruments/${encodeURIComponent(slug)}?granularity=${encodeURIComponent(granularity)}&t=${encodeURIComponent(time)}${kindParam}`;
+  }
   return `http://127.0.0.1:${port}/?instrument=${encodeURIComponent(instrument)}&granularity=${encodeURIComponent(granularity)}&t=${encodeURIComponent(time)}${kindParam}`;
 }
 
