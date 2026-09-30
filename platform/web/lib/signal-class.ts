@@ -5,3 +5,7 @@ export const isAlerted = (s: { verdict?: string | null }) => s.verdict === 'aler
 
 export const signalTitle = (s: { kind?: string; signal: string; instrument: string; granularity: string; price: number }) =>
   `${s.kind === 'volume-impulse' ? 'Volume impulse' : `${s.signal === 'buy' ? 'Buy' : 'Sell'} flip`} ${s.instrument} ${s.granularity} at ${s.price}`;
+
+// Why a signal row was not alerted, in the words the alerts page shows.
+export const notAlertedLabel = (s: { verdict?: string | null }) =>
+  ({ suppress: 'Suppressed', duplicate: 'Duplicate', backfill: 'Backfilled' } as Record<string, string>)[s.verdict ?? ''] ?? 'Not alerted';

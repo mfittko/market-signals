@@ -37,7 +37,7 @@ export default function AlertsPage() {
                 <td style={{ whiteSpace: 'nowrap' }}>{when(e.at)}</td>
                 <td>{e.kind === 'signal' ? 'Signal' : e.kind === 'proposal' ? 'Proposal' : 'Trade'}</td>
                 <td><Link href={e.href ?? '#'} style={{ color: e.tone ? `var(--${e.tone})` : undefined }}>{e.title}</Link><div className="small muted">{e.detail}</div></td>
-                <td>{e.kind === 'signal' ? (e.alerted ? 'sent by the engine' : e.tone ? 'not sent' : 'filtered out') : ''}</td>
+                <td>{e.kind === 'signal' ? (e.alerted ? 'sent by the engine' : e.tone ? 'not sent' : (e.why ?? 'not alerted').toLowerCase()) : ''}</td>
               </tr>
             ))}</tbody>
           </table></div>

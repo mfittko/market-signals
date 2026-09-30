@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
-import { isAlerted, signalTitle } from '@/lib/signal-class';
+import { isAlerted, notAlertedLabel, signalTitle } from '@/lib/signal-class';
 import { toggleWatcher, validPair } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
 export type AlertEvent = {
   id: string; kind: AlertKind; at: string; title: string; detail: string;
-  href?: string; tone?: 'good' | 'bad' | 'warn'; alerted?: boolean;
+  href?: string; tone?: 'good' | 'bad' | 'warn'; alerted?: boolean; why?: string;
 };
 
 type Signal = { kind?: string; instrument: string; granularity: string; time: string; signal: string; price: number; verdict: string; reason: string; notified: number };
@@ -35,9 +35,9 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
   for (const s of lists.flat()) {
     const passed = isAlerted(s);
     out.push({
-      id: `s:${s.instrument}:${s.granularity}:${s.time}`, kind: 'signal', at: s.time, alerted: !!s.notified,
+      id: `s:${s.instrument}:${s.granularity}:${s.time}`, kind: 'signal', at: s.time, alerted: !!s.notified, why: passed ? undefined : notAlertedLabel(s),
       title: signalTitle(s),
-      detail: `${passed ? 'Passed the filter' : 'Filtered out'}${s.reason ? `: ${s.reason}` : ''}`, href: `/instruments/${slug(s.instrument)}`, tone: passed ? (s.signal === 'buy' ? 'good' : 'bad') : undefined,
+      detail: `${passed ? 'Passed the filter' : notAlertedLabel(s)}${s.reason ? `: ${s.reason}` : ''}`, href: `/instruments/${slug(s.instrument)}`, tone: passed ? (s.signal === 'buy' ? 'good' : 'bad') : undefined,
     });
   }
   for (const r of runs.runs) {

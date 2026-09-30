@@ -14,10 +14,10 @@
 # Secrets: .dev/env (mode 600, gitignored) holds the worker and ingest tokens and the Postgres password, generated
 #          once. It also holds MS_DATABASE_URL for the binaries and MS_TEST_DATABASE_URL for go test.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
 . "$ROOT/scripts/api-origins.sh"
-RUN="$ROOT/.dev"
+RUN="${MS_RUN_DIR:-$ROOT/.dev}" # the override lets a test use a scratch directory
 mkdir -p "$RUN/bin"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -50,7 +50,8 @@ stop_one() {
 # start <name> <dir> <command...>: run detached, record the pid, log to .dev/<name>.log
 start() {
   local name="$1" dir="$2"; shift 2
-  (cd "$dir" && "$@" </dev/null >"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+  # exec makes the background pid the program itself, so alive() and stop_one see the real process
+  (cd "$dir" && exec "$@" </dev/null >"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
 }
 
 wait_http() { # url name seconds
@@ -211,6 +212,8 @@ status() {
   if docker compose ps --status running postgres 2>/dev/null | grep -q postgres; then echo "postgres: running"; else echo "postgres: stopped"; fi
 }
 
+# sourcing the file (the launcher test does) loads the helpers without running a command
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 case "${1:-up}" in
   up) up ;;
   down) down "${2:-}" ;;
@@ -220,3 +223,4 @@ case "${1:-up}" in
   logs) tail -n 40 -f "$RUN"/api.log "$RUN"/worker.log "$RUN"/web.log ;;
   *) die "usage: $0 up|down|status|logs|db|run" ;;
 esac
+fi
