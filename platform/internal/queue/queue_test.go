@@ -523,6 +523,7 @@ func TestHeartbeatKeepsABusyWorkerOnline(t *testing.T) {
 	s, ctx := fresh(t)
 	must(t, s.UpsertAgent(ctx, agent("a1")))
 	ingest(t, s, ctx)
+	must(t, s.RegisterWorker(ctx, "busy", []string{"mock"}, nil))
 	c := claim(t, s, ctx, "busy")
 	if _, err := testPool.Exec(ctx, `UPDATE workers SET last_seen = now() - interval '1 minute' WHERE id='busy'`); err != nil {
 		t.Fatal(err)
