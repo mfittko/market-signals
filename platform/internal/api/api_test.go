@@ -459,6 +459,10 @@ func TestDeskSummarisesInstrumentsAndServesDetailBySlug(t *testing.T) {
 	if code != 200 || d["granularity"] != "M5" || len(d["candles"].([]any)) != 2 {
 		t.Fatalf("a granularity with no imported candles must fall back to M5 and say so: %d %v", code, d)
 	}
+	// an instrument with no candles still names a real timeframe, so the chart does not wait forever
+	if code, d = call(t, "GET", hs.URL+"/api/v1/instruments/xau-usd?granularity=", "", "", nil); code != 200 || d["granularity"] != "M5" {
+		t.Fatalf("an instrument without candles must default to M5: %d %v", code, d)
+	}
 	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope", "", "", nil); code != 404 {
 		t.Fatalf("unknown slug must be 404, got %d", code)
 	}
@@ -1282,6 +1286,14 @@ func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the watching browser was not told about the new headline")
+	}
+	// the page refetches through the cache, so the hub must have refreshed the copy it reads
+	var cachedNews struct {
+		Items []struct{ Title string } `json:"items"`
+	}
+	nq := url.Values{"instrument": {"WTICO/USD"}, "hours": {"72"}, "limit": {"60"}}
+	if err := srv.eng.GetCached(context.Background(), time.Hour, "/api/news", nq, &cachedNews); err != nil || len(cachedNews.Items) != 1 || cachedNews.Items[0].Title != "Pipeline restart" {
+		t.Fatalf("the cached news must hold the announced headline: %v %+v", err, cachedNews)
 	}
 	select {
 	case e := <-gold:

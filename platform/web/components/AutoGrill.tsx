@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { GrillPanel } from '@/components/GrillPanel';
 
@@ -47,7 +47,9 @@ export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: s
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState(false);
   // Reset on a change of strategy or scope list. The key is a string, so a caller that builds a new array each render keeps the result.
-  const scopeKey = scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
+  const alive = useRef(true); // a reply that lands after the strategy changed must not touch the editor
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const scopeKey =scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
   useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setApplied(false); }, [reset]); // the editor text was restored
@@ -59,6 +61,7 @@ export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: s
     setBusy(true); setError(null); setRes(null); setApplied(false);
     try {
       const r = await api<Result>('/strategies/autogrill', { method: 'POST', body: JSON.stringify({ name, draft, ...scope }) });
+      if (!alive.current) return;
       setRes(r);
       // a rewritten prompt goes straight into the editor; the wrapper offers Undo the proposal
       if (r.turn?.prompt) { onApply(r.turn.prompt); setApplied(true); }
@@ -137,8 +140,8 @@ export function Sharpen({ name, mode, draft, brief, scopes, onApply }: {
         </p>
       )}
       {tab === 'guided'
-        ? <GrillPanel name={name} mode={mode} draft={draft} brief={brief} onApply={apply} reset={reset} />
-        : <AutoGrill name={name} draft={draft} scopes={scopes} onApply={apply} reset={reset} />}
+        ? <GrillPanel key={name} name={name} mode={mode} draft={draft} brief={brief} onApply={apply} reset={reset} />
+        : <AutoGrill key={name} name={name} draft={draft} scopes={scopes} onApply={apply} reset={reset} />}
     </div>
   );
 }

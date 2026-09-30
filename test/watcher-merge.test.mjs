@@ -11,3 +11,8 @@ test('removes only the toggled entry', () => {
 test('handles an empty list', () => {
   assert.deepEqual(toggleWatcher(undefined, 'WTI|M5'), ['WTI|M5']);
 });
+test('refuses an empty or malformed pair', () => {
+  assert.deepEqual(toggleWatcher('WTI|M5', 'XAU/USD|'), ['WTI|M5']);
+  assert.deepEqual(toggleWatcher('WTI|M5', '|M5'), ['WTI|M5']);
+  assert.deepEqual(toggleWatcher('WTI|M5', 'XAU/USD'), ['WTI|M5']);
+});

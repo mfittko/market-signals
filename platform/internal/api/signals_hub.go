@@ -166,7 +166,7 @@ func (s *Server) newsDigest(ctx context.Context, symbol string) (string, bool) {
 		} `json:"items"`
 	}
 	q := url.Values{"instrument": {symbol}, "hours": {"72"}, "limit": {"60"}}
-	if err := s.eng.Get(ctx, "/api/news", q, &out); err != nil {
+	if err := s.eng.GetCached(ctx, 0, "/api/news", q, &out); err != nil { // zero ttl: ask the engine and refresh the copy the page reads
 		return "", false
 	}
 	lines := make([]string, 0, len(out.Items))

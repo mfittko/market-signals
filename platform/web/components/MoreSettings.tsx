@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
-import { DEFAULT_PREFS, loadPrefs, savePrefs, type NotifyPrefs } from '@/lib/alerts';
+import { DEFAULT_PREFS, loadPrefs, savePrefs, useWatchers, type NotifyPrefs } from '@/lib/alerts';
 
 export type MoreSettingsData = {
   watchers?: string; ind?: string; keepFresh?: string | boolean; freshBars?: number; filterMaxCompletionTokens?: number;
@@ -15,19 +15,15 @@ const MASK = '•••';
 const GRANS = ['M1', 'M5', 'M15', 'H1'];
 const on = (v: unknown) => v === true || v === '1' || v === 'true' || v === 'on';
 const num = (v: string) => (v.trim() === '' ? null : Number(v));
-const parse = (csv?: string) => new Set((csv ?? '').split(',').map((c) => c.trim().replace(/\s*\|\s*/, '|')).filter(Boolean));
 
 // The engine alerts on exactly the instrument and timeframe pairs in its watcher list.
-export function WatchersCard({ s, run, busy }: { s: MoreSettingsData; run: Run; busy: boolean }) {
+export function WatchersCard() {
   const [symbols, setSymbols] = useState<string[]>([]);
   useEffect(() => { api<{ instruments: { symbol: string }[] }>('/desk').then((d) => setSymbols(d.instruments.map((i) => i.symbol))).catch(() => {}); }, []);
-  const watched = parse(s.watchers);
+  const { watched: got, toggle: flip, busy, err } = useWatchers(); // the toggle re-reads the list just before writing
+  const watched = got ?? new Set<string>();
   const all = Array.from(new Set([...symbols, ...[...watched].map((c) => c.split('|')[0])])).sort();
-  const toggle = (sym: string, g: string) => {
-    const next = new Set(watched); const k = `${sym}|${g}`;
-    if (next.has(k)) next.delete(k); else next.add(k);
-    void run({ watchers: [...next].join(', ') }, `Saved. The engine watches ${next.size} pair${next.size === 1 ? '' : 's'} from its next cycle.`);
-  };
+  const toggle = (sym: string, g: string) => void flip(sym, g);
   return (
     <Card title={`Signal alerts per market (${watched.size} watched)`}>
       <p className="small muted">A ticked box means the engine looks for flips on that instrument and timeframe and alerts you when the filter passes one.</p>
@@ -35,10 +31,11 @@ export function WatchersCard({ s, run, busy }: { s: MoreSettingsData; run: Run; 
         <thead><tr><th>Instrument</th>{GRANS.map((g) => <th key={g}>{g}</th>)}</tr></thead>
         <tbody>{all.map((sym) => (
           <tr key={sym}><td>{sym}</td>{GRANS.map((g) => (
-            <td key={g}><input type="checkbox" checked={watched.has(`${sym}|${g}`)} disabled={busy} onChange={() => toggle(sym, g)} aria-label={`${sym} ${g} alerts`} /></td>
+            <td key={g}><input type="checkbox" checked={watched.has(`${sym}|${g}`)} disabled={busy || !got} onChange={() => toggle(sym, g)} aria-label={`${sym} ${g} alerts`} /></td>
           ))}</tr>
         ))}</tbody>
       </table></div>
+      {err && <p className="msg err" role="alert">{err}</p>}
     </Card>
   );
 }

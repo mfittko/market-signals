@@ -181,6 +181,9 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if len(grans) == 0 {
+		chosen = "M5" // no candles yet: name a real timeframe so the page can draw its empty state
+	}
 	candles := []histCandle{}
 	if chosen != "" {
 		crow, err := s.st.Pool.Query(ctx, `SELECT time, open, high, low, close, COALESCE(volume,0) FROM

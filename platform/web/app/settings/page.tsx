@@ -58,7 +58,7 @@ export default function SettingsPage() {
           <FilterCard s={s} run={run} busy={busy} />
         </div>
         <div className="grid">
-          <WatchersCard s={s} run={run} busy={busy} />
+          <WatchersCard />
           <BotsCard s={s} />
         </div>
       </div>

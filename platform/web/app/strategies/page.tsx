@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card, Loading } from '@/components/ui';
 import { Sharpen, type Scope } from '@/components/AutoGrill';
@@ -40,6 +40,7 @@ export default function StrategiesPage() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<Filter>("inuse");
   const [q, setQ] = useState("");
+  const latest = useRef<string | null>(null);
 
   const loadList = useCallback(async () => {
     const r = await api<{ strategies: Summary[] }>('/strategies');
@@ -48,7 +49,9 @@ export default function StrategiesPage() {
   }, []);
   const open = useCallback(async (name: string) => {
     setSel(name); setMsg(null); setCompare(null);
+    latest.current = name;
     const r = await api<{ versions: Version[]; scopes: Scope[] }>(`/strategies/${encodeURIComponent(name)}`);
+    if (latest.current !== name) return; // a later click already owns the panel
     setVersions(r.versions);
     setScopes(r.scopes ?? []);
     setDraft((r.versions.find((v) => v.active) ?? r.versions[0]).prompt);

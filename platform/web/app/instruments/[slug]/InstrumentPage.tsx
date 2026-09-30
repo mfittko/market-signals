@@ -88,7 +88,7 @@ function InstrumentView() {
       <div className="top">
         <div className="left"><Link href="/">← Desk</Link><h1>{d.name}</h1><span className="muted">{d.symbol} · {d.market}</span><BotBadge grans={bots?.get(d.symbol)} />
           {/* always rendered (disabled until the list arrives), so the header does not change height when it loads */}
-          <label className="chip" title="The engine looks for flips on this market and alerts you when the filter passes one."><input type="checkbox" checked={w.watched?.has(`${d.symbol}|${d.granularity}`) ?? false} disabled={w.busy || !w.watched} onChange={() => void w.toggle(d.symbol, d.granularity)} /> Signal alerts {d.granularity}</label>
+          <label className="chip" title="The engine looks for flips on this market and alerts you when the filter passes one."><input type="checkbox" checked={w.watched?.has(`${d.symbol}|${d.granularity}`) ?? false} disabled={w.busy || !w.watched || !d.granularity} onChange={() => void w.toggle(d.symbol, d.granularity)} /> Signal alerts {d.granularity}</label>
           {w.err && <span className="msg err" role="alert">{w.err}</span>}</div>
         <div className="seg" role="group" aria-label="Granularity">
           {d.granularities.map((g) => <button key={g.granularity} aria-pressed={g.granularity === d.granularity} onClick={() => setGran(g.granularity)}>{g.granularity}{w.watched?.has(`${d.symbol}|${g.granularity}`) && <span title="Signal alerts on" aria-label="alerts on"> ●</span>}</button>)}

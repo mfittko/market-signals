@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,7 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 			sigs = append(sigs, g)
 		}
 	}
+	sort.SliceStable(sigs, func(i, j int) bool { return sigs[i].Time > sigs[j].Time }) // newest first, whatever order the engine used
 	writeJSON(w, http.StatusOK, map[string]any{
 		"source": "engine", "symbol": symbol, "granularity": gran, "fetchedAt": time.Now().UTC().Format(time.RFC3339),
 		"candles": candles, "supertrend": st, "signals": sigs, "quote": raw.Quote,

@@ -35,6 +35,8 @@ export function GrillPanel({ name, mode, draft, brief, onApply, reset = 0 }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState<number | null>(null);
+  const alive = useRef(true); // a reply that lands after the strategy changed must not touch the editor
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [msgs, busy]);
   // a different strategy is a different interview
@@ -53,6 +55,7 @@ export function GrillPanel({ name, mode, draft, brief, onApply, reset = 0 }: {
         method: 'POST',
         body: JSON.stringify({ name, mode, draft, brief, messages: hist.map(({ role, content }) => ({ role, content })) }),
       });
+      if (!alive.current) return;
       setMsgs([...next, { role: 'assistant', content: r.reply, turn: r.turn }]);
       // a proposed prompt goes straight into the editor; the wrapper offers Undo the proposal
       const proposal = r.turn?.prompt ?? proposedPrompt(r.reply);

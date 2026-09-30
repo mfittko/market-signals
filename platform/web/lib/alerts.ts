@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
-import { toggleWatcher } from '@/lib/watcher-merge';
+import { toggleWatcher, validPair } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
 export type AlertEvent = {
@@ -83,7 +83,7 @@ export function useWatchers() {
     return () => { alive = false; };
   }, []);
   const toggle = async (symbol: string, gran: string) => {
-    if (!watched || busy) return;
+    if (!watched || busy || !validPair(`${symbol}|${gran}`)) return;
     setBusy(true); setErr(null);
     try {
       // re-read just before the write so a change made in another tab is kept

@@ -105,8 +105,8 @@ console_health() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" >/dev/n
 # Alert links open the new console once settings.json carries consoleUrl. Writing the same value again changes nothing.
 edit_settings() { # jq filter args...
   local tmp; tmp="$(mktemp "$SETTINGS.XXXXXX")"
-  jq "$@" "$SETTINGS" >"$tmp" && command mv -f "$tmp" "$SETTINGS"
-  rm -f "$tmp"
+  jq "$@" "$SETTINGS" >"$tmp" || { rm -f "$tmp"; die "could not edit $SETTINGS"; }
+  command mv -f "$tmp" "$SETTINGS"
 }
 
 install_console() {
