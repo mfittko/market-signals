@@ -58,7 +58,7 @@ export default function SettingsPage() {
         </div>
         <div className="grid">
           <WatchersCard s={s} run={run} busy={busy} />
-        <BotsCard s={s} run={run} busy={busy} />
+          <BotsCard s={s} />
         </div>
       </div>
     </main>
@@ -119,9 +119,10 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
   );
 }
 
-function BotsCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
+// Read-only: the console proxy refuses bot writes, because the switch and the allocation
+// change what the engine trades on the paper ledger. Console agents only advise.
+function BotsCard({ s }: { s: Settings }) {
   const bots = Object.entries(s.bot?.bots ?? {});
-  const [alloc, setAlloc] = useState<Record<string, string>>({});
   return (
     <Card title="Engine bots (paper)" aside={<span className="muted small">{bots.filter(([, b]) => b.enabled).length} of {bots.length} on</span>}>
       {bots.length === 0 ? <div className="empty">No bots configured.</div> : (
@@ -129,24 +130,17 @@ function BotsCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
           <thead><tr><th>Bot</th><th>On</th><th>Allocation %</th></tr></thead>
           <tbody>{bots.map(([combo, b]) => {
             const [inst, gran] = combo.split('|');
-            const v = alloc[combo] ?? (b.allocationPct == null ? '' : String(b.allocationPct));
-            const dirty = v !== (b.allocationPct == null ? '' : String(b.allocationPct));
             return (
               <tr key={combo}>
                 <td><Link href={`/instruments/${inst.toLowerCase().replace('/', '-')}`}>{inst} {gran}</Link><div className="small muted">{b.strategyName}</div></td>
-                <td><input type="checkbox" checked={!!b.enabled} disabled={busy} aria-label={`${combo} enabled`}
-                  onChange={(e) => void run({ bot: { bots: { [combo]: { enabled: e.target.checked } } } }, `${combo} ${e.target.checked ? 'enabled' : 'disabled'}.`)} /></td>
-                <td>
-                  <input className="num" style={{ width: 64 }} value={v} inputMode="decimal" aria-label={`${combo} allocation percent`}
-                    onChange={(e) => setAlloc({ ...alloc, [combo]: e.target.value })} />
-                  {dirty && <button className="linkish" disabled={busy} onClick={() => void run({ bot: { bots: { [combo]: { allocationPct: v.trim() === '' ? null : Number(v) } } } }, `${combo} allocation saved.`).then(() => setAlloc((a) => { const n = { ...a }; delete n[combo]; return n; }))}>Save</button>}
-                </td>
+                <td>{b.enabled ? 'on' : 'off'}</td>
+                <td className="num">{b.allocationPct == null ? '–' : b.allocationPct}</td>
               </tr>
             );
           })}</tbody>
         </table></div>
       )}
-      <p className="small muted">Paper trading only. Turning a bot off stops new entries from that engine bot. Agents on this console only advise. They never place orders on the paper portfolio.</p>
+      <p className="small muted">Paper trading only. Switch bots and change allocation in the engine&apos;s own settings page. Agents on this console only advise. They never place orders on the paper portfolio.</p>
     </Card>
   );
 }

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
 // Instruments whose engine paper bot is switched on, with the timeframes it trades.
-// The engine owns this switch (Settings edits it), so read it live from there.
+// The engine owns this switch (its own settings page edits it), so read it live from there.
 export function useActiveBots(): Map<string, string[]> | null {
   const [bots, setBots] = useState<Map<string, string[]> | null>(null);
   useEffect(() => {

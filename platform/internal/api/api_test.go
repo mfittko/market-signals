@@ -390,6 +390,29 @@ func TestEngineProxyAllowlist(t *testing.T) {
 	if code, _ := get("DELETE", "/api/v1/engine/settings"); code != 404 {
 		t.Fatalf("DELETE settings should be refused, got %d", code)
 	}
+	// paper bot switches, allocation and executable paths never pass through the console
+	post := func(body string) int {
+		req, _ := http.NewRequest("POST", ts.URL+"/api/v1/engine/settings", strings.NewReader(body))
+		req.Header.Set("Origin", ts.URL)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	for _, body := range []string{
+		`{"bot":{"bots":{"WTICO/USD|M5":{"enabled":true}}}}`,
+		`{"bot":{"bots":{"WTICO/USD|M5":{"allocationPct":50}}}}`,
+		`{"claudeBin":"/tmp/x"}`, `{"provider":"pi","piBin":"/tmp/x"}`,
+	} {
+		if code := post(body); code != http.StatusForbidden {
+			t.Fatalf("%s must be refused, got %d", body, code)
+		}
+	}
+	if code := post(`{"watchers":"WTICO/USD|M5"}`); code != 200 {
+		t.Fatalf("an ordinary setting must still pass, got %d", code)
+	}
 }
 
 func TestEngineEventsGainIndicatorLevels(t *testing.T) {
