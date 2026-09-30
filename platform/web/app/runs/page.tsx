@@ -5,6 +5,7 @@ import { api, describe, engineDecision, type Agent, type Health, type RunRow } f
 import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, StatusPill, Loading } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
+import { pickAgentId } from '@/lib/agent-selection';
 
 export default function Home() {
   const [runs, setRuns] = useState<RunRow[] | null>(null);
@@ -116,9 +117,9 @@ export default function Home() {
 
 function NewRun({ agents, onStarted }: { agents: Agent[]; onStarted: () => void }) {
   const [agentId, setAgentId] = useState('');
-    const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  useEffect(() => { if (!agentId && agents[0]) setAgentId(agents[0].id); }, [agents, agentId]);
+  useEffect(() => { setAgentId((cur) => pickAgentId(cur, agents)); }, [agents]);
   return (
     <Card title="New research run">
       <form className="form" onSubmit={async (e) => {

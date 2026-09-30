@@ -55,7 +55,7 @@ ok "replaying the same event key is idempotent"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -XPOST "$API/runtime/claim" -d '{}')" = 401 ] || fail "worker endpoint accepts anonymous calls"
 ok "worker protocol rejects anonymous callers"
 
-STREAM="$(timeout 3 curl -sN "$WEB/stream?after=0" || true)"
+STREAM="$(curl -m 3 -sN "$WEB/stream?after=0" || true)"
 grep -q '^event: run' <<<"$STREAM" || fail "no events through the console proxy stream"
 ok "live event stream works through the console proxy"
 echo "smoke passed"

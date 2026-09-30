@@ -15,7 +15,7 @@ Node engine ──snapshot──▶ Go control plane ──claim (lease + fence)
 
 ## Run it
 
-Needs docker, go, pnpm, jq. Do not pipe the launcher into another command.
+Needs docker, go, pnpm, jq, openssl. Do not pipe the launcher into another command.
 
 ```sh
 cd platform

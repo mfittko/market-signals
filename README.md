@@ -293,8 +293,8 @@ provider's fallback. The settings modal renders a **contextual provider panel**
 — pick a provider and only its relevant fields (model, base URL, key,
 `maxCompletionTokens`) appear. Optional keys: `model`, `models`, `notesFile`, `piBin`, `claudeBin`,
 `notifierBin`, `port`, `instrument`, `instruments` (dropdown CSV),
-`granularity`, `freshBars`, `consoleUrl`, `watchers`, `bot` (per-combo bot config), `info`
-(overlays toggle). Speech-to-text (chat mic button, #137): `sttOpenaiKey` (a
+`granularity`, `freshBars`, `watchers`, `bot` (per-combo bot config), `info`
+(overlays toggle). The platform key `consoleUrl` is set by hand in `settings.json` or by `platform/scripts/switch-launchd.sh up`. Speech-to-text (chat mic button, #137): `sttOpenaiKey` (a
 **real** OpenAI key — kept separate from the LLM `OPENAI_API_KEY`, which may be a
 chat-only proxy with no transcription endpoint), `sttOpenaiBaseUrl` (default
 `https://api.openai.com/v1`), `sttModel` (default `gpt-4o-mini-transcribe`),
