@@ -17,7 +17,7 @@ const slug = (s: string) => s.toLowerCase().replace('/', '-');
 // fractional digits, so trim them before parsing.
 export const timeMs = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
 const money = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
-const combos = (csv: string | undefined) => [...new Set((csv ?? '').split(',').map((c) => c.trim()))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
+const combos = (csv: string | undefined) => [...new Set((csv ?? '').split(',').map((c) => c.split('|').map((p) => p.trim()).join('|')))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
 
 // One feed for the alerts page and the desktop notifier: signals the filter let
 // through, agent proposals that ask for a trade, and paper-portfolio activity.

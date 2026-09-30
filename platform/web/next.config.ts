@@ -7,6 +7,9 @@ const api = process.env.MS_API_URL ?? 'http://127.0.0.1:8080';
 const config: NextConfig = {
   // keeps `next dev` from writing AGENTS.md / CLAUDE.md into the repo
   agentRules: false,
+  // The rewrite proxy drops a response that stays silent past this timeout (default 30 s).
+  // A chat round can think for minutes, so match the Go proxy's 180 s header budget.
+  experimental: { proxyTimeout: 180_000 },
   async rewrites() {
     return [{ source: '/api/v1/:path*', destination: `${api}/api/v1/:path*` }];
   },

@@ -143,7 +143,7 @@ export function ChatPanel({ symbol, granularity }: { symbol: string; granularity
               <div className="small muted think"><span className="dot pulse" aria-hidden="true" />{m.tools?.some((t) => t.state === 'running') ? 'Fetching data' : m.tools?.length ? 'Reading the results' : 'Thinking'}… {elapsed}s</div>
             )}
             {m.role === 'assistant' && m.content
-              ? <div className="bubble-t md"><Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" /> }}>{m.content}</Markdown></div>
+              ? <div className="bubble-t md"><Markdown remarkPlugins={[remarkGfm]} disallowedElements={['img']} components={{ a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" /> }}>{m.content}</Markdown></div>
               : m.content ? <div className="bubble-t">{m.content}</div> : null}
           </div>
         ))}

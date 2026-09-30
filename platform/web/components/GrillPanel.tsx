@@ -87,7 +87,7 @@ export function GrillPanel({ name, mode, draft, brief, onApply }: {
           return (
             <div key={i} className="grill-msg">
               <div className="muted small">Coach</div>
-              {!t ? <div className="md"><Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown></div> : (
+              {!t ? <div className="md"><Markdown remarkPlugins={[remarkGfm]} disallowedElements={['img']} components={{ a: ({ node: _n, ...p }) => <a {...p} target="_blank" rel="noreferrer noopener" /> }}>{m.content}</Markdown></div> : (
                 <>
                   {t.findings && t.findings.length > 0 && (
                     <div className="grill-find">

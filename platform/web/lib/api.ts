@@ -1,11 +1,18 @@
+export type Tripwire = {
+  kind: string; level?: number; dir?: string; pct?: number; atr?: number; bars?: number; minProfitAtr?: number; minutes?: number;
+};
+
 export type Decision = {
-  action: 'open' | 'close' | 'hold';
+  action: 'open' | 'close' | 'hold' | 'tighten_stop' | 'set_tripwires';
   side?: 'long' | 'short';
   notional?: number;
   stop?: number;
   target?: number | null;
   positionId?: number;
   reasoning?: string;
+  // wake actions on an open position
+  newStop?: number;
+  tripwires?: Tripwire[];
 };
 
 export type Validation = {
@@ -122,6 +129,9 @@ export function describe(d?: Decision | null): string {
   if (!d) return '';
   if (d.action === 'hold') return 'hold';
   if (d.action === 'close') return `close #${d.positionId}`;
+  if (d.action === 'tighten_stop') return `tighten stop on #${d.positionId} to ${d.newStop}`;
+  if (d.action === 'set_tripwires') return `set ${d.tripwires?.length ?? 0} tripwires on #${d.positionId}`;
+  if (d.action !== 'open') return String(d.action);
   const parts = [`open ${d.side}`];
   if (d.notional) parts.push(d.notional.toFixed(2));
   return parts.join(' ');

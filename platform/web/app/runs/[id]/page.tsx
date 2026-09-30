@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { api, describe, engineDecision, type Decision, type RunDetail, type RunEvent } from '@/lib/api';
+import { api, describe, engineDecision, type Decision, type RunDetail, type RunEvent, type Tripwire } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, Json, StatusPill, Loading } from '@/components/ui';
 import { CandleChart, type Candle } from '@/components/CandleChart';
@@ -14,7 +14,7 @@ export default function RunPage() {
   const [d, setD] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [chart, setChart] = useState<{ candles: Candle[]; source: string } | null>(null);
+  const [chart, setChart] = useState<{ candles: Candle[]; source: string; reason?: string } | null>(null);
   const [chartError, setChartError] = useState<string | null>(null);
   const { tick } = useLive((e) => String(e.runId) === id);
 
@@ -23,7 +23,7 @@ export default function RunPage() {
   }, [id]);
   useEffect(() => { void load(); }, [load, tick]);
   useEffect(() => {
-    api<{ candles: Candle[]; source: string }>(`/runs/${id}/chart`).then((c) => { setChart(c); setChartError(null); }).catch((e) => setChartError(e instanceof Error ? e.message : String(e)));
+    api<{ candles: Candle[]; source: string; reason?: string }>(`/runs/${id}/chart`).then((c) => { setChart(c); setChartError(null); }).catch((e) => setChartError(e instanceof Error ? e.message : String(e)));
   }, [id]);
 
   if (error && !d) return <main className="wrap"><p className="crumb"><Link href="/runs">Back to runs</Link></p><div className="msg err" role="alert">{error}</div></main>;
@@ -55,8 +55,8 @@ export default function RunPage() {
       {error && <div className="msg err" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
       {run.stopReason && <p className="muted" style={{ marginTop: -6 }}>Stop reason: {run.stopReason}</p>}
 
-      <Card title="Chart" aside={chart && <span className="muted small">{chart.source === 'snapshot' ? 'candles frozen in the snapshot' : 'live engine window, not frozen'}</span>} className="chart-card">
-        {chart ? (
+      <Card title="Chart" aside={chart && chart.source !== 'none' && <span className="muted small">{chart.source === 'snapshot' ? 'candles frozen in the snapshot' : 'live engine window, not frozen'}</span>} className="chart-card">
+        {chart?.reason ? <p className="muted">No chart: {chart.reason}.</p> : chart ? (
           <CandleChart candles={chart.candles} asOf={snapshot.payload.asOf} price={snapshot.payload.quote?.last ?? snapshot.payload.close}
             flip={snapshot.payload.flip} agent={run.proposal} engine={engine} />
         ) : chartError ? <p className="muted">{chartError}</p> : <p className="muted">Loading chart…</p>}
@@ -129,6 +129,9 @@ function ProposalView({ p }: { p: Decision }) {
     <div>
       <div className="decision">{describe(p)}</div>
       {p.action === 'open' && <div className="num muted">stop {p.stop}{p.target != null ? ` · target ${p.target}` : ''}</div>}
+      {p.action === 'set_tripwires' && (p.tripwires?.length
+        ? <ul className="small muted" style={{ margin: '4px 0 0' }}>{p.tripwires.map((t, i) => <li key={i}>{tripwireText(t)}</li>)}</ul>
+        : <div className="small muted">replaces the tripwires with an empty list</div>)}
       {p.reasoning && <p style={{ margin: '6px 0 0' }}>{p.reasoning}</p>}
     </div>
   );
@@ -167,4 +170,10 @@ function Event({ e }: { e: RunEvent }) {
     case 'status': return <div className="muted">Status: {p.status}{p.reason ? ` (${p.reason})` : ''}</div>;
     default: return <div className="muted">{e.kind}</div>;
   }
+}
+
+// kind plus the parameters the tripwire carries, e.g. "price_cross level 72.4 dir above"
+function tripwireText(t: Tripwire): string {
+  const params = Object.entries(t).filter(([k, v]) => k !== 'kind' && v != null && v !== 0 && v !== '');
+  return [t.kind, ...params.map(([k, v]) => `${k} ${v}`)].join(' ');
 }
