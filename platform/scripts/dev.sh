@@ -9,6 +9,8 @@
 #              the console proxy also forwards POST /settings, /chat, /memories and DELETE /threads.
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
 #              control plane for strategy coaching; the console starts without them).
+# Secrets: .dev/env (mode 600, gitignored) holds the worker and ingest tokens and the Postgres password, generated
+#          once. It also holds MS_DATABASE_URL for the binaries and MS_TEST_DATABASE_URL for go test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
@@ -48,6 +50,13 @@ load_env() {
     { echo "MS_WORKER_TOKEN=$(openssl rand -hex 16)"; echo "MS_INGEST_TOKEN=$(openssl rand -hex 16)"; } >"$RUN/env"
     chmod 600 "$RUN/env"
   fi
+  # the database password is generated once; an env file from before it existed gains it here
+  if ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
+    local pw; pw="$(openssl rand -hex 24)"
+    { echo "MS_DB_PASSWORD=$pw"
+      echo "MS_DATABASE_URL=postgres://ms:$pw@127.0.0.1:5544/ms"
+      echo "MS_TEST_DATABASE_URL=postgres://ms:$pw@127.0.0.1:5544/ms_test"; } >>"$RUN/env"
+  fi
   set -a
   . "$RUN/env"
   set +a
@@ -77,6 +86,10 @@ up() {
     docker compose exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
     sleep 1
   done
+  # POSTGRES_PASSWORD applies only when the volume is first created, so set the role password
+  # to the generated one every time; a volume created before the password existed keeps working.
+  # The local socket in the container needs no password. The SQL goes through stdin, off the process list.
+  printf "ALTER ROLE ms PASSWORD '%s';\n" "$MS_DB_PASSWORD" | docker compose exec -T postgres psql -q -U ms -d ms >/dev/null
   docker compose exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='ms_test'" | grep -q 1 \
     || docker compose exec -T postgres psql -U ms -d ms -c "CREATE DATABASE ms_test" >/dev/null
 
@@ -108,8 +121,9 @@ up() {
 
   if ! alive web; then
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
-    # the console never calls a model, so it does not inherit the LLM key
-    start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL pnpm dev
+    # the console never calls a model or the database, so it inherits neither the LLM key nor the database password
+    start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
+      -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
 
@@ -121,12 +135,14 @@ up() {
 }
 
 down() {
+  load_env # docker compose needs MS_DB_PASSWORD to read the compose file
   for p in web worker api; do stop_one "$p"; done
   if [ "${1:-}" = "--db" ]; then docker compose stop postgres >/dev/null; fi
   echo "stopped"
 }
 
 status() {
+  load_env
   for p in api worker web; do
     if alive "$p"; then echo "$p: running (pid $(cat "$RUN/$p.pid"))"; else echo "$p: stopped"; fi
   done

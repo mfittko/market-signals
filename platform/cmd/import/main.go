@@ -20,23 +20,20 @@ import (
 	"github.com/mfittko/market-signals/platform/migrations"
 )
 
-func env(k, d string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
-	}
-	return d
-}
-
 func main() {
 	sqlite := flag.String("sqlite", "../data/candles.db", "legacy SQLite file (a private copy is read, the file is never opened)")
 	settings := flag.String("settings", "../data/settings.json", "legacy settings.json (only the bot map is read)")
 	symbols := flag.String("symbols", "../config/candle-symbols.json", "validated candle symbols")
-	dburl := flag.String("db", env("MS_DATABASE_URL", "postgres://ms:ms@127.0.0.1:5544/ms"), "postgres URL")
+	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env)")
 	commit := flag.Bool("commit", false, "write the import. Without it the run rolls back.")
 	asJSON := flag.Bool("json", false, "print the full report as JSON")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if *dburl == "" {
+		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env)")
+		os.Exit(2)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	pool, err := db.Connect(ctx, *dburl)

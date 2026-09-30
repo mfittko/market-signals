@@ -83,9 +83,16 @@ changes or delays a bot decision.
 Run everything:
 
 ```sh
-cd platform && go test -p 1 -race ./...       # needs Postgres from scripts/dev.sh up
-node --test test/control-plane.test.mjs       # from the repo root
+(cd platform && set -a && . .dev/env && go test -p 1 -race -count=1 ./...)   # needs Postgres from scripts/dev.sh up
+node --test test/control-plane.test.mjs                                      # from the repo root
 ```
+
+No database password is committed. `scripts/dev.sh up` generates one into `platform/.dev/env` (mode 600, gitignored),
+passes it to Docker Compose as `MS_DB_PASSWORD` and sets the Postgres role to it. The same file holds
+`MS_DATABASE_URL`, which `cmd/api` and `cmd/import` require, and `MS_TEST_DATABASE_URL` for the Go tests. Tests
+skip without it, or fail when `MS_REQUIRE_DB=1` or `CI` is set. To run `docker compose` by hand, export the file first
+with `set -a && . .dev/env`. A stack started before the password existed keeps an api process that uses the old
+password, so run `scripts/dev.sh down` and then `scripts/dev.sh up` once.
 
 ## Deliberate simplifications
 
@@ -106,4 +113,5 @@ node --test test/control-plane.test.mjs       # from the repo root
 standing rules, prompt versions and rechecks) and the bot map into
 Postgres in one transaction. Without `-commit` it is a dry run that rolls back. It commits only when every
 invariant holds, including that cash reconciles with realized profit. Open positions in the source fail that
-check, so close them first. `go run ./cmd/import -h` lists the flags.
+check, so close them first. It reads the database from `MS_DATABASE_URL` or `-db`, so export `.dev/env` first.
+`go run ./cmd/import -h` lists the flags.

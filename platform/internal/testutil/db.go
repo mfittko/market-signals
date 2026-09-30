@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"testing"
@@ -26,14 +27,23 @@ func Required() bool {
 	return os.Getenv("CI") != "" || os.Getenv("MS_REQUIRE_DB") == "1"
 }
 
+// DatabaseURL returns MS_TEST_DATABASE_URL. No credential is committed: scripts/dev.sh
+// writes the URL to platform/.dev/env, and CI sets it for its service container.
+func DatabaseURL() (string, error) {
+	if u := os.Getenv("MS_TEST_DATABASE_URL"); u != "" {
+		return u, nil
+	}
+	return "", errors.New("MS_TEST_DATABASE_URL is not set (scripts/dev.sh up writes it to platform/.dev/env)")
+}
+
 // Pool returns a truncated database. When Postgres is down it skips the test,
 // or fails it when Required reports true.
 func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	once.Do(func() {
-		url := os.Getenv("MS_TEST_DATABASE_URL")
-		if url == "" {
-			url = "postgres://ms:ms@127.0.0.1:5544/ms_test"
+		var url string
+		if url, perr = DatabaseURL(); perr != nil {
+			return
 		}
 		ctx := context.Background()
 		if pool, perr = db.Connect(ctx, url); perr == nil {

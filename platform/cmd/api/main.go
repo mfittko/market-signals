@@ -31,12 +31,16 @@ func env(k, d string) string {
 
 func main() {
 	addr := flag.String("addr", env("MS_API_ADDR", "127.0.0.1:8080"), "listen address (keep it on loopback)")
-	dburl := flag.String("db", env("MS_DATABASE_URL", "postgres://ms:ms@127.0.0.1:5544/ms"), "postgres URL")
+	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env)")
 	engine := flag.String("engine", env("MS_ENGINE_URL", ""), "engine base URL for read tools and operator snapshots, e.g. http://127.0.0.1:4123")
 	seed := flag.Bool("seed", false, "create the default demo agents when missing")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if *dburl == "" {
+		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env)")
+		os.Exit(2)
+	}
 	worker, ingest := os.Getenv("MS_WORKER_TOKEN"), os.Getenv("MS_INGEST_TOKEN")
 	if worker == "" || ingest == "" {
 		log.Error("MS_WORKER_TOKEN and MS_INGEST_TOKEN must be set (scripts/dev.sh generates them)")

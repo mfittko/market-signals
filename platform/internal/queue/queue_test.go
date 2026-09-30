@@ -22,13 +22,12 @@ import (
 var testPool *pgxpool.Pool
 
 func TestMain(m *testing.M) {
-	url := os.Getenv("MS_TEST_DATABASE_URL")
-	if url == "" {
-		url = "postgres://ms:ms@127.0.0.1:5544/ms_test"
-	}
 	ctx := context.Background()
-	var err error
-	if testPool, err = db.Connect(ctx, url); err != nil && testutil.Required() {
+	url, err := testutil.DatabaseURL()
+	if err == nil {
+		testPool, err = db.Connect(ctx, url)
+	}
+	if err != nil && testutil.Required() {
 		fmt.Println("FAIL: postgres unavailable and required (CI or MS_REQUIRE_DB=1):", err)
 		os.Exit(1)
 	} else if err != nil {
