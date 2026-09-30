@@ -29,8 +29,8 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: ms
-          # throwaway service container that lives for one job; local stacks generate their own password
-          POSTGRES_PASSWORD: ms
+          # throwaway service container for one job; trust auth means no credential is committed
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: ms_test
         ports:
           - 5544:5432
@@ -43,7 +43,7 @@ jobs:
       run:
         working-directory: platform
     env:
-      MS_TEST_DATABASE_URL: postgres://ms:ms@127.0.0.1:5544/ms_test
+      MS_TEST_DATABASE_URL: postgres://ms@127.0.0.1:5544/ms_test
       # a missing database fails the job instead of skipping every DB test
       MS_REQUIRE_DB: "1"
     steps:
