@@ -26,8 +26,8 @@ const pick = (o: Option) => `I choose: ${o.label}${o.detail ? ` (${o.detail})` :
 // Grill mode: the coach asks one question at a time with predefined answers and a recommendation.
 // The trader clicks an answer, accepts the recommendation, skips, or types their own.
 // Applying a proposed prompt only fills the editor. Nothing is saved until the trader saves a version.
-export function GrillPanel({ name, mode, draft, brief, onApply }: {
-  name: string; mode: 'refine' | 'create'; draft: string; brief?: string; onApply: (prompt: string) => void;
+export function GrillPanel({ name, mode, draft, brief, onApply, reset = 0 }: {
+  name: string; mode: 'refine' | 'create'; draft: string; brief?: string; onApply: (prompt: string) => void; reset?: number;
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -39,6 +39,7 @@ export function GrillPanel({ name, mode, draft, brief, onApply }: {
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [msgs, busy]);
   // a different strategy is a different interview
   useEffect(() => { setMsgs([]); setError(null); setApplied(null); setOwn(false); }, [name]);
+  useEffect(() => { setApplied(null); }, [reset]); // the editor text was restored
 
   async function send(text: string) {
     if (busy || !text.trim()) return;
@@ -53,6 +54,9 @@ export function GrillPanel({ name, mode, draft, brief, onApply }: {
         body: JSON.stringify({ name, mode, draft, brief, messages: hist.map(({ role, content }) => ({ role, content })) }),
       });
       setMsgs([...next, { role: 'assistant', content: r.reply, turn: r.turn }]);
+      // a proposed prompt goes straight into the editor; the wrapper offers Undo the proposal
+      const proposal = r.turn?.prompt ?? proposedPrompt(r.reply);
+      if (proposal) { onApply(proposal); setApplied(next.length); }
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }

@@ -31,7 +31,7 @@ function Row({ label, c }: { label: string; c: Cand }) {
 
 // Auto grill: no questions. The console backtests Supertrend flips with a small grid of settings,
 // ranks them on early trades, judges them on later trades, and the coach rewrites the prompt from that evidence.
-export function AutoGrill({ name, draft, scopes, onApply }: { name: string; draft: string; scopes: Scope[]; onApply: (p: string) => void }) {
+export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: string; draft: string; scopes: Scope[]; onApply: (p: string) => void; reset?: number }) {
   // the strategy's own scopes first, then the same instruments on other timeframes: a short H1 history often needs M5
   const options = useMemo(() => {
     const seen = new Set<string>(), out: Scope[] = [];
@@ -50,12 +50,19 @@ export function AutoGrill({ name, draft, scopes, onApply }: { name: string; draf
   const scopeKey = scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
   useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => { setApplied(false); }, [reset]); // the editor text was restored
+
   if (scopes.length === 0) return <p className="muted small">This strategy has no instrument yet. Assign it to an agent first, so there is history to test.</p>;
 
   async function run() {
     if (!scope || busy) return;
     setBusy(true); setError(null); setRes(null); setApplied(false);
-    try { setRes(await api<Result>('/strategies/autogrill', { method: 'POST', body: JSON.stringify({ name, draft, ...scope }) })); }
+    try {
+      const r = await api<Result>('/strategies/autogrill', { method: 'POST', body: JSON.stringify({ name, draft, ...scope }) });
+      setRes(r);
+      // a rewritten prompt goes straight into the editor; the wrapper offers Undo the proposal
+      if (r.turn?.prompt) { onApply(r.turn.prompt); setApplied(true); }
+    }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
@@ -106,20 +113,32 @@ export function AutoGrill({ name, draft, scopes, onApply }: { name: string; draf
   );
 }
 
-// One place for both ways to sharpen a strategy.
+// One place for both ways to sharpen a strategy. A proposed prompt goes straight into the editor.
+// The text from before the first proposal is kept, so one click on Undo the proposal restores it.
 export function Sharpen({ name, mode, draft, brief, scopes, onApply }: {
   name: string; mode: 'refine' | 'create'; draft: string; brief?: string; scopes: Scope[]; onApply: (p: string) => void;
 }) {
   const [tab, setTab] = useState<'guided' | 'auto'>('guided');
+  const [before, setBefore] = useState<string | null>(null);
+  const [reset, setReset] = useState(0);
+  useEffect(() => { setBefore(null); }, [name]);
+  const apply = (p: string) => { setBefore((b) => b ?? draft); onApply(p); };
+  const discard = () => { if (before === null) return; onApply(before); setBefore(null); setReset((n) => n + 1); };
   return (
     <div>
       <div role="group" aria-label="Grill mode" style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
         <button className={tab === 'guided' ? '' : 'ghost'} aria-pressed={tab === 'guided'} onClick={() => setTab('guided')}>Guided</button>
         <button className={tab === 'auto' ? '' : 'ghost'} aria-pressed={tab === 'auto'} onClick={() => setTab('auto')}>Auto (backtest)</button>
       </div>
+      {before !== null && (
+        <p className="msg" role="status" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>The editor now holds the coach's proposal. Nothing is saved until you save a version.</span>
+          <button className="ghost" onClick={discard}>Undo the proposal</button>
+        </p>
+      )}
       {tab === 'guided'
-        ? <GrillPanel name={name} mode={mode} draft={draft} brief={brief} onApply={onApply} />
-        : <AutoGrill name={name} draft={draft} scopes={scopes} onApply={onApply} />}
+        ? <GrillPanel name={name} mode={mode} draft={draft} brief={brief} onApply={apply} reset={reset} />
+        : <AutoGrill name={name} draft={draft} scopes={scopes} onApply={apply} reset={reset} />}
     </div>
   );
 }
