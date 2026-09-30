@@ -121,13 +121,15 @@ type chartCandle struct {
 
 // chartCandles returns complete candles only. It prefers the frozen copy in the
 // snapshot; without one it reads the engine's current window, labelled as live.
-func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularity string, payload json.RawMessage) ([]chartCandle, string, error) {
+// When the snapshot's time lies outside that window it returns no candles and a
+// reason; the error is kept for an unreachable engine.
+func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularity string, payload json.RawMessage) ([]chartCandle, string, string, error) {
 	var snap struct {
 		AsOf    string        `json:"asOf"`
 		Candles []chartCandle `json:"candles"`
 	}
 	if json.Unmarshal(payload, &snap) == nil && len(snap.Candles) >= 5 {
-		return snap.Candles, "snapshot", nil
+		return snap.Candles, "snapshot", "", nil
 	}
 	var raw struct {
 		Candles []struct {
@@ -138,7 +140,7 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	}
 	q := url.Values{"instrument": {instrument}, "granularity": {granularity}}
 	if err := eng.Get(ctx, "/api/chart", q, &raw); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	out := []chartCandle{}
 	for _, c := range raw.Candles {
@@ -152,9 +154,9 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	// A snapshot without candles (the bundled demo) refers to a moment the live
 	// window may not cover. Drawing its levels over unrelated candles misleads.
 	if snap.AsOf != "" && (len(out) == 0 || snap.AsOf < out[0].Time || snap.AsOf > out[len(out)-1].Time) {
-		return nil, "", errors.New("this snapshot's time is outside the engine's current candle window")
+		return []chartCandle{}, "none", "this snapshot's time is outside the engine's current candle window and the snapshot holds no candles", nil
 	}
-	return out, "engine", nil
+	return out, "engine", "", nil
 }
 
 // withStrategy puts the agent's strategy into a snapshot. The agent's strategy

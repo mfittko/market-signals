@@ -5,6 +5,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -124,11 +125,16 @@ func (e *Engine) fetch(ctx context.Context, path string, q url.Values) ([]byte, 
 
 func bound(v any) (string, error) { return boundTo(v, MaxOutputBytes) }
 
+// boundTo encodes without HTML escaping. Escaping turns each <, > and & into six bytes, so a
+// snapshot that passed the ingest cap could grow past it here and be cut into invalid JSON.
 func boundTo(v any, max int) (string, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		return "", err
 	}
+	b := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 	if len(b) > max {
 		return string(b[:max]) + `..."[truncated]`, nil
 	}

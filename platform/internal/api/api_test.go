@@ -263,6 +263,15 @@ func TestRunChartPrefersFrozenCandlesAndFallsBackToCompleteEngineCandles(t *test
 	if code != 200 || out["source"] != "engine" || len(out["candles"].([]any)) != 1 {
 		t.Fatalf("the forming candle must be dropped from the live fallback: %d %v", code, out)
 	}
+	// outside the engine window the chart is empty with a reason, and the request still succeeds
+	c, err := st.Ingest(ctx, queue.IngestInput{IdemKey: "c3", Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: "demo", Payload: json.RawMessage(`{"close":1,"asOf":"2020-01-01T00:00:00Z"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out = call(t, "GET", hs.URL+"/api/v1/runs/"+jn(float64(c.Runs[0].RunID))+"/chart", "", "", nil)
+	if code != 200 || len(out["candles"].([]any)) != 0 || out["reason"] == nil {
+		t.Fatalf("an out-of-window snapshot must return 200 with no candles and a reason: %d %v", code, out)
+	}
 }
 
 func TestChartCandlesPrefersSnapshotAndRejectsForeignMoments(t *testing.T) {
@@ -270,16 +279,16 @@ func TestChartCandlesPrefersSnapshotAndRejectsForeignMoments(t *testing.T) {
 	ctx := context.Background()
 
 	frozen := `{"asOf":"2020-01-01T00:00:00Z","candles":[` + strings.Repeat(`{"time":"2020-01-01T00:00:00Z","open":1,"high":2,"low":1,"close":1,"volume":1},`, 4) + `{"time":"2020-01-01T00:05:00Z","open":1,"high":2,"low":1,"close":1,"volume":1}]}`
-	if c, src, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(frozen)); err != nil || src != "snapshot" || len(c) != 5 {
+	if c, src, _, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(frozen)); err != nil || src != "snapshot" || len(c) != 5 {
 		t.Fatalf("frozen candles must win: %v %s %d", err, src, len(c))
 	}
 	// no frozen candles, asOf inside the engine window: falls back to the live window
-	if _, src, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2026-01-01T10:00:00Z"}`)); err != nil || src != "engine" {
+	if _, src, _, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2026-01-01T10:00:00Z"}`)); err != nil || src != "engine" {
 		t.Fatalf("in-window fallback: %v %s", err, src)
 	}
-	// no frozen candles and a moment the live window does not cover: refuse, do not mislead
-	if _, _, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2020-01-01T00:00:00Z"}`)); err == nil {
-		t.Fatal("a foreign moment must not be drawn over live candles")
+	// no frozen candles and a moment the live window does not cover: no candles and a reason
+	if c, _, reason, err := chartCandles(ctx, eng, "WTICO/USD", "M5", json.RawMessage(`{"asOf":"2020-01-01T00:00:00Z"}`)); err != nil || len(c) != 0 || reason == "" {
+		t.Fatalf("a foreign moment must not be drawn over live candles: %v %d %q", err, len(c), reason)
 	}
 }
 
@@ -690,6 +699,20 @@ func TestRebindingHostIsRefusedEvenWhenOriginMatches(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusForbidden {
 			t.Fatalf("%s with a foreign Host must be refused, got %d", method, resp.StatusCode)
+		}
+	}
+	// the console proxy keeps Host on loopback and forwards the page host in X-Forwarded-Host
+	for fwd, want := range map[string]int{"attacker.example:3000": http.StatusForbidden, "localhost:3000": 200} {
+		req, _ := http.NewRequest("GET", hs.URL+"/api/v1/health", nil)
+		req.Host = "127.0.0.1:8080"
+		req.Header.Set("X-Forwarded-Host", fwd)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("forwarded host %q: got %d, want %d", fwd, resp.StatusCode, want)
 		}
 	}
 	for _, host := range []string{"localhost:8080", "127.0.0.1:8080", "[::1]:8080"} {

@@ -93,7 +93,7 @@ func (s *Server) desk(w http.ResponseWriter, r *http.Request) {
 		  COALESCE((SELECT sum(realized) FROM trades t WHERE t.instrument=i.symbol),0)
 		FROM instruments i
 		LEFT JOIN cs ON cs.instrument=i.symbol
-		LEFT JOIN LATERAL (SELECT signal, time FROM signals s WHERE s.instrument=i.symbol ORDER BY time DESC LIMIT 1) ls ON true
+		LEFT JOIN LATERAL (SELECT signal, time FROM signals s WHERE s.instrument=i.symbol ORDER BY time DESC, granularity, kind LIMIT 1) ls ON true
 		ORDER BY (SELECT count(*) FROM agents a WHERE a.instrument=i.symbol AND a.enabled) DESC, i.market, i.symbol`)
 	if err != nil {
 		s.fail500(w, err)
@@ -206,7 +206,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		Reason      *string   `json:"reason"`
 	}
 	sigs := []sig{}
-	srow, err := s.st.Pool.Query(ctx, `SELECT granularity, time, kind, signal, price, verdict, reason FROM signals WHERE instrument=$1 ORDER BY time DESC LIMIT 40`, symbol)
+	srow, err := s.st.Pool.Query(ctx, `SELECT granularity, time, kind, signal, price, verdict, reason FROM signals WHERE instrument=$1 ORDER BY time DESC, granularity, kind LIMIT 40`, symbol)
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -235,7 +235,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		StrategyHash *string   `json:"strategyHash"`
 	}
 	trades := []trade{}
-	trow, err := s.st.Pool.Query(ctx, `SELECT position_id, granularity, side, entry_price, entry_time, close_price, close_time, realized, close_reason, strategy_hash FROM trades WHERE instrument=$1 ORDER BY close_time DESC LIMIT 40`, symbol)
+	trow, err := s.st.Pool.Query(ctx, `SELECT position_id, granularity, side, entry_price, entry_time, close_price, close_time, realized, close_reason, strategy_hash FROM trades WHERE instrument=$1 ORDER BY close_time DESC, source_key LIMIT 40`, symbol)
 	if err != nil {
 		s.fail500(w, err)
 		return

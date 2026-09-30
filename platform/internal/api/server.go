@@ -58,16 +58,31 @@ func hostName(hostport string) string {
 	return strings.Trim(hostport, "[]")
 }
 
+// servedHost reports whether a Host value is a loopback name or a configured console host.
+func (s *Server) servedHost(hostport string) bool {
+	h := hostName(strings.TrimSpace(hostport))
+	if h == "localhost" || h == "127.0.0.1" || h == "::1" {
+		return true
+	}
+	for _, a := range s.cfg.AllowedOrigins {
+		if h == hostName(a) {
+			return true
+		}
+	}
+	return false
+}
+
 // hostGuard refuses any request whose Host header is not a loopback name or a configured console
 // host. A DNS-rebinding page controls both its Origin and its Host, so matching the two proves
-// nothing: the Host itself must be one we serve. This covers reads as well as writes.
+// nothing: the Host itself must be one we serve. This covers reads as well as writes. The console
+// proxy rewrites Host to the API address and forwards the page host in X-Forwarded-Host, so every
+// forwarded host must pass the same check.
 func (s *Server) hostGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := hostName(r.Host)
-		ok := h == "localhost" || h == "127.0.0.1" || h == "::1"
-		for _, a := range s.cfg.AllowedOrigins {
-			if h == hostName(a) {
-				ok = true
+		ok := s.servedHost(r.Host)
+		for _, v := range r.Header.Values("X-Forwarded-Host") {
+			for _, fh := range strings.Split(v, ",") {
+				ok = ok && s.servedHost(fh)
 			}
 		}
 		if !ok {
@@ -654,10 +669,14 @@ func (s *Server) runChart(w http.ResponseWriter, r *http.Request) {
 		s.runtimeErr(w, err)
 		return
 	}
-	candles, source, err := chartCandles(r.Context(), s.eng, d.Snapshot.Instrument, d.Snapshot.Granularity, d.Snapshot.Payload)
+	candles, source, reason, err := chartCandles(r.Context(), s.eng, d.Snapshot.Instrument, d.Snapshot.Granularity, d.Snapshot.Payload)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable and this snapshot holds no candles"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"candles": candles, "source": source})
+	out := map[string]any{"candles": candles, "source": source}
+	if reason != "" {
+		out["reason"] = reason
+	}
+	writeJSON(w, http.StatusOK, out)
 }

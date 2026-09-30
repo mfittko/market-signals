@@ -26,3 +26,19 @@ func TestSnapshotToolReturnsValidJSONForALongStrategy(t *testing.T) {
 		t.Fatalf("snapshot came back cut: %d bytes", len(out))
 	}
 }
+
+// A snapshot at the ingest cap full of <, > and & must come back byte-for-byte, because
+// HTML escaping would grow it past the cap and cut it into invalid JSON.
+func TestSnapshotToolDoesNotEscapeHTML(t *testing.T) {
+	prompt := strings.Repeat("close > EMA & ", 1<<20)
+	payload := []byte(`{"strategy":{"prompt":"` + prompt[:MaxSnapshotBytes-40] + `"}}`)
+	tc := &queue.ToolContext{}
+	tc.Snapshot.Payload = payload
+	out, err := Exec(context.Background(), nil, nil, 0, 0, tc, "get_snapshot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != string(payload) {
+		t.Fatalf("snapshot changed on read: %d bytes in, %d out, valid %v", len(payload), len(out), json.Valid([]byte(out)))
+	}
+}
