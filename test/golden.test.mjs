@@ -44,7 +44,14 @@ test('golden: fixtures are small, path-free and secret-free', () => {
     const p = join(GOLDEN_DIR, f);
     total += statSync(p).size;
     const text = readFileSync(p, 'utf8');
-    assert.doesNotMatch(text, /\/Users\/|\/home\/|[A-Za-z]:\\|tmp\/|token|secret|password|api[_-]?key|sk-[A-Za-z0-9]{10}/i, `${f} holds a path or secret-like text`);
+    assert.doesNotMatch(text, /token|secret|password|api[_-]?key|sk-[A-Za-z0-9]{10}/i, `${f} holds secret-like text`);
+    // any string value that looks like a filesystem path: POSIX absolute, UNC, drive letter, home or tmp
+    const pathLike = (s) => /^(\/|\\\\|[A-Za-z]:[\\/]|~|\.\.?[\\/])/.test(s) || /(^|[\\/])(tmp|Users|home)[\\/]/.test(s);
+    const walk = (v) => {
+      if (typeof v === 'string') assert.ok(!pathLike(v), `${f} holds a path-like string: ${v}`);
+      else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+    };
+    walk(JSON.parse(text));
   }
   assert.ok(total < 200 * 1024, `fixtures total ${total} bytes, budget 200 KB`);
 });
