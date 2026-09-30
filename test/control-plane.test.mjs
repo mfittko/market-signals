@@ -121,15 +121,22 @@ test('an unreachable control plane cannot change or delay a bot decision', async
   writeFileSync(bin, `#!/bin/sh\ncat > /dev/null\necho '{"action":"hold","reasoning":"checked"}'\n`);
   chmodSync(bin, 0o755);
   const settings = { provider: 'pi', piBin: bin, bot: { enabled: true, riskPct: 100 } };
-  process.env.MS_CONTROL_PLANE_URL = 'http://127.0.0.1:9'; // nothing listens on the discard port
+  process.env.MS_CONTROL_PLANE_URL = 'http://control-plane.invalid';
+  // A control plane that never answers: the decision must resolve without it.
+  const realFetch = globalThis.fetch;
+  const hung = [];
+  globalThis.fetch = (url, init) => {
+    if (String(url).startsWith('http://control-plane.invalid')) { hung.push(String(url)); return new Promise(() => {}); }
+    return realFetch(url, init);
+  };
   try {
-    const t0 = Date.now();
     const db = join(dir, 'bot.sqlite');
     const r = await deliberate(db, settings, { instrument: WTI, granularity: 'M5', event: 'flip', ctx: { close: 87, quote: { last: 87 } } });
     assert.equal(r.decision.action, 'hold');
-    assert.ok(Date.now() - t0 < 5000, 'decision must not wait for the control plane');
+    assert.deepEqual(hung, ['http://control-plane.invalid/api/v1/events'], 'the snapshot was sent and never answered');
     assert.ok(portfolioView(db, botConfig(settings)).journal.some((j) => j.action === 'decision'));
   } finally {
+    globalThis.fetch = realFetch;
     delete process.env.MS_CONTROL_PLANE_URL;
   }
 });
