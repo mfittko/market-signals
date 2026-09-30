@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check of a running stack (scripts/dev.sh up). Uses only the mock agent, so it needs no model or network.
+# Safe against a live stack: every agent, event and run it creates uses the private agent smoke-mock on the private
+# instrument SMOKE/TEST, which no real agent shares, so no real agent receives its events or opens a position.
+# The smoke agent is switched off again on exit.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . .dev/env
@@ -22,15 +25,15 @@ curl -fsS "$WEB/health" | jq -e '.ok and (.stats.workers | map(select(.online)) 
   || fail "no online worker via the console proxy"
 ok "console proxy reaches the control plane and a worker is online"
 
-# a fresh stack has no agents, so create the deterministic mock agent the checks below use
-if ! curl -fsS "$API/agents" | jq -e '.agents | map(select(.id=="wti-m5-mock")) | length > 0' >/dev/null; then
-  curl -fsS -XPOST "$API/agents" -d '{"id":"wti-m5-mock","name":"WTI M5 (deterministic mock)","instrument":"WTICO/USD","granularity":"M5","runtime":"mock",
-    "allowedTools":["get_snapshot","get_portfolio","get_recent_candles","get_recent_signals","schedule_followup"],"enabled":true}' >/dev/null \
-    || fail "could not create the mock agent"
-  ok "created the mock agent wti-m5-mock"
-fi
+smoke_agent() { # enabled: true or false
+  curl -fsS -XPOST "$API/agents" -d '{"id":"smoke-mock","name":"Smoke test (deterministic mock)","instrument":"SMOKE/TEST","granularity":"M5","runtime":"mock",
+    "allowedTools":["get_snapshot","get_portfolio","get_recent_candles","get_recent_signals","schedule_followup"],"enabled":'"$1"'}' >/dev/null
+}
+trap 'smoke_agent false >/dev/null 2>&1 || true' EXIT
+smoke_agent true || fail "could not create the mock agent"
+ok "registered the private mock agent smoke-mock"
 
-R="$(curl -fsS -XPOST "$WEB/runs" -d '{"agentId":"wti-m5-mock","source":"demo"}' | jq -r '.runs[0].runId')"
+R="$(curl -fsS -XPOST "$WEB/runs" -d '{"agentId":"smoke-mock","source":"demo"}' | jq -r '.runs[0].runId')"
 wait_status "$R" succeeded 20
 curl -fsS "$API/runs/$R" | jq -e '.run.validation.valid and (.run.validation.committed|not) and .run.proposal.action=="open"' >/dev/null \
   || fail "demo proposal invalid"
@@ -39,8 +42,8 @@ ok "demo event, snapshot, mock agent, validated shadow proposal (run $R)"
 KEY="smoke-$(date +%s)"
 PAYLOAD='{"close":93.02,"quote":{"last":93.02},"trend":"down","supertrend":93.6,"flip":{"signal":"sell","price":93.02},"portfolio":{"equity":10000,"cash":10000,"halted":false,"positions":[]}}'
 E="$(curl -fsS -XPOST "$API/events" -H "Authorization: Bearer $MS_INGEST_TOKEN" \
-  -d "{\"idempotencyKey\":\"$KEY\",\"instrument\":\"WTICO/USD\",\"granularity\":\"M5\",\"event\":\"flip\",\"payload\":$PAYLOAD}" \
-  | jq -r '.runs[] | select(.agentId=="wti-m5-mock") | .runId')"
+  -d "{\"idempotencyKey\":\"$KEY\",\"instrument\":\"SMOKE/TEST\",\"granularity\":\"M5\",\"event\":\"flip\",\"payload\":$PAYLOAD}" \
+  | jq -r '.runs[] | select(.agentId=="smoke-mock") | .runId')"
 wait_status "$E" succeeded 20
 curl -fsS -XPOST "$API/events/$KEY/legacy" -H "Authorization: Bearer $MS_INGEST_TOKEN" \
   -d '{"decision":{"action":"open","side":"short"}}' >/dev/null
@@ -48,7 +51,7 @@ curl -fsS "$API/runs/$E" | jq -e '.run.comparison=="agree"' >/dev/null || fail "
 ok "engine event ingested; agent and engine agree (run $E)"
 
 curl -fsS -XPOST "$API/events" -H "Authorization: Bearer $MS_INGEST_TOKEN" \
-  -d "{\"idempotencyKey\":\"$KEY\",\"instrument\":\"WTICO/USD\",\"granularity\":\"M5\",\"event\":\"flip\",\"payload\":{\"close\":1}}" \
+  -d "{\"idempotencyKey\":\"$KEY\",\"instrument\":\"SMOKE/TEST\",\"granularity\":\"M5\",\"event\":\"flip\",\"payload\":{\"close\":1}}" \
   | jq -e '.newSnapshot|not' >/dev/null || fail "replay created a new snapshot"
 ok "replaying the same event key is idempotent"
 

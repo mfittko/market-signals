@@ -118,6 +118,10 @@ func (s *Service) Tick(ctx context.Context) error {
 // advance replays the completed bars a position has not seen, one at a time.
 func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) error {
 	pos := fromQueue(q)
+	durable := make(map[string]int, len(q.LastFired)) // the cooldown marks that are stored
+	for k, v := range q.LastFired {
+		durable[k] = v
+	}
 	var lastBar time.Time
 	if q.LastBarTime != nil {
 		lastBar = *q.LastBarTime
@@ -198,7 +202,8 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 			}
 			return nil
 		}
-		q.Stop, q.BarsHeld, q.Best, q.LastClose, q.LastFired = pos.Stop, pos.BarsHeld, pos.Best, pos.LastClose, pos.LastFired
+		// A cooldown mark is stored only once its wake is enqueued and recorded, so a failed wake is retried on a later bar.
+		q.Stop, q.BarsHeld, q.Best, q.LastClose, q.LastFired = pos.Stop, pos.BarsHeld, pos.Best, pos.LastClose, durable
 		stored, err := s.Store.SavePosition(ctx, q)
 		if err != nil {
 			return err
@@ -212,8 +217,18 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 		if res.Trailed {
 			_ = s.Store.AddPositionEvent(ctx, q.ID, "trail", map[string]any{"stop": pos.Stop, "bar": b.Time})
 		}
+		marked := false
 		for _, tw := range res.Fired {
-			s.wake(ctx, q, tw, b.Time, b.Close, m)
+			if s.wake(ctx, q, tw, b.Time, b.Close, m) {
+				durable[Key(tw)] = pos.LastFired[Key(tw)]
+				marked = true
+			}
+		}
+		if marked {
+			q.LastFired = durable
+			if _, err := s.Store.SavePosition(ctx, q); err != nil {
+				return err
+			}
 		}
 	}
 	// a silent feed still matters: feed_stale tripwires look at the age of the newest complete bar
@@ -228,42 +243,44 @@ func (s *Service) advance(ctx context.Context, q queue.Position, m *Market) erro
 				continue
 			}
 			pos.LastFired[k] = pos.BarsHeld
-			q.LastFired = pos.LastFired
-			if _, err := s.Store.SavePosition(ctx, q); err != nil {
-				return err
+			if s.wake(ctx, q, tw, m.Bars[len(m.Bars)-1].Time, m.Price, m) {
+				durable[k] = pos.BarsHeld
+				q.LastFired = durable
+				if _, err := s.Store.SavePosition(ctx, q); err != nil {
+					return err
+				}
 			}
-			s.wake(ctx, q, tw, m.Bars[len(m.Bars)-1].Time, m.Price, m)
 		}
 	}
 	return nil
 }
 
 // wake enqueues one run for the owning agent, inside the wake limits. It never blocks the
-// deterministic rules: a skipped or failed wake leaves the stop in force.
-func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire, barTime time.Time, price float64, m *Market) {
+// deterministic rules: a skipped wake leaves the stop in force. It returns false only when the wake failed and should be retried.
+func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire, barTime time.Time, price float64, m *Market) bool {
 	skip := func(why string) {
 		_ = s.Store.AddPositionEvent(ctx, q.ID, "wake_skipped", map[string]any{"tripwire": tw.Kind, "why": why, "bar": barTime})
 	}
 	agent, err := s.Store.GetAgent(ctx, q.AgentID)
 	if err != nil || !agent.Enabled {
 		skip("the agent is off; the exit plan still applies")
-		return
+		return true
 	}
 	ws, err := s.Store.WakeState(ctx, q.ID, s.now())
 	if err != nil {
 		s.Log.Error("wake state", "position", q.ID, "err", err)
-		return
+		return false
 	}
 	switch {
 	case ws.InFlight:
 		skip("an earlier wake has not finished")
-		return
+		return true
 	case ws.Last24h >= MaxWakesPer24h:
 		skip(fmt.Sprintf("%d wakes in 24 hours already", ws.Last24h))
-		return
+		return true
 	case q.Wakes >= MaxWakesPerTrade:
 		skip(fmt.Sprintf("%d wakes for this trade already", q.Wakes))
-		return
+		return true
 	}
 	if price <= 0 {
 		price = q.LastClose
@@ -292,7 +309,7 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 	})
 	if err != nil {
 		s.Log.Error("wake ingest", "position", q.ID, "err", err)
-		return
+		return false
 	}
 	if len(res.Runs) == 0 {
 		// The snapshot is stored under this wake's key, so a retry would also enqueue nothing. This happens when the
@@ -302,13 +319,15 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 			"why": "the agent's instrument or timeframe no longer matches this position, so no run was queued; the exit plan still applies"}); err != nil {
 			s.Log.Error("raise attention", "position", q.ID, "err", err)
 		}
-		return
+		return true
 	}
 	// Record even when the run already existed: a crash between the enqueue and this call must not leave
 	// a wake the counters and the in-flight check cannot see. RecordWake ignores a run it has noted.
 	if err := s.Store.RecordWake(ctx, q.ID, res.Runs[0].RunID, map[string]any{"tripwire": tw.Kind, "bar": barTime, "price": price}); err != nil {
 		s.Log.Error("record wake", "position", q.ID, "run", res.Runs[0].RunID, "err", err)
+		return false
 	}
+	return true
 }
 
 // tighter returns whichever stop sits closer to price for the side.

@@ -4,6 +4,7 @@
 #   - the engine's SQLite files (candles, signals) and its settings and notes
 #
 #   scripts/backup.sh [dest-dir]      dump into <dest-dir>/<timestamp>/ (default: <main checkout>/tmp/backups)
+#   (a folder is marked and kept only after its dump verifies; a failed run removes its folder)
 #   scripts/backup.sh restore <dir>   restore the Postgres dump from a backup directory (asks first)
 #   scripts/backup.sh prune <dest-dir> apply the retention rule below without taking a backup
 #
@@ -21,7 +22,7 @@ die() { echo "error: $*" >&2; exit 1; }
 command -v docker >/dev/null || die "docker is required"
 
 restore() {
-  local dir="${1:-}"; [ -f "$dir/console.pgdump" ] || die "usage: $0 restore <backup-dir containing console.pgdump>"
+  local dir="${1:-}"; [ -f "$dir/console.pgdump" ] && [ -f "$dir/$MARKER" ] || die "usage: $0 restore <backup-dir containing console.pgdump>"
   echo "This replaces the contents of the console database with $dir/console.pgdump."
   read -r -p "Type 'restore' to continue: " a; [ "$a" = restore ] || die "cancelled"
   docker exec -i "$PG" pg_restore -U ms -d ms --clean --if-exists --no-owner < "$dir/console.pgdump"
@@ -41,7 +42,8 @@ prune() {
 backup() {
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
   local root="${1:-$MAIN/tmp/backups}" out; out="$root/$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$out" && chmod 700 "$out" && : > "$out/$MARKER"
+  mkdir -p "$out" && chmod 700 "$out"
+  trap 'rm -rf -- "$out"' EXIT # a failed run leaves no folder behind
   docker exec "$PG" pg_dump -U ms -d ms --format=custom --no-owner > "$out/console.pgdump"
   for f in candles.db signals.db; do [ -f "$MAIN/data/$f" ] && sqlite3 "$MAIN/data/$f" ".backup '$out/$f'"; done
   for f in settings.json notes.md; do [ -f "$MAIN/data/$f" ] && command cp -p "$MAIN/data/$f" "$out/$f"; done
@@ -52,6 +54,8 @@ backup() {
     [ -f "$out/$f" ] || continue
     [ "$(sqlite3 "$out/$f" 'pragma integrity_check')" = ok ] || die "the SQLite copy failed its integrity check: $out/$f"
   done
+  : > "$out/$MARKER" # only a verified backup is marked, so prune and restore never see a broken one
+  trap - EXIT
   prune "$root"
   echo "backup written to $out ($(du -sh "$out" | cut -f1))"
 }

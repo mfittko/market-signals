@@ -28,9 +28,9 @@ scripts/dev.sh down
 In the console:
 
 1. Start a run. The "New research run" picker lists only LLM agents that have a strategy, so it stays empty
-   on a stack without an LLM key. `scripts/smoke.sh` registers the mock agent `wti-m5-mock` and runs it. After
+   on a stack without an LLM key. `scripts/smoke.sh` registers the private mock agent `smoke-mock` (instrument `SMOKE/TEST`, so no real agent is touched) and runs it. After
    that, start more mock runs through the API:
-   `curl -XPOST http://127.0.0.1:3000/api/v1/runs -d '{"agentId":"wti-m5-mock"}'`. Add `"source":"demo"` to use
+   `curl -XPOST http://127.0.0.1:3000/api/v1/runs -d '{"agentId":"smoke-mock"}'`. Add `"source":"demo"` to use
    the bundled fixture instead of the engine. A run without `"source":"demo"` freezes what the engine sees now,
    so the engine must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
 2. The control plane reads the engine with GET calls. These calls have side effects: when the

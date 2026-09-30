@@ -380,3 +380,27 @@ func TestWakeForAnAgentThatMovedMarketsAsksForAttention(t *testing.T) {
 		t.Fatalf("the plan still applies: status=%s", r.pos().Status)
 	}
 }
+
+func TestAWakeThatCouldNotBeEnqueuedIsRetriedOnTheNextTick(t *testing.T) {
+	r := newRig(t, &domain.Plan{Tripwires: []domain.Tripwire{{Kind: "adverse_atr", ATR: 1.5}}})
+	r.feed.m.ATR = 1
+	broken := true
+	// invalid JSON makes the enqueue fail
+	r.svc.Enrich = func(_ context.Context, _ queue.Agent, raw json.RawMessage) (json.RawMessage, error) {
+		if broken {
+			return json.RawMessage("not json"), nil
+		}
+		return raw, nil
+	}
+	r.bar(0, 100, 100.2, 98.3, 98.4)
+	r.tick()
+	if r.wakeRuns() != 0 || len(r.pos().LastFired) != 0 {
+		t.Fatalf("a failed enqueue must leave no cooldown mark: runs=%d fired=%v", r.wakeRuns(), r.pos().LastFired)
+	}
+	broken = false
+	r.bar(1, 98.4, 98.6, 98.3, 98.4) // still 1.6 ATR against the entry
+	r.tick()
+	if r.wakeRuns() != 1 || r.pos().Wakes != 1 || len(r.pos().LastFired) != 1 {
+		t.Fatalf("the next tick must wake: runs=%d wakes=%d fired=%v", r.wakeRuns(), r.pos().Wakes, r.pos().LastFired)
+	}
+}

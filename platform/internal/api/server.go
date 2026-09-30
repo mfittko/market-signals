@@ -527,12 +527,21 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		}
 		after = st.LatestEvt
 	}
+	// ids already visible at or below the cursor count as sent, so the lookback below resends only late commits.
+	// This runs before the response starts, so a commit after the client sees the headers is never marked sent.
+	sent := map[int64]bool{}
+	if seen, err := s.st.EventsAfter(r.Context(), max(0, after-streamLookback), streamLookback+200); err == nil {
+		for _, e := range seen {
+			if e.ID <= after {
+				sent[e.ID] = true
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	fmt.Fprintf(w, "retry: 2000\n: connected after=%d\n\n", after)
 	fl.Flush()
-	start, sent := after, map[int64]bool{}
 	// A page that shows one instrument also asks to hear about that instrument's engine signals. A nil channel
 	// blocks forever, so a stream without the parameter simply never receives this case.
 	var sigNotice <-chan string
@@ -564,7 +573,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			// cursor and skips ids it already sent.
 			// ponytail: an id window; a transaction that stays open while more
 			// than streamLookback later ids commit is still missed.
-			floor := max(start, after-streamLookback)
+			floor := max(0, after-streamLookback)
 			evs, err := s.st.EventsAfter(r.Context(), floor, streamLookback+200)
 			if err != nil {
 				return

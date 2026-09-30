@@ -1317,3 +1317,45 @@ func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// A stream that connects while a lower id is still uncommitted starts its cursor above that id.
+// The commit that follows must still be sent.
+func TestStreamDeliversALowerIDThatCommitsAfterTheStreamStarted(t *testing.T) {
+	hs, st := setup(t)
+	_, out := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"demo"}`, nil)
+	runID := int64(out["runs"].([]any)[0].(map[string]any)["runId"].(float64))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ins := `INSERT INTO run_events (run_id, kind, payload) VALUES ($1, 'test', '{}') RETURNING id`
+	tx, err := st.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	var low, high int64
+	if err := tx.QueryRow(ctx, ins, runID).Scan(&low); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Pool.QueryRow(ctx, ins, runID).Scan(&high); err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequestWithContext(ctx, "GET", hs.URL+"/api/v1/stream", nil) // live only: the cursor starts at high
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		if l := sc.Text(); strings.HasPrefix(l, "id: ") {
+			if got := strings.TrimPrefix(l, "id: "); got != strconv.FormatInt(low, 10) {
+				t.Fatalf("the late commit must be the first frame: want %d, got %s", low, got)
+			}
+			return
+		}
+	}
+	t.Fatal("the late commit was never sent")
+}
