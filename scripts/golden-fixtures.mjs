@@ -25,6 +25,7 @@ import { positionAttribution, granularityOf, comboOf, strategyScoreboard } from 
 export const FORMAT_VERSION = 1;
 export const GOLDEN_DIR = process.env.GOLDEN_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', 'test', 'golden');
 const INSTR = 'SYNTH/USD';
+const T0 = Date.parse('2026-01-05T00:00:00Z');
 
 // --- deterministic synthetic candles ----------------------------------------
 
@@ -42,7 +43,7 @@ function mulberry32(seed) {
 const r2 = (v) => Math.round(v * 100) / 100;
 
 // Regime-switching random walk: drift flips sign every 25 bars so flips occur.
-export function walk({ seed, bars, start = 80, stepMs = 5 * 60 * 1000, t0 = Date.parse('2026-01-05T00:00:00Z') }) {
+export function walk({ seed, bars, start = 80, stepMs = 5 * 60 * 1000, t0 = T0 }) {
   const rnd = mulberry32(seed);
   const out = [];
   let price = start;
@@ -63,7 +64,7 @@ export function walk({ seed, bars, start = 80, stepMs = 5 * 60 * 1000, t0 = Date
 }
 
 const flat = (bars) => Array.from({ length: bars }, (_, i) => ({
-  time: new Date(Date.parse('2026-01-05T00:00:00Z') + i * 300000).toISOString(),
+  time: new Date(T0 + i * 300000).toISOString(),
   open: 50, high: 50, low: 50, close: 50, volume: 100, complete: true,
 }));
 
@@ -108,7 +109,7 @@ function replaySnapshot(input, series) {
 // --- portfolio scenarios ------------------------------------------------------
 
 const candle = (o, h, l, c, time) => ({ time, open: o, high: h, low: l, close: c, volume: 100, complete: true });
-const T = (n) => new Date(Date.parse('2026-01-05T00:00:00Z') + n * 300000).toISOString();
+const T = (n) => new Date(T0 + n * 300000).toISOString();
 
 const SCENARIOS = {
   'sizing-risk-cap': {
@@ -235,6 +236,8 @@ const tryJson = (s) => { try { return JSON.parse(s); } catch { return s; } };
 
 function stateOf(dbPath, cfg) {
   const v = portfolioView(dbPath, cfg);
+  // portfolioView caps trades and journal at 50 rows; a longer scenario would silently lose rows
+  if (v.trades.length >= 50 || v.journal.length >= 50) throw new Error('scenario exceeds the 50-row view cap');
   return {
     cash: v.cash, marginLocked: v.marginLocked, unrealized: v.unrealized, equity: v.equity, halted: v.halted,
     realizedTotal: v.realizedTotal,
@@ -253,7 +256,7 @@ function stateOf(dbPath, cfg) {
 function insertJournal(dbPath, action, context) {
   withDb(dbPath, (db) => {
     db.prepare('INSERT INTO bot_journal (at, action, position_id, reason, context) VALUES (?,?,NULL,NULL,?)')
-      .run('2026-01-05T00:00:00.000Z', action, context);
+      .run(new Date(T0).toISOString(), action, context);
   });
 }
 
