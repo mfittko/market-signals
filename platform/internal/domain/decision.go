@@ -162,6 +162,12 @@ func ValidateProposal(d Decision, f SnapshotFacts, now time.Time, maxAge time.Du
 		if d.Target != nil && ((long && *d.Target <= f.Price) || (!long && *d.Target >= f.Price)) {
 			fail(fmt.Sprintf("target %v is on the wrong side of entry %v for %s", *d.Target, f.Price, d.Side))
 		}
+		// the monitor closes the position once a bar closes beyond the invalidation level against the side
+		if d.Plan != nil && d.Plan.Invalidation != nil {
+			if inv := *d.Plan.Invalidation; (long && inv >= f.Price) || (!long && inv <= f.Price) {
+				fail(fmt.Sprintf("invalidation %v is on the wrong side of entry %v for %s", inv, f.Price, d.Side))
+			}
+		}
 	case "close":
 		inst, ok := f.Positions[d.PositionID]
 		if !ok {
