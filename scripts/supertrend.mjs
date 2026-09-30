@@ -787,11 +787,12 @@ const CLAUDE_TOOL_ROUNDS = 4;
 const MAX_CALLS_PER_ROUND = 4;
 export const CLAUDE_TOOL_FALLBACK = 'The model sent a tool request instead of an answer, so there is no answer this time. Ask again.';
 
-// Every `TOOL_CALL {json}` in the text, in order. Brace matching is string-aware,
-// so the calls may sit on separate lines or run together on one.
-export function parseToolCalls(text) {
+// Every `TOOL_CALL {json}` span in the text, in order, as { start, end, call }.
+// `end` is exclusive; `call` is null when the braces match but the JSON is not a call.
+// Brace matching is string-aware, so the calls may sit on separate lines or run together on one.
+function toolCallSpans(text) {
   const s = String(text);
-  const calls = [];
+  const spans = [];
   let at = s.indexOf('TOOL_CALL');
   while (at >= 0) {
     const start = s.indexOf('{', at);
@@ -805,15 +806,25 @@ export function parseToolCalls(text) {
       else if (c === '}' && --depth === 0) { end = i; break; }
     }
     if (end < 0) break;
+    let call = null;
     try {
-      const call = JSON.parse(s.slice(start, end + 1));
-      if (typeof call?.name === 'string') calls.push({ name: call.name, input: call.input && typeof call.input === 'object' ? call.input : {} });
-    } catch { /* not a call: skip it */ }
+      const parsed = JSON.parse(s.slice(start, end + 1));
+      if (typeof parsed?.name === 'string') call = { name: parsed.name, input: parsed.input && typeof parsed.input === 'object' ? parsed.input : {} };
+    } catch { /* not a call */ }
+    spans.push({ start: at, end: end + 1, call });
     at = s.indexOf('TOOL_CALL', end);
   }
-  return calls;
+  return spans;
 }
+export const parseToolCalls = (text) => toolCallSpans(text).map((sp) => sp.call).filter(Boolean);
 export const parseToolCall = (text) => parseToolCalls(text)[0] ?? null;
+// The text with every brace-matched TOOL_CALL span removed and the rest trimmed.
+export function stripToolCalls(text) {
+  const s = String(text);
+  let out = '', from = 0;
+  for (const sp of toolCallSpans(s)) { out += s.slice(from, sp.start); from = sp.end; }
+  return (out + s.slice(from)).trim();
+}
 
 // One streaming CLI call. Text deltas go to onText as they arrive. Async, so a
 // slow reply never blocks the server's other requests. Falls back to the final
@@ -881,7 +892,10 @@ async function claudeCodeToolLoop(settings, system, user, { toolDefs, execTool, 
     let { text: reply } = await claudeCodeStream(settings, last ? `${sys}\nTool calls are no longer allowed. Answer now.` : sys, transcript, { onText, onUsage, timeoutMs });
     const calls = last ? [] : parseToolCalls(reply).slice(0, MAX_CALLS_PER_ROUND);
     if (!calls.length) {
-      // a tool request that cannot run (last round, or not parseable) never reaches the reader or the thread
+      // a tool request that cannot run (last round, or not parseable) never reaches the reader or the thread:
+      // TOOL_CALL spans after prose are cut from the answer, and an answer with nothing left becomes the fallback
+      const kept = stripToolCalls(reply);
+      if (kept !== reply.trim()) reply = kept || CLAUDE_TOOL_FALLBACK;
       if (!releasing && reply.trimStart().startsWith('TOOL_CALL')) reply = CLAUDE_TOOL_FALLBACK;
       if (!releasing) onDelta?.(reply); // nothing reached the reader yet (short reply, or no partial events): deliver it whole
       return reply;

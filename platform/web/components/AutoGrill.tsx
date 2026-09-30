@@ -46,7 +46,9 @@ export function AutoGrill({ name, draft, scopes, onApply }: { name: string; draf
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState(false);
-  useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopes]);
+  // Reset on a change of strategy or scope list. The key is a string, so a caller that builds a new array each render keeps the result.
+  const scopeKey = scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
+  useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (scopes.length === 0) return <p className="muted small">This strategy has no instrument yet. Assign it to an agent first, so there is history to test.</p>;
 

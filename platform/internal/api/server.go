@@ -300,7 +300,10 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 	if a.AllowedTools == nil {
 		a.AllowedTools = []string{"get_snapshot", "get_portfolio", "get_recent_candles"}
 	}
-	if err := s.st.UpsertAgent(r.Context(), a); err != nil {
+	if err := s.st.UpsertAgent(r.Context(), a); errors.Is(err, queue.ErrUnknownStrategy) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	} else if err != nil {
 		s.fail500(w, err)
 		return
 	}

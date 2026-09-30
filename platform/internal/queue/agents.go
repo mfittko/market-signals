@@ -3,7 +3,11 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
+
+// ErrUnknownStrategy: the agent names a strategy that does not exist or has every version archived.
+var ErrUnknownStrategy = errors.New("unknown or archived strategy")
 
 func (s *Store) UpsertAgent(ctx context.Context, a Agent) error {
 	b, _ := json.Marshal(a.Budgets.WithDefaults())
@@ -12,6 +16,20 @@ func (s *Store) UpsertAgent(ctx context.Context, a Agent) error {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	if a.StrategyName != "" {
+		// an agent may only point at a strategy that has a live version; the per-strategy lock is the one
+		// archiving takes, so an assignment cannot slip in between its "no agent uses it" check and its update
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+a.StrategyName); err != nil {
+			return err
+		}
+		var live bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND NOT archived)`, a.StrategyName).Scan(&live); err != nil {
+			return err
+		}
+		if !live {
+			return ErrUnknownStrategy
+		}
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO agents (id,name,instrument,granularity,runtime,model,strategy_name,allowed_tools,budgets,enabled)
 		VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10)
 		ON CONFLICT (id) DO UPDATE SET name=$2, instrument=$3, granularity=$4, runtime=$5, model=NULLIF($6,''),

@@ -2342,3 +2342,28 @@ test('claude-code chat never returns raw TOOL_CALL text, on the last round or wh
     assert.deepEqual(deltas, [CLAUDE_TOOL_FALLBACK], label);
   }
 });
+
+test('claude-code chat cuts TOOL_CALL spans after prose on the last round', async () => {
+  const { mkdtempSync, writeFileSync, chmodSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { llmChat, stripToolCalls } = await import('../scripts/supertrend.mjs');
+  assert.equal(stripToolCalls('Calm tape.\nTOOL_CALL {"name":"get_news","input":{"q":"}"}} Done.'), 'Calm tape.\n Done.');
+  assert.equal(stripToolCalls('The answer mentions TOOL_CALL but has no json'), 'The answer mentions TOOL_CALL but has no json');
+  const dir = mkdtempSync(join(tmpdir(), 'cc-'));
+  const bin = join(dir, 'claude');
+  const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
+  // every round, the last one included, answers with prose and then asks for a tool
+  writeFileSync(bin, `#!/bin/sh\necho '${res('The tape is calm. TOOL_CALL {"name":"get_news","input":{}}')}'\n`);
+  chmodSync(bin, 0o755);
+  const deltas = [];
+  let calls = 0;
+  const out = await llmChat({ provider: 'claude-code', claudeBin: bin }, 'SYS', 'news?', {
+    toolDefs: [{ name: 'get_news', description: 'headlines', input_schema: { type: 'object' } }],
+    execTool: async () => { calls++; return 'calm'; },
+    onDelta: (d) => deltas.push(d),
+  });
+  assert.equal(out, 'The tape is calm.');
+  assert.deepEqual(deltas, ['The tape is calm.']);
+  assert.equal(calls, 4); // one per round before the last
+});

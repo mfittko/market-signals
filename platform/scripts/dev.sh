@@ -138,9 +138,9 @@ up() {
 
   if ! alive web; then
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
-    # the console never calls a model or the database, so it inherits neither the LLM key nor the database password
+    # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
     start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
-      -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL pnpm dev
+      -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
 

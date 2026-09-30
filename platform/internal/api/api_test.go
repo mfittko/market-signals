@@ -583,6 +583,20 @@ func TestArchiveIsBlockedWhileAssignedAndReversible(t *testing.T) {
 	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Old"}`, nil); c != 404 {
 		t.Fatalf("assigning a archived strategy: %d", c)
 	}
+	// creating an agent applies the same rule: an archived or unknown strategy is refused, a live one is taken
+	create := func(strategy string) int {
+		c, _ := call(t, "POST", hs.URL+"/api/v1/agents", "", `{"id":"a2","instrument":"WTICO/USD","granularity":"M5","runtime":"mock","strategyName":"`+strategy+`"}`, nil)
+		return c
+	}
+	if c := create("Old"); c != 400 {
+		t.Fatalf("creating an agent on a archived strategy: %d", c)
+	}
+	if c := create("Nope"); c != 400 {
+		t.Fatalf("creating an agent on an unknown strategy: %d", c)
+	}
+	if c := create("Live"); c != 200 {
+		t.Fatalf("creating an agent on a live strategy: %d", c)
+	}
 	_, out := call(t, "GET", hs.URL+"/api/v1/strategies", "", "", nil)
 	archived := map[string]bool{}
 	for _, s := range out["strategies"].([]any) {

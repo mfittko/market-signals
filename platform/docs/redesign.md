@@ -108,7 +108,7 @@ The new UI is organised around the agent, because the agent is what the user man
 
 ## 4. More instruments
 
-Today a platform agent is bound to one instrument (WTICO/USD) and the tool gateway scopes reads to it. The old engine tracks many.
+When this plan was written, a platform agent was bound to one instrument (WTICO/USD) and the tool gateway scoped reads to it. The old engine tracks many. Section 6 records what is built.
 
 - Add an `instruments` table seeded from `config/instruments.yaml` and `config/candle-symbols.json`.
 - An agent is (instrument, granularity, strategy version, runtime). The scope check already keys on the agent's instrument, so isolation carries over.
