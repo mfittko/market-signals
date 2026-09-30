@@ -19,6 +19,8 @@ func TestParseDecision(t *testing.T) {
 	for _, bad := range []string{
 		`no json`, `{"action":"buy"}`, `{"action":"open","side":"long","notional":5}`,
 		`{"action":"open","side":"up","notional":5,"stop":1}`, `{"action":"close"}`,
+		// a type slip in the final object must not revive the earlier valid one
+		`{"action":"open","side":"long","notional":500,"stop":99,"reasoning":"x"} then {"action":"close","positionId":"7"}`,
 	} {
 		if _, err := ParseDecision(bad); err == nil {
 			t.Errorf("expected error for %s", bad)

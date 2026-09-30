@@ -29,7 +29,7 @@ CREATE TABLE signal_rechecks (id INTEGER PRIMARY KEY, signal_time TEXT, instrume
 INSERT INTO candles VALUES ('WTICO/USD','M5','2026-07-22T07:40:00.000000000Z',1,2,1,1.5,10),('WTICO/USD','M5','2026-07-22T07:45:00.000000000Z',1.5,2,1,1.6,NULL),('XAU/USD','M5','2026-07-22T07:40:00.000000000Z',9,9,9,9,1);
 INSERT INTO signals VALUES ('WTICO/USD','M5','2026-07-22T07:40:00.000Z','sell',1.5,0.5,'valid','x',1,'supertrend-flip');
 INSERT INTO strategies VALUES (1,'wti-s',1,'prompt',NULL,NULL,'manual','2026-07-01T00:00:00.000Z',1,0,'WTICO/USD','M5',1);
-INSERT INTO bot_journal VALUES (1,'2026-07-22T08:00:00.000Z','open',7,'go','{"strategyVersion":"abc123"}'),(2,'2026-07-22T09:00:00.000Z','close',7,'done',NULL);
+INSERT INTO bot_journal VALUES (1,'2026-07-22T08:00:00.000Z','open',7,'go','{"strategyVersion":"abc123"}'),(2,'2026-07-22T09:00:00.000Z','close',7,'done',NULL),(4,'2026-07-22T08:00:00.000Z','decision',NULL,'go','{"strategyName":"wti-s","executed":{"opened":7}}');
 INSERT INTO bot_trades VALUES (1,7,'WTICO/USD','long',1000,10,1.5,'2026-07-22T08:00:00.000Z',1.6,'2026-07-22T09:00:00.000Z',20,1.0,'target','M5');
 INSERT INTO portfolio VALUES (1,100,101,0,'2026-07-01T00:00:00.000Z');
 INSERT INTO chat_threads VALUES (1,'t','2026-07-01T00:00:00.000Z',NULL,NULL);
@@ -110,6 +110,11 @@ func TestImportIsIdempotentAndChecksTheBooks(t *testing.T) {
 	pool.QueryRow(ctx, `SELECT strategy_hash FROM trades`).Scan(&hash)
 	if hash != "abc123" {
 		t.Fatalf("trade must link to the strategy version recorded when it opened, got %q", hash)
+	}
+	var sname string
+	pool.QueryRow(ctx, `SELECT strategy_name FROM trades`).Scan(&sname)
+	if sname != "wti-s" {
+		t.Fatalf("trade must carry the strategy name from the decision entry, the grill looks it up by name; got %q", sname)
 	}
 	pool.QueryRow(ctx, `SELECT count(*) FROM agents WHERE legacy_bot`).Scan(&n)
 	if n != 1 {

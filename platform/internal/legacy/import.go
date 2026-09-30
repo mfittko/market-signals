@@ -374,7 +374,9 @@ func (im *importer) strategies() error {
 }
 
 // trades also links each trade to the strategy version recorded when its
-// position opened (the journal's open entry carries a strategyVersion hash).
+// position opened (the journal's open entry carries a strategyVersion hash)
+// and to the strategy name (the bot's decision entry carries strategyName and
+// the id of the position it opened). The grill finds trades by that name.
 func (im *importer) trades() error {
 	hashes := map[int64]string{}
 	jr, err := im.src.QueryContext(im.ctx, `SELECT position_id, context FROM bot_journal WHERE action='open' AND position_id IS NOT NULL`)
@@ -396,6 +398,35 @@ func (im *importer) trades() error {
 		}
 	}
 	jr.Close()
+	if err := jr.Err(); err != nil {
+		return err
+	}
+
+	names := map[int64]string{}
+	dr, err := im.src.QueryContext(im.ctx, `SELECT context FROM bot_journal WHERE action='decision' AND context IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	for dr.Next() {
+		var c string
+		if err := dr.Scan(&c); err != nil {
+			dr.Close()
+			return err
+		}
+		var v struct {
+			StrategyName string `json:"strategyName"`
+			Executed     struct {
+				Opened int64 `json:"opened"`
+			} `json:"executed"`
+		}
+		if json.Unmarshal([]byte(c), &v) == nil && v.StrategyName != "" && v.Executed.Opened != 0 {
+			names[v.Executed.Opened] = v.StrategyName
+		}
+	}
+	dr.Close()
+	if err := dr.Err(); err != nil {
+		return err
+	}
 
 	rows, err := im.src.QueryContext(im.ctx, `SELECT id, position_id, instrument, granularity, side, notional, units, entry_price, entry_time, close_price, close_time, leverage, realized, close_reason FROM bot_trades`)
 	if err != nil {
@@ -423,9 +454,13 @@ func (im *importer) trades() error {
 		if v, ok := hashes[pid]; ok {
 			h = v
 		}
-		b.Queue(`INSERT INTO trades (source_key,position_id,instrument,granularity,side,notional,units,entry_price,entry_time,close_price,close_time,leverage,realized,close_reason,strategy_hash)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING`,
-			fmt.Sprintf("trade:%d", id), pid, inst, ns(gran), side, notional, units, ep, entry, cp, closed, lev, realized, reason, h)
+		var sn any
+		if v, ok := names[pid]; ok {
+			sn = v
+		}
+		b.Queue(`INSERT INTO trades (source_key,position_id,instrument,granularity,side,notional,units,entry_price,entry_time,close_price,close_time,leverage,realized,close_reason,strategy_hash,strategy_name)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT DO NOTHING`,
+			fmt.Sprintf("trade:%d", id), pid, inst, ns(gran), side, notional, units, ep, entry, cp, closed, lev, realized, reason, h, sn)
 	}
 	if err := rows.Err(); err != nil {
 		return err
