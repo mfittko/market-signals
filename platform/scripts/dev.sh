@@ -16,6 +16,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
+. "$ROOT/scripts/api-origins.sh"
 RUN="$ROOT/.dev"
 mkdir -p "$RUN/bin"
 
@@ -136,9 +137,7 @@ run() {
   load_env; llm_env
   case "${1:-}" in
     api) cd "$ROOT"
-      # the launchd console serves on MS_CONSOLE_PORT, and the Next proxy forwards the browser Origin unchanged
-      local cp="${MS_CONSOLE_PORT:-3737}"
-      MS_ALLOWED_ORIGINS="${MS_ALLOWED_ORIGINS:-localhost:3000,127.0.0.1:3000,localhost:$cp,127.0.0.1:$cp}" \
+      MS_ALLOWED_ORIGINS="$(api_origins)" \
         MS_ENGINE_URL="${MS_ENGINE_URL:-http://127.0.0.1:8787}" exec "$RUN/bin/api" ;;
     worker) cd "$ROOT"; exec "$RUN/bin/worker" ;;
     web) cd "$ROOT/web"

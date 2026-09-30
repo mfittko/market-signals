@@ -30,8 +30,8 @@ In the console:
 1. Start a run. The "New research run" picker lists only LLM agents that have a strategy, so it stays empty
    on a stack without an LLM key. `scripts/smoke.sh` registers the private mock agent `smoke-mock` (instrument `SMOKE/TEST`, so no real agent is touched) and runs it. After
    that, start more mock runs through the API:
-   `curl -XPOST http://127.0.0.1:3000/api/v1/runs -d '{"agentId":"smoke-mock"}'`. Add `"source":"demo"` to use
-   the bundled fixture instead of the engine. A run without `"source":"demo"` freezes what the engine sees now,
+   `curl -XPOST http://127.0.0.1:3000/api/v1/runs -d '{"agentId":"smoke-mock","source":"demo"}'`. The `"source":"demo"` field uses
+   the bundled fixture instead of the engine. `smoke-mock` has no engine candles, so the same request without `"source":"demo"` returns 502. To freeze what the engine sees, register a mock agent on a real engine instrument first. A run without `"source":"demo"` freezes what the engine sees now,
    so the engine must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
 2. The control plane reads the engine with GET calls. These calls have side effects: when the
    engine's stored candles are stale, a chart GET makes the engine fetch live candles from its upstream provider
@@ -56,7 +56,7 @@ or the API.
 To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The
 default is `localhost:3000,127.0.0.1:3000`. Each entry is `host:port` (`console.lan:3000`) or an origin
 (`http://console.lan:3000`). The control plane drops the scheme and any path, so both forms name the same host.
-`dev.sh run api`, which the launchd jobs use, defaults `MS_ALLOWED_ORIGINS` to `localhost` and `127.0.0.1` on port 3000 and on `MS_CONSOLE_PORT` (3737 by default) when the variable is unset.
+`dev.sh run api`, which the launchd jobs use, defaults `MS_ALLOWED_ORIGINS` to `localhost` and `127.0.0.1` on `MS_CONSOLE_PORT` (3737 by default) only, so a dev server on port 3000 is not trusted, when the variable is unset.
 
 The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Start a mock run through the API without `"source":"demo"` to see
 the run wait, release the worker and resume as a second attempt.
