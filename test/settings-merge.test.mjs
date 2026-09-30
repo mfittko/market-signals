@@ -37,3 +37,7 @@ test('a form default equal to the initial form value is not sent for an absent k
   const base = { NEWSAPI_AI_MODE: 'auto', GNEWS_MODE: 'off' };
   assert.deepEqual(changedPatch(base, { NEWSAPI_AI_MODE: 'off' }, { NEWSAPI_AI_MODE: 'auto', GNEWS_MODE: 'off', freshBars: 4 }), { freshBars: 4 });
 });
+test('switching to the official provider sends an empty base URL when one is stored, even untouched', () => {
+  assert.deepEqual(changedPatch({ OPENAI_BASE_URL: 'https://x.example/v1' }, {}, { OPENAI_BASE_URL: '' }), { OPENAI_BASE_URL: '' });
+  assert.deepEqual(changedPatch({ OPENAI_BASE_URL: '' }, {}, { OPENAI_BASE_URL: '' }), {});
+});

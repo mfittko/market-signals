@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # End-to-end check of a running stack (scripts/dev.sh up). Uses only the mock agent, so it needs no model or network.
-# Safe against a live stack: every agent, event and run it creates uses the private agent smoke-mock on the private
+# Safe against a live stack (set MS_CONSOLE_PORT when the console is not on port 3000): every agent, event and run it creates uses the private agent smoke-mock on the private
 # instrument SMOKE/TEST, which no real agent shares, so no real agent receives its events or opens a position.
 # The smoke agent is switched off again on exit.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 . .dev/env
 API=http://127.0.0.1:8080/api/v1
-WEB=http://127.0.0.1:3000/api/v1
+WEB=http://127.0.0.1:${MS_CONSOLE_PORT:-3000}/api/v1
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok   $*"; }
 

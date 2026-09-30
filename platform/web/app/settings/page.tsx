@@ -93,7 +93,9 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
     e.preventDefault();
     const patch: Record<string, unknown> = { provider };
     if (model.trim()) patch.models = { ...(bl.current.models as Record<string, string>), [provider]: model.trim() };
+    // the official provider must not keep a stored base URL: the engine reads openai plus a base URL as openai-compatible
     if (needsBase) patch.OPENAI_BASE_URL = base.trim();
+    else if (provider === 'openai') patch.OPENAI_BASE_URL = '';
     if (key.trim()) patch.OPENAI_API_KEY = key.trim();
     if (akey.trim()) patch.ANTHROPIC_API_KEY = akey.trim();
     if (tokens.trim()) patch.maxCompletionTokens = Number(tokens);
