@@ -56,6 +56,7 @@ or the API.
 To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The
 default is `localhost:3000,127.0.0.1:3000`. Each entry is `host:port` (`console.lan:3000`) or an origin
 (`http://console.lan:3000`). The control plane drops the scheme and any path, so both forms name the same host.
+`dev.sh run api`, which the launchd jobs use, defaults `MS_ALLOWED_ORIGINS` to `localhost` and `127.0.0.1` on port 3000 and on `MS_CONSOLE_PORT` (3737 by default) when the variable is unset.
 
 The mock agent schedules a 15 second follow-up when the price comes from a forming candle. Start a mock run through the API without `"source":"demo"` to see
 the run wait, release the worker and resume as a second attempt.

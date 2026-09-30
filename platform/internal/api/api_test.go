@@ -1059,3 +1059,25 @@ func TestGrillTurnMarksTheLongestOptionNamedInTheRecommendation(t *testing.T) {
 		t.Fatalf("%+v", tr)
 	}
 }
+
+// The launchd console serves on 3737 and its proxy forwards the browser Origin unchanged,
+// so a write from it passes only when that exact host:port is allowed.
+func TestConsoleOriginOnOtherPortNeedsAnAllowlistEntry(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	for _, c := range []struct {
+		origins []string
+		want    int
+	}{
+		{[]string{"localhost:3000", "127.0.0.1:3000"}, http.StatusForbidden},
+		{[]string{"localhost:3000", "127.0.0.1:3000", "localhost:3737", "127.0.0.1:3737"}, http.StatusOK},
+	} {
+		s := &Server{cfg: Config{AllowedOrigins: c.origins}}
+		req := httptest.NewRequest("POST", "http://127.0.0.1:8080/api/v1/runs", strings.NewReader(`{}`))
+		req.Header.Set("Origin", "http://127.0.0.1:3737")
+		rec := httptest.NewRecorder()
+		s.originGuard(ok).ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Fatalf("origins %q: got %d, want %d", c.origins, rec.Code, c.want)
+		}
+	}
+}
