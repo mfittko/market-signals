@@ -26,7 +26,8 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
    - `adverse_pct(x)`, `adverse_atr(x)`
    - `bars_in_trade(n)` without progress toward target
    - `opposite_flip`, `impulse`
-   - `news_escalation` (the sentinel flag)
+   - `news_escalation` (the sentinel flag). Not wired yet. The monitor never reads the sentinel, so a plan
+     accepts this tripwire and it never fires.
    - `feed_stale(minutes)`
 3. A monitor loop in the control plane evaluates the plan on every closed M1 candle for an open position. It calls no model. It does four things:
    - Fills stops and targets with the existing pessimistic rule (stop wins when both touch).

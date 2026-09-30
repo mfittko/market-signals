@@ -68,10 +68,13 @@ test('delivery failures are swallowed: never throws, never blocks', async () => 
 
 test('deliberate sends the snapshot before the decision and the engine decision after, and the decision is unchanged', async () => {
   const requests = [];
+  // the legacy POST is fire-and-forget, so wait for it to arrive instead of for a fixed time
+  let bothArrived;
+  const both = new Promise((r) => { bothArrived = r; });
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => { body += c; });
-    req.on('end', () => { requests.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) }); res.setHeader('content-type', 'application/json'); res.end('{}'); });
+    req.on('end', () => { requests.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) }); if (requests.length === 2) bothArrived(); res.setHeader('content-type', 'application/json'); res.end('{}'); });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const dir = mkdtempSync(join(tmpdir(), 'cp-'));
@@ -85,7 +88,7 @@ test('deliberate sends the snapshot before the decision and the engine decision 
   try {
     const r = await deliberate(join(dir, 'bot.sqlite'), settings, { instrument: WTI, granularity: 'M5', event: 'flip', candleTime: '2026-07-22T10:00:00Z', ctx: { close: 87, quote: { last: 87 } } });
     assert.equal(r.decision.action, 'hold');
-    for (let i = 0; i < 50 && requests.length < 2; i++) await new Promise((r2) => setTimeout(r2, 20));
+    await Promise.race([both, new Promise((r2) => setTimeout(r2, 10_000).unref())]);
     assert.equal(requests.length, 2);
     assert.equal(requests[0].url, '/api/v1/events');
     assert.match(requests[1].url, /^\/api\/v1\/events\/[0-9a-f]{32}\/legacy$/);

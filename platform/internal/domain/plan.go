@@ -32,7 +32,8 @@ type Trail struct {
 //	no_progress    bars, minProfitAtr       held bars without minProfitAtr (default 0.5) of profit
 //	opposite_flip                           the engine prints a flip against the position
 //	impulse                                 the engine records a volume impulse
-//	news_escalation                         the sentinel flags an escalation
+//	news_escalation                         the sentinel flags an escalation (not wired yet: the monitor
+//	                                        never sets it, so this tripwire accepts but never fires)
 //	feed_stale     minutes                  no new complete bar for that long
 type Tripwire struct {
 	Kind         string  `json:"kind"`
