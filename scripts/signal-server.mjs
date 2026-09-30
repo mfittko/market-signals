@@ -1787,7 +1787,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
             execTool: (n, i) => {
               toolsUsed.push(n);
               send({ type: 'tool', name: n, input: i, state: 'running' }); // progress for the console; the reply itself is unchanged
-              return Promise.resolve(execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
+              // then() turns a synchronous throw (unknown tool, bad input) into a rejection, so done always fires
+              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
                 .finally(() => send({ type: 'tool', name: n, state: 'done' }));
             },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,

@@ -930,6 +930,22 @@ test('chat: an OLDER question named in discard is inert — forward-delete canno
   });
 });
 
+test('chat: an unknown tool still sends its done event, so the chip stops running', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const bin = join(dir, 'claude');
+    const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
+    writeFileSync(bin, `#!/bin/sh\ncase "$*" in *"[tool result]"*) echo '${res('no such tool')}';; *) echo '${res('TOOL_CALL {"name":"nope","input":{}}')}';; esac\n`);
+    chmodSync(bin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'claude-code', claudeBin: bin }));
+
+    const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const tool = ev.filter((e) => e.type === 'tool' && e.name === 'nope').map((e) => e.state);
+    assert.deepEqual(tool, ['running', 'done']);
+    assert.equal(ev.find((e) => e.type === 'done')?.reply, 'no such tool');
+  });
+});
+
 test('chat: a discard id from another thread is inert', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
