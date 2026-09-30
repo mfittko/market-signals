@@ -275,6 +275,10 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id, instrument, granularity and runtime (mock|llm) are required"})
 		return
 	}
+	if err := a.Budgets.Check(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
 	if a.Name == "" {
 		a.Name = a.ID
 	}

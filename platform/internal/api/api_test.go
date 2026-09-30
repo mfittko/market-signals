@@ -620,6 +620,26 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 	}
 }
 
+func TestAgentBudgetsOutsideTheirBoundsAreRefused(t *testing.T) {
+	hs, st := setup(t)
+	agent := func(budgets string) string {
+		return `{"id":"b1","instrument":"WTICO/USD","granularity":"M5","runtime":"mock","budgets":` + budgets + `}`
+	}
+	// a deadline past int4 would break the reaper's cast for every agent; an attempt count past it breaks ingest
+	for _, b := range []string{`{"deadlineSeconds":3000000000}`, `{"maxAttempts":2147483648}`, `{"leaseSeconds":-1}`, `{"maxToolCalls":1000}`} {
+		if c, out := call(t, "POST", hs.URL+"/api/v1/agents", "", agent(b), nil); c != 400 || !strings.Contains(out["error"].(string), "budget") {
+			t.Fatalf("%s: %d %v", b, c, out)
+		}
+	}
+	if c, out := call(t, "POST", hs.URL+"/api/v1/agents", "", agent(`{"deadlineSeconds":3600,"maxAttempts":2}`), nil); c != 200 {
+		t.Fatalf("in-range budgets: %d %v", c, out)
+	}
+	var deadline int
+	if err := st.Pool.QueryRow(context.Background(), `SELECT (budgets->>'deadlineSeconds')::int FROM agents WHERE id='b1'`).Scan(&deadline); err != nil || deadline != 3600 {
+		t.Fatalf("stored deadline %d %v", deadline, err)
+	}
+}
+
 func TestGrillAcceptsATrimmedWindowAndLongCoachRepliesAsHistory(t *testing.T) {
 	st := queue.New(testutil.Pool(t))
 	var seen []map[string]any

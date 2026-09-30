@@ -5,6 +5,7 @@ package queue
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,6 +59,28 @@ func (b Budgets) WithDefaults() Budgets {
 	def(&b.FreshnessSeconds, 900)
 	def(&b.LeaseSeconds, 30)
 	return b
+}
+
+// Check bounds each budget a caller sets. Zero keeps the default. The bounds keep every value
+// inside int4, which the queries cast budgets to and runs.max_attempts stores.
+func (b Budgets) Check() error {
+	for _, f := range []struct {
+		name      string
+		v, lo, hi int
+	}{
+		{"maxToolCalls", b.MaxToolCalls, 1, 100},
+		{"maxRounds", b.MaxRounds, 1, 50},
+		{"maxAttempts", b.MaxAttempts, 1, 10},
+		{"maxFollowups", b.MaxFollowups, 1, 20},
+		{"deadlineSeconds", b.DeadlineSeconds, 10, 86400},
+		{"freshnessSeconds", b.FreshnessSeconds, 10, 86400},
+		{"leaseSeconds", b.LeaseSeconds, 5, 600},
+	} {
+		if f.v != 0 && (f.v < f.lo || f.v > f.hi) {
+			return fmt.Errorf("budget %s must be between %d and %d, or 0 for the default", f.name, f.lo, f.hi)
+		}
+	}
+	return nil
 }
 
 type Agent struct {
