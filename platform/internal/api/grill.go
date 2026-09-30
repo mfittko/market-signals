@@ -37,6 +37,13 @@ type chatMsg struct {
 	Content string `json:"content"`
 }
 
+// A grill history message holds either a typed answer or a raw coach reply fed back.
+// A coach reply can carry a full revised prompt (maxPrompt) plus the JSON around it,
+// and the body cap leaves room for 30 such messages with JSON escaping, the draft and the brief.
+const maxGrillMsg = maxPrompt + 16<<10
+
+const maxGrillBody = 2 << 20
+
 func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Complete == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no model is configured for the console; the LLM key is read from the engine settings when the stack starts"})
@@ -49,8 +56,12 @@ func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 		Brief    string    `json:"brief"` // wizard answers for a strategy that has no history yet
 		Messages []chatMsg `json:"messages"`
 	}
-	if !decode(w, r, &b, 256<<10) {
+	if !decode(w, r, &b, maxGrillBody) {
 		return
+	}
+	// a trimmed history window can start on a coach turn; the model needs a user turn first
+	for len(b.Messages) > 0 && b.Messages[0].Role == "assistant" {
+		b.Messages = b.Messages[1:]
 	}
 	if len(b.Messages) == 0 || len(b.Messages) > 30 || len(b.Draft) > maxPrompt || len(b.Brief) > 8<<10 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "messages are required (up to 30), draft up to 32 KB"})
@@ -59,7 +70,7 @@ func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 	msgs := []map[string]any{{"role": "system", "content": grillSystem}}
 	msgs = append(msgs, map[string]any{"role": "system", "content": s.grillContext(r.Context(), b.Name, b.Mode, b.Draft, b.Brief)})
 	for i, m := range b.Messages {
-		if (m.Role != "user" && m.Role != "assistant") || len(m.Content) > 16<<10 || (i == 0 && m.Role != "user") {
+		if (m.Role != "user" && m.Role != "assistant") || len(m.Content) > maxGrillMsg || (i == 0 && m.Role != "user") {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "bad message"})
 			return
 		}

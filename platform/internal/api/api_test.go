@@ -604,6 +604,38 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 	}
 }
 
+func TestGrillAcceptsATrimmedWindowAndLongCoachRepliesAsHistory(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	var seen []map[string]any
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(_ context.Context, m []map[string]any) (string, error) {
+		seen = m
+		return "next", nil
+	}}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs := httptest.NewServer(srv.Handler())
+	defer hs.Close()
+	// a full revised prompt fits the coach reply, so the reply fed back as history is larger than it
+	longReply := `{"prompt":"` + strings.Repeat("Enter on flips. ", maxPrompt/16) + `","summary":"rewritten","question":"Anything else?"}`
+	// 30 messages cut from an alternating interview start on a coach turn
+	var msgs []chatMsg
+	for i := 0; i < 30; i++ {
+		role, content := "assistant", "coach turn"
+		if i%2 == 1 {
+			role, content = "user", "answer"
+		}
+		if i == 2 {
+			content = longReply
+		}
+		msgs = append(msgs, chatMsg{Role: role, Content: content})
+	}
+	body, _ := json.Marshal(map[string]any{"name": "Trend", "mode": "refine", "draft": "x", "messages": msgs})
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/grill", "", string(body), nil); c != 200 {
+		t.Fatalf("%d %v", c, out)
+	}
+	if seen[2]["role"] != "user" || len(seen) != 2+29 {
+		t.Fatalf("history must open on the user turn: %v, %d messages", seen[2]["role"], len(seen))
+	}
+}
+
 func TestGrillTurnParsingKeepsOneRecommendationAndTolerantOfFences(t *testing.T) {
 	raw := "Sure!\n```json\n" + `{"question":"How far should the stop sit?","why":"Losses average larger than wins.",
 	 "options":[{"label":"1.0 ATR","recommended":true},{"label":"1.5 ATR","recommended":true},{"label":"","detail":"dropped"},{"label":"2 ATR"}],

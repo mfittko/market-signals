@@ -44,10 +44,13 @@ export function GrillPanel({ name, mode, draft, brief, onApply }: {
     if (busy || !text.trim()) return;
     const next: Msg[] = [...msgs, { role: 'user', content: text.trim() }];
     setMsgs(next); setInput(''); setOwn(false); setBusy(true); setError(null);
+    // the server takes 30 messages and the history must open on a user turn
+    const hist = next.slice(-30);
+    while (hist[0]?.role === 'assistant') hist.shift();
     try {
       const r = await api<{ reply: string; turn?: Turn | null }>('/strategies/grill', {
         method: 'POST',
-        body: JSON.stringify({ name, mode, draft, brief, messages: next.slice(-30).map(({ role, content }) => ({ role, content })) }),
+        body: JSON.stringify({ name, mode, draft, brief, messages: hist.map(({ role, content }) => ({ role, content })) }),
       });
       setMsgs([...next, { role: 'assistant', content: r.reply, turn: r.turn }]);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
