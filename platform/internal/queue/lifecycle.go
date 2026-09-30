@@ -275,12 +275,16 @@ func (s *Store) SetPendingWait(ctx context.Context, attemptID, fence int64, seco
 	}
 	var agentID string
 	var taken, dbNow time.Time // both from the database clock, which stamped taken_at
-	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.taken_at, clock_timestamp() FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).Scan(&agentID, &taken, &dbNow); err != nil {
+	var used int
+	if err := tx.QueryRow(ctx, `SELECT r.agent_id, sn.taken_at, clock_timestamp(), r.followups_used FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, l.runID).Scan(&agentID, &taken, &dbNow, &used); err != nil {
 		return err
 	}
 	agent, err := scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID))
 	if err != nil {
 		return err
+	}
+	if used >= agent.Budgets.MaxFollowups {
+		return fmt.Errorf("follow-up budget of %d exhausted; finish now with a final proposal", agent.Budgets.MaxFollowups)
 	}
 	budget := time.Duration(agent.Budgets.FreshnessSeconds) * time.Second
 	limit := int((budget - dbNow.Sub(taken) - FollowupMargin) / time.Second)

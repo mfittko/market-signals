@@ -406,6 +406,27 @@ func TestFollowupPastTheFreshnessBudgetIsRefused(t *testing.T) {
 	}
 }
 
+func TestFollowupPastTheFollowupBudgetIsRefused(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1")
+	a.Budgets.MaxFollowups = 1
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	if _, err := testPool.Exec(ctx, `UPDATE runs SET followups_used=1 WHERE id=$1`, c.Run.ID); err != nil {
+		t.Fatal(err)
+	}
+	err := s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 30, "one more look")
+	if err == nil || !strings.Contains(err.Error(), "follow-up budget") {
+		t.Fatalf("a spent follow-up budget must refuse the request: %v", err)
+	}
+	out, err := s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: hold()})
+	must(t, err)
+	if out.Status != "succeeded" {
+		t.Fatalf("got %s", out.Status)
+	}
+}
+
 func TestInvalidProposalIsRecordedNeverCommitted(t *testing.T) {
 	s, ctx := fresh(t)
 	must(t, s.UpsertAgent(ctx, agent("a1")))

@@ -3,10 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 
 // One EventSource per page. The server resumes from Last-Event-ID after a
 // drop and re-reads a window behind its cursor for late commits; consumers
-// refetch state when `tick` changes. A page that shows one instrument passes its
-// slug, and the server then also announces changes to that instrument's engine
-// signals. Those notices carry no id, so a dropped connection is repaired by a
-// refetch when the stream opens again.
+// refetch state when `tick` changes. Every reopen of the stream also refetches,
+// because a resume can still miss a run event that committed late. A page that
+// shows one instrument passes its slug, and the server then also announces
+// changes to that instrument's engine signals. Those notices carry no id, so
+// the reopen refetch repairs them too.
 export function useLive(filter?: (e: { runId: number; kind: string }) => boolean, instrument?: string) {
   const [tick, setTick] = useState(0);
   const [newsTick, setNewsTick] = useState(0);
@@ -23,7 +24,7 @@ export function useLive(filter?: (e: { runId: number; kind: string }) => boolean
     let opened = false;
     es.onopen = () => {
       setConnected(true);
-      if (opened && instrument) bump(); // a reconnect may have missed a signal notice
+      if (opened) bump(); // a reconnect may have missed a run event or a signal notice
       opened = true;
     };
     es.onerror = () => setConnected(false);
