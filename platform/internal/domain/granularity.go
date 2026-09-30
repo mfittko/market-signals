@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// The engine's shapes: M<n> is n minutes and H<n> is n hours (scripts/supertrend.mjs granularityMs).
-var granularityShape = regexp.MustCompile(`^([MH])([1-9][0-9]{0,3})$`)
+// The engine's shapes: M<n> is n minutes and H<n> is n hours, n is 1 to 99 with no leading zero (scripts/strategies.mjs scope rule).
+var granularityShape = regexp.MustCompile(`^([MH])([1-9][0-9]?)$`)
 
 // InstrumentShape is the engine's instrument symbol rule.
 var InstrumentShape = regexp.MustCompile(`^[A-Za-z0-9/]{3,20}$`)

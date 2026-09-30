@@ -863,7 +863,7 @@ func TestAgentScopeMustUseTheEngineShapes(t *testing.T) {
 			t.Fatalf("%s: %d %v", g, c, out)
 		}
 	}
-	for _, bad := range [][2]string{{"WTICO/USD", "5m"}, {"WTICO/USD", "M"}, {"WTICO/USD", "m5"}, {"WTICO/USD", "D1"}, {"WTICO/USD", ""}, {"WTI USD", "M5"}, {"W", "M5"}} {
+	for _, bad := range [][2]string{{"WTICO/USD", "5m"}, {"WTICO/USD", "M"}, {"WTICO/USD", "m5"}, {"WTICO/USD", "D1"}, {"WTICO/USD", "M100"}, {"WTICO/USD", ""}, {"WTI USD", "M5"}, {"W", "M5"}} {
 		if c, _ := call(t, "POST", hs.URL+"/api/v1/agents", "", agent(bad[0], bad[1]), nil); c != 400 {
 			t.Fatalf("%v must be refused, got %d", bad, c)
 		}
