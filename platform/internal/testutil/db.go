@@ -20,7 +20,14 @@ var (
 	perr error
 )
 
-// Pool returns a truncated database, or skips the test when Postgres is down.
+// Required reports whether a missing Postgres must fail the run. CI and
+// MS_REQUIRE_DB=1 set it, so a broken service container cannot pass as a skip.
+func Required() bool {
+	return os.Getenv("CI") != "" || os.Getenv("MS_REQUIRE_DB") == "1"
+}
+
+// Pool returns a truncated database. When Postgres is down it skips the test,
+// or fails it when Required reports true.
 func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	once.Do(func() {
@@ -33,6 +40,9 @@ func Pool(t *testing.T) *pgxpool.Pool {
 			perr = db.Migrate(ctx, pool, migrations.FS)
 		}
 	})
+	if perr != nil && Required() {
+		t.Fatal("postgres unavailable and required (CI or MS_REQUIRE_DB=1):", perr)
+	}
 	if perr != nil {
 		t.Skip("postgres unavailable (docker compose up -d postgres in platform/):", perr)
 	}

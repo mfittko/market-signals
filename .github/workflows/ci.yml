@@ -22,8 +22,8 @@ jobs:
 
   platform-go:
     runs-on: ubuntu-latest
-    # The queue, runtime, monitor and importer tests need a real Postgres; without
-    # one they skip, so the service is what makes this job meaningful.
+    # The queue, runtime, monitor and importer tests need a real Postgres; MS_REQUIRE_DB
+    # makes them fail when the service is unreachable.
     services:
       postgres:
         image: postgres:17-alpine
@@ -43,6 +43,8 @@ jobs:
         working-directory: platform
     env:
       MS_TEST_DATABASE_URL: postgres://ms:ms@127.0.0.1:5544/ms_test
+      # a missing database fails the job instead of skipping every DB test
+      MS_REQUIRE_DB: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

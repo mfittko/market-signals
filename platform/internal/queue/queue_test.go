@@ -15,6 +15,7 @@ import (
 
 	"github.com/mfittko/market-signals/platform/internal/db"
 	"github.com/mfittko/market-signals/platform/internal/domain"
+	"github.com/mfittko/market-signals/platform/internal/testutil"
 	"github.com/mfittko/market-signals/platform/migrations"
 )
 
@@ -27,7 +28,10 @@ func TestMain(m *testing.M) {
 	}
 	ctx := context.Background()
 	var err error
-	if testPool, err = db.Connect(ctx, url); err != nil {
+	if testPool, err = db.Connect(ctx, url); err != nil && testutil.Required() {
+		fmt.Println("FAIL: postgres unavailable and required (CI or MS_REQUIRE_DB=1):", err)
+		os.Exit(1)
+	} else if err != nil {
 		fmt.Println("SKIP: postgres unavailable (run `docker compose up -d postgres` in platform/):", err)
 		os.Exit(0)
 	}
