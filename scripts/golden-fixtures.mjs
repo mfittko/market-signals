@@ -231,7 +231,6 @@ const SCENARIOS = {
   },
 };
 
-const errMsg = (fn) => { try { return fn(); } catch (err) { return { error: String(err.message) }; } };
 const tryJson = (s) => { try { return JSON.parse(s); } catch { return s; } };
 
 function stateOf(dbPath, cfg) {
@@ -261,9 +260,11 @@ function insertJournal(dbPath, action, context) {
 async function replayScenario(input) {
   const dir = mkdtempSync(join(tmpdir(), 'golden-'));
   const dbPath = join(dir, 'golden.sqlite');
+  const cwd = process.cwd();
+  // runBot builds its own config from a cwd-relative spreads path; running inside the
+  // temp dir keeps every scenario independent of the repo config folder.
+  process.chdir(dir);
   try {
-    // runBot builds its own config from the default spreads path (cwd-relative), which
-    // only matters on open; scenarios open through openPosition with the inline spreads.
     const cfg = botConfig({ bot: input.config.bot }, 'golden/no-such-spreads.json');
     cfg.spreads = input.config.spreads ?? {};
     if (input.config.allocationPct) cfg.allocationPct = input.config.allocationPct;
@@ -273,11 +274,11 @@ async function replayScenario(input) {
       switch (s.op) {
         case 'open': {
           const { op, ...args } = s;
-          results.push(errMsg(() => ({ positionId: openPosition(dbPath, cfg, args) })));
+          results.push(safe(() => ({ positionId: openPosition(dbPath, cfg, args) })));
           break;
         }
         case 'close':
-          results.push(errMsg(() => closePosition(dbPath, cfg, s.positionId, s.price, s.reason)));
+          results.push(safe(() => closePosition(dbPath, cfg, s.positionId, s.price, s.reason)));
           break;
         case 'fills':
           results.push(simulateFills(dbPath, cfg, s.instrument, s.candle));
@@ -316,6 +317,7 @@ async function replayScenario(input) {
     }
     return round({ steps: results, final: stateOf(dbPath, cfg) });
   } finally {
+    process.chdir(cwd);
     rmSync(dir, { recursive: true, force: true });
   }
 }
