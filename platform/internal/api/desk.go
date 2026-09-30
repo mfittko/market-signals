@@ -239,7 +239,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 	for _, g := range sigs {
 		byKey[signalKey(g.Granularity, g.Time, g.Kind)] = g
 	}
-	for _, e := range s.engineSignals(ctx, symbol, grans) {
+	for _, e := range s.engineSignals(ctx, symbol, grans, 5*time.Second) {
 		t, err := time.Parse(time.RFC3339Nano, e.Time)
 		if err != nil {
 			continue

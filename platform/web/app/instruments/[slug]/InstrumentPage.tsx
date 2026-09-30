@@ -29,7 +29,7 @@ function InstrumentView() {
   const [gran, setGran] = useState<string>(useSearchParams().get('granularity') ?? '');
   const [d, setD] = useState<InstrumentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { tick } = useLive();
+  const { tick } = useLive(undefined, slug);
   const [tab, setTab] = useState<'signals' | 'trades'>('signals');
   const bots = useActiveBots();
   const w = useWatchers();

@@ -40,11 +40,12 @@ type Server struct {
 	log  *slog.Logger
 	mux  *http.ServeMux
 	boot time.Time
+	hub  *sigHub
 }
 
 func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	eng := tools.NewEngine(cfg.EngineURL)
-	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now()}
+	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub()}
 	s.routes()
 	return s
 }
@@ -532,6 +533,16 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "retry: 2000\n: connected after=%d\n\n", after)
 	fl.Flush()
 	start, sent := after, map[int64]bool{}
+	// A page that shows one instrument also asks to hear about that instrument's engine signals. A nil channel
+	// blocks forever, so a stream without the parameter simply never receives this case.
+	var sigNotice <-chan struct{}
+	if slug := r.URL.Query().Get("instrument"); slug != "" {
+		if sym, ok := s.symbolForSlug(r.Context(), slug); ok {
+			sub, leave := s.subscribeSignals(sym)
+			defer leave()
+			sigNotice = sub.ch
+		}
+	}
 	poll := time.NewTicker(600 * time.Millisecond)
 	ping := time.NewTicker(15 * time.Second)
 	defer poll.Stop()
@@ -542,6 +553,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
+			fl.Flush()
+		case <-sigNotice:
+			fmt.Fprint(w, "event: signal\ndata: {}\n\n") // no id: the browser refetches the list, and a reconnect does too
 			fl.Flush()
 		case <-poll.C:
 			// Event ids are allocated at INSERT and become visible at COMMIT, so

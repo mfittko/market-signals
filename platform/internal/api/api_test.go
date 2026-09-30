@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1183,5 +1184,102 @@ func TestParseTurnRejectsAnOverLongPromptInsteadOfClippingIt(t *testing.T) {
 	ok := `{"prompt":"` + strings.Repeat("a", maxPrompt) + `","summary":"rewritten"}`
 	if p := parseTurn(ok); p == nil || len(p.Prompt) != maxPrompt {
 		t.Fatal("a prompt at the limit must parse whole")
+	}
+}
+
+// New engine signals reach the browser over the event stream, without the browser asking again.
+func TestStreamPushesSignalChangesForTheWatchedInstrumentOnly(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	ctx := context.Background()
+	for _, q := range []string{
+		`TRUNCATE candles, signals, trades, instruments CASCADE`,
+		`INSERT INTO instruments (symbol,name,market) VALUES ('WTICO/USD','WTI Oil','commodities'), ('XAU/USD','Gold','commodities')`,
+		`INSERT INTO candles VALUES ('WTICO/USD','M5','2026-01-01T10:00:00Z',1,2,1,1.5,10), ('XAU/USD','M5','2026-01-01T10:00:00Z',1,2,1,1.5,10)`,
+	} {
+		if _, err := st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var mu sync.Mutex
+	verdict := "suppress"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		v := verdict
+		mu.Unlock()
+		if r.URL.Query().Get("instrument") != "WTICO/USD" {
+			io.WriteString(w, `{"signals":[]}`)
+			return
+		}
+		io.WriteString(w, `{"signals":[{"granularity":"M5","time":"2026-01-01T10:00:00Z","kind":"supertrend-flip","signal":"sell","verdict":"`+v+`"}]}`)
+	})
+	eng := httptest.NewServer(mux)
+	t.Cleanup(eng.Close)
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", EngineURL: eng.URL}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv.hub.every = 100 * time.Millisecond
+	hs := httptest.NewServer(srv.Handler())
+	t.Cleanup(hs.Close)
+
+	listen := func(instrument string) (<-chan string, context.CancelFunc) {
+		c, cancel := context.WithCancel(context.Background())
+		req, _ := http.NewRequestWithContext(c, "GET", hs.URL+"/api/v1/stream?instrument="+instrument, nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := make(chan string, 16)
+		go func() {
+			defer resp.Body.Close()
+			sc := bufio.NewScanner(resp.Body)
+			for sc.Scan() {
+				if strings.HasPrefix(sc.Text(), "event: ") {
+					lines <- sc.Text()
+				}
+			}
+		}()
+		return lines, cancel
+	}
+	wti, stopWTI := listen("wtico-usd")
+	defer stopWTI()
+	gold, stopGold := listen("xau-usd")
+	defer stopGold()
+
+	time.Sleep(600 * time.Millisecond) // the first look sets the baseline, so nothing is announced yet
+	select {
+	case e := <-wti:
+		t.Fatalf("no change yet, but got %s", e)
+	default:
+	}
+	mu.Lock()
+	verdict = "alert" // the engine's filter finished: the same row now has a new verdict
+	mu.Unlock()
+	select {
+	case e := <-wti:
+		if e != "event: signal" {
+			t.Fatalf("got %s", e)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the watching browser was not told about the change")
+	}
+	select {
+	case e := <-gold:
+		t.Fatalf("gold has no change, but got %s", e)
+	case <-time.After(500 * time.Millisecond):
+	}
+	// once the last browser leaves, the shared watcher stops asking the engine
+	stopWTI()
+	stopGold()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		srv.hub.mu.Lock()
+		running := srv.hub.running
+		srv.hub.mu.Unlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the watcher kept running with no browsers")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

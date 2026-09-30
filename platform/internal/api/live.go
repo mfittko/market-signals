@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -11,9 +12,7 @@ import (
 
 // lookupSymbol resolves a URL slug to its instrument symbol.
 func (s *Server) lookupSymbol(r *http.Request) (string, bool) {
-	var symbol string
-	err := s.st.Pool.QueryRow(r.Context(), `SELECT symbol FROM instruments WHERE replace(lower(symbol),'/','-')=$1`, strings.ToLower(r.PathValue("slug"))).Scan(&symbol)
-	return symbol, err == nil
+	return s.symbolForSlug(r.Context(), r.PathValue("slug"))
 }
 
 type liveCandle struct {
@@ -116,4 +115,11 @@ func (s *Server) news(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("content-type", "application/json")
 	_, _ = w.Write(out)
+}
+
+// symbolForSlug maps a URL slug such as wtico-usd to the instrument symbol.
+func (s *Server) symbolForSlug(ctx context.Context, slug string) (string, bool) {
+	var symbol string
+	err := s.st.Pool.QueryRow(ctx, `SELECT symbol FROM instruments WHERE replace(lower(symbol),'/','-')=$1`, strings.ToLower(slug)).Scan(&symbol)
+	return symbol, err == nil
 }
