@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Run the live Market Signals engine from this branch's worktree, and retire the old
-# five-minute watcher job that duplicates the server's own watcher cycle.
+# Install the live Market Signals setup under launchd: the engine from this checkout, and the console stack
+# (control plane, worker, web) as three KeepAlive jobs. Also retires the old five-minute watcher, which duplicates
+# the server's own watcher cycle. Every step is idempotent: run `up` again after a pull to rebuild and reload.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
 #   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   switch to this worktree (asks first; -y skips the question)
-#   scripts/switch-launchd.sh rollback [--with-watcher]   restore the original server plist and the main checkout;
+#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
@@ -23,6 +24,10 @@ UID_="$(id -u)"
 SRV=com.market-signals.signal-server
 WATCH=com.market-signals.supertrend
 API=http://127.0.0.1:8787
+PLAT="$WT/platform"
+PORT="${MS_CONSOLE_PORT:-3737}"          # the console; 3000 stays free for other projects
+PLAT_JOBS="api worker web"
+SETTINGS="$MAIN/data/settings.json"
 
 die() { echo "error: $*" >&2; exit 1; }
 loaded() { launchctl print "gui/$UID_/$1" >/dev/null 2>&1; }
@@ -53,7 +58,79 @@ wait_health() {
   return 1
 }
 
+# --- console stack: three KeepAlive jobs that run `dev.sh run <name>` ---
+plabel() { echo "com.market-signals.platform-$1"; }
+
+write_plist() { # name
+  cat >"$LA/$(plabel "$1").plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$(plabel "$1")</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>$PLAT/scripts/dev.sh</string>
+		<string>run</string>
+		<string>$1</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>$PLAT</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+		<key>MS_CONSOLE_PORT</key>
+		<string>$PORT</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>$PLAT/.dev/$1.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>$PLAT/.dev/$1.launchd.log</string>
+</dict>
+</plist>
+PLIST
+}
+
+console_health() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" >/dev/null 2>&1; }
+
+# Alert links open the new console once settings.json carries consoleUrl. Writing the same value again changes nothing.
+edit_settings() { # jq filter args...
+  local tmp; tmp="$(mktemp)"
+  jq "$@" "$SETTINGS" >"$tmp" && command cp -f "$tmp" "$SETTINGS"
+  rm -f "$tmp"
+}
+
+install_console() {
+  command -v pnpm >/dev/null || die "pnpm is required"
+  command -v go >/dev/null || die "go is required"
+  mkdir -p "$PLAT/.dev/bin"
+  # the dev.sh processes hold the same ports and the same .next build folder
+  "$PLAT/scripts/dev.sh" down
+  "$PLAT/scripts/dev.sh" db
+  (cd "$PLAT" && go build -o .dev/bin/ ./cmd/api ./cmd/worker)
+  [ -d "$PLAT/web/node_modules" ] || (cd "$PLAT/web" && pnpm install --silent)
+  (cd "$PLAT/web" && pnpm exec next build)
+  for j in $PLAT_JOBS; do unload "$(plabel "$j")"; write_plist "$j"; load "$(plabel "$j")"; done
+  for _ in $(seq 1 60); do console_health && return 0; sleep 1; done
+  die "the console did not answer on port $PORT; see $PLAT/.dev/web.launchd.log"
+}
+
+remove_console() {
+  for j in $PLAT_JOBS; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
+}
+
 status() {
+  for j in $PLAT_JOBS; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
+  console_health && echo "console:        answering on http://127.0.0.1:$PORT" || echo "console:        not answering on port $PORT"
   echo "worktree:       $WT ($(git -C "$WT" branch --show-current))"
   echo "main checkout:  $MAIN"
   echo "server plist:   working directory $(workdir)"
@@ -73,6 +150,8 @@ up() {
   echo "  2. link $WT/data to $MAIN/data"
   echo "  3. point $SRV at $WT and reload it"
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
+  echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
+  echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes)"
   if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
 
   before="$(equity || echo unavailable)"
@@ -90,11 +169,14 @@ up() {
   if loaded "$WATCH"; then launchctl bootout "gui/$UID_/$WATCH"; fi
   [ -f "$LA/$WATCH.plist" ] && command mv "$LA/$WATCH.plist" "$BK/$WATCH.plist.disabled"
 
+  edit_settings --arg u "http://127.0.0.1:$PORT" '.consoleUrl = $u'
+
   # a changed plist only takes effect after a full unload and load; kickstart alone would keep the old directory
   unload "$SRV"
   load "$SRV"
 
   wait_health || die "engine did not answer within 30 seconds; run: $0 rollback"
+  install_console
   after="$(equity || echo unavailable)"
   echo; echo "portfolio before: $before"; echo "portfolio after:  $after"
   [ "$before" = "$after" ] && echo "portfolio unchanged: ok" || echo "note: figures differ. A trade or a price move can explain a small change; compare before deciding."
@@ -105,6 +187,8 @@ up() {
 # watches every pair, and two cycle owners send duplicate alerts.
 rollback() {
   [ -f "$BK/$SRV.plist" ] || die "no backup at $BK"
+  remove_console
+  edit_settings 'del(.consoleUrl)'
   unload "$SRV"
   command cp -f "$BK/$SRV.plist" "$LA/$SRV.plist"
   load "$SRV"
