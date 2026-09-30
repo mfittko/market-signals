@@ -1,0 +1,2404 @@
+{
+ "version": 1,
+ "area": "portfolio",
+ "cases": [
+  {
+   "name": "sizing-risk-cap",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 1,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {
+      "SYNTH/USD": 0.06
+     }
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 5000,
+      "price": 87
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 500,
+      "price": 87
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 0,
+      "price": 87
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": 2
+     },
+     {
+      "error": "notional and price must be > 0"
+     }
+    ],
+    "final": {
+     "cash": 9850,
+     "marginLocked": 150,
+     "unrealized": -1.0344827586207288,
+     "equity": 9998.965517241379,
+     "halted": false,
+     "realizedTotal": 0,
+     "positions": [
+      {
+       "id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87.06,
+       "leverage": 10,
+       "margin": 100,
+       "stop": null,
+       "target": null,
+       "last_mark": 87,
+       "stale": false,
+       "granularity": null
+      },
+      {
+       "id": 2,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 500,
+       "units": 5.747126436781609,
+       "entry_price": 86.94,
+       "leverage": 10,
+       "margin": 50,
+       "stop": null,
+       "target": null,
+       "last_mark": 87,
+       "stale": false,
+       "granularity": null
+      }
+     ],
+     "trades": [],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 5000,
+        "effectiveNotional": 1000,
+        "bindingCap": "risk",
+        "price": 87,
+        "entry": 87.06,
+        "spread": 0.06,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 500,
+        "requestedNotional": 500,
+        "effectiveNotional": 500,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 86.94,
+        "spread": 0.06,
+        "leverage": 10,
+        "margin": 50
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "sizing-allocation-cap-and-exhausted-skip",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 5,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {},
+     "allocationPct": 2
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 5000,
+      "price": 100
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 5000,
+      "price": 100
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": null
+     }
+    ],
+    "final": {
+     "cash": 9800,
+     "marginLocked": 200,
+     "unrealized": 0,
+     "equity": 10000,
+     "halted": false,
+     "realizedTotal": 0,
+     "positions": [
+      {
+       "id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 2000,
+       "units": 20,
+       "entry_price": 100,
+       "leverage": 10,
+       "margin": 200,
+       "stop": null,
+       "target": null,
+       "last_mark": 100,
+       "stale": false,
+       "granularity": null
+      }
+     ],
+     "trades": [],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 2000,
+        "requestedNotional": 5000,
+        "effectiveNotional": 2000,
+        "bindingCap": "allocation",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 200
+       }
+      },
+      {
+       "action": "skip",
+       "position_id": null,
+       "reason": "no budget (allocation cap exhausted)",
+       "context": {
+        "instrument": "SYNTH/USD",
+        "side": "long",
+        "requestedNotional": 5000,
+        "effectiveNotional": 0,
+        "bindingCap": "allocation",
+        "leverage": 10,
+        "equityNow": 10000,
+        "lockedHere": 200
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "caps-max-positions",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 100,
+      "maxPositions": 1,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100
+     },
+     {
+      "op": "open",
+      "instrument": "OTHER/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "error": "max 1 concurrent positions"
+     }
+    ],
+    "final": {
+     "cash": 9900,
+     "marginLocked": 100,
+     "unrealized": 0,
+     "equity": 10000,
+     "halted": false,
+     "realizedTotal": 0,
+     "positions": [
+      {
+       "id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "leverage": 10,
+       "margin": 100,
+       "stop": null,
+       "target": null,
+       "last_mark": 100,
+       "stale": false,
+       "granularity": null
+      }
+     ],
+     "trades": [],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "spread-and-manual-close",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 10,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {
+      "SYNTH/USD": 0.06
+     }
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 87
+     },
+     {
+      "op": "close",
+      "positionId": 1,
+      "price": 88,
+      "reason": "bot-close"
+     },
+     {
+      "op": "close",
+      "positionId": 2,
+      "price": 86,
+      "reason": "bot-close"
+     },
+     {
+      "op": "close",
+      "positionId": 99,
+      "price": 86,
+      "reason": "bot-close"
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": 2
+     },
+     {
+      "positionId": 1,
+      "realized": 10.8045977011494,
+      "closeReason": "bot-close"
+     },
+     {
+      "positionId": 2,
+      "realized": 10.8045977011494,
+      "closeReason": "bot-close"
+     },
+     {
+      "error": "unknown position"
+     }
+    ],
+    "final": {
+     "cash": 10021.6091954023,
+     "marginLocked": 0,
+     "unrealized": 0,
+     "equity": 10021.6091954023,
+     "halted": false,
+     "realizedTotal": 21.6091954022988,
+     "positions": [],
+     "trades": [
+      {
+       "position_id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87.06,
+       "close_price": 88,
+       "leverage": 10,
+       "realized": 10.8045977011494,
+       "close_reason": "bot-close",
+       "granularity": null
+      },
+      {
+       "position_id": 2,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 86.94,
+       "close_price": 86,
+       "leverage": 10,
+       "realized": 10.8045977011494,
+       "close_reason": "bot-close",
+       "granularity": null
+      }
+     ],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87.06,
+        "spread": 0.06,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 86.94,
+        "spread": 0.06,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 1,
+       "reason": "bot-close",
+       "context": {
+        "price": 88,
+        "realized": 10.8045977011494
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 2,
+       "reason": "bot-close",
+       "context": {
+        "price": 86,
+        "realized": 10.8045977011494
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "fills-stop-target-gap",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 50,
+      "maxPositions": 5,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87,
+      "stop": 85,
+      "target": 90
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:05:00.000Z",
+       "open": 86,
+       "high": 91,
+       "low": 84,
+       "close": 88,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87,
+      "stop": 85,
+      "target": 90
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:10:00.000Z",
+       "open": 84,
+       "high": 91,
+       "low": 83,
+       "close": 88,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87,
+      "stop": 85,
+      "target": 90
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:15:00.000Z",
+       "open": 91,
+       "high": 92,
+       "low": 84,
+       "close": 88,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87,
+      "stop": 85,
+      "target": 90
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:20:00.000Z",
+       "open": 88,
+       "high": 91,
+       "low": 86,
+       "close": 89,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 87,
+      "stop": 89,
+      "target": 84
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:25:00.000Z",
+       "open": 87,
+       "high": 90,
+       "low": 83,
+       "close": 86,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 87,
+      "stop": 89,
+      "target": 84
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:30:00.000Z",
+       "open": 83,
+       "high": 88,
+       "low": 82,
+       "close": 85,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87,
+      "stop": 85,
+      "target": 90
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:35:00.000Z",
+       "open": 87,
+       "high": 88,
+       "low": 86,
+       "close": 87,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "fills",
+      "instrument": "OTHER/USD",
+      "candle": {
+       "time": "2026-01-05T00:40:00.000Z",
+       "open": 50,
+       "high": 200,
+       "low": 1,
+       "close": 60,
+       "volume": 100,
+       "complete": true
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     [
+      {
+       "positionId": 1,
+       "realized": -22.988505747126435,
+       "closeReason": "stop"
+      }
+     ],
+     {
+      "positionId": 2
+     },
+     [
+      {
+       "positionId": 2,
+       "realized": -34.48275862068965,
+       "closeReason": "stop"
+      }
+     ],
+     {
+      "positionId": 3
+     },
+     [
+      {
+       "positionId": 3,
+       "realized": 45.97701149425287,
+       "closeReason": "target"
+      }
+     ],
+     {
+      "positionId": 4
+     },
+     [
+      {
+       "positionId": 4,
+       "realized": 34.48275862068965,
+       "closeReason": "target"
+      }
+     ],
+     {
+      "positionId": 5
+     },
+     [
+      {
+       "positionId": 5,
+       "realized": -22.988505747126435,
+       "closeReason": "stop"
+      }
+     ],
+     {
+      "positionId": 6
+     },
+     [
+      {
+       "positionId": 6,
+       "realized": 45.97701149425287,
+       "closeReason": "target"
+      }
+     ],
+     {
+      "positionId": 7
+     },
+     [],
+     []
+    ],
+    "final": {
+     "cash": 9945.977011494255,
+     "marginLocked": 100,
+     "unrealized": 0,
+     "equity": 10045.977011494255,
+     "halted": false,
+     "realizedTotal": 45.97701149425287,
+     "positions": [
+      {
+       "id": 7,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "leverage": 10,
+       "margin": 100,
+       "stop": 85,
+       "target": 90,
+       "last_mark": 87,
+       "stale": false,
+       "granularity": null
+      }
+     ],
+     "trades": [
+      {
+       "position_id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 85,
+       "leverage": 10,
+       "realized": -22.988505747126435,
+       "close_reason": "stop",
+       "granularity": null
+      },
+      {
+       "position_id": 2,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 84,
+       "leverage": 10,
+       "realized": -34.48275862068965,
+       "close_reason": "stop",
+       "granularity": null
+      },
+      {
+       "position_id": 3,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 91,
+       "leverage": 10,
+       "realized": 45.97701149425287,
+       "close_reason": "target",
+       "granularity": null
+      },
+      {
+       "position_id": 4,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 90,
+       "leverage": 10,
+       "realized": 34.48275862068965,
+       "close_reason": "target",
+       "granularity": null
+      },
+      {
+       "position_id": 5,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 89,
+       "leverage": 10,
+       "realized": -22.988505747126435,
+       "close_reason": "stop",
+       "granularity": null
+      },
+      {
+       "position_id": 6,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 83,
+       "leverage": 10,
+       "realized": 45.97701149425287,
+       "close_reason": "target",
+       "granularity": null
+      }
+     ],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 1,
+       "reason": "stop",
+       "context": {
+        "candleTime": "2026-01-05T00:05:00.000Z",
+        "price": 85,
+        "realized": -22.988505747126435
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 2,
+       "reason": "stop",
+       "context": {
+        "candleTime": "2026-01-05T00:10:00.000Z",
+        "price": 84,
+        "realized": -34.48275862068965
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 3,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 3,
+       "reason": "target",
+       "context": {
+        "candleTime": "2026-01-05T00:15:00.000Z",
+        "price": 91,
+        "realized": 45.97701149425287
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 4,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 4,
+       "reason": "target",
+       "context": {
+        "candleTime": "2026-01-05T00:20:00.000Z",
+        "price": 90,
+        "realized": 34.48275862068965
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 5,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 5,
+       "reason": "stop",
+       "context": {
+        "candleTime": "2026-01-05T00:25:00.000Z",
+        "price": 89,
+        "realized": -22.988505747126435
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 6,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 6,
+       "reason": "target",
+       "context": {
+        "candleTime": "2026-01-05T00:30:00.000Z",
+        "price": 83,
+        "realized": 45.97701149425287
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 7,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "mark-to-market-exits-and-stale",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 50,
+      "maxPositions": 5,
+      "leverage": {
+       "SYNTH/USD": 10,
+       "B/USD": 10,
+       "C/USD": 10,
+       "D/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 87
+     },
+     {
+      "op": "open",
+      "instrument": "B/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100,
+      "stop": 95
+     },
+     {
+      "op": "open",
+      "instrument": "C/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 100,
+      "target": 90
+     },
+     {
+      "op": "open",
+      "instrument": "D/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100
+     },
+     {
+      "op": "mark",
+      "quotes": {
+       "B/USD": 94,
+       "C/USD": 89,
+       "D/USD": 0
+      }
+     },
+     {
+      "op": "mark",
+      "quotes": {
+       "SYNTH/USD": 78
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": 2
+     },
+     {
+      "positionId": 3
+     },
+     {
+      "positionId": 4
+     },
+     {
+      "closed": [
+       {
+        "positionId": 2,
+        "realized": -60,
+        "closeReason": "stop"
+       },
+       {
+        "positionId": 3,
+        "realized": 110,
+        "closeReason": "target"
+       }
+      ],
+      "cash": 9850,
+      "marginLocked": 200,
+      "unrealized": 0,
+      "equity": 10050,
+      "halted": false
+     },
+     {
+      "closed": [
+       {
+        "positionId": 1,
+        "realized": -103.44827586206895,
+        "closeReason": "margin"
+       }
+      ],
+      "cash": 9846.551724137931,
+      "marginLocked": 100,
+      "unrealized": 0,
+      "equity": 9946.551724137931,
+      "halted": false
+     }
+    ],
+    "final": {
+     "cash": 9846.551724137931,
+     "marginLocked": 100,
+     "unrealized": 0,
+     "equity": 9946.551724137931,
+     "halted": false,
+     "realizedTotal": -53.448275862068954,
+     "positions": [
+      {
+       "id": 4,
+       "instrument": "D/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "leverage": 10,
+       "margin": 100,
+       "stop": null,
+       "target": null,
+       "last_mark": 100,
+       "stale": true,
+       "granularity": null
+      }
+     ],
+     "trades": [
+      {
+       "position_id": 2,
+       "instrument": "B/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 94,
+       "leverage": 10,
+       "realized": -60,
+       "close_reason": "stop",
+       "granularity": null
+      },
+      {
+       "position_id": 3,
+       "instrument": "C/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 89,
+       "leverage": 10,
+       "realized": 110,
+       "close_reason": "target",
+       "granularity": null
+      },
+      {
+       "position_id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 78,
+       "leverage": 10,
+       "realized": -103.44827586206895,
+       "close_reason": "margin",
+       "granularity": null
+      }
+     ],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 3,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 4,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 2,
+       "reason": "stop",
+       "context": {
+        "price": 94,
+        "realized": -60
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 3,
+       "reason": "target",
+       "context": {
+        "price": 89,
+        "realized": 110
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 1,
+       "reason": "margin",
+       "context": {
+        "price": 78,
+        "realized": -103.44827586206895
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "halt-equity-zero-closes-the-rest",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 100,
+      "maxPositions": 5,
+      "leverage": {
+       "SYNTH/USD": 10,
+       "B/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 80000,
+      "price": 100
+     },
+     {
+      "op": "open",
+      "instrument": "B/USD",
+      "side": "long",
+      "notional": 20000,
+      "price": 100
+     },
+     {
+      "op": "mark",
+      "quotes": {
+       "SYNTH/USD": 80
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100
+     },
+     {
+      "op": "mark",
+      "quotes": {
+       "B/USD": 100
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": 2
+     },
+     {
+      "closed": [
+       {
+        "positionId": 1,
+        "realized": -16000,
+        "closeReason": "margin"
+       },
+       {
+        "positionId": 2,
+        "realized": 0,
+        "closeReason": "halt"
+       }
+      ],
+      "cash": -6000,
+      "marginLocked": 0,
+      "unrealized": 0,
+      "equity": -6000,
+      "halted": true
+     },
+     {
+      "error": "portfolio halted"
+     },
+     {
+      "closed": [],
+      "cash": -6000,
+      "marginLocked": 0,
+      "unrealized": 0,
+      "equity": -6000,
+      "halted": true
+     }
+    ],
+    "final": {
+     "cash": -6000,
+     "marginLocked": 0,
+     "unrealized": 0,
+     "equity": -6000,
+     "halted": true,
+     "realizedTotal": -16000,
+     "positions": [],
+     "trades": [
+      {
+       "position_id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 80000,
+       "units": 800,
+       "entry_price": 100,
+       "close_price": 80,
+       "leverage": 10,
+       "realized": -16000,
+       "close_reason": "margin",
+       "granularity": null
+      },
+      {
+       "position_id": 2,
+       "instrument": "B/USD",
+       "side": "long",
+       "notional": 20000,
+       "units": 200,
+       "entry_price": 100,
+       "close_price": 100,
+       "leverage": 10,
+       "realized": 0,
+       "close_reason": "halt",
+       "granularity": null
+      }
+     ],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 80000,
+        "requestedNotional": 80000,
+        "effectiveNotional": 80000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 8000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 20000,
+        "requestedNotional": 20000,
+        "effectiveNotional": 20000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 2000
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 1,
+       "reason": "margin",
+       "context": {
+        "price": 80,
+        "realized": -16000
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 2,
+       "reason": "halt",
+       "context": {
+        "price": 100,
+        "realized": 0
+       }
+      },
+      {
+       "action": "halt",
+       "position_id": null,
+       "reason": "equity <= 0",
+       "context": {
+        "equity": -6000
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "killswitch-and-halt-reset",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 100,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "settings": {
+     "bot": {
+      "killSwitchDrawdownPct": 20,
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyName": "golden-none"
+       }
+      }
+     }
+    },
+    "steps": [
+     {
+      "op": "runBot",
+      "instrument": "SYNTH/USD",
+      "granularity": "M5",
+      "candle": {
+       "time": "2026-01-05T00:05:00.000Z",
+       "open": 100,
+       "high": 100,
+       "low": 100,
+       "close": 100,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 50000,
+      "price": 100
+     },
+     {
+      "op": "runBot",
+      "instrument": "SYNTH/USD",
+      "granularity": "M5",
+      "candle": {
+       "time": "2026-01-05T00:10:00.000Z",
+       "open": 96,
+       "high": 97,
+       "low": 94,
+       "close": 95,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "runBot",
+      "instrument": "SYNTH/USD",
+      "granularity": "M5",
+      "candle": {
+       "time": "2026-01-05T00:15:00.000Z",
+       "open": 95,
+       "high": 96,
+       "low": 94,
+       "close": 95,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "resetHalt"
+     },
+     {
+      "op": "resetHalt"
+     },
+     {
+      "op": "runBot",
+      "instrument": "SYNTH/USD",
+      "granularity": "M5",
+      "candle": {
+       "time": "2026-01-05T00:20:00.000Z",
+       "open": 95,
+       "high": 96,
+       "low": 94,
+       "close": 95,
+       "volume": 100,
+       "complete": true
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "fills": [],
+      "halted": false,
+      "deliberated": false
+     },
+     {
+      "positionId": 1
+     },
+     {
+      "fills": [],
+      "halted": true,
+      "drawdownPct": 25
+     },
+     {
+      "fills": [],
+      "halted": true,
+      "skipped": "halted"
+     },
+     {
+      "reset": true
+     },
+     {
+      "reset": false,
+      "reason": "not halted"
+     },
+     {
+      "fills": [],
+      "halted": false,
+      "deliberated": false,
+      "skipped": "no strategy assigned to this bot"
+     }
+    ],
+    "final": {
+     "cash": 5000,
+     "marginLocked": 5000,
+     "unrealized": -2500,
+     "equity": 7500,
+     "halted": false,
+     "realizedTotal": 0,
+     "positions": [
+      {
+       "id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 50000,
+       "units": 500,
+       "entry_price": 100,
+       "leverage": 10,
+       "margin": 5000,
+       "stop": null,
+       "target": null,
+       "last_mark": 95,
+       "stale": false,
+       "granularity": null
+      }
+     ],
+     "trades": [],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 50000,
+        "requestedNotional": 50000,
+        "effectiveNotional": 50000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 5000
+       }
+      },
+      {
+       "action": "halt",
+       "position_id": null,
+       "reason": "kill-switch: drawdown 25.0% > 20%",
+       "context": {
+        "peak": 10000,
+        "equity": 7500
+       }
+      },
+      {
+       "action": "reset",
+       "position_id": null,
+       "reason": "halt cleared by operator (settings UI); peak re-baselined",
+       "context": {
+        "peakEquity": 7500
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "attribution-and-scoreboard",
+   "input": {
+    "kind": "scenario",
+    "config": {
+     "bot": {
+      "riskPct": 10,
+      "maxPositions": 6,
+      "leverage": {
+       "SYNTH/USD": 10
+      }
+     },
+     "spreads": {}
+    },
+    "steps": [
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100,
+      "granularity": "M5"
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 100
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100,
+      "granularity": "H1"
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
+      "side": "long",
+      "notional": 1000,
+      "price": 100,
+      "granularity": "M5"
+     },
+     {
+      "op": "journal",
+      "action": "decision",
+      "context": {
+       "instrument": "SYNTH/USD",
+       "granularity": "M5",
+       "strategyId": 1,
+       "strategyName": "trend-follow",
+       "strategyDbVersion": 1,
+       "strategyVersion": "aaaa1111",
+       "executed": {
+        "opened": 1
+       }
+      }
+     },
+     {
+      "op": "journal",
+      "action": "decision",
+      "context": {
+       "instrument": "SYNTH/USD",
+       "strategyId": 1,
+       "strategyName": "trend-follow",
+       "strategyDbVersion": 1,
+       "strategyVersion": "aaaa1111",
+       "executed": {
+        "opened": 2
+       }
+      }
+     },
+     {
+      "op": "journal",
+      "action": "decision",
+      "context": {
+       "instrument": "SYNTH/USD",
+       "granularity": "M5",
+       "strategyId": 2,
+       "strategyName": "breakout",
+       "strategyDbVersion": 3,
+       "strategyVersion": "bbbb2222",
+       "executed": {
+        "opened": 4
+       }
+      }
+     },
+     {
+      "op": "journal",
+      "action": "decision",
+      "context": {
+       "instrument": "SYNTH/USD",
+       "granularity": "M5",
+       "strategyVersion": "cccc3333",
+       "executed": {
+        "opened": 5
+       }
+      }
+     },
+     {
+      "op": "journal",
+      "action": "decision",
+      "context": {
+       "instrument": "SYNTH/USD",
+       "granularity": "M5",
+       "strategyId": 1,
+       "executed": {}
+      }
+     },
+     {
+      "op": "journalRaw",
+      "action": "decision",
+      "context": "not json"
+     },
+     {
+      "op": "close",
+      "positionId": 1,
+      "price": 102,
+      "reason": "target"
+     },
+     {
+      "op": "close",
+      "positionId": 2,
+      "price": 99,
+      "reason": "stop"
+     },
+     {
+      "op": "close",
+      "positionId": 3,
+      "price": 98,
+      "reason": "bot-close"
+     },
+     {
+      "op": "close",
+      "positionId": 4,
+      "price": 105,
+      "reason": "target"
+     },
+     {
+      "op": "close",
+      "positionId": 5,
+      "price": 99,
+      "reason": "stop"
+     },
+     {
+      "op": "attribution"
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "positionId": 1
+     },
+     {
+      "positionId": 2
+     },
+     {
+      "positionId": 3
+     },
+     {
+      "positionId": 4
+     },
+     {
+      "positionId": 5
+     },
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     {
+      "positionId": 1,
+      "realized": 20,
+      "closeReason": "target"
+     },
+     {
+      "positionId": 2,
+      "realized": -10,
+      "closeReason": "stop"
+     },
+     {
+      "positionId": 3,
+      "realized": 20,
+      "closeReason": "bot-close"
+     },
+     {
+      "positionId": 4,
+      "realized": 50,
+      "closeReason": "target"
+     },
+     {
+      "positionId": 5,
+      "realized": -10,
+      "closeReason": "stop"
+     },
+     {
+      "positions": [
+       [
+        1,
+        {
+         "strategyId": 1,
+         "strategyName": "trend-follow",
+         "strategyDbVersion": 1,
+         "strategyVersion": "aaaa1111",
+         "instrument": "SYNTH/USD",
+         "granularity": "M5",
+         "combo": "SYNTH/USD|M5"
+        }
+       ],
+       [
+        2,
+        {
+         "strategyId": 1,
+         "strategyName": "trend-follow",
+         "strategyDbVersion": 1,
+         "strategyVersion": "aaaa1111",
+         "instrument": "SYNTH/USD",
+         "granularity": null,
+         "combo": null
+        }
+       ],
+       [
+        4,
+        {
+         "strategyId": 2,
+         "strategyName": "breakout",
+         "strategyDbVersion": 3,
+         "strategyVersion": "bbbb2222",
+         "instrument": "SYNTH/USD",
+         "granularity": "M5",
+         "combo": "SYNTH/USD|M5"
+        }
+       ],
+       [
+        5,
+        {
+         "strategyId": null,
+         "strategyName": null,
+         "strategyDbVersion": null,
+         "strategyVersion": "cccc3333",
+         "instrument": "SYNTH/USD",
+         "granularity": "M5",
+         "combo": "SYNTH/USD|M5"
+        }
+       ]
+      ],
+      "trades": [
+       {
+        "position_id": 1,
+        "granularity": "M5",
+        "combo": "SYNTH/USD|M5"
+       },
+       {
+        "position_id": 2,
+        "granularity": null,
+        "combo": null
+       },
+       {
+        "position_id": 3,
+        "granularity": null,
+        "combo": null
+       },
+       {
+        "position_id": 4,
+        "granularity": "H1",
+        "combo": "SYNTH/USD|H1"
+       },
+       {
+        "position_id": 5,
+        "granularity": "M5",
+        "combo": "SYNTH/USD|M5"
+       }
+      ],
+      "scoreboard": [
+       {
+        "strategyId": 1,
+        "strategyName": "trend-follow",
+        "strategyDbVersion": 1,
+        "strategyVersion": "aaaa1111",
+        "trades": 2,
+        "wins": 1,
+        "losses": 1,
+        "winRatePct": 50,
+        "avgWin": 20,
+        "avgLoss": -10,
+        "profitFactor": 2,
+        "totalRealized": 10,
+        "maxDrawdownPct": 0.1,
+        "equityCurve": [10000, 10020, 10010]
+       },
+       {
+        "strategyId": null,
+        "strategyName": null,
+        "strategyDbVersion": null,
+        "strategyVersion": null,
+        "trades": 1,
+        "wins": 1,
+        "losses": 0,
+        "winRatePct": 100,
+        "avgWin": 20,
+        "avgLoss": null,
+        "profitFactor": null,
+        "totalRealized": 20,
+        "maxDrawdownPct": 0,
+        "equityCurve": [10000, 10020]
+       },
+       {
+        "strategyId": 2,
+        "strategyName": "breakout",
+        "strategyDbVersion": 3,
+        "strategyVersion": "bbbb2222",
+        "trades": 1,
+        "wins": 1,
+        "losses": 0,
+        "winRatePct": 100,
+        "avgWin": 50,
+        "avgLoss": null,
+        "profitFactor": null,
+        "totalRealized": 50,
+        "maxDrawdownPct": 0,
+        "equityCurve": [10000, 10050]
+       },
+       {
+        "strategyId": null,
+        "strategyName": null,
+        "strategyDbVersion": null,
+        "strategyVersion": "cccc3333",
+        "trades": 1,
+        "wins": 0,
+        "losses": 1,
+        "winRatePct": 0,
+        "avgWin": null,
+        "avgLoss": -10,
+        "profitFactor": 0,
+        "totalRealized": -10,
+        "maxDrawdownPct": 0.1,
+        "equityCurve": [10000, 9990]
+       }
+      ]
+     }
+    ],
+    "final": {
+     "cash": 10070,
+     "marginLocked": 0,
+     "unrealized": 0,
+     "equity": 10070,
+     "halted": false,
+     "realizedTotal": 70,
+     "positions": [],
+     "trades": [
+      {
+       "position_id": 1,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 102,
+       "leverage": 10,
+       "realized": 20,
+       "close_reason": "target",
+       "granularity": "M5"
+      },
+      {
+       "position_id": 2,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 99,
+       "leverage": 10,
+       "realized": -10,
+       "close_reason": "stop",
+       "granularity": null
+      },
+      {
+       "position_id": 3,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 98,
+       "leverage": 10,
+       "realized": 20,
+       "close_reason": "bot-close",
+       "granularity": null
+      },
+      {
+       "position_id": 4,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 105,
+       "leverage": 10,
+       "realized": 50,
+       "close_reason": "target",
+       "granularity": "H1"
+      },
+      {
+       "position_id": 5,
+       "instrument": "SYNTH/USD",
+       "side": "long",
+       "notional": 1000,
+       "units": 10,
+       "entry_price": 100,
+       "close_price": 99,
+       "leverage": 10,
+       "realized": -10,
+       "close_reason": "stop",
+       "granularity": "M5"
+      }
+     ],
+     "journal": [
+      {
+       "action": "init",
+       "position_id": null,
+       "reason": "portfolio seeded",
+       "context": {
+        "startingBalance": 10000
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 1,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 2,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 3,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 4,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 5,
+       "reason": null,
+       "context": {
+        "side": "long",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 100,
+        "entry": 100,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": {
+        "instrument": "SYNTH/USD",
+        "granularity": "M5",
+        "strategyId": 1,
+        "strategyName": "trend-follow",
+        "strategyDbVersion": 1,
+        "strategyVersion": "aaaa1111",
+        "executed": {
+         "opened": 1
+        }
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": {
+        "instrument": "SYNTH/USD",
+        "strategyId": 1,
+        "strategyName": "trend-follow",
+        "strategyDbVersion": 1,
+        "strategyVersion": "aaaa1111",
+        "executed": {
+         "opened": 2
+        }
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": {
+        "instrument": "SYNTH/USD",
+        "granularity": "M5",
+        "strategyId": 2,
+        "strategyName": "breakout",
+        "strategyDbVersion": 3,
+        "strategyVersion": "bbbb2222",
+        "executed": {
+         "opened": 4
+        }
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": {
+        "instrument": "SYNTH/USD",
+        "granularity": "M5",
+        "strategyVersion": "cccc3333",
+        "executed": {
+         "opened": 5
+        }
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": {
+        "instrument": "SYNTH/USD",
+        "granularity": "M5",
+        "strategyId": 1,
+        "executed": {}
+       }
+      },
+      {
+       "action": "decision",
+       "position_id": null,
+       "reason": null,
+       "context": "not json"
+      },
+      {
+       "action": "close",
+       "position_id": 1,
+       "reason": "target",
+       "context": {
+        "price": 102,
+        "realized": 20
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 2,
+       "reason": "stop",
+       "context": {
+        "price": 99,
+        "realized": -10
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 3,
+       "reason": "bot-close",
+       "context": {
+        "price": 98,
+        "realized": 20
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 4,
+       "reason": "target",
+       "context": {
+        "price": 105,
+        "realized": 50
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 5,
+       "reason": "stop",
+       "context": {
+        "price": 99,
+        "realized": -10
+       }
+      }
+     ]
+    }
+   }
+  }
+ ]
+}
