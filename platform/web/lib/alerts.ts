@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
+import { isAlerted, signalTitle } from '@/lib/signal-class';
 import { toggleWatcher, validPair } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
@@ -8,7 +9,7 @@ export type AlertEvent = {
   href?: string; tone?: 'good' | 'bad' | 'warn'; alerted?: boolean;
 };
 
-type Signal = { instrument: string; granularity: string; time: string; signal: string; price: number; verdict: string; reason: string; notified: number };
+type Signal = { kind?: string; instrument: string; granularity: string; time: string; signal: string; price: number; verdict: string; reason: string; notified: number };
 type Trade = { id: number; instrument: string; side: string; realized: number; close_time: string; close_reason: string; granularity?: string };
 type Open = { id: number; instrument: string; side: string; entry_price: number; entry_time: string };
 
@@ -32,10 +33,10 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
   const lists = await Promise.all(combos(settings.watchers).map(([i, g]) =>
     api<{ signals: Signal[] }>(`/engine/signals?instrument=${encodeURIComponent(i)}&granularity=${g}&limit=6`).then((r) => r.signals).catch(() => [] as Signal[])));
   for (const s of lists.flat()) {
-    const passed = s.verdict !== 'suppress';
+    const passed = isAlerted(s);
     out.push({
       id: `s:${s.instrument}:${s.granularity}:${s.time}`, kind: 'signal', at: s.time, alerted: !!s.notified,
-      title: `${s.signal === 'buy' ? 'Buy' : 'Sell'} flip ${s.instrument} ${s.granularity} at ${s.price}`,
+      title: signalTitle(s),
       detail: `${passed ? 'Passed the filter' : 'Filtered out'}${s.reason ? `: ${s.reason}` : ''}`, href: `/instruments/${slug(s.instrument)}`, tone: passed ? (s.signal === 'buy' ? 'good' : 'bad') : undefined,
     });
   }

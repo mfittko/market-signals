@@ -21,3 +21,20 @@ test('an untouched field sends nothing', () => {
 test('a value that was never set and stays empty sends nothing', () => {
   assert.deepEqual(changedPatch({}, {}, { maxCompletionTokens: null, models: { openai: null } }), {});
 });
+
+// The card's patch is built in llmPatch, so these fail if the old "only when non-empty" guard comes back.
+import { llmPatch } from '../platform/web/lib/llm-patch.ts';
+const card = { provider: 'openai', model: '', tokens: '', base: '', needsBase: false, key: '', akey: '', models: { openai: 'gpt-x' } };
+
+test('llmPatch: a cleared model is sent as null', () => {
+  assert.deepEqual(llmPatch(card).models, { openai: null });
+});
+
+test('llmPatch: a cleared token limit is sent as null, a set one as a number', () => {
+  assert.equal(llmPatch(card).maxCompletionTokens, null);
+  assert.equal(llmPatch({ ...card, tokens: '2048' }).maxCompletionTokens, 2048);
+});
+
+test('llmPatch: an empty model that was never stored adds no models entry', () => {
+  assert.equal('models' in llmPatch({ ...card, models: {} }), false);
+});

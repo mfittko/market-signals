@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
+import { isAlerted } from '@/lib/signal-class';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -209,7 +210,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
             {m.signals.slice(0, 1).map((g) => {
               const buy = g.signal === 'buy', c = candles[i];
               const cx = x(i), cy = buy ? y(c.low) + 12 : y(c.high) - 12;
-              const dim = g.verdict === 'suppress' || g.verdict === 'duplicate';
+              const dim = !!g.verdict && !isAlerted(g);
               return <polygon key="s" points={buy ? `${cx},${cy - 7} ${cx - 6},${cy + 4} ${cx + 6},${cy + 4}` : `${cx},${cy + 7} ${cx - 6},${cy - 4} ${cx + 6},${cy - 4}`}
                 fill={dim ? 'none' : buy ? 'var(--good)' : 'var(--bad)'} stroke={buy ? 'var(--good)' : 'var(--bad)'} strokeWidth={dim ? 1.2 : 1} opacity={dim ? 0.7 : 1} />;
             })}
