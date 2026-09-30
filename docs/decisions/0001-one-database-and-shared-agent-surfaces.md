@@ -24,17 +24,17 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 3. Task ownership, portfolio state and paid-provider budgets never live in Redis, whatever the outcome of a revisit. A cache eviction must never re-grant paid API spend or lose an owner.
 4. Live updates use server-sent events with durable event ids, so a client resumes from its last id. The implementation is the event stream handler in [server.go](https://github.com/mfittko/market-signals/blob/spike/epic-229/platform/internal/api/server.go). WebSockets are revisited only if the console must send control messages.
 5. The read-only agent surfaces (MCP server, unified CLI, HTTP API) reuse the platform's tool gateway for validation, scoping, budgets and audit. The read-only constraint of the agent surfaces epic is unchanged: no trade execution and no portfolio mutation through any surface. The gateway authorizes per run attempt, so a surface without a run needs a caller identity (open question 1).
-6. During migration each domain has exactly one authoritative writer at any time. A second store may hold a copy for comparison. It never accepts writes that the authoritative store does not also see.
+6. During migration each domain has exactly one authoritative writer at any time. A second store may hold a copy for comparison. It never accepts a write that takes effect in the system while the authoritative store does not see it. Console edits in Postgres that the engine does not yet read are drafts. They have no effect until the domain flips.
 
 ### Ownership during migration
 
 | Domain | Authoritative writer now | Flip condition |
 |---|---|---|
-| Strategies | Engine (SQLite) until migration step 1 (strategies) completes, then the platform (Postgres), with the engine reading the active version from Postgres. | Console edits reach the engine, and the engine has run on the Postgres version for several days without incident. |
+| Strategies | Engine (SQLite) until migration step 1 (strategies) completes, then the platform (Postgres), with the engine reading the active version from Postgres. | Console edits reach the engine (until then they are drafts), and the engine has run on the Postgres version for several days without incident. |
 | Candles and signals | Engine, which also writes a copy to Postgres. | Daily row counts per instrument and timeframe match for several days. Then the platform becomes the reader of record and the writer moves in the cutover step. |
 | Portfolio and bots | Engine (SQLite ledger). The platform never writes to it. | The Go port runs in shadow beside the ledger and every trade and the equity curve match. |
 | Paper execution (later) | Engine, through a narrow validating API. The agent never touches the ledger. | None. The engine stays the writer. The authority ladder is in the epic status note. |
-| Chat threads | Engine (SQLite). | None scheduled. Set once open question 2 is answered. |
+| Chat threads | Engine (SQLite). | Flips only after open question 2 is answered and a new record supersedes this row. Until then the engine stays the writer. |
 | Alert state | Engine (SQLite). | Moves with portfolio and bots. |
 | Provider budgets and circuit state | Engine (SQLite). | The importer gap (budgets, circuit state, correlation state) is closed, then the writer moves with the engine domain that spends the budget. |
 
