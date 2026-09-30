@@ -405,13 +405,29 @@ func TestEngineProxyAllowlist(t *testing.T) {
 		`{"bot":{"bots":{"WTICO/USD|M5":{"enabled":true}}}}`,
 		`{"bot":{"bots":{"WTICO/USD|M5":{"allocationPct":50}}}}`,
 		`{"claudeBin":"/tmp/x"}`, `{"provider":"pi","piBin":"/tmp/x"}`,
+		`{"notesFile":"/etc/passwd"}`,
 	} {
 		if code := post(body); code != http.StatusForbidden {
 			t.Fatalf("%s must be refused, got %d", body, code)
 		}
 	}
-	if code := post(`{"watchers":"WTICO/USD|M5"}`); code != 200 {
-		t.Fatalf("an ordinary setting must still pass, got %d", code)
+	// the refusal names every refused key in a stable order
+	for i := 0; i < 5; i++ {
+		_, out := call(t, "POST", ts.URL+"/api/v1/engine/settings", "", `{"piBin":"x","bot":{},"watchers":"","notesFile":"y"}`, map[string]string{"Origin": ts.URL})
+		if out["error"] != "the console may not write the engine settings bot, notesFile, piBin" {
+			t.Fatalf("refusal message: %v", out["error"])
+		}
+	}
+	// every key the console Settings page writes still passes
+	for _, body := range []string{
+		`{"watchers":"WTICO/USD|M5"}`,
+		`{"provider":"openai","models":{"openai":"m"},"OPENAI_BASE_URL":"u","OPENAI_API_KEY":"k","ANTHROPIC_API_KEY":"k","maxCompletionTokens":100}`,
+		`{"PUSHOVER_ENABLED":"1","PUSHOVER_USER":"u","PUSHOVER_TOKEN":"t"}`,
+		`{"ind":"ema","freshBars":3,"impulseVolMult":2,"impulseVolWindow":20,"impulseCooldownBars":5,"filterMaxCompletionTokens":200,"keepFresh":"1","sentinelSourceFootnotes":"0","NEWSAPI_AI_MODE":"auto","GNEWS_MODE":"off"}`,
+	} {
+		if code := post(body); code != 200 {
+			t.Fatalf("%s must still pass, got %d", body, code)
+		}
 	}
 }
 

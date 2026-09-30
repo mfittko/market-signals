@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -23,17 +25,34 @@ var engineRoutes = map[string]bool{
 	"GET /portfolio": true, "GET /signals": true,
 }
 
-// refusedSettingsKey names the first settings key the console must not write, or "". The bot
-// object holds the engine paper bots' enable flags, allocation and risk, which change what the
-// engine trades on the paper ledger; console agents only advise. A key ending in Bin names an
-// executable the engine runs, so writing one would let the console choose code to execute.
-func refusedSettingsKey(patch map[string]json.RawMessage) string {
-	for k := range patch {
-		if k == "bot" || strings.HasSuffix(k, "Bin") {
-			return k
+// consoleSettingsKeys is the allowlist of engine settings the console Settings page writes.
+// Every other key is refused. That keeps out the bot object (paper bot switches, allocation
+// and risk change what the engine trades; console agents only advise), keys ending in Bin
+// (an executable the engine runs), file paths such as notesFile, and any key the engine
+// adds later. A new console field must be added here.
+var consoleSettingsKeys = map[string]bool{
+	// Chat and model
+	"provider": true, "models": true, "OPENAI_BASE_URL": true, "OPENAI_API_KEY": true,
+	"ANTHROPIC_API_KEY": true, "maxCompletionTokens": true,
+	// Watchers
+	"watchers": true,
+	// Alerts
+	"PUSHOVER_ENABLED": true, "PUSHOVER_USER": true, "PUSHOVER_TOKEN": true,
+	// Signal filter, indicators and news
+	"ind": true, "freshBars": true, "impulseVolMult": true, "impulseVolWindow": true,
+	"impulseCooldownBars": true, "filterMaxCompletionTokens": true, "keepFresh": true,
+	"sentinelSourceFootnotes": true, "NEWSAPI_AI_MODE": true, "GNEWS_MODE": true,
+}
+
+// refusedSettingsKeys lists, sorted, the patch keys the console may not write.
+func refusedSettingsKeys(patch map[string]json.RawMessage) []string {
+	var out []string
+	for _, k := range slices.Sorted(maps.Keys(patch)) {
+		if !consoleSettingsKeys[k] {
+			out = append(out, k)
 		}
 	}
-	return ""
+	return out
 }
 
 // engineProxy forwards an allowlisted request to the engine. Chat replies can
@@ -63,8 +82,8 @@ func (s *Server) engineProxy() http.Handler {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "settings must be a JSON object"})
 				return
 			}
-			if k := refusedSettingsKey(patch); k != "" {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "the console may not write the engine setting " + k, "hint": "change it in the engine's own settings page"})
+			if ks := refusedSettingsKeys(patch); len(ks) > 0 {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "the console may not write the engine settings " + strings.Join(ks, ", "), "hint": "change them in the engine's own settings page"})
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))

@@ -16,6 +16,7 @@ const PROVIDERS = ['openai-compatible', 'openai', 'anthropic', 'claude-code', 'p
 const MASK = '•••';
 
 // Every save sends only the fields that changed. Keys are write-only: blank keeps the stored key.
+// The console proxy accepts only known keys (consoleSettingsKeys in internal/api/proxy.go); a new field goes there too.
 async function save(patch: object) {
   return api<{ ok: boolean; error?: string }>('/engine/settings', { method: 'POST', body: JSON.stringify(patch) });
 }
@@ -119,7 +120,7 @@ function LlmCard({ s, run, busy }: { s: Settings; run: Run; busy: boolean }) {
   );
 }
 
-// Read-only: the console proxy refuses bot writes, because the switch and the allocation
+// Read-only: the console proxy accepts only the settings this page writes and refuses bot writes, because the switch and the allocation
 // change what the engine trades on the paper ledger. Console agents only advise.
 function BotsCard({ s }: { s: Settings }) {
   const bots = Object.entries(s.bot?.bots ?? {});
