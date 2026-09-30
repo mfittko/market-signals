@@ -668,6 +668,28 @@
      {
       "op": "open",
       "instrument": "SYNTH/USD",
+      "side": "short",
+      "notional": 1000,
+      "price": 87,
+      "stop": 89,
+      "target": 84
+     },
+     {
+      "op": "fills",
+      "instrument": "SYNTH/USD",
+      "candle": {
+       "time": "2026-01-05T00:30:00.000Z",
+       "open": 90,
+       "high": 91,
+       "low": 88,
+       "close": 89,
+       "volume": 100,
+       "complete": true
+      }
+     },
+     {
+      "op": "open",
+      "instrument": "SYNTH/USD",
       "side": "long",
       "notional": 1000,
       "price": 87,
@@ -767,19 +789,29 @@
      {
       "positionId": 7
      },
+     [
+      {
+       "positionId": 7,
+       "realized": -34.48275862068965,
+       "closeReason": "stop"
+      }
+     ],
+     {
+      "positionId": 8
+     },
      [],
      []
     ],
     "final": {
-     "cash": 9945.977011494255,
+     "cash": 9911.494252873565,
      "marginLocked": 100,
      "unrealized": 0,
-     "equity": 10045.977011494255,
+     "equity": 10011.494252873565,
      "halted": false,
-     "realizedTotal": 45.97701149425287,
+     "realizedTotal": 11.49425287356322,
      "positions": [
       {
-       "id": 7,
+       "id": 8,
        "instrument": "SYNTH/USD",
        "side": "long",
        "notional": 1000,
@@ -871,6 +903,19 @@
        "leverage": 10,
        "realized": 45.97701149425287,
        "close_reason": "target",
+       "granularity": null
+      },
+      {
+       "position_id": 7,
+       "instrument": "SYNTH/USD",
+       "side": "short",
+       "notional": 1000,
+       "units": 11.494252873563218,
+       "entry_price": 87,
+       "close_price": 90,
+       "leverage": 10,
+       "realized": -34.48275862068965,
+       "close_reason": "stop",
        "granularity": null
       }
      ],
@@ -1048,6 +1093,33 @@
       {
        "action": "open",
        "position_id": 7,
+       "reason": null,
+       "context": {
+        "side": "short",
+        "notional": 1000,
+        "requestedNotional": 1000,
+        "effectiveNotional": 1000,
+        "bindingCap": "none",
+        "price": 87,
+        "entry": 87,
+        "spread": 0,
+        "leverage": 10,
+        "margin": 100
+       }
+      },
+      {
+       "action": "close",
+       "position_id": 7,
+       "reason": "stop",
+       "context": {
+        "candleTime": "2026-01-05T00:30:00.000Z",
+        "price": 90,
+        "realized": -34.48275862068965
+       }
+      },
+      {
+       "action": "open",
+       "position_id": 8,
        "reason": null,
        "context": {
         "side": "long",

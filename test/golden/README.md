@@ -19,6 +19,7 @@ Every file is plain JSON:
 - `input.kind` is `indicators`, `axis-snapshot` or `scenario`.
 - `indicators` and `axis-snapshot` inputs name a `series`. Their expected values are the engine outputs; `null` marks a warm-up slot; `{ "error": "<message>" }` marks a thrown error.
 - A `scenario` has `config` (`bot` settings, inline `spreads`, optional `allocationPct`), an optional `settings` object for `runBot`, and ordered `steps`. Step ops: `open`, `close`, `fills`, `mark`, `journal`, `journalRaw`, `runBot`, `resetHalt`, `attribution`. `expected.steps` holds one result per step. `expected.final` holds the portfolio state after the last step. Wall-clock fields (timestamps) are not recorded.
+- The age-based stale flag in `markToMarket` depends on the wall clock and is not recorded.
 - All prices and instruments are synthetic (`SYNTH/USD`). Nothing is recorded from live data.
 - A change in the shape bumps `version`.
 

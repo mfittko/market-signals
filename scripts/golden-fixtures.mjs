@@ -6,7 +6,7 @@
 //   node scripts/golden-fixtures.mjs           verify committed fixtures (exit 1 on drift)
 //   node scripts/golden-fixtures.mjs --write   regenerate test/golden/*.json
 // Inputs live in this file; expected values are always produced by the engine.
-process.env.MS_NO_NOTIFY ??= '1'; // the recorder must never notify
+process.env.MS_NO_NOTIFY ||= '1'; // the recorder must never notify
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -164,6 +164,9 @@ const SCENARIOS = {
       // short, gap through the target at the open
       { op: 'open', instrument: INSTR, side: 'short', notional: 1000, price: 87, stop: 89, target: 84 },
       { op: 'fills', instrument: INSTR, candle: candle(83, 88, 82, 85, T(6)) },
+      // short, gap through the stop at the open
+      { op: 'open', instrument: INSTR, side: 'short', notional: 1000, price: 87, stop: 89, target: 84 },
+      { op: 'fills', instrument: INSTR, candle: candle(90, 91, 88, 89, T(6)) },
       // untouched candle and a candle for another instrument change nothing
       { op: 'open', instrument: INSTR, side: 'long', notional: 1000, price: 87, stop: 85, target: 90 },
       { op: 'fills', instrument: INSTR, candle: candle(87, 88, 86, 87, T(7)) },
@@ -259,6 +262,8 @@ async function replayScenario(input) {
   const dir = mkdtempSync(join(tmpdir(), 'golden-'));
   const dbPath = join(dir, 'golden.sqlite');
   try {
+    // runBot builds its own config from the default spreads path (cwd-relative), which
+    // only matters on open; scenarios open through openPosition with the inline spreads.
     const cfg = botConfig({ bot: input.config.bot }, 'golden/no-such-spreads.json');
     cfg.spreads = input.config.spreads ?? {};
     if (input.config.allocationPct) cfg.allocationPct = input.config.allocationPct;
