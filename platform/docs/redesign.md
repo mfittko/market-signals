@@ -135,7 +135,7 @@ Source: `data/candles.db` (191 MB). It holds every table.
 
 Rules for the importer:
 1. Read-only. Open a copy of the file and leave the live one untouched.
-2. Idempotent. Every imported row carries a `source_key` with a unique constraint, so a re-run only adds new rows. This also lets the importer run repeatedly until cutover.
+2. Idempotent. Every imported row has a unique constraint on its natural key or `source_key`, so a re-run only adds new rows. This also lets the importer run repeatedly until cutover.
 3. Dry run first. It prints counts per table and the invariants below, and writes nothing.
 4. Invariants it must prove before it commits:
    - Row counts match per table and per instrument.

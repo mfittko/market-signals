@@ -63,7 +63,7 @@ export function AutoGrill({ name, draft, scopes, onApply }: { name: string; draf
     <div>
       <p className="muted small" style={{ marginTop: 0 }}>
         No questions. The console replays past Supertrend flips with 192 combinations of stop, target, ADX and volume filters.
-        It ranks them on the first 70% of trades and judges them on the last 30%. Then the coach rewrites the prompt from that evidence.
+        It ranks them on the earlier part of the history and judges them on the later part. Then the coach rewrites the prompt from that evidence.
         It tests the flip rule family, not the prompt itself.
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

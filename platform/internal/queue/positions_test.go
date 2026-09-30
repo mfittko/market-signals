@@ -248,7 +248,7 @@ func TestWakeCloseFillsAtTheFreshBarCloseWhenTheMonitorHasOne(t *testing.T) {
 	runAs(t, s, ctx, "engine", entryPayload, openDecision())
 	ps, _ := s.ListPositions(ctx, "open", 1)
 	id := ps[0].ID
-	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET last_close=101, last_bar_time=now() WHERE id=$1`, id)
+	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET last_close=101, last_bar_time=$2 WHERE id=$1`, id, time.Now().UTC())
 	must(t, err)
 	runAs(t, s, ctx, "monitor", wakePayload(id, 105), domain.Decision{Action: "close", PositionID: id})
 	q, _, _ := s.GetPosition(ctx, id)

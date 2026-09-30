@@ -13,7 +13,7 @@ import (
 // Auto grill: instead of asking the trader, the console backtests Supertrend flips
 // on this instrument with a small grid of stop, target, ADX and volume settings,
 // then the coach turns the evidence into a revised prompt. Settings are ranked on
-// the first 70% of trades and judged on the last 30%. The backtest measures the
+// the earlier part of the history and judged on the later part. The backtest measures the
 // flip rule family, not the prompt itself, and the response says so.
 
 const autoGrillSystem = `You are a trading-strategy coach revising a strategy prompt from backtest evidence.

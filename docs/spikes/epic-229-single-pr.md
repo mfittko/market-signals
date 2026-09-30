@@ -50,7 +50,7 @@ What a one-PR spike can cover:
 - A Go and Postgres skeleton with a dry-run importer against a disposable copy of the SQLite data.
 - A Next.js shell reading the Go API.
 - A Go port of one domain module, portfolio and fills, to measure the true cost of the full port. The full domain port is the part most likely to exceed a time box.
-- One engine change outside the first slice: a `claude-code` LLM provider. It adds a provider path to `llmRequest` (alert filter, rechecks, bot) and `llmChat`, sends chat tool events over the SSE stream, and adds the provider to the dashboard options. The engine uses it only when the `provider` setting selects it.
+- One engine change outside the first slice: a `claude-code` LLM provider. It adds a provider path to `llmRequest` (alert filter, rechecks, bot) and `llmChat`, sends chat tool events over the SSE stream, and adds the provider to the dashboard options. The engine uses it only when the `provider` setting or the `llmFallbackProvider` setting selects it.
 
 Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in `platform/README.md`):
 
