@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "description": "Local, self-hosted trading-signals dashboard + LLM copilot: supertrend flip alerts filtered by an LLM gate, paper-trading bots, and agent skills. Plain Node, zero runtime deps.",
   "scripts": {
     "verify": "node scripts/verify-packaging.mjs",

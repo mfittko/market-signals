@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { applyPoll } from '@/lib/check-poll';
 import { api, describe, type DeskAgent, type Run } from '@/lib/api';
 import { Ago, Card, StatusPill } from '@/components/ui';
 
@@ -48,12 +49,12 @@ export function AgentsPanel({ agents, onChange }: { agents: DeskAgent[]; onChang
     if (!pending) return;
     const t = setInterval(async () => {
       const cur = live.current;
-      const next: Record<string, Check> = {};
+      const polled: [string, number, Run][] = [];
       await Promise.all(Object.entries(cur).map(async ([id, c]) => {
         if (!c.runId || finished(c.run?.status)) return;
-        try { next[id] = { ...c, run: (await api<{ run: Run }>(`/runs/${c.runId}`)).run }; } catch { /* keep the last state */ }
+        try { polled.push([id, c.runId, (await api<{ run: Run }>(`/runs/${c.runId}`)).run]); } catch { /* keep the last state */ }
       }));
-      setChecks((c) => ({ ...c, ...next }));
+      setChecks((c) => { const n = { ...c }; for (const [id, rid, run] of polled) { const u = applyPoll(n[id], rid, { run }); if (u) n[id] = u; } return n; });
     }, 1200);
     return () => clearInterval(t);
   }, [pending]);

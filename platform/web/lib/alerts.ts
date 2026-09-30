@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
+import { toggleWatcher } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
 export type AlertEvent = {
@@ -83,11 +84,14 @@ export function useWatchers() {
   }, []);
   const toggle = async (symbol: string, gran: string) => {
     if (!watched || busy) return;
-    const next = new Set(watched); const k = `${symbol}|${gran}`;
-    if (next.has(k)) next.delete(k); else next.add(k);
     setBusy(true); setErr(null);
-    try { await api('/engine/settings', { method: 'POST', body: JSON.stringify({ watchers: [...next].join(', ') }) }); setWatched(next); }
-    catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try {
+      // re-read just before the write so a change made in another tab is kept
+      const fresh = await api<{ watchers?: string }>('/engine/settings');
+      const next = toggleWatcher(fresh.watchers, `${symbol}|${gran}`);
+      await api('/engine/settings', { method: 'POST', body: JSON.stringify({ watchers: next.join(', ') }) });
+      setWatched(new Set(next));
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
   return { watched, toggle, busy, err };
 }
