@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -232,6 +233,34 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 	if err := srow.Err(); err != nil {
 		s.fail500(w, err)
 		return
+	}
+	// the engine's rows are current and win for the same bar and kind
+	byKey := make(map[string]sig, len(sigs))
+	for _, g := range sigs {
+		byKey[signalKey(g.Granularity, g.Time, g.Kind)] = g
+	}
+	for _, e := range s.engineSignals(ctx, symbol, grans) {
+		t, err := time.Parse(time.RFC3339Nano, e.Time)
+		if err != nil {
+			continue
+		}
+		byKey[signalKey(e.Granularity, t, e.Kind)] = sig{Granularity: e.Granularity, Time: t, Kind: e.Kind, Signal: e.Signal, Price: e.Price, Verdict: e.Verdict, Reason: e.Reason}
+	}
+	sigs = sigs[:0]
+	for _, g := range byKey {
+		sigs = append(sigs, g)
+	}
+	sort.Slice(sigs, func(i, j int) bool {
+		if !sigs[i].Time.Equal(sigs[j].Time) {
+			return sigs[i].Time.After(sigs[j].Time)
+		}
+		if sigs[i].Granularity != sigs[j].Granularity {
+			return sigs[i].Granularity < sigs[j].Granularity
+		}
+		return sigs[i].Kind < sigs[j].Kind
+	})
+	if len(sigs) > 100 {
+		sigs = sigs[:100]
 	}
 
 	type trade struct {

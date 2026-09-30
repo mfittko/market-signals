@@ -1113,3 +1113,64 @@ func TestAgentListCarriesTheNewestRun(t *testing.T) {
 		t.Fatalf("newest run %v, agent %v", newest, a)
 	}
 }
+
+// The imported signal history stops at the import, so the instrument page asks the engine for each timeframe.
+func TestInstrumentSignalsKeepUpWithTheEngine(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	ctx := context.Background()
+	for _, q := range []string{
+		`TRUNCATE candles, signals, trades, instruments CASCADE`,
+		`INSERT INTO instruments (symbol,name,market) VALUES ('WTICO/USD','WTI Oil','commodities')`,
+		`INSERT INTO candles VALUES ('WTICO/USD','M5','2026-01-01T10:00:00Z',1,2,1,1.5,10), ('WTICO/USD','M1','2026-01-01T10:00:00Z',1,2,1,1.5,10)`,
+		`INSERT INTO signals (instrument,granularity,time,kind,signal,verdict) VALUES ('WTICO/USD','M5','2026-01-01T10:00:00Z','supertrend-flip','sell','suppress')`,
+	} {
+		if _, err := st.Pool.Exec(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	down := false
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/signals", func(w http.ResponseWriter, r *http.Request) {
+		if down {
+			http.Error(w, "down", 500)
+			return
+		}
+		switch r.URL.Query().Get("granularity") {
+		case "M5": // the first row is the imported one with a newer verdict; the second is new
+			io.WriteString(w, `{"signals":[{"granularity":"M5","time":"2026-01-01T10:00:00Z","kind":"supertrend-flip","signal":"sell","verdict":"alert"},{"granularity":"M5","time":"2026-01-01T10:05:00Z","kind":"supertrend-flip","signal":"buy","verdict":"suppress"}]}`)
+		case "M1":
+			io.WriteString(w, `{"signals":[{"granularity":"M1","time":"2026-01-01T10:07:00Z","kind":"volume-impulse","signal":"sell","verdict":"alert"}]}`)
+		default:
+			io.WriteString(w, `{"signals":[]}`)
+		}
+	})
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `{"ok":true,"feed":[]}`) })
+	eng := httptest.NewServer(mux)
+	t.Cleanup(eng.Close)
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", EngineURL: eng.URL}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs := httptest.NewServer(srv.Handler())
+	t.Cleanup(hs.Close)
+
+	rows := func() []any {
+		code, d := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd?granularity=M5", "", "", nil)
+		if code != 200 {
+			t.Fatalf("got %d", code)
+		}
+		return d["signals"].([]any)
+	}
+	got := rows()
+	if len(got) != 3 {
+		t.Fatalf("want the M1 impulse, the new M5 flip and the updated old one: %v", got)
+	}
+	first, second, third := got[0].(map[string]any), got[1].(map[string]any), got[2].(map[string]any)
+	if first["granularity"] != "M1" || first["kind"] != "volume-impulse" || second["time"] != "2026-01-01T10:05:00Z" || third["verdict"] != "alert" {
+		t.Fatalf("newest first, and the engine's verdict wins for the same bar: %v", got)
+	}
+	// with the engine down the imported row still shows, with its imported verdict
+	down = true
+	time.Sleep(5100 * time.Millisecond) // the engine client caches an answer for 5 seconds
+	got = rows()
+	if len(got) != 1 || got[0].(map[string]any)["verdict"] != "suppress" {
+		t.Fatalf("imported history alone: %v", got)
+	}
+}
