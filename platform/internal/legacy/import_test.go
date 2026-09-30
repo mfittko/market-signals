@@ -175,3 +175,38 @@ func TestReimportFollowsNewTradesAndFlagsVersionClashes(t *testing.T) {
 		t.Fatalf("a version clash must block the commit: %+v", c.Invariants)
 	}
 }
+
+func TestSnapshotHoldsTheCommittedStateWhileTheEngineWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.db")
+	w, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(wal)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	if _, err := w.Exec(`CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (1),(2)`); err != nil {
+		t.Fatal(err)
+	}
+	// the engine is mid-write: committed rows sit in the WAL and a transaction is open
+	tx, err := w.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`INSERT INTO t VALUES (3)`); err != nil {
+		t.Fatal(err)
+	}
+	snap, cleanup, err := openCopy(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	var n int
+	if err := snap.QueryRow(`SELECT count(*) FROM t`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("the snapshot must hold the committed rows only: %d %v", n, err)
+	}
+	var mode string
+	if err := snap.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil || mode == "wal" {
+		t.Fatalf("the snapshot is one self-contained file, journal mode %q %v", mode, err)
+	}
+}

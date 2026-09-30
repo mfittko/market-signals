@@ -144,43 +144,34 @@ type importer struct {
 	log *slog.Logger
 }
 
-// openCopy copies the database (and its write-ahead log) so the live file is
-// never opened by the importer.
+// openCopy takes a consistent snapshot of the live database with VACUUM INTO on a
+// read-only connection, the same guarantee as the online backup, and opens the copy.
+// The engine may keep writing meanwhile; the copy holds one committed state.
 func openCopy(path string) (*sql.DB, func(), error) {
+	if _, err := os.Stat(path); err != nil {
+		return nil, nil, err
+	}
 	dir, err := os.MkdirTemp("", "ms-import-")
 	if err != nil {
 		return nil, nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := copyFile(path+suffix, filepath.Join(dir, "src.db"+suffix)); err != nil && !(suffix != "" && errors.Is(err, os.ErrNotExist)) {
-			cleanup()
-			return nil, nil, err
-		}
+	copyPath := filepath.Join(dir, "src.db")
+	live, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(10000)")
+	if err == nil {
+		_, err = live.Exec(`VACUUM INTO ?`, copyPath)
+		live.Close()
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "src.db")+"?mode=ro")
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("snapshot %s: %w", path, err)
+	}
+	db, err := sql.Open("sqlite", "file:"+copyPath+"?mode=ro")
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
 	return db, func() { db.Close(); cleanup() }, nil
-}
-
-func copyFile(from, to string) error {
-	in, err := os.Open(from)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.Create(to)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 var timeLayouts = []string{time.RFC3339Nano, "2006-01-02T15:04:05.000Z", "2006-01-02 15:04:05", "2006-01-02T15:04:05Z"}
