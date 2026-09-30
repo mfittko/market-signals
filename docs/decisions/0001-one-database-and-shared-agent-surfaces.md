@@ -30,10 +30,10 @@ Both earlier epics assumed the engine itself would move. The prototype shows the
 
 | Domain | Authoritative writer now | Flip condition |
 |---|---|---|
-| Strategies | Engine (SQLite) until migration step 1 (strategies) completes, then the platform (Postgres), with the engine reading the active version from Postgres. | Console edits reach the engine (until then they are drafts), and the engine has run on the Postgres version for several days without incident. |
+| Strategies | Engine (SQLite). | Migration step 1 (strategies) completes: console edits reach the engine, the engine reads the active version from Postgres, and it has run on that version for several days without incident. Until then console edits are drafts. |
 | Candles and signals | Engine, which also writes a copy to Postgres. | Daily row counts per instrument and timeframe match for several days. Then the platform becomes the reader of record and the writer moves in the cutover step. |
 | Portfolio and bots | Engine (SQLite ledger). The platform never writes to it. | The Go port runs in shadow beside the ledger and every trade and the equity curve match. |
-| Paper execution (later) | Engine, through a narrow validating API. The agent never touches the ledger. | None. The engine stays the writer. The authority ladder is in the epic status note. |
+| Paper execution (later) | Engine, through a narrow validating API. The agent never touches the ledger. | Moves with portfolio and bots. The authority ladder is in the [epic status note](https://github.com/mfittko/market-signals/blob/spike/epic-229/platform/docs/epic-status-and-plan.md). |
 | Chat threads | Engine (SQLite). | Flips only after open question 2 is answered and a new record supersedes this row. Until then the engine stays the writer. |
 | Alert state | Engine (SQLite). | Moves with portfolio and bots. |
 | Provider budgets and circuit state | Engine (SQLite). | The importer gap (budgets, circuit state, correlation state) is closed, then the writer moves with the engine domain that spends the budget. |
