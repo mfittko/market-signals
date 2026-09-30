@@ -1086,3 +1086,30 @@ func TestConsoleOriginOnOtherPortNeedsAnAllowlistEntry(t *testing.T) {
 		}
 	}
 }
+
+// The Runs page shows each agent's newest run, so the agent list must carry it.
+func TestAgentListCarriesTheNewestRun(t *testing.T) {
+	hs, _ := setup(t)
+	agents := func() []any {
+		c, out := call(t, "GET", hs.URL+"/api/v1/agents", "", "", nil)
+		if c != 200 {
+			t.Fatalf("got %d", c)
+		}
+		return out["agents"].([]any)
+	}
+	if a := agents()[0].(map[string]any); a["lastRunId"] != nil || a["id"] != "a1" {
+		t.Fatalf("an agent without runs has no last run: %v", a)
+	}
+	var newest float64
+	for i := 0; i < 2; i++ {
+		c, out := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"demo"}`, nil)
+		if c != 202 {
+			t.Fatalf("got %d", c)
+		}
+		newest = out["runs"].([]any)[0].(map[string]any)["runId"].(float64)
+	}
+	a := agents()[0].(map[string]any)
+	if a["lastRunId"] != newest || a["lastStatus"] != "queued" || a["lastAt"] == nil || a["name"] != "a1" {
+		t.Fatalf("newest run %v, agent %v", newest, a)
+	}
+}

@@ -290,8 +290,18 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 		IdemKey: fmt.Sprintf("wake:%d:%s:%d", q.ID, Key(tw), barTime.Unix()), Instrument: q.Instrument, Granularity: q.Granularity,
 		Event: "tripwire", Source: "monitor", Trigger: "tripwire:" + tw.Kind, Payload: raw, AgentID: q.AgentID,
 	})
-	if err != nil || len(res.Runs) == 0 {
+	if err != nil {
 		s.Log.Error("wake ingest", "position", q.ID, "err", err)
+		return
+	}
+	if len(res.Runs) == 0 {
+		// The snapshot is stored under this wake's key, so a retry would also enqueue nothing. This happens when the
+		// agent was re-posted with another instrument or timeframe while it holds an open position. Say so, and ask
+		// the operator to look. The stop and target still apply.
+		if err := s.Store.RaiseAttention(ctx, q.ID, "wake_skipped", map[string]any{"tripwire": tw.Kind, "bar": barTime,
+			"why": "the agent's instrument or timeframe no longer matches this position, so no run was queued; the exit plan still applies"}); err != nil {
+			s.Log.Error("raise attention", "position", q.ID, "err", err)
+		}
 		return
 	}
 	// Record even when the run already existed: a crash between the enqueue and this call must not leave

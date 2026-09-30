@@ -4,6 +4,8 @@
 #   scripts/dev.sh down    stop app processes (add --db to stop Postgres too)
 #   scripts/dev.sh status  show what is running
 #   scripts/dev.sh logs    tail all logs
+#   scripts/dev.sh db      start Postgres and set the role password (up calls it)
+#   scripts/dev.sh run api|worker|web   one service in the foreground, for a supervisor such as launchd
 # Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
 #              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
 #              the console proxy also forwards POST /settings, POST /chat and DELETE /threads.
@@ -47,7 +49,8 @@ wait_http() { # url name seconds
 
 load_env() {
   if [ ! -f "$RUN/env" ]; then
-    { echo "MS_WORKER_TOKEN=$(openssl rand -hex 16)"; echo "MS_INGEST_TOKEN=$(openssl rand -hex 16)"; } >"$RUN/env"
+    # the file holds secrets, so it must never exist with wider permissions, even briefly
+    ( umask 077; { echo "MS_WORKER_TOKEN=$(openssl rand -hex 16)"; echo "MS_INGEST_TOKEN=$(openssl rand -hex 16)"; } >"$RUN/env" )
     chmod 600 "$RUN/env"
   fi
   # the database password is generated once; an env file from before it existed gains it here

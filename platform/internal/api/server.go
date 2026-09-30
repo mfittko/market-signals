@@ -258,13 +258,47 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow"})
 }
 
+// agentWithLastRun is an agent plus its newest run, which the Runs page shows on each agent row.
+type agentWithLastRun struct {
+	queue.Agent
+	LastRunID  *int64     `json:"lastRunId,omitempty"`
+	LastStatus *string    `json:"lastStatus,omitempty"`
+	LastAt     *time.Time `json:"lastAt,omitempty"`
+}
+
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	as, err := s.st.ListAgents(r.Context())
 	if err != nil {
 		s.fail500(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": as})
+	rows, err := s.st.Pool.Query(r.Context(), `SELECT DISTINCT ON (agent_id) agent_id, id, status, created_at FROM runs ORDER BY agent_id, id DESC`)
+	if err != nil {
+		s.fail500(w, err)
+		return
+	}
+	defer rows.Close()
+	last := map[string]agentWithLastRun{}
+	for rows.Next() {
+		var id string
+		var l agentWithLastRun
+		if err := rows.Scan(&id, &l.LastRunID, &l.LastStatus, &l.LastAt); err != nil {
+			s.fail500(w, err)
+			return
+		}
+		last[id] = l
+	}
+	if err := rows.Err(); err != nil {
+		s.fail500(w, err)
+		return
+	}
+	out := make([]agentWithLastRun, 0, len(as))
+	for _, a := range as {
+		l := last[a.ID]
+		l.Agent = a
+		out = append(out, l)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"agents": out})
 }
 
 func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {

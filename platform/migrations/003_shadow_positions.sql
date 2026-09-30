@@ -44,7 +44,7 @@ CREATE TABLE position_events (
   id          bigserial PRIMARY KEY,
   position_id bigint NOT NULL REFERENCES shadow_positions(id) ON DELETE CASCADE,
   at          timestamptz NOT NULL DEFAULT now(),
-  kind        text NOT NULL, -- opened | trail | exit | wake | wake_skipped | wake_failed | wake_hold | wake_ignored | tighten | tripwires | attention
+  kind        text NOT NULL, -- opened | trail | exit | wake | wake_skipped | wake_failed | wake_hold | wake_ignored | tighten | tripwires | attention | feed_gap | open_ignored
   payload     jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX position_events_position ON position_events (position_id, id);

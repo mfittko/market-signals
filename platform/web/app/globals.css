@@ -190,6 +190,6 @@ select { background: var(--surface); color: var(--text); border: 1px solid var(-
 .choice { min-width: 0; overflow-wrap: anywhere; text-align: left; background: var(--surface); color: var(--text); border: 1px solid var(--border); font-weight: 400; }
 .choice[aria-pressed=true] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .choice strong { display: block; }
-.grill-find { margin: 4px 0 8px; } .grill-find ul { margin: 4px 0 0; padding-left: 18px; }
+.grill-find { margin: 4px 0 8px; overflow-wrap: anywhere; } .grill-find ul { margin: 4px 0 0; padding-left: 18px; }
 .grill-rec { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--good); background: var(--good-bg); border-radius: 4px; }
 .grill .choices { margin: 10px 0; }
