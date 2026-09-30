@@ -1,6 +1,6 @@
 # Redesign around agents, position watching and data migration
 
-Status: proposal on the spike branch. Nothing here is merged.
+Status: proposal on the spike branch. Nothing here is merged. Section 6 marks the steps the spike has built.
 
 ## 1. Position watching: poll deterministically, wake the model on exceptions
 
@@ -19,12 +19,12 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
    - `stop`, `target` (already exist)
    - `invalidation`: a condition that voids the trade idea
    - `trail`: a deterministic trailing rule (for example the Supertrend line, or N times ATR)
-   - `max_bars`: time stop
+   - `maxBars`: time stop, counted in held one-minute bars
    - `tripwires`: a list of declarative wake conditions
 2. Tripwires are declarative data with a small, fixed vocabulary:
    - `close_beyond(level)`, `price_cross(level, dir)`
    - `adverse_pct(x)`, `adverse_atr(x)`
-   - `bars_in_trade(n)` without progress toward target
+   - `no_progress(bars, minProfitAtr)`: held bars without minProfitAtr of profit
    - `opposite_flip`, `impulse`
    - `news_escalation` (the sentinel flag). Not wired yet. The monitor never reads the sentinel, so a plan
      accepts this tripwire and it never fires.
@@ -146,14 +146,14 @@ Rules for the importer:
 
 ## 6. Build order
 
-| Step | Content | Effort |
-|---|---|---|
-| 1 | Instruments table, agent per instrument, instrument switcher, seeded from config | 1 day |
-| 2 | Importer dry run with the invariants above, candles and signals first | 1 to 2 days |
-| 3 | Importer for strategies, trades, journal, chat, standing rules | 1 to 2 days |
-| 4 | Desk and agent pages, attention queue | 2 to 3 days |
-| 5 | Exit plan in the proposal schema, monitor loop, tripwire evaluator, wake runs, in shadow mode | 3 to 4 days |
-| 6 | Performance page, copilot panel with Claude Code backend | 2 to 3 days |
-| 7 | Shadow comparison of tripwires against the old bot's review events | calendar time while shadow data accumulates |
+| Step | Content | Effort | Status |
+|---|---|---|---|
+| 1 | Instruments table, agent per instrument, instrument switcher, seeded from config | 1 day | Built |
+| 2 | Importer dry run with the invariants above, candles and signals first | 1 to 2 days | Built (`platform/cmd/import`) |
+| 3 | Importer for strategies, trades, journal, chat, standing rules | 1 to 2 days | Built (`platform/cmd/import`) |
+| 4 | Desk and agent pages, attention queue | 2 to 3 days | Built as the Desk and the instrument page. Needs-attention flags show on shadow positions. |
+| 5 | Exit plan in the proposal schema, monitor loop, tripwire evaluator, wake runs, in shadow mode | 3 to 4 days | Built (`platform/internal/monitor`) |
+| 6 | Performance page, copilot panel with Claude Code backend | 2 to 3 days | Built as the portfolio page and the instrument chat panel, which uses the engine chat and its Claude Code provider. |
+| 7 | Shadow comparison of tripwires against the old bot's review events | calendar time while shadow data accumulates | Open |
 
-Steps 1 to 3 are safe to build now. Step 5 is the design decision to confirm before building.
+Steps 1 to 6 are built on the spike branch. Step 7 needs shadow data over time.
