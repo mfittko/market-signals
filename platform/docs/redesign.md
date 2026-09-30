@@ -41,7 +41,7 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
    - Three failed wakes in a row raise an attention item for the operator.
    - The model cannot widen a stop, add size or open in the opposite direction from a wake. Those need a normal entry run.
 
-Why this shape: cost stays flat while a position is quiet. The safety-critical part (stops, fills, kill switch) is never in the model's hands. The model gets a real job, which is writing the tripwires that make its own thesis testable.
+Why this shape: cost stays flat while a position is quiet. The deterministic monitor owns the safety-critical part (stops, fills, kill switch). The model writes the tripwires that make its own thesis testable.
 
 Shadow proof: in shadow mode the monitor runs against the old engine's positions and logs which tripwires would have fired. Compare that with the old bot's actual review events before anyone trusts it.
 

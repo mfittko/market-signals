@@ -6,7 +6,7 @@ Can the full implementation of the Multica-inspired stack migration epic (https:
 
 ## Approach
 
-Measured the current codebase and the epic's own text. No product code was written.
+Measured the current codebase and the epic's own text, then built a prototype of the agent boundary to test the answer. The PR holds that prototype: the Go control plane, worker, importer and Next.js console in `platform/`, the engine hook and its bridge in `scripts/`, their tests, a CI job for the Go and console code, and this report.
 
 - Counted tracked files and lines of code per area.
 - Listed SQLite tables and server routes that a Go and Postgres port must cover.
@@ -59,28 +59,28 @@ Prototype results (branch `spike/epic-229`, directory `platform/`, run guide in 
 | Runtime spike: restricted tools, denied tool, cancellation | Works. Allowlist, budget and scope are enforced at execution in the gateway. Cancel discards a racing completion. |
 | Snapshot and enqueue | Works. One transaction commits snapshot and runs. Same key is idempotent. Snapshot rows are immutable by trigger. |
 | Agent, session, run, attempt lifecycle | Works. Leases, fencing tokens, bounded retry, expiry, wake from timed follow-up. Interrupted attempts start a fresh replacement. |
-| Shadow run of a real bot | Works. The Node engine sends the snapshot before its decision and its own decision after. The change to `bot.mjs` is 4 lines and fails open. |
+| Shadow run of a real bot | Works. The Node engine sends the snapshot before its decision and its own decision after. The change to `bot.mjs` adds 10 lines and edits 2: one snapshot before the decision and one report of the engine's decision after it. It fails open. |
 | Run history UI | Works. Next.js 16 console with live updates, audit trail, cancel, dark mode, phone width. |
-| Postgres and Go skeleton | Works with stdlib HTTP and hand-written SQL. Chi and sqlc were not needed to prove the boundary. |
+| Postgres and Go skeleton | Works with stdlib HTTP and hand-written SQL, which was enough to prove the boundary. Chi and sqlc stay optional for the delivery phase. |
 | Restricted runtime on Pi | Not built. `pi --help` shows a `--tools` allowlist and `--no-builtin-tools`, so a Pi worker needs an extension that exposes the market tools. That extension is the open question. |
 | SQLite importer | Built (`platform/cmd/import`). One transaction, dry run by default. It commits only when every invariant holds, including cash reconciliation, so open source positions block a commit. |
 | Go port of portfolio and fills | Not built. Estimated as the largest remaining cost. |
 | Parity and shadow qualification | Not provable in a spike. Needs recorded data and time. |
 
-Test evidence: 108 Go tests (race detector clean, real Postgres), 690 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
+Test evidence: 117 Go tests (race detector clean, real Postgres), 690 Node tests including the 8 control-plane bridge tests, an end-to-end smoke script, and a browser check of both themes and phone width.
 
 Behavior worth knowing before deciding:
 
 - A reasoning model (DeepSeek on the configured endpoint) spent its whole completion budget on hidden reasoning at 2,048 tokens and returned no answer. The runtime now defaults to 16,384 and fails safe to a hold when a reply is empty.
 - An operator run against the live engine sees the latest signal, which can be hours old. Snapshots now carry the flip age, and the mock agent holds on a stale flip. The LLM agent still sometimes acts on one.
-- The control plane reads the engine with GET calls, but those calls have side effects. A chart GET on stale data makes the engine fetch live candles from its upstream provider and upsert them into its SQLite. The position monitor polls M1 every 15 seconds for each instrument with an open shadow position.
+- The control plane's GET calls to the engine have side effects. A chart GET on stale data makes the engine fetch live candles from its upstream provider and upsert them into its SQLite. The position monitor polls M1 every 15 seconds for each instrument with an open shadow position.
 - The forming candle is dropped from snapshots and from the candle tool. The live quote is labelled provisional. Agents that see a provisional price can schedule a follow-up.
 
 ## Recommendation
 
 Graduate. The agent boundary is proven end to end, and it fits the epic's first slice at a small size. Turn the prototype into a phased plan:
 
-1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the 4-line engine hook behind an off-by-default flag.
+1. Land the boundary: Postgres schema, control plane, worker protocol, gateway, tests, and the engine hook in `bot.mjs` (about 12 lines) behind an off-by-default flag.
 2. Land the console.
 3. Decide the Pi question with an extension spike before choosing a runtime for execution-eligible bots.
 4. Only then harden the importer and start the Go domain port, each against recorded fixtures.

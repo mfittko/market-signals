@@ -1,8 +1,8 @@
 # Agent control plane (spike)
 
 Prototype of the agent-native runtime from the stack-migration epic. It runs beside the existing Node
-engine in shadow mode. Agents propose decisions. The engine still decides and executes. Nothing here
-can write to the portfolio.
+engine in shadow mode. Agents propose decisions, and the engine decides and executes them as it does today.
+The control plane has no write path to the portfolio.
 
 ```
 Node engine ──snapshot──▶ Go control plane ──claim (lease + fence)──▶ Go worker ──▶ runtime (mock | llm)
@@ -29,7 +29,7 @@ In the console:
 
 1. Pick an agent under "New research run" and press Run. The run freezes what the engine sees now, so the engine
    must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
-2. The control plane reads the engine with GET calls. These calls are not free of side effects: when the
+2. The control plane reads the engine with GET calls. These calls have side effects: when the
    engine's stored candles are stale, a chart GET makes the engine fetch live candles from its upstream provider
    and upsert them into its SQLite. The position monitor polls M1 charts every 15 seconds for each instrument
    with an open shadow position, and tool calls, snapshots and the live route read charts too. The console proxy also forwards a fixed allowlist of engine
