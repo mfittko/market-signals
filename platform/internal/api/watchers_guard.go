@@ -13,9 +13,16 @@ import (
 // bot's stop and target fills on its open positions. The console may add pairs freely.
 // It may remove one only when the bot is off and holds nothing on that instrument.
 
+// normPair mirrors how the engine reads a watcher entry: parts are trimmed, case is kept,
+// and the timeframe defaults to M5 only when the entry has no separator at all. Changing
+// the case of an instrument therefore names a different pair, which the engine would not
+// match to any candles or positions.
 func normPair(p string) string {
-	a, b, _ := strings.Cut(p, "|")
-	return strings.ToUpper(strings.TrimSpace(a)) + "|" + strings.ToUpper(strings.TrimSpace(b))
+	a, b, hasTF := strings.Cut(p, "|")
+	if !hasTF {
+		b = "M5"
+	}
+	return strings.TrimSpace(a) + "|" + strings.TrimSpace(b)
 }
 
 func pairSet(csv string) map[string]bool {
@@ -95,7 +102,8 @@ func (s *Server) watcherRemovalRefusal(ctx context.Context, posted json.RawMessa
 	for _, r := range removed {
 		inst, _, _ := strings.Cut(r, "|")
 		for _, p := range pf.Portfolio.Positions {
-			if strings.ToUpper(strings.TrimSpace(p.Instrument)) == inst {
+			// A case-folded match errs towards refusing, which is the safe side.
+			if strings.EqualFold(strings.TrimSpace(p.Instrument), inst) {
 				return "Signal alerts stay on for " + inst + " while the paper bot holds an open position there, because the bot needs the pair watched to close it."
 			}
 		}

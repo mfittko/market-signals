@@ -83,6 +83,27 @@ func TestWatcherRemovalIsAllowedWhenTheBotIsOffAndHoldsNothing(t *testing.T) {
 	}
 }
 
+// The engine keeps the case of an instrument and defaults the timeframe to M5 only when an
+// entry has no separator, so the guard must read the list the same way.
+func TestWatcherGuardReadsEntriesTheWayTheEngineDoes(t *testing.T) {
+	eng := engineWith(t, `{`+twoPairs+`,"bot":{"enabled":true}}`, `{"portfolio":{"positions":[]}}`)
+	cases := []struct {
+		name, posted string
+		refused      bool
+	}{
+		{"a changed case names another pair", "wtico/usd|M5, XAU/USD|H1", true},
+		{"a missing timeframe means M5", "WTICO/USD, XAU/USD|H1", false},
+		{"an empty timeframe after the separator is not M5", "WTICO/USD|, XAU/USD|H1", true},
+		{"spaces around parts are ignored", " WTICO/USD | M5 , XAU/USD|H1", false},
+	}
+	for _, c := range cases {
+		code, msg := postWatchers(t, eng, c.posted)
+		if c.refused != (code == http.StatusConflict) {
+			t.Fatalf("%s: refused=%v but got %d %q", c.name, c.refused, code, msg)
+		}
+	}
+}
+
 func TestWatcherAdditionIsAlwaysAllowed(t *testing.T) {
 	eng := engineWith(t, `{`+twoPairs+`,"bot":{"enabled":true}}`, ``)
 	if code, msg := postWatchers(t, eng, "WTICO/USD|M5, XAU/USD|H1, BTC/USD|M5"); code != 200 {
