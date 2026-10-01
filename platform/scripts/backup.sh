@@ -25,7 +25,7 @@ restore() {
   local dir="${1:-}"; [ -f "$dir/console.pgdump" ] && [ -f "$dir/$MARKER" ] || die "usage: $0 restore <backup-dir containing console.pgdump>"
   echo "This replaces the contents of the console database with $dir/console.pgdump."
   read -r -p "Type 'restore' to continue: " a; [ "$a" = restore ] || die "cancelled"
-  docker exec -i "$PG" pg_restore -U ms -d ms --clean --if-exists --no-owner < "$dir/console.pgdump"
+  docker exec -i "$PG" pg_restore -U ms -d ms --clean --if-exists --single-transaction --exit-on-error --no-owner < "$dir/console.pgdump"
   echo "restored."
 }
 

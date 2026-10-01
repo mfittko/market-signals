@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isAlerted, notAlertedLabel, signalTitle } from '../platform/web/lib/signal-class.ts';
+import { isAlerted, notAlertedLabel, signalId, signalTitle } from '../platform/web/lib/signal-class.ts';
 
 // Only verdict 'alert' means the engine notified. Every other value the engine writes must not pass.
 test('only an alert verdict counts as alerted', () => {
@@ -21,4 +21,10 @@ test('every non-alert verdict has its own label', () => {
   assert.equal(notAlertedLabel({ verdict: 'backfill' }), 'Backfilled');
   assert.equal(notAlertedLabel({ verdict: null }), 'Not alerted');
   assert.equal(notAlertedLabel({}), 'Not alerted');
+});
+
+test('a flip and an impulse on the same bar get different ids, and an absent kind is a flip', () => {
+  const bar = { instrument: 'WTI', granularity: 'M5', time: '2026-01-01T00:00:00Z' };
+  assert.notEqual(signalId({ ...bar, kind: 'volume-impulse' }), signalId({ ...bar, kind: 'supertrend-flip' }));
+  assert.equal(signalId(bar), signalId({ ...bar, kind: 'supertrend-flip' }));
 });

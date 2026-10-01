@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
-import { isAlerted, notAlertedLabel, signalTitle } from '@/lib/signal-class';
+import { isAlerted, notAlertedLabel, signalId, signalTitle } from '@/lib/signal-class';
 import { toggleWatcher, validPair } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
@@ -35,7 +35,7 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
   for (const s of lists.flat()) {
     const passed = isAlerted(s);
     out.push({
-      id: `s:${s.instrument}:${s.granularity}:${s.time}`, kind: 'signal', at: s.time, alerted: !!s.notified, why: passed ? undefined : notAlertedLabel(s),
+      id: signalId(s), kind: 'signal', at: s.time, alerted: !!s.notified, why: passed ? undefined : notAlertedLabel(s),
       title: signalTitle(s),
       detail: `${passed ? 'Passed the filter' : notAlertedLabel(s)}${s.reason ? `: ${s.reason}` : ''}`, href: `/instruments/${slug(s.instrument)}`, tone: passed ? (s.signal === 'buy' ? 'good' : 'bad') : undefined,
     });

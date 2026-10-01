@@ -9,3 +9,7 @@ export const signalTitle = (s: { kind?: string; signal: string; instrument: stri
 // Why a signal row was not alerted, in the words the alerts page shows.
 export const notAlertedLabel = (s: { verdict?: string | null }) =>
   ({ suppress: 'Suppressed', duplicate: 'Duplicate', backfill: 'Backfilled' } as Record<string, string>)[s.verdict ?? ''] ?? 'Not alerted';
+
+// One id per signal row. The kind keeps a flip and an impulse on the same bar apart; an absent kind is a legacy flip.
+export const signalId = (s: { kind?: string; instrument: string; granularity: string; time: string }) =>
+  `s:${s.kind ?? 'supertrend-flip'}:${s.instrument}:${s.granularity}:${s.time}`;
