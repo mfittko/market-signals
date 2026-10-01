@@ -27,7 +27,7 @@ The engine keeps sole ownership of the paper portfolio. Nothing in `platform/` w
 
 | Phase | Delivered | Still open |
 |---|---|---|
-| P0 review and spikes | Runtime spike with denied tools, cancellation, stale-worker and duplicate-claim fault tests. | Decision record that reconciles the portability and agent-surface epics. Golden fixtures. Pi runtime. Multi-bot portfolio transaction. Recovery from a checkpoint. |
+| P0 review and spikes | Runtime spike with denied tools, cancellation, stale-worker and duplicate-claim fault tests. Decision record that reconciles the portability and agent-surface epics (merged, status still Proposed). Node golden fixtures for indicators, fills, sizing, halts and attribution (`test/golden`, see `test/golden/README.md`). | Golden fixtures for the position monitor and the indicator summary. Pi runtime. Multi-bot portfolio transaction. Recovery from a checkpoint. |
 | P1 foundations | Go layout, migrations, health, structured logs, CI, Compose for Postgres. | User authentication. Generated queries. The Tailwind, component library and query-cache stack. Non-loopback exposure. |
 | P2 boundary and import | Frozen snapshots, idempotent intake, dry-run importer with a cash check. | Transactional outbox. Provider budgets, circuit state and correlation state in the import. Content checksums. |
 | P3 runtime slice | Everything except checkpoints. Every imported bot runs in advisory mode. | Checkpoint and resume. |
@@ -64,8 +64,8 @@ B. Make it the daily driver. No new trading authority.
 - Separate development and live databases, and a second console port.
 - Authentication before any non-loopback access.
 - Transactional outbox for snapshot delivery, replacing the best-effort hook.
-- Decision record that reconciles the portability and agent-surface epics.
-- Golden fixtures for indicators, fills and the monitor.
+- Move the decision record from Proposed to Accepted, with its open questions listed and owned.
+- Golden fixtures for the position monitor and the indicator summary. The indicator, fill, sizing and halt fixtures are in `test/golden`.
 - Committed browser tests. Go coverage to 90% for packages that will outlive the prototype.
 - Import gaps: provider budgets, circuit state, correlation state, content checksums.
 
