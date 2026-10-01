@@ -164,6 +164,12 @@ up() {
   fi
 
   /usr/libexec/PlistBuddy -c "Set :WorkingDirectory $WT" "$LA/$SRV.plist"
+  # A LaunchAgent starts with PATH=/usr/bin:/bin:/usr/sbin:/sbin, which has no node. The news tools and any script
+  # with an env-node shebang then fail with "env: node: No such file or directory". Give the engine the Homebrew paths.
+  ENGINE_PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables dict" "$LA/$SRV.plist" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :EnvironmentVariables:PATH $ENGINE_PATH" "$LA/$SRV.plist" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :EnvironmentVariables:PATH string $ENGINE_PATH" "$LA/$SRV.plist"
   plutil -lint "$LA/$SRV.plist" >/dev/null || die "plist is invalid; run: $0 rollback"
 
   if loaded "$WATCH"; then launchctl bootout "gui/$UID_/$WATCH"; fi

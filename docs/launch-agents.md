@@ -8,7 +8,7 @@ notification deep links) survive a crash/reboot. Plists live in
 `~/Library/LaunchAgents/` (user-local, not committed) and run from your
 clone of this repo, so a `git pull` updates the running code. Replace
 `REPO` below with your absolute clone path and check `which node` for the
-node path (launchd does not read your shell PATH).
+node path (launchd does not read your shell PATH). The plist also needs the `PATH` entry shown below: without it, the news tools and scripts with an env-node shebang fail with `env: node: No such file or directory`.
 
 ## `com.market-signals.signal-server` — the web app + decision cycle
 
@@ -48,6 +48,8 @@ watched combo's own alert.
     <string>scripts/signal-server.mjs</string>
   </array>
   <key>WorkingDirectory</key><string>REPO</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict>
   <key>KeepAlive</key><true/>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>REPO/data/signal-server-launchd.log</string>
