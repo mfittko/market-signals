@@ -15,8 +15,8 @@
 # unless MS_ALLOW_LIVE_SWITCH=1 is set, so only an explicit operator decision can move the live engine.
 set -euo pipefail
 
-WT="$(cd "$(dirname "$0")/../.." && pwd)"                     # worktree root
-. "$(dirname "$0")/main-root.sh"
+WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"                     # worktree root
+. "$(dirname "${BASH_SOURCE[0]}")/main-root.sh"
 MAIN="$(main_root "$WT")"  # main checkout
 LA="$HOME/Library/LaunchAgents"
 BK="$LA/.ms-backup"
@@ -206,9 +206,11 @@ rollback() {
   echo "rolled back."; status
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 case "${1:-status}" in
   status) status ;;
   up) up "${2:-}" ;;
   rollback) rollback "$@" ;;
   *) die "usage: $0 status|up [-y]|rollback [--with-watcher]  (up needs MS_ALLOW_LIVE_SWITCH=1)" ;;
 esac
+fi

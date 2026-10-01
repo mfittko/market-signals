@@ -12,8 +12,8 @@
 # consistent while the engine runs. Files are mode 600 because settings.json holds API keys.
 set -euo pipefail
 
-WT="$(cd "$(dirname "$0")/../.." && pwd)"
-. "$(dirname "$0")/main-root.sh"
+WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+. "$(dirname "${BASH_SOURCE[0]}")/main-root.sh"
 MAIN="$(main_root "$WT")"
 PG="${MS_PG_CONTAINER:-platform-postgres-1}"
 KEEP=14
@@ -60,8 +60,10 @@ backup() {
   echo "backup written to $out ($(du -sh "$out" | cut -f1))"
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 case "${1:-}" in
   restore) restore "${2:-}" ;;
   prune) prune "${2:-}" ;;
   *) backup "${1:-}" ;;
 esac
+fi
