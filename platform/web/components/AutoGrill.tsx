@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { GrillPanel } from '@/components/GrillPanel';
+import { replyIsCurrent } from '@/lib/reply-current';
 
 export type Scope = { instrument: string; granularity: string };
 type Stats = { trades: number; winRate: number; expectancy: number; profitFactor: number; maxDrawdownR: number };
@@ -49,7 +50,8 @@ export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: s
   // Reset on a change of strategy or scope list. The key is a string, so a caller that builds a new array each render keeps the result.
   const alive = useRef(true); // a reply that lands after the strategy changed must not touch the editor
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const scopeKey =scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
+  const scopeKey = scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
+  const onScreen = useRef(""); onScreen.current = `${name}|${scopeKey}`;
   useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setApplied(false); }, [reset]); // the editor text was restored
@@ -59,9 +61,10 @@ export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: s
   async function run() {
     if (!scope || busy) return;
     setBusy(true); setError(null); setRes(null); setApplied(false);
+    const requestedFor = onScreen.current;
     try {
       const r = await api<Result>('/strategies/autogrill', { method: 'POST', body: JSON.stringify({ name, draft, ...scope }) });
-      if (!alive.current) return;
+      if (!replyIsCurrent(requestedFor, onScreen.current, alive.current)) return;
       setRes(r);
       // a rewritten prompt goes straight into the editor; the wrapper offers Undo the proposal
       if (r.turn?.prompt) { onApply(r.turn.prompt); setApplied(true); }

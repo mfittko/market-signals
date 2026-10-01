@@ -28,6 +28,7 @@ test('start records the program pid, alive trusts it, stop_one stops it, and an 
     `;
     const r = spawnSync('bash', ['-c', script], { env: { ...process.env, MS_RUN_DIR: run }, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.stdout.trim().split('\n'), ['alive-ok', 'stopped', 'pidfile-removed', 'other-not-trusted']);
   } finally {
     rmSync(run, { recursive: true, force: true });
   }

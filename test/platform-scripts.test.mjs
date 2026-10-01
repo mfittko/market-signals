@@ -77,3 +77,31 @@ test('backup marks a folder only after the dump verifies, a failing run leaves n
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Runs a copy of smoke.sh in a scratch tree with stand-in curl and docker first on PATH. No real service is contacted.
+test('smoke.sh switches the private smoke agent off and deletes its shadow position on exit, also when a step fails', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-smoke-'));
+  try {
+    const bin = join(dir, 'bin'), scripts = join(dir, 'scripts');
+    mkdirSync(bin); mkdirSync(scripts); mkdirSync(join(dir, '.dev'));
+    writeFileSync(join(dir, '.dev', 'env'), 'MS_DB_PASSWORD=pw\nMS_INGEST_TOKEN=tok\n');
+    writeFileSync(join(scripts, 'smoke.sh'), readFileSync('platform/scripts/smoke.sh'));
+    const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    // the health check passes, the agent registers, and the demo proposal comes back invalid, so the run ends through fail()
+    stub('curl', 'echo "$*" | tr "\\n" " " >>"$STUB_CURL"; echo >>"$STUB_CURL"; case "$*" in *"/agents"*) ;; *"/health"*) echo \'{"ok":true,"stats":{"workers":[{"online":true}]}}\';; *"-XPOST"*"/runs"*) echo \'{"runs":[{"runId":"r1"}]}\';; *"/runs/r1"*) echo \'{"run":{"status":"succeeded","validation":{"valid":false}}}\';; esac; exit 0');
+    stub('docker', 'echo "$*" >>"$STUB_DOCKER"; cat >>"$STUB_DOCKER"');
+    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log') };
+    const r = spawnSync('bash', [join(scripts, 'smoke.sh')], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /FAIL: demo proposal invalid/);
+    const curls = readFileSync(env.STUB_CURL, 'utf8').trim().split('\n');
+    const posts = curls.filter((l) => l.includes('/agents'));
+    assert.equal(posts.length, 2, 'registered once, switched off once');
+    assert.match(posts[0], /"enabled":true/);
+    assert.match(posts[1], /"id":"smoke-mock"[\s\S]*"enabled":false/);
+    const docker = readFileSync(env.STUB_DOCKER, 'utf8');
+    assert.match(docker, /DELETE FROM shadow_positions WHERE agent_id='smoke-mock' AND instrument='SMOKE\/TEST'/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
