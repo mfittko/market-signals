@@ -1257,6 +1257,11 @@ export function detectVolumeImpulse(candles, { mult = 2, period = 20 } = {}) {
   };
 }
 
+// One spike seen by several watched timeframes of the same instrument sends one
+// notification: an impulse is folded when the same instrument already sent a
+// same-direction impulse on another timeframe within this many ms.
+export const IMPULSE_CROSS_TIMEFRAME_WINDOW_MS = 10 * 60 * 1000;
+
 // Settings-tunable thresholds (defaults 2x / 20 bars / 10 bars cooldown);
 // each knob falls back independently on an invalid value.
 export function impulseSettings(settings = {}) {
@@ -1327,6 +1332,18 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
     // coincide-bar row wearing it makes the UI claim a gate evaluated it.
     updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, suppressReason, 0, 'volume-impulse');
     return { sent: false, reason: suppressReason, impulse };
+  }
+  // Same spike already notified from another timeframe: record, do not send.
+  // Whichever timeframe fires first sends; the verdict stays null like the
+  // flip-fold above.
+  const folded = withDb(opts.db, (db) => db.prepare(
+    "SELECT granularity, time FROM signals WHERE instrument=? AND granularity<>? AND kind='volume-impulse' AND notified=1 AND signal=?",
+  ).all(opts.instrument, opts.granularity, sig.signal))
+    .find((r) => Math.abs(impulseMs - Date.parse(r.time)) <= IMPULSE_CROSS_TIMEFRAME_WINDOW_MS);
+  if (folded) {
+    const reason = `impulse alert already sent on ${folded.granularity}`;
+    updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, reason, 0, 'volume-impulse');
+    return { sent: false, reason, impulse };
   }
   if (!opts.notify) {
     updateSignal(opts.db, opts.instrument, opts.granularity, impulse.time, null, 'recorded (notify off)', 0, 'volume-impulse');
