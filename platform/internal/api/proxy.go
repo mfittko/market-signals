@@ -89,6 +89,12 @@ func (s *Server) engineProxy() http.Handler {
 				writeJSON(w, http.StatusForbidden, map[string]any{"error": "the console may not write the engine settings " + strings.Join(ks, ", "), "hint": "change them in the engine's own settings page"})
 				return
 			}
+			if wl, ok := patch["watchers"]; ok {
+				if msg := s.watcherRemovalRefusal(r.Context(), wl); msg != "" {
+					writeJSON(w, http.StatusConflict, map[string]any{"error": msg})
+					return
+				}
+			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			r.ContentLength = int64(len(body))
 		}

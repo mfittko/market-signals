@@ -27,7 +27,7 @@ export function WatchersCard() {
   const toggle = (sym: string, g: string) => void flip(sym, g);
   return (
     <Card title={`Signal alerts per market (${watched.size} watched)`}>
-      <p className="small muted">A ticked box means the engine looks for flips on that instrument and timeframe and alerts you when the filter passes one.</p>
+      <p className="small muted">A ticked box means the engine looks for flips on that instrument and timeframe and alerts you when the filter passes one. While the paper bot is on or holds a position there, the console keeps the box ticked.</p>
       <div className="scroll"><table>
         <thead><tr><th>Instrument</th>{GRANS.map((g) => <th key={g}>{g}</th>)}</tr></thead>
         <tbody>{all.map((sym) => (

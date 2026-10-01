@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { GrillPanel } from '@/components/GrillPanel';
 import { replyIsCurrent } from '@/lib/reply-current';
+import { scopeKey as keyOf } from '@/lib/scope-key';
 
 export type Scope = { instrument: string; granularity: string };
 type Stats = { trades: number; winRate: number; expectancy: number; profitFactor: number; maxDrawdownR: number };
@@ -50,7 +51,7 @@ export function AutoGrill({ name, draft, scopes, onApply, reset = 0 }: { name: s
   // Reset on a change of strategy or scope list. The key is a string, so a caller that builds a new array each render keeps the result.
   const alive = useRef(true); // a reply that lands after the strategy changed must not touch the editor
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
-  const scopeKey = scopes.map((s) => `${s.instrument}|${s.granularity}`).join(",");
+  const scopeKey = keyOf(scopes);
   const onScreen = useRef(""); onScreen.current = `${name}|${scopeKey}`;
   useEffect(() => { setScope(scopes[0] ?? null); setRes(null); setError(null); setApplied(false); }, [name, scopeKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
