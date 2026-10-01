@@ -2,7 +2,7 @@
 
 This note compares the epic (https://github.com/mfittko/market-signals/issues/229) with what the prototype in `platform/` delivers.
 The plan below reorders the epic's work where the prototype taught us something; every original idea stays in it.
-The epic text is not edited yet. The section "Proposed epic changes" says what would change there.
+The epic carries a status update dated 2026-09-30 that applies this note. The section "Epic changes" lists what was applied there.
 
 ## 1. What exists
 
@@ -81,10 +81,12 @@ E. Cutover, backup and restore rehearsal, Kubernetes packaging. This is the orig
 
 The research worker profile (https://github.com/mfittko/market-signals/issues/231), the evaluation protocol (https://github.com/mfittko/market-signals/issues/230) and the read-only surfaces (https://github.com/mfittko/market-signals/issues/36) stay as designed. They plug into the queue and tool gateway that exist now.
 
-## 6. Proposed epic changes
+## 6. Epic changes
 
-1. Tick the delivered items in P0 to P4 and link this note.
-2. Add the position monitor, strategy authoring and grill, and alerts to the scope as delivered work.
-3. Replace the P5 and P6 order with sequence B to E above.
-4. Record the deviations in section 4 as decisions.
-5. Create child issues: one for the delivered slice that the PR closes, then one per item in B, and one per step of the authority ladder in C.
+All five changes below are applied in the epic's status update of 2026-09-30. The original phase list stays in the epic text, and the status update states the adapted order above it.
+
+1. Done: the fully delivered items in P0 to P4 are ticked, and the status update links this note.
+2. Done: the position monitor, strategy authoring and grill, and alerts are listed as delivered work.
+3. Done: the status update gives the order B to E as the adapted sequence for P5 and P6.
+4. Done: the deviations in section 4 are recorded in the status update.
+5. Done: child issues exist for the delivered slice, for each item in B, and for each step of the authority ladder in C. Later issues are created when the ladder reaches them.

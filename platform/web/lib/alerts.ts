@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type RunRow } from '@/lib/api';
 import { isAlerted, notAlertedLabel, signalId, signalTitle } from '@/lib/signal-class';
-import { toggleWatcher, validPair } from '@/lib/watcher-merge';
+import { toggleWatcher, validPair, watcherEntries } from '@/lib/watcher-merge';
 
 export type AlertKind = 'signal' | 'proposal' | 'trade';
 export type AlertEvent = {
@@ -19,7 +19,7 @@ const slug = (s: string) => s.toLowerCase().replace('/', '-');
 // fractional digits, so trim them before parsing.
 export const timeMs = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
 const money = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(2)}`;
-const combos = (csv: string | undefined) => [...new Set((csv ?? '').split(',').map((c) => c.split('|').map((p) => p.trim()).join('|')))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
+const combos = (csv: string | undefined) => [...new Set(watcherEntries(csv))].map((c) => c.split('|')).filter((c) => c.length === 2 && c[0] && c[1]);
 
 // One feed for the alerts page and the desktop notifier: signals the filter let
 // through, agent proposals that ask for a trade, and paper-portfolio activity.
@@ -73,7 +73,7 @@ export function loadSeen(): Set<string> | null {
 export function saveSeen(s: Set<string>) { try { localStorage.setItem(SEEN, JSON.stringify([...s].slice(-400))); } catch { /* ignore */ } }
 
 // The engine alerts on the instrument and timeframe pairs in its watcher list.
-const canon = (csv?: string) => (csv ?? '').split(',').map((c) => c.trim().replace(/\s*\|\s*/, '|')).filter(Boolean);
+const canon = watcherEntries;
 export function useWatchers() {
   const [watched, setWatched] = useState<Set<string> | null>(null);
   const [busy, setBusy] = useState(false);
