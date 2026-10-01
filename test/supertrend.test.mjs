@@ -2269,3 +2269,92 @@ test('openai no-content error: a verdict failure names filterMaxCompletionTokens
     );
   } finally { delete global.fetch; }
 });
+
+// Cross-timeframe fold: one spike seen by several watched timeframes of one
+// instrument sends once. Candles are re-timed so the last bar lands at `lastIso`.
+function impulseCandlesEndingAt(lastIso, over = {}) {
+  const c = impulseCandles(over);
+  const shift = Date.parse(lastIso) - Date.parse(c[c.length - 1].time);
+  return c.map((x) => ({ ...x, time: new Date(Date.parse(x.time) + shift).toISOString() }));
+}
+
+async function crossTimeframe({ first, second }) {
+  const dir = mkdtempSync(join(tmpdir(), 'st-impulse-xtf-'));
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify({}));
+  const dbPath = join(dir, 'db.sqlite');
+  const sent = [];
+  const sendFn = (msg) => sent.push(msg);
+  const run = (step) => processImpulseAlert(
+    { db: dbPath, instrument: step.instrument ?? 'WTICO/USD', granularity: step.granularity, notify: true, settings: settingsPath },
+    impulseCandlesEndingAt(step.at, step.over),
+    { sendFn },
+  );
+  const a = await run(first);
+  const b = await run(second);
+  return { a, b, sent, dbPath };
+}
+
+test('processImpulseAlert: an M5 impulse is folded into an M1 impulse of the same direction sent within the window', async () => {
+  const { a, b, sent, dbPath } = await crossTimeframe({
+    first: { granularity: 'M1', at: '2026-10-01T05:39:00Z' },
+    second: { granularity: 'M5', at: '2026-10-01T05:40:00Z' },
+  });
+  assert.equal(a.sent, true);
+  assert.equal(b.sent, false);
+  assert.equal(b.reason, 'impulse alert already sent on M1');
+  assert.equal(sent.length, 1);
+  const [row] = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' });
+  assert.equal(row.kind, 'volume-impulse');
+  assert.equal(row.verdict, null);
+  assert.equal(row.notified, 0);
+  assert.equal(row.reason, 'impulse alert already sent on M1');
+});
+
+test('processImpulseAlert: an M1 impulse is folded into an M5 impulse of the same direction sent within the window', async () => {
+  const { b, sent } = await crossTimeframe({
+    first: { granularity: 'M5', at: '2026-10-01T05:40:00Z' },
+    second: { granularity: 'M1', at: '2026-10-01T05:39:00Z' },
+  });
+  assert.equal(b.sent, false);
+  assert.equal(b.reason, 'impulse alert already sent on M5');
+  assert.equal(sent.length, 1);
+});
+
+test('processImpulseAlert: opposite-direction impulses on two timeframes both send', async () => {
+  const { a, b, sent } = await crossTimeframe({
+    first: { granularity: 'M1', at: '2026-10-01T05:39:00Z' },
+    second: { granularity: 'M5', at: '2026-10-01T05:40:00Z', over: { pairOpenClose: [[101, 99], [101, 99]] } },
+  });
+  assert.equal(a.sent, true);
+  assert.equal(b.sent, true);
+  assert.equal(sent.length, 2);
+});
+
+test('processImpulseAlert: the same spike on a different instrument is not folded', async () => {
+  const { b, sent } = await crossTimeframe({
+    first: { granularity: 'M1', at: '2026-10-01T05:39:00Z' },
+    second: { instrument: 'XAU/USD', granularity: 'M5', at: '2026-10-01T05:40:00Z' },
+  });
+  assert.equal(b.sent, true);
+  assert.equal(sent.length, 2);
+});
+
+test('processImpulseAlert: an impulse beyond the cross-timeframe window sends normally', async () => {
+  const { b, sent } = await crossTimeframe({
+    first: { granularity: 'M1', at: '2026-10-01T05:00:00Z' },
+    second: { granularity: 'M5', at: '2026-10-01T05:11:00Z' },
+  });
+  assert.equal(b.sent, true);
+  assert.equal(sent.length, 2);
+});
+
+test('processImpulseAlert: the 2026-10-01 07:01 M1 and 07:05 M5 WTI spike sends one notification', async () => {
+  const { a, b, sent } = await crossTimeframe({
+    first: { granularity: 'M1', at: '2026-10-01T07:01:00Z' },
+    second: { granularity: 'M5', at: '2026-10-01T07:05:00Z' },
+  });
+  assert.equal(a.sent, true);
+  assert.equal(b.sent, false);
+  assert.equal(sent.length, 1);
+});
