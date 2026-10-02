@@ -5,7 +5,7 @@ description: How to run Market Signals on your own machine, and what a trading d
 
 # Using Market Signals
 
-<p class="lede">You run Market Signals on your own machine. It needs macOS or Linux, a current Node release, a market data key and a language model key. The agent console also needs Docker and Go.</p>
+<p class="lede">You run Market Signals on your own machine. It needs macOS or Linux, a current Node release and a language model key. Market data needs no key. The agent console also needs Docker and Go.</p>
 
 ## Start the engine and the console
 

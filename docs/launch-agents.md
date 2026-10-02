@@ -15,16 +15,16 @@ node path (launchd does not read your shell PATH). The plist also needs the `PAT
 Always-on localhost server (`KeepAlive`) so notification deep links resolve
 the moment an alert arrives. Its heartbeat (`scripts/keep-fresh.mjs`) runs
 the decision cycle (`runWatcherCycle`) on each watched combo's own
-candle-aligned cadence (`cycleMinutes[gran]`, default: the bar length capped at 5, so M1 cycles every bar — see #195), plus:
+candle-aligned cadence (`cycleMinutes[gran]`, default: the bar length capped at 5, so M1 cycles every bar — see https://github.com/mfittko/market-signals/issues/195), plus:
 
 - **per-combo bots** deliberate on a fresh flip or an adverse-move event for
   their combo (paper trades against `data/candles.db`'s virtual portfolio);
-- **higher-timeframe cache refresh** (#81): after the watched combos are
+- **higher-timeframe cache refresh** (https://github.com/mfittko/market-signals/issues/81): after the watched combos are
   processed, tops up M15/M30/H1/H4 candles for every instrument that's
   either watched or has a configured bot, staleness-gated (only fetches a
   rung once it's actually stale) and capped per tick (bounded fan-out after
   a long downtime) — cache-only, no signal evaluation or notifications;
-- **sentinel news cache refresh** (#86): same after-the-signal-path,
+- **sentinel news cache refresh** (https://github.com/mfittko/market-signals/issues/86): same after-the-signal-path,
   best-effort placement as the HTF cache, staleness-gated per instrument
   (~8 min) and capped per tick — polls the market-sentinel skill into the
   `news` table so the filter/bot prompts always read a warm cache instead of
@@ -74,7 +74,7 @@ before the completion, so usage can't ride a header there). With the flag off,
 no headers/event are added; `/api/recheck` is byte-identical and the chat SSE
 body carries no usage event.
 
-## `scripts/supertrend.mjs` CLI — manual/debug runner only (#199)
+## `scripts/supertrend.mjs` CLI — manual/debug runner only (https://github.com/mfittko/market-signals/issues/199)
 
 The server heartbeat above is the only decision-cycle owner. `scripts/
 supertrend.mjs` still exists as a manual/debug CLI (`node scripts/
@@ -104,9 +104,9 @@ tail -f REPO/data/signal-server-launchd.log
 launchctl bootout gui/$(id -u)/com.market-signals.signal-server
 ```
 
-### Decommissioning an existing supertrend watcher install (#199)
+### Decommissioning an existing supertrend watcher install (https://github.com/mfittko/market-signals/issues/199)
 
-If you previously ran the two-process (#193) setup, the standalone watcher
+If you previously ran the two-process (https://github.com/mfittko/market-signals/issues/193) setup, the standalone watcher
 LaunchAgent is no longer needed — the server heartbeat has taken over its
 job. Unload and remove it:
 
