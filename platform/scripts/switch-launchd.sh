@@ -135,7 +135,9 @@ status() {
   echo "main checkout:  $MAIN"
   echo "server plist:   working directory $(workdir)"
   for j in "$SRV" "$WATCH"; do loaded "$j" && echo "loaded:         $j" || echo "not loaded:     $j"; done
-  [ -L "$WT/data" ] && echo "worktree data:  symlink to $(readlink "$WT/data")" || echo "worktree data:  not linked"
+  if [ "$WT" = "$MAIN" ]; then echo "data:           $MAIN/data (main checkout, no link needed)"
+  elif [ -L "$WT/data" ]; then echo "worktree data:  symlink to $(readlink "$WT/data")"
+  else echo "worktree data:  not linked"; fi
   curl -fsS -m 3 "$API/api/health" >/dev/null 2>&1 && echo "engine:         answering on $API" || echo "engine:         not answering"
 }
 
@@ -147,7 +149,7 @@ up() {
   status; echo
   echo "This will:"
   echo "  1. back up the two plists to $BK (only when no backup exists)"
-  echo "  2. link $WT/data to $MAIN/data"
+  if [ "$WT" = "$MAIN" ]; then echo "  2. keep $MAIN/data as it is (this is the main checkout)"; else echo "  2. link $WT/data to $MAIN/data"; fi
   echo "  3. point $SRV at $WT and reload it"
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
   echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
@@ -158,7 +160,8 @@ up() {
   mkdir -p "$BK"
   for p in "$SRV" "$WATCH"; do [ -f "$BK/$p.plist" ] || { [ -f "$LA/$p.plist" ] && command cp -f "$LA/$p.plist" "$BK/$p.plist"; }; done
 
-  if [ ! -L "$WT/data" ]; then
+  # In the main checkout data/ is the real state: never move it aside or link it to itself.
+  if [ "$WT" != "$MAIN" ] && [ ! -L "$WT/data" ]; then
     [ -e "$WT/data" ] && command mv "$WT/data" "$WT/data.test-artifacts.$(date +%s)"
     ln -s "$MAIN/data" "$WT/data"
   fi
