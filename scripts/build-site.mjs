@@ -55,8 +55,8 @@ for (const f of files) {
     .replaceAll('{{title}}', esc(meta.title))
     .replaceAll('{{description}}', esc(meta.description))
     .replaceAll('{{url}}', `${ORIGIN}/${slug === 'index' ? '' : slug + '.html'}`)
-    .replace('{{nav}}', nav)
-    .replace('{{body}}', marked.parse(md));
+    .replace('{{nav}}', () => nav)
+    .replace('{{body}}', () => marked.parse(md));
   await writeFile(`${OUT}/${slug}.html`, html);
 }
 
