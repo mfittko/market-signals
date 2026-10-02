@@ -1396,7 +1396,7 @@ export async function processSignal(opts, result, candles) {
   const wr = result.backtest.winRatePct;
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
   const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
-  const msg = `${opts.instrument} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${localHm(sig.time)}, win rate ${wr ?? '?'}%${lowConf}${extra}`;
+  const msg = `${opts.instrument} ${opts.granularity} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${localHm(sig.time)}, win rate ${wr ?? '?'}%${lowConf}${extra}`;
   const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, sig.time);
   try {
     sendNotification(msg, deepLink, settings);
@@ -1512,7 +1512,7 @@ export async function processImpulseAlert(opts, candles, { sendFn = sendNotifica
     return { sent: false, reason: 'recorded (notify off)', impulse };
   }
 
-  const msg = `${opts.instrument} volume impulse ${impulse.direction.toUpperCase()} @ ${last.close} — 2 bars >=${mult}x avg volume (last ${impulse.volRatio}x), ${localHm(impulse.time)}`;
+  const msg = `${opts.instrument} ${opts.granularity} volume impulse ${impulse.direction.toUpperCase()} @ ${last.close} — 2 bars >=${mult}x avg volume (last ${impulse.volRatio}x), ${localHm(impulse.time)}`;
   const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, impulse.time, 'volume-impulse');
   try {
     await sendFn(msg, deepLink, settings);

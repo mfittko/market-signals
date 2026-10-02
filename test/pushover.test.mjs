@@ -45,8 +45,12 @@ test('resolvePushoverConfig: settings win over env; enabled requires the setting
 });
 
 test('buildPushoverPayload: field shape, no url/url_title without a deep link, caps enforced (AC2/AC8)', () => {
-  const withLink = buildPushoverPayload('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x');
-  assert.deepEqual(withLink, { title: 'market-signals', message: 'WTI SELL @ 88.0', url: 'http://127.0.0.1:8787/?t=x', url_title: 'open chart' });
+  const withLink = buildPushoverPayload('WTI SELL @ 88.0', 'https://desk.example/?t=x');
+  assert.deepEqual(withLink, { title: 'market-signals', message: 'WTI SELL @ 88.0', url: 'https://desk.example/?t=x', url_title: 'open chart' });
+
+  for (const local of ['http://127.0.0.1:3737/instruments/wtico-usd', 'http://localhost:8787/?t=x', 'http://[::1]:3737/']) {
+    assert.deepEqual(buildPushoverPayload('WTI SELL @ 88.0', local), { title: 'market-signals', message: 'WTI SELL @ 88.0' }, `loopback link dropped: ${local}`);
+  }
 
   const noLink = buildPushoverPayload('bot halted — drawdown 12.0%', null);
   assert.deepEqual(noLink, { title: 'market-signals', message: 'bot halted — drawdown 12.0%' });
@@ -89,7 +93,7 @@ test('sendPushover: posts token, user, message, title, url, url_title (AC2)', ()
   const argvLog = join(dir, 'argv.log');
   const bodyLog = join(dir, 'body.log');
   withFakeCurl(`echo "$@" >> ${argvLog}\ncat >> ${bodyLog}\nexit 0`, () => {
-    sendPushover(buildPushoverPayload('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x'), { token: 't', user: 'u' });
+    sendPushover(buildPushoverPayload('WTI SELL @ 88.0', 'https://desk.example/?t=x'), { token: 't', user: 'u' });
   });
   const body = readFileSync(bodyLog, 'utf8');
   // form-encoded: spaces as `+`, everything else percent-encoded
@@ -97,7 +101,7 @@ test('sendPushover: posts token, user, message, title, url, url_title (AC2)', ()
   assert.match(body, /(^|&)user=u(&|$)/);
   assert.match(body, /message=WTI\+SELL\+%40\+88\.0/);
   assert.match(body, /title=market-signals/);
-  assert.match(body, /url=http%3A%2F%2F127\.0\.0\.1%3A8787%2F%3Ft%3Dx/);
+  assert.match(body, /url=https%3A%2F%2Fdesk\.example%2F%3Ft%3Dx/);
   assert.match(body, /url_title=open\+chart/);
   assert.match(readFileSync(argvLog, 'utf8'), /https:\/\/api\.pushover\.net\/1\/messages\.json/, 'posts to the messages endpoint');
 });

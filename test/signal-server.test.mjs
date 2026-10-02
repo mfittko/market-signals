@@ -486,7 +486,7 @@ test('sendNotification + Pushover: enabled+configured posts the field shape AND 
   try {
     const notifierArgs = join(dir, 'notifier-args.txt');
     const notifier = fakeBin(dir, 'terminal-notifier', `echo "$@" > ${notifierArgs}`);
-    sendNotification('WTI SELL @ 88.0', 'http://127.0.0.1:8787/?t=x', {
+    sendNotification('WTI SELL @ 88.0', 'https://desk.example/?t=x', {
       notifierBin: notifier,
       PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr',
     });
@@ -498,7 +498,7 @@ test('sendNotification + Pushover: enabled+configured posts the field shape AND 
     assert.match(curlArgv, /user=usr\b/);
     assert.match(curlArgv, /message=WTI\+SELL\+%40\+88\.0/);
     assert.match(curlArgv, /title=market-signals/);
-    assert.match(curlArgv, /url=http%3A%2F%2F127\.0\.0\.1%3A8787%2F%3Ft%3Dx/);
+    assert.match(curlArgv, /url=https%3A%2F%2Fdesk\.example%2F%3Ft%3Dx/);
   } finally {
     restorePath();
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
