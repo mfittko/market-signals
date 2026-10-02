@@ -39,11 +39,11 @@ function InstrumentView() {
   const [liveErr, setLiveErr] = useState<string | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
-  const [showOffTopic, setShowOffTopic] = useState(false);
+  const [onlyEscalation, setOnlyEscalation] = useState(false);
   const pendingNews = news.filter((n) => n.pending).length;
   const relevantNews = news.filter((n) => n.relevant !== false && !n.pending);
-  const offTopic = news.filter((n) => n.relevant === false).length;
-  const shownNews = showOffTopic ? news.filter((n) => !n.pending) : relevantNews;
+  const escalations = relevantNews.filter((n) => n.escalation).length;
+  const shownNews = onlyEscalation ? relevantNews.filter((n) => n.escalation) : relevantNews;
 
   const latestLoad = useRef('');
   const load = useCallback(async () => {
@@ -169,8 +169,8 @@ function InstrumentView() {
         <div className="grid">
           <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
-          <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{offTopic > 0 && ` · ${offTopic} off topic`}</span>}>
-            {shownNews.length === 0 ? <div className="empty">{pendingNews > 0 ? `Translating and sorting ${pendingNews} headlines…` : offTopic > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
+          <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{escalations > 0 && ` · ${escalations} escalation${escalations === 1 ? "" : "s"}`}</span>}>
+            {shownNews.length === 0 ? <div className="empty">{pendingNews > 0 ? `Translating and sorting ${pendingNews} headlines…` : news.length > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
               <ul className="news">
                 {(showNews ? shownNews : shownNews.slice(0, 6)).map((n, i) => (
                   <li key={i} className={n.relevant === false ? 'muted' : undefined}>
@@ -183,7 +183,7 @@ function InstrumentView() {
             {pendingNews > 0 && shownNews.length > 0 && <div className="small muted">Translating and sorting {pendingNews} more headlines…</div>}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {shownNews.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${shownNews.length}`}</button>}
-              {offTopic > 0 && <button className="linkish" onClick={() => setShowOffTopic(!showOffTopic)}>{showOffTopic ? 'Hide off-topic' : `Show ${offTopic} off-topic`}</button>}
+              {escalations > 0 && <button className="linkish" onClick={() => setOnlyEscalation(!onlyEscalation)}>{onlyEscalation ? 'Show all headlines' : `Only escalations (${escalations})`}</button>}
             </div>
           </Card>
         </div>
