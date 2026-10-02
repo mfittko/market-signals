@@ -1,13 +1,13 @@
 ---
 title: Market Signals
-description: A signal desk for one trader. It follows a market move from its first alert to its end, with agents that advise and rules that guard every paper position.
+description: A signal desk for one trader. Agents advise on each alert and rules guard every paper position. The goal is to follow a market move from its first alert to its end.
 ---
 
 <span class="chip">Advisory prototype · paper money only</span>
 
 # Follow every move to its end.
 
-<p class="lede">Market Signals is a signal desk for one trader. It alerts you when a move starts, keeps watching while it runs, and tells you when it is over. Agents read the context and advise you. Plain rules manage every open paper position.</p>
+<p class="lede">Market Signals is a signal desk for one trader. It alerts you when a move starts. Agents read the context and advise you, and plain rules manage every open paper position. The goal is a desk that keeps watching while the move runs and tells you when it is over.</p>
 
 <div class="btns"><a class="btn primary" href="guide.html">See it in use</a><a class="btn" href="architecture.html">How it is built</a></div>
 
@@ -21,7 +21,7 @@ We saw this on a real morning in October 2026. Oil rose three dollars in two hou
 
 ## A watch with an ending
 
-Market Signals treats a signal as the start of a watch. The watch reports when the move continues and when it reverses or fades, and then it closes with one clear message.
+Market Signals will treat a signal as the start of a watch. The watch will report when the move continues and when it reverses or fades, and then it will close with one clear message. This is the goal of v0.4.0.
 
 <div class="cards">
 <div class="card"><strong>Agents advise</strong><p>An agent reads the chart, the indicators, the news and your written strategy, then proposes a trade with its reasons. You decide.</p></div>
