@@ -30,7 +30,7 @@ For every watched combo the cycle does the following:
 - It notifies through `terminal-notifier`, with an osascript fallback. A click opens the chart deep link for that exact signal. Each flip is delivered at most once. An exact timestamp check removes duplicates, and a 3-bar lock-in cooldown blocks re-detections after a window shift.
 - It runs the configured per-combo bot (see below) on every fresh flip or adverse-move event for that combo.
 - It refreshes the higher-timeframe candle cache (M15/M30/H1/H4) for every instrument that is watched or tracked by a bot. The refresh is staleness-gated and rate-capped, so a long downtime does not cause an unbounded fetch storm on the next tick.
-- It polls the market-sentinel breaking-news cache (see below) for tracked instruments that have a committed sentinel query in `config/instruments.yaml`. It skips other instruments and never guesses a query. The poll is staleness-gated at about 8 minutes per instrument. Filter and bot prompts read a warm cache and do not fetch live news on the signal path.
+- It polls the market-sentinel breaking-news cache (see below) for tracked instruments that have a committed sentinel query in `config/instruments.yaml`. It skips other instruments and never guesses a query. The poll is staleness-gated at about 8 minutes per instrument. Filter and bot prompts read this warm cache. A configured NewsAPI.ai or GNews provider also refreshes it on demand, throttled, when a decision is made (see below).
 
 The cycle emits two signal kinds.
 
@@ -173,7 +173,7 @@ These settings apply to the alert filter and the recheck gate only. They never a
 
 - `filterMaxCompletionTokens` caps the filter and recheck completion separately from the global `maxCompletionTokens`. Its default is well above the global value. A reasoning model can otherwise spend the whole budget on chain-of-thought before it emits the verdict JSON. The result is then `finish_reason=length` with no content, or on the Anthropic shape, JSON cut off mid-string. One budget covers every provider. It is a ceiling and reserves nothing, and both vendors bill actual output, so a generous value costs nothing when the model answers fast. Keep it below the configured model's own output cap, or the provider rejects the request.
 - `anthropicThinking` controls whether Anthropic models reason before they answer. Leave it unset unless you need to force `adaptive` or `disabled`. Unset sends no `thinking` field, and it is the only value that every model accepts. Some models reject an explicit `disabled`.
-- `llmFallbackProvider` retries the verdict once on a second provider when the primary produces nothing usable: a transport error, a timeout, an empty reply or JSON the filter cannot parse. It is off by default. Both providers already keep their key and model side by side in `data/settings.json` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`OPENAI_BASE_URL` and `models[provider]` coexist). So a fallback needs no new credentials. When it fires, the signal payload (instrument, price, the flip itself) also goes to the second vendor. The two attempts share one 90-second deadline. If the primary uses all of it, the fallback is skipped. Once a fallback is configured, the stored `reason` names the provider that produced the verdict. So `signals.reason` in `candles.db` shows directly whether the fallback carries the load.
+- `llmFallbackProvider` retries the verdict once on a second provider when the primary produces nothing usable: a transport error, a timeout, an empty reply or JSON the filter cannot parse. It is off by default. Both providers already keep their key and model side by side in `data/settings.json` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`/`OPENAI_BASE_URL` and `models[provider]` coexist). So a fallback needs no new credentials when the second provider already has its key and model there. When it fires, the signal payload (instrument, price, the flip itself) also goes to the second vendor. The two attempts share one 90-second deadline. If the primary uses all of it, the fallback is skipped. When the fallback produces the verdict, the stored `reason` ends with `[fallback: <provider>]`. A verdict from the primary stays untagged. So `signals.reason` in `candles.db` shows directly whether the fallback carries the load.
 
 ### Pushover push notifications (opt-in)
 
@@ -202,7 +202,7 @@ Everything under `data/` is gitignored: the database, settings with keys, notes 
 
 ## Agent skills
 
-Each skill is a self-contained `SKILL.md` with Node scripts. You can run it from an agent or cron prompt, or directly with `node`. The dashboard chat and the bot also use the skills as tools.
+Each skill is a self-contained `SKILL.md` with Node scripts. You can run it from an agent or cron prompt, or directly with `node`. Some skills also back dashboard chat tools, for example `sentinel_news` and `fxempire_articles`.
 
 | Skill | What it does |
 |-------|--------------|

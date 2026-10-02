@@ -46,7 +46,7 @@ Open http://127.0.0.1:8787. Press âš™ to configure the LLM provider, and press ð
 cd platform
 scripts/dev.sh up        # Postgres on 127.0.0.1:5544, control plane :8080, worker, console :3000
 scripts/smoke.sh         # end-to-end check with the mock agent, about 10 seconds
-open http://127.0.0.1:3000
+# open http://127.0.0.1:3000 in a browser
 scripts/dev.sh down      # add --db to stop Postgres too
 ```
 
