@@ -115,8 +115,10 @@ func (s *Server) news(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable, so news cannot be read"})
 		return
 	}
+	var name string
+	_ = s.st.Pool.QueryRow(r.Context(), `SELECT name FROM instruments WHERE symbol=$1`, symbol).Scan(&name)
 	w.Header().Set("content-type", "application/json")
-	_, _ = w.Write(out)
+	_, _ = w.Write(s.triageNews(r.Context(), symbol, name, out))
 }
 
 // symbolForSlug maps a URL slug such as wtico-usd to the instrument symbol.

@@ -14,7 +14,7 @@ import { useWatchers } from '@/lib/alerts';
 const LIMIT = 10;
 const POLL_MS = 15000;
 type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string };
-type NewsItem = { title: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
+type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Keyed by slug: switching instruments unmounts the old view completely (data, timeframe,
@@ -39,6 +39,10 @@ function InstrumentView() {
   const [liveErr, setLiveErr] = useState<string | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
+  const [showOffTopic, setShowOffTopic] = useState(false);
+  const relevantNews = news.filter((n) => n.relevant !== false);
+  const offTopic = news.length - relevantNews.length;
+  const shownNews = showOffTopic ? news : relevantNews;
 
   const latestLoad = useRef('');
   const load = useCallback(async () => {
@@ -112,7 +116,7 @@ function InstrumentView() {
           <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
-            news={news.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />
+            news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />
         ) : <div className="empty">No candles for this granularity.</div>}
         {liveErr && <p className="small muted" role="status">Live data unavailable: {liveErr}. Showing imported history.</p>}
       </Card>
@@ -164,18 +168,21 @@ function InstrumentView() {
         <div className="grid">
           <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
-          <Card title="News" aside={<span className="muted small">last 72h · {news.length}</span>}>
-            {news.length === 0 ? <div className="empty">No cached headlines.</div> : (
+          <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{offTopic > 0 && ` · ${offTopic} off topic`}</span>}>
+            {shownNews.length === 0 ? <div className="empty">{offTopic > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
               <ul className="news">
-                {(showNews ? news : news.slice(0, 6)).map((n, i) => (
-                  <li key={i}>
-                    <div className="small muted num">{when(n.time)} · {n.source}{n.escalation && <strong className="bad-t"> · escalation</strong>}</div>
-                    {n.url ? <a href={n.url} target="_blank" rel="noreferrer noopener">{n.title}</a> : n.title}
+                {(showNews ? shownNews : shownNews.slice(0, 6)).map((n, i) => (
+                  <li key={i} className={n.relevant === false ? 'muted' : undefined}>
+                    <div className="small muted num">{when(n.time)} · {n.source}{n.titleOriginal && ' · translated'}{n.escalation && <strong className="bad-t"> · escalation</strong>}</div>
+                    {n.url ? <a href={n.url} target="_blank" rel="noreferrer noopener" title={n.titleOriginal}>{n.title}</a> : <span title={n.titleOriginal}>{n.title}</span>}
                   </li>
                 ))}
               </ul>
             )}
-            {news.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${news.length}`}</button>}
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {shownNews.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${shownNews.length}`}</button>}
+              {offTopic > 0 && <button className="linkish" onClick={() => setShowOffTopic(!showOffTopic)}>{showOffTopic ? 'Hide off-topic' : `Show ${offTopic} off-topic`}</button>}
+            </div>
           </Card>
         </div>
       </div>
