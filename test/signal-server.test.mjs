@@ -930,6 +930,22 @@ test('chat: an OLDER question named in discard is inert — forward-delete canno
   });
 });
 
+test('chat: an unknown tool still sends its done event, so the chip stops running', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, settingsPath }) => {
+    const bin = join(dir, 'claude');
+    const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
+    writeFileSync(bin, `#!/bin/sh\ncase "$*" in *"[tool result]"*) echo '${res('no such tool')}';; *) echo '${res('TOOL_CALL {"name":"nope","input":{}}')}';; esac\n`);
+    chmodSync(bin, 0o755);
+    writeFileSync(settingsPath, JSON.stringify({ provider: 'claude-code', claudeBin: bin }));
+
+    const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
+    const tool = ev.filter((e) => e.type === 'tool' && e.name === 'nope').map((e) => e.state);
+    assert.deepEqual(tool, ['running', 'done']);
+    assert.equal(ev.find((e) => e.type === 'done')?.reply, 'no such tool');
+  });
+});
+
 test('chat: a discard id from another thread is inert', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
@@ -2991,5 +3007,73 @@ test('GNews modes: the served page\'s client-side list matches the server\'s GNE
     assert.deepEqual(clientModes, GNEWS_MODES, 'client select options match the server mode list');
     // and the server-only symbol must never be dereferenced in browser code
     assert.ok(!/GNEWS_MODES\s*[.[]/.test(page), 'no server-only GNEWS_MODES.<...> leaked into the page');
+  });
+});
+
+test('decision-context serves the standing rules and cached news read-only, and rejects a bad instrument', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const ok = await (await fetch(`${base}/api/decision-context?instrument=WTICO/USD`)).json();
+    assert.equal(ok.ok, true);
+    assert.equal(ok.instrument, 'WTICO/USD');
+    assert.equal(ok.traderMemories, undefined, 'no rules saved: block omitted');
+    const bad = await fetch(`${base}/api/decision-context?instrument=${encodeURIComponent('x;rm -rf')}`);
+    assert.equal(bad.status, 400);
+    const post = await fetch(`${base}/api/decision-context`, { method: 'POST', body: '{}' });
+    assert.notEqual(post.status, 200, 'read-only route');
+  });
+});
+
+test('decision-context news=fresh reads the cache and never calls a news provider', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ NEWSAPI_AI_KEY: 'nai-test', NEWSAPI_AI_MODE: 'auto' }));
+  const real = globalThis.fetch;
+  const external = [];
+  globalThis.fetch = (u, o) => {
+    if (String(u).startsWith('http://127.0.0.1')) return real(u, o);
+    external.push(String(u));
+    return Promise.reject(new Error('offline'));
+  };
+  try {
+    await withServer(dir, async ({ base }) => {
+      const res = await (await real(`${base}/api/decision-context?instrument=WTICO/USD&news=fresh`)).json();
+      assert.equal(res.ok, true);
+    });
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.deepEqual(external, [], 'a GET spends no paid-provider budget');
+});
+
+test('news endpoint lists recent headlines for one instrument, newest first, urls sanitised', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ss-'));
+  await withServer(dir, async ({ base, dbPath }) => {
+    const { withDb } = await import('../scripts/supertrend.mjs');
+    const now = Date.now();
+    withDb(dbPath, (db) => {
+      db.exec("CREATE TABLE IF NOT EXISTS news (instrument TEXT NOT NULL, source TEXT NOT NULL, title TEXT NOT NULL, time TEXT, summary TEXT, url TEXT NOT NULL, tone REAL, themes TEXT, escalation INTEGER NOT NULL DEFAULT 0, fetched_at TEXT NOT NULL, provider TEXT, UNIQUE(instrument, url))");
+      const ins = db.prepare('INSERT INTO news (instrument, source, title, time, url, escalation, fetched_at) VALUES (?,?,?,?,?,?,?)');
+      ins.run('WTICO/USD', 'oilprice', 'older', new Date(now - 3600000).toISOString(), 'https://a.example/1', 0, 'x');
+      ins.run('WTICO/USD', 'gdelt', 'newer', new Date(now - 60000).toISOString(), 'javascript:alert(1)', 1, 'x');
+      ins.run('XAU/USD', 'gdelt', 'other instrument', new Date(now - 60000).toISOString(), 'https://a.example/3', 0, 'x');
+    });
+    const r = await (await fetch(`${base}/api/news?instrument=WTICO/USD&hours=24`)).json();
+    assert.deepEqual(r.items.map((i) => i.title), ['newer', 'older']);
+    assert.equal(r.items[0].url, null, 'a non-http url is dropped');
+    assert.equal(r.items[0].escalation, true);
+    assert.equal((await fetch(`${base}/api/news?instrument=${encodeURIComponent('a b')}`)).status, 400);
+  });
+});
+
+test('indicators endpoint serves the strategy-prompt numbers read-only and rejects bad input', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const r = await (await fetch(`${base}/api/indicators?instrument=WTICO/USD&granularity=M5`)).json();
+    assert.equal(r.ok, true);
+    if (r.indicators) { // the fixture may hold too little history; when it does not, the shape must hold
+      assert.equal(typeof r.indicators.atr14, 'number');
+      assert.ok('extremes' in r.indicators && 'bollinger' in r.indicators);
+    }
+    assert.equal((await fetch(`${base}/api/indicators?instrument=${encodeURIComponent('a b')}`)).status, 400);
+    assert.equal((await fetch(`${base}/api/indicators?granularity=x`)).status, 400);
+    assert.notEqual((await fetch(`${base}/api/indicators`, { method: 'POST', body: '{}' })).status, 200);
   });
 });

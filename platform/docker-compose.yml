@@ -1,0 +1,23 @@
+# Prototype infrastructure. Postgres is the only container; the Go API, the
+# worker and the Next.js console run on the host (see scripts/dev.sh).
+# No password is committed: scripts/dev.sh generates MS_DB_PASSWORD once into .dev/env
+# and passes it here. Run compose through scripts/dev.sh, or export it from .dev/env first.
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ms
+      POSTGRES_PASSWORD: ${MS_DB_PASSWORD:?set MS_DB_PASSWORD (scripts/dev.sh generates it into .dev/env)}
+      POSTGRES_DB: ms
+    ports:
+      - "127.0.0.1:5544:5432"
+    volumes:
+      - msplatform-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ms -d ms"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+volumes:
+  msplatform-pg:

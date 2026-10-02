@@ -34,6 +34,7 @@ import { normCombo, performHaltReset, resolveBotFor, resolvedStrategy } from './
 import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailByComboInDb, earliestAttributedEntry, GATE_DISAGREEMENT_NEED, GATE_DISAGREEMENT_NOTE_THRESHOLD, lastDecisionByCombo, positionAttribution, strategyScoreboard, transportScoreboard } from './evaluation.mjs';
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
+import { indicatorSummary } from './lib/indicator-summary.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -54,7 +55,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -1205,6 +1206,45 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
       }
+      // Recent headlines for one instrument, read from the news cache. Read-only.
+      if (url.pathname === '/api/news' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const hours = clampInt(Number(url.searchParams.get('hours')), 1, 336, 24);
+        const limit = clampInt(Number(url.searchParams.get('limit')), 1, 100, 40);
+        const cutoff = new Date(Date.now() - hours * 3600000).toISOString();
+        const items = withDb(dbPath, (db) => db.prepare(
+          'SELECT title, source, provider, time, url, tone, escalation FROM news WHERE instrument=? AND time IS NOT NULL AND time>=? ORDER BY time DESC LIMIT ?',
+        ).all(instrument, cutoff, limit)).map((r) => ({
+          title: r.title, source: r.source, provider: r.provider ?? null, time: r.time, tone: r.tone ?? null, escalation: r.escalation === 1,
+          url: /^https?:\/\/\S+$/i.test((r.url || '').trim()) ? r.url.trim() : null,
+        }));
+        return json(res, 200, { ok: true, instrument, hours, items });
+      }
+      // Indicator numbers a strategy prompt asks about (ATR, EMAs, Bollinger, extremes).
+      // Computed from completed candles by the same code the chart uses. Like /api/chart it
+      // fetches upstream candles and saves them to SQLite.
+      if (url.pathname === '/api/indicators' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const granularity = url.searchParams.get('granularity') || cfg.granularity || 'M5';
+        if (!/^[MH]\d{1,2}$/.test(granularity)) return json(res, 400, { ok: false, error: 'bad granularity' });
+        const data = await chartData(dbPath, instrument, { granularity, fetcher, count: 300 });
+        return json(res, 200, { ok: true, instrument, granularity, indicators: indicatorSummary(data.candles) });
+      }
+      // Read-only advisory context the bot sees at a decision point: the trader's
+      // standing rules and the cached sentinel news block. The route only reads the
+      // cache: a GET skips the same-origin guard, so it must never spend the paid news budget.
+      if (url.pathname === '/api/decision-context' && req.method === 'GET') {
+        const cfg = readSettings(settingsPath);
+        const instrument = url.searchParams.get('instrument') || cfg.instrument || DEFAULT_INSTRUMENT;
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        const news = await import('./news.mjs');
+        const sentinel = news.newsContextFor(dbPath, instrument, { sourceFootnotes: isSentinelFootnotesOn(cfg.sentinelSourceFootnotes) });
+        return json(res, 200, { ok: true, instrument, traderMemories: memoriesContext(dbPath) || undefined, sentinel: sentinel || undefined });
+      }
       // Signal-history pagination: the table defaults to the visible chart
       // window; "load 10 more" pages in older signals via ?before=<iso>&limit=N.
       if (url.pathname === '/api/signals') {
@@ -1586,7 +1626,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         if (!message || message.length > 4000) return json(res, 400, { ok: false, error: 'message required (max 4000 chars)' });
         const cfg = readSettings(settingsPath);
         if (resolveProvider(cfg) === 'none') {
-          return json(res, 400, { ok: false, error: 'no chat provider: select a provider in settings (pi, anthropic, or openai) and add its API key ("none" disables chat)' });
+          return json(res, 400, { ok: false, error: 'no chat provider: select a provider in settings (pi, claude-code, anthropic, openai or openai-compatible); the API providers also need a key ("none" disables chat)' });
         }
 
         const { instrument, granularity } = resolveView(cfg, body.instrument, body.granularity);
@@ -1742,7 +1782,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
           const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
             toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
-            execTool: (n, i) => { toolsUsed.push(n); return execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }); },
+            execTool: (n, i) => {
+              toolsUsed.push(n);
+              send({ type: 'tool', name: n, input: i, state: 'running' }); // progress for the console; the reply itself is unchanged
+              // then() turns a synchronous throw (unknown tool, bad input) into a rejection, so done always fires
+              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
+                .finally(() => send({ type: 'tool', name: n, state: 'done' }));
+            },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,
           });
           if (abandoned() || superseded()) return discardTurn();

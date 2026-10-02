@@ -1,0 +1,25 @@
+{
+  "instrument": "WTICO/USD",
+  "granularity": "M5",
+  "event": "flip",
+  "asOf": "2026-09-29T15:45:00.000000000Z",
+  "close": 93.023,
+  "quote": { "last": 93.02 },
+  "trend": "down",
+  "supertrend": 93.61,
+  "flip": {
+    "signal": "sell",
+    "price": 93.023,
+    "time": "2026-09-29T15:45:00.000000000Z",
+    "reason": "Sell flip on 3.6x vol, conviction close at bar low breaking floor, HTF aligned down",
+    "winRate": 50
+  },
+  "backtest": { "trades": 14, "winRatePct": 50, "totalReturnPct": 0.56 },
+  "strategy": {
+    "name": "demo-follow-flips",
+    "version": 1,
+    "prompt": "Follow supertrend flips: open in the flip direction with a stop just beyond the supertrend line, close on the opposite flip. Skip chop (rapid alternating flips, thin volume)."
+  },
+  "portfolio": { "equity": 10000, "cash": 10000, "halted": false, "positions": [] },
+  "context": { "traderMemories": "Prefers stops beyond the supertrend line. Avoid trading into the EIA inventory print." }
+}

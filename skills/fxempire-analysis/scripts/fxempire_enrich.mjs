@@ -280,7 +280,8 @@ function buildDetailedMarkdown(payload, analyses) {
 
 async function runNodeJson(scriptPath, args) {
   const cmdArgs = [scriptPath, ...args, '--json'];
-  const { stdout } = await execFileAsync('node', cmdArgs, { maxBuffer: 8 * 1024 * 1024 });
+  // the running binary, not a PATH lookup: a LaunchAgent has no node on its PATH
+  const { stdout } = await execFileAsync(process.execPath, cmdArgs, { maxBuffer: 8 * 1024 * 1024 });
   return JSON.parse(stdout);
 }
 
