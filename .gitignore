@@ -11,3 +11,4 @@ reports/backtests/cache/
 .env.*
 .pi/
 test/tmp-*.db
+_site/

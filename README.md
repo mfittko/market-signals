@@ -6,6 +6,8 @@ strategies, a live chart dashboard with a trading-copilot chat, trader memory,
 free breaking-news context, and agent skills for market analysis — all plain
 Node (stdlib only, no npm dependencies; the one chart library is vendored).
 
+Project site: https://market-signals.io (vision, architecture and a usage guide).
+
 ```
 ┌─ LaunchAgent (KeepAlive) ────────────────────────────────────────────────┐
 │ scripts/signal-server.mjs — single process                               │
