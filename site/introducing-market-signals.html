@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Introducing market-signals</title>
+<meta name="description" content="Why we are building market-signals: alerts that follow a move to its end, agents that advise, and plain code that guards every position.">
+<link rel="canonical" href="https://market-signals.io/introducing-market-signals.html">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Introducing market-signals">
+<meta property="og:description" content="Alerts that follow a move to its end, agents that advise, and plain code that guards every position.">
+<meta property="og:url" content="https://market-signals.io/introducing-market-signals.html">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="./"><img src="assets/favicon.svg" alt="" width="24" height="24">market-signals</a>
+    <nav class="site" aria-label="Main">
+      <a href="introducing-market-signals.html" aria-current="page">Introduction</a>
+      <a href="https://github.com/mfittko/market-signals">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <article class="wrap">
+    <h1>Introducing market-signals</h1>
+    <p class="lede">A signal desk for one trader. It tells you when a move starts, follows it, and says when it is over. Agents advise. Plain code guards every position. Nothing trades with real money.</p>
+    <p class="meta">October 2026</p>
+
+    <h2>The problem</h2>
+    <p>Most alerts say one thing: something just happened. A trend line flipped. Volume spiked. Then you are on your own. You do not learn whether the move held, whether it reversed two minutes later, or whether the signal was noise. The follow-up is where traders lose the most, and it is the part that alerts skip.</p>
+    <p>Bots have the opposite problem. A bot that acts on a one-line trigger is fast and brittle. A language model can read the context around a trade, but nobody should give one a hand on the money.</p>
+
+    <h2>The idea</h2>
+    <p>market-signals splits the work into three layers. Each layer has one job.</p>
+    <ul>
+      <li>A deterministic engine reads candles, finds signals and keeps the paper books.</li>
+      <li>Agents read the context around a signal, explain it, and propose what to do. They advise.</li>
+      <li>Plain rules manage everything that is open: stops, targets, trailing, time limits and a kill switch. No model sits in that loop.</li>
+    </ul>
+    <p>The goal is simple to state. Never miss the course of a move. An alert should become a short story with an ending: it started, it continued, it reversed, or it faded.</p>
+
+    <h2>Principles</h2>
+    <ol class="principles">
+      <li><strong>Advisory before authority.</strong> Agents propose and do not trade. Authority is earned in steps: advise, compare with the existing bots on matched data, execute on paper, and only then run per bot, by opt-in, with a fast switch off.</li>
+      <li><strong>Evidence before authority.</strong> The thresholds for a comparison are fixed before anyone sees the results. Data that is missing or late counts against the agent.</li>
+      <li><strong>Exits are not a model's job.</strong> Stops, targets, time limits and the kill switch run as plain code. If a model fails, the answer is hold and the stop stays.</li>
+      <li><strong>One writer per domain.</strong> Exactly one component may change the paper book, an alert, a strategy or a setting. Everything else reads or asks.</li>
+      <li><strong>Paper money only.</strong> There is no live trading authority. News never sets a trade direction.</li>
+      <li><strong>Say what you know.</strong> The console shows what is missing or late, in plain words, and never fills a gap with a guess.</li>
+      <li><strong>Own your data.</strong> The system runs on your own machine with your own keys.</li>
+    </ol>
+
+    <h2>How it is built</h2>
+    <p>A Node engine detects signals and keeps the paper book. A Go control plane on Postgres queues work, leases it to workers and records every step. Workers can call only a small set of allowlisted read tools. A Next.js console shows runs, charts, positions and strategies, and updates live over server-sent events.</p>
+    <p>Strategies are versioned. You write the rules in words, replay them on past signals, and sharpen them in a guided session with a model. Nothing is saved until you save it.</p>
+    <p>The project is developed with <a href="https://mfittko.github.io/dev-loops/">dev-loops</a>, a review-gated workflow. Every change passes checks and a review before it merges.</p>
+
+    <h2>Where it stands</h2>
+    <div class="stage">
+      <strong>A working prototype in advisory mode.</strong>
+      It runs against paper money. Alerts, charts, agent runs, strategy authoring and a position monitor with tripwires work today. Agents advise and nothing more.
+    </div>
+    <p>The road to the first releases is public. Versions stay below 1.0 until the system is genuinely stable.</p>
+    <table>
+      <thead><tr><th>Version</th><th>Theme</th></tr></thead>
+      <tbody>
+        <tr><td>v0.2.0</td><td>Ship the advisory foundation</td></tr>
+        <tr><td>v0.3.0</td><td>Daily driver on loopback</td></tr>
+        <tr><td>v0.4.0</td><td>Alert quality: alerts that follow a move through</td></tr>
+        <tr><td>v0.5.0</td><td>Evidence and a research baseline</td></tr>
+        <tr><td>v0.6.0</td><td>Opt-in paper execution</td></tr>
+      </tbody>
+    </table>
+    <p>The milestones and their issues are on <a href="https://github.com/mfittko/market-signals/milestones">GitHub</a>.</p>
+
+    <h2>What this is not</h2>
+    <p>It is not financial advice and it makes no claim about returns. Trading carries risk. This is software built in the open, and it is built to be honest about what it knows.</p>
+
+    <div class="btns">
+      <a class="btn primary" href="https://github.com/mfittko/market-signals">View the code</a>
+      <a class="btn secondary" href="./">Back to the start</a>
+    </div>
+  </article>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>Trading carries risk. This is software built in the open. It gives no financial advice and makes no claim about returns.</p>
+    <p>Developed with <a href="https://mfittko.github.io/dev-loops/">dev-loops</a>.</p>
+  </div>
+</footer>
+</body>
+</html>
