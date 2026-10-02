@@ -224,7 +224,7 @@ test('processSignal pushes via Pushover on a fresh alerted flip — the first se
     const argv = readFileSync(curlLog, 'utf8');
     // the recorder captures argv then the stdin body; the message lives in the body,
     // form-encoded (spaces as `+`, the slash percent-encoded)
-    assert.match(argv, /message=WTICO%2FUSD\+SELL/, 'the flip alert message was pushed via curl');
+    assert.match(argv, /message=WTICO%2FUSD\+M5\+SELL/, 'the flip alert message was pushed via curl');
   } finally {
     process.env.PATH = prevPath;
     if (prevGuard === undefined) delete process.env.MS_NO_NOTIFY; else process.env.MS_NO_NOTIFY = prevGuard;
@@ -1366,7 +1366,7 @@ test('processImpulseAlert: sends once, records a kind=volume-impulse row; re-run
   const first = await processImpulseAlert(opts, c, { sendFn });
   assert.equal(first.sent, true);
   assert.equal(sent.length, 1);
-  assert.match(sent[0].msg, /volume impulse UP/);
+  assert.match(sent[0].msg, / M5 volume impulse UP/, "the push text names the timeframe");
   const [row] = signalOutcomes(dbPath, 'WTICO/USD', 'M5', { kinds: 'all' });
   assert.equal(row.kind, 'volume-impulse');
   assert.equal(row.verdict, 'alert');
