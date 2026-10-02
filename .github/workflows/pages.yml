@@ -1,9 +1,13 @@
 name: Pages
 
+# Builds site/content/*.md into _site/ and deploys it to GitHub Pages.
+# Pages source is "GitHub Actions"; the custom domain is set in Settings, Pages.
 on:
   push:
     branches: [main]
-    paths: [site/**, .github/workflows/pages.yml]
+    paths: [site/**, scripts/build-site.mjs, .github/workflows/pages.yml]
+  pull_request:
+    paths: [site/**, scripts/build-site.mjs, .github/workflows/pages.yml]
   workflow_dispatch:
 
 permissions:
@@ -12,20 +16,31 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm i --no-save --no-package-lock marked@18.0.14
+      - run: node scripts/build-site.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
   deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
       - id: deployment
         uses: actions/deploy-pages@v4

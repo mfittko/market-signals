@@ -1,11 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="market-signals">
-  <rect width="32" height="32" rx="7" fill="#101315"/>
-  <g stroke-linecap="round">
-    <line x1="9" y1="7" x2="9" y2="25" stroke="#e0857a" stroke-width="2"/>
-    <rect x="6.5" y="11" width="5" height="9" rx="1" fill="#e0857a"/>
-    <line x1="16" y1="5" x2="16" y2="22" stroke="#62c796" stroke-width="2"/>
-    <rect x="13.5" y="8" width="5" height="10" rx="1" fill="#62c796"/>
-    <line x1="23" y1="4" x2="23" y2="19" stroke="#62c796" stroke-width="2"/>
-    <rect x="20.5" y="6" width="5" height="9" rx="1" fill="#62c796"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#121720"/>
+  <g stroke-width="3" stroke-linecap="round">
+    <path d="M16 18v32" stroke="#3fb98a"/><rect x="11" y="26" width="10" height="16" rx="2" fill="#3fb98a" stroke="none"/>
+    <path d="M32 12v34" stroke="#ef6f6c"/><rect x="27" y="18" width="10" height="20" rx="2" fill="#ef6f6c" stroke="none"/>
+    <path d="M48 20v34" stroke="#3fb98a"/><rect x="43" y="28" width="10" height="18" rx="2" fill="#3fb98a" stroke="none"/>
   </g>
+  <path d="M8 46c9-3 14-10 24-10s14 6 24-1" fill="none" stroke="#6ea8ff" stroke-width="3" stroke-linecap="round"/>
 </svg>
