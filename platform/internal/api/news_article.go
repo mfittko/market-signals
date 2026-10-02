@@ -35,11 +35,27 @@ func publicOnly(_, address string, _ syscall.RawConn) error {
 		return err
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+	if ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() {
 		return errPrivateAddr
+	}
+	for _, n := range nonPublicNets {
+		if n.Contains(ip) {
+			return errPrivateAddr
+		}
 	}
 	return nil
 }
+
+// nonPublicNets are global-unicast ranges that still reach private networks:
+// CGNAT and Tailscale, NAT64 (which embeds an IPv4 address) and 6to4.
+var nonPublicNets = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{"100.64.0.0/10", "64:ff9b::/96", "64:ff9b:1::/48", "2002::/16"} {
+		_, n, _ := net.ParseCIDR(c)
+		out = append(out, n)
+	}
+	return out
+}()
 
 var articleClient = &http.Client{
 	Timeout: articleTimeout,

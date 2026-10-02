@@ -77,7 +77,7 @@ func TestTriageNewsFailsOpenAndBacksOff(t *testing.T) {
 }
 
 func TestArticleGuardsAndText(t *testing.T) {
-	for _, a := range []string{"127.0.0.1:80", "10.1.2.3:443", "192.168.0.5:80", "169.254.169.254:80", "[::1]:443", "0.0.0.0:80"} {
+	for _, a := range []string{"127.0.0.1:80", "10.1.2.3:443", "192.168.0.5:80", "169.254.169.254:80", "[::1]:443", "0.0.0.0:80", "100.64.0.1:443", "100.100.100.100:80", "[64:ff9b::a00:1]:443", "[2002:a00:1::1]:443", "255.255.255.255:80"} {
 		if publicOnly("tcp", a, nil) == nil {
 			t.Fatalf("%s must be refused", a)
 		}
