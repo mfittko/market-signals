@@ -179,7 +179,7 @@ These settings apply to the alert filter and the recheck gate only. They never a
 
 Pushover is off by default, and nothing changes until you configure it. When it is on, every alert goes to your phone through [Pushover](https://pushover.net): a supertrend flip, a volume-impulse alert and the bot's kill-switch halt. The desktop notification still fires as well. So it stays a safety net when a push fails or the monthly quota runs out.
 
-A one-off licence of about $5 covers iPhone, iPad and Apple Watch. The free allowance is 10,000 messages per month. The alert text (instrument, direction, price) leaves this machine through the hosted Pushover service. Every hosted push target works this way, so weigh this before you enable it.
+A one-off iOS licence of about $5 covers iPhone, iPad and Apple Watch. The free allowance is 10,000 messages per month. The alert text (instrument, direction, price) leaves this machine through the hosted Pushover service. Every hosted push target works this way, so weigh this before you enable it.
 
 To turn it on, open the settings modal (⚙), go to the Advanced tab, switch `PUSHOVER_ENABLED` on and fill in `PUSHOVER_TOKEN` (your Pushover application API token) and `PUSHOVER_USER` (your user key). Then press Save. The values go to `data/settings.json`. The LaunchAgent never loads `.env`, so settings is the only place that reaches the live watcher and bot. Both fields are masked write-only secrets, like the LLM API keys. With the toggle on and a key missing, the engine attempts no call and logs one line. It does not error on every alert.
 

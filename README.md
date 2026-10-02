@@ -50,7 +50,7 @@ open http://127.0.0.1:3000
 scripts/dev.sh down      # add --db to stop Postgres too
 ```
 
-`scripts/dev.sh status` shows what runs, and `scripts/dev.sh logs` tails the logs. Do not pipe the launcher into another command. The stack connects to the engine on `127.0.0.1:8787` when it answers, or to `MS_ENGINE_URL`. `dev.sh up` generates the database password and tokens into `platform/.dev/env` (mode 600, gitignored). The LLM agent takes its endpoint, model and key from the engine's `data/settings.json`. Without a key only the mock agent runs. Details are in [platform/README.md](platform/README.md).
+`scripts/dev.sh status` shows what runs, and `scripts/dev.sh logs` tails the logs. Do not pipe the launcher into another command. The stack connects to the engine at `MS_ENGINE_URL`. Without it, the stack uses `127.0.0.1:8787` when that answers. `dev.sh up` generates the database password and tokens into `platform/.dev/env` (mode 600, gitignored). The LLM agent takes its endpoint, model and key from the engine's `data/settings.json`. Without a key only the mock agent runs. Details are in [platform/README.md](platform/README.md).
 
 ### 3. Install under launchd
 
@@ -70,7 +70,7 @@ platform/scripts/switch-launchd.sh rollback [--with-watcher]       # restore the
 
 ## Testing
 
-Engine unit tests. They use a fixture database and fake provider binaries, and they make no network calls. They include the golden-fixture replay and the engine side of the control-plane hook.
+Engine unit tests. They use a fixture database and fake provider binaries, assert the served page, and make no network calls. They include the golden-fixture replay and the engine side of the control-plane hook.
 
 ```sh
 npm test
