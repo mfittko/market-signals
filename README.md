@@ -56,7 +56,7 @@ scripts/dev.sh down      # add --db to stop Postgres too
 
 The engine runs as the LaunchAgent `com.market-signals.signal-server`. Install it first, as described in [docs/launch-agents.md](docs/launch-agents.md).
 
-Then run `platform/scripts/switch-launchd.sh` from a git worktree. It points that LaunchAgent at the worktree and links the worktree's `data/` to the `data/` of the main checkout, so no state is copied. It also installs the console stack as three KeepAlive jobs (`com.market-signals.platform-api`, `-worker` and `-web`) and sets `consoleUrl` in `data/settings.json`, so alert links open the console.
+Then run `platform/scripts/switch-launchd.sh` from the main checkout. It points that LaunchAgent at the checkout and keeps `data/` in place. A git worktree also works. From a worktree the script links the worktree's `data/` to the `data/` of the main checkout, so no state is copied. It also installs the console stack as three KeepAlive jobs (`com.market-signals.platform-api`, `-worker` and `-web`) and sets `consoleUrl` in `data/settings.json`, so alert links open the console.
 
 ```sh
 platform/scripts/switch-launchd.sh status                          # read-only
