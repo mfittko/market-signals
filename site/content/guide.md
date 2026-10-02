@@ -9,7 +9,7 @@ description: How to run Market Signals on your own machine, and what a trading d
 
 > The agent console ships with v0.2.0. Until then it lives in the [prototype pull request](https://github.com/mfittko/market-signals/pull/232).
 
-## Start the engine and the console
+## Start the engine
 
 The engine serves its own dashboard and runs the decision cycle on every candle.
 
@@ -19,15 +19,7 @@ cd market-signals
 node scripts/signal-server.mjs        # engine on http://127.0.0.1:8787
 ```
 
-The agent console runs next to it.
-
-```sh
-cd platform
-scripts/dev.sh up                     # Postgres, control plane, worker, console
-open http://127.0.0.1:3000
-```
-
-In the console's Settings, enter your model endpoint and key, then tick the markets and timeframes you want to watch.
+The agent console and its setup steps arrive with v0.2.0. The [milestones](https://github.com/mfittko/market-signals/milestones) track its progress.
 
 ## Check the desk
 
