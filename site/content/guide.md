@@ -1,17 +1,17 @@
 ---
 title: Guide · Market Signals
-description: How to run Market Signals on your own machine and how a trading day looks in the console.
+description: How to run Market Signals on your own machine, and what a trading day looks like in the console.
 ---
 
-# Guide
+# Using Market Signals
 
-<p class="lede">Market Signals runs on your own machine. You need macOS or Linux, a current Node release, and an API key for a market data provider and a language model. The agent console also needs Docker and Go.</p>
+<p class="lede">You run Market Signals on your own machine. It needs macOS or Linux, a current Node release, a market data key and a language model key. The agent console also needs Docker and Go.</p>
 
-> The agent console ships with v0.2.0. Until then it lives on the [prototype branch](https://github.com/mfittko/market-signals/pull/232).
+> The agent console ships with v0.2.0. Until then it lives in the [prototype pull request](https://github.com/mfittko/market-signals/pull/232).
 
-## Run it
+## Start the engine and the console
 
-Start the engine. It serves its own dashboard and runs the decision cycle on every candle.
+The engine serves its own dashboard and runs the decision cycle on every candle.
 
 ```sh
 git clone https://github.com/mfittko/market-signals
@@ -19,7 +19,7 @@ cd market-signals
 node scripts/signal-server.mjs        # engine on http://127.0.0.1:8787
 ```
 
-Start the agent console next to it.
+The agent console runs next to it.
 
 ```sh
 cd platform
@@ -27,40 +27,38 @@ scripts/dev.sh up                     # Postgres, control plane, worker, console
 open http://127.0.0.1:3000
 ```
 
-Open Settings in the console, enter your model endpoint and key, and pick the markets and timeframes to watch.
+In the console's Settings, enter your model endpoint and key, then tick the markets and timeframes you want to watch.
 
-## A day at the desk
+## Check the desk
 
-### 1. Scan the desk
+The desk lists every watched market. A green badge shows that a bot is on, and each card shows the last signal and the age of its data.
 
-The desk lists every watched market. A green badge means a bot is on. Each row shows the last signal and how fresh the data is.
+![The desk with three watched markets.](screen:desk "You can filter the desk by market type, or show only markets with an active bot.")
 
-![The desk with three watched markets.](screen:desk "The desk. Filter by market type or show only markets with an active bot.")
+## Open a market
 
-### 2. Open a market
+The instrument page shows the live chart with the supertrend line, each flip, volume and news markers. The table below it lists every signal with the filter's verdict and reason. The right column holds the agents, the copilot chat and the latest headlines.
 
-The instrument page shows the live chart with the supertrend line, every flip, volume and the news markers. Below it are the signals with the filter's verdict and reason. On the right you can ask the copilot, check the agents and read the news.
+![The WTI M5 instrument page.](screen:instrument "Live candles, signals with their verdicts, agents and news on one page.")
 
-![The WTI M5 instrument page.](screen:instrument "An instrument. Live candles, signals with their verdict, agents and news in one place.")
+## Ask an agent
 
-### 3. Ask an agent
+Press "Check now" on an agent. The console freezes the current state and asks the agent whether its strategy's entry conditions hold, and the answer arrives within seconds. The run page shows every tool call, every model round and the result of the deterministic checks.
 
-Press "Check now" on an agent. It freezes the current state and asks whether the strategy's entry conditions hold. The answer comes back in a few seconds with its reasons. Open the run to see every tool call, every model round and the deterministic checks.
+![A finished run.](screen:run "The run page shows whether the agent chose hold or open, and why.")
 
-![A finished run.](screen:run "A run. Hold or open, and exactly why.")
+## Refine a strategy
 
-### 4. Shape your strategy
+A strategy is a versioned prompt. You can edit it, compare it with an earlier version or refine it with the grill. The guided grill asks one question at a time and marks a recommended answer. The automatic grill replays past signals and reports which settings held up on data it did not tune on.
 
-Strategies are versioned prompts. Edit one, compare it with an earlier version, or sharpen it with the grill. The guided grill asks one question at a time with a recommended answer. The automatic grill replays past signals and reports what held up on data it did not tune on.
+![The strategy editor.](screen:strategies "Each save creates a new version, and nothing changes until you press save.")
 
-![The strategy editor.](screen:strategies "Strategies. Every save is a new version, and nothing changes until you save.")
+## Follow the alerts
 
-### 5. Follow the alerts
+The alerts page puts signals, agent proposals and paper trades on one time line. A desktop notification opens the matching instrument page.
 
-The alerts page collects signals, agent proposals and paper trades in one time line. Desktop notifications open the matching instrument page.
+![The alerts page.](screen:alerts "Signals, proposals and trades in time order.")
 
-![The alerts page.](screen:alerts "Alerts. One time line for signals, proposals and trades.")
+## Keep it local
 
-## Safety
-
-Market Signals uses paper money only. Agents propose and do not trade. The position monitor handles every exit with plain rules. Keep the console on your own machine. Remote access without authentication is not supported.
+Market Signals trades paper money only, and agents can only propose. Keep the console on your own machine, because remote access has no authentication yet.

@@ -8,7 +8,7 @@ import { marked } from 'marked';
 const SRC = 'site/content';
 const OUT = process.env.SITE_OUT || '_site';
 const ORIGIN = 'https://market-signals.io';
-const NAV = [['index', 'Vision'], ['architecture', 'Architecture'], ['guide', 'Guide'], ['introducing-market-signals', 'Introduction']];
+const NAV = [['index', 'Vision'], ['architecture', 'Architecture'], ['guide', 'Guide']];
 
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const screens = new Set();

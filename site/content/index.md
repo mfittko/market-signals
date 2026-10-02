@@ -1,50 +1,54 @@
 ---
 title: Market Signals
-description: A signal desk for one trader. It follows a move from its start to its end. Agents advise, plain code guards every position, and nothing trades with real money.
+description: A signal desk for one trader. It follows a market move from its first alert to its end, with agents that advise and rules that guard every paper position.
 ---
 
 <span class="chip">Advisory prototype · paper money only</span>
 
-# Never miss the course of a move.
+# Follow every move to its end.
 
-<p class="lede">Market Signals is a signal desk for one trader. It tells you when a move starts, follows it, and tells you when it is over. Agents read the context and advise. Plain code guards every open position.</p>
+<p class="lede">Market Signals is a signal desk for one trader. It alerts you when a move starts, keeps watching while it runs, and tells you when it is over. Agents read the context and advise you. Plain rules manage every open paper position.</p>
 
-<div class="btns"><a class="btn primary" href="guide.html">See how it works</a><a class="btn" href="architecture.html">Read the architecture</a></div>
+<div class="btns"><a class="btn primary" href="guide.html">See it in use</a><a class="btn" href="architecture.html">How it is built</a></div>
 
-![The desk shows every watched market, its bot state and its last signal.](screen:desk "The desk. One row per market, with bot state, last signal and freshness.")
+![The desk shows every watched market, its bot state and its last signal.](screen:desk "The desk lists each watched market with its bot state, last signal and data freshness.")
 
-## The vision
+## Alerts end too early
 
-Most alerts tell you that something happened. A trend line flipped, or volume spiked. Then the alert goes quiet. You do not learn whether the move held, whether it reversed two minutes later, or whether it was noise. The follow-up decides most outcomes, and alerts skip it.
+A typical alert fires when a trend line flips or volume spikes, and then it says nothing more. You have to find out yourself whether the move held, reversed two minutes later, or was noise. That follow-up decides most outcomes.
 
-Market Signals turns an alert into a short story with an ending. A move starts. It continues, it reverses, or it fades. You hear about each step that matters, and you hear when the story is over.
+We saw this on a real morning in October 2026. Oil rose three dollars in two hours. The alerts fired at the start and stayed silent through an hour of steady gains, and the system recorded the first reversal as a duplicate and sent nothing.
+
+## A watch with an ending
+
+Market Signals treats a signal as the start of a watch. The watch reports when the move continues and when it reverses or fades, and then it closes with one clear message.
 
 <div class="cards">
-<div class="card"><strong>Follow through</strong><p>A signal opens a watch. The watch reports a continuation, a reversal or a fade, and then closes.</p></div>
-<div class="card"><strong>Agents advise</strong><p>Agents read the chart, the indicators, the news and your strategy. They explain and propose. They do not trade.</p></div>
-<div class="card"><strong>Code guards exits</strong><p>Stops, targets, trailing, time limits and the kill switch run as plain rules. No model sits in that loop.</p></div>
-<div class="card"><strong>Evidence first</strong><p>Agents earn authority in steps, against thresholds fixed before anyone sees the results.</p></div>
+<div class="card"><strong>Agents advise</strong><p>An agent reads the chart, the indicators, the news and your written strategy, then proposes a trade with its reasons. You decide.</p></div>
+<div class="card"><strong>Rules handle exits</strong><p>Stops, targets, trailing stops, time limits and the kill switch run as plain code on every completed bar.</p></div>
+<div class="card"><strong>Authority is earned</strong><p>Agents get more responsibility only after they beat the existing bots on matched data, against thresholds we fix before the test.</p></div>
+<div class="card"><strong>Your machine, your data</strong><p>Everything runs locally, with your own keys and your own market data.</p></div>
 </div>
 
-## Principles
+## Six rules we keep
 
-1. **Advisory before authority.** Agents propose. Authority grows in steps: advise, compare on matched data, execute on paper, then opt in per bot with a fast switch off.
-2. **One writer per domain.** Exactly one component may change the paper book, an alert, a strategy or a setting.
-3. **Fail safe.** If a model fails, the decision is hold and the stop stays in force. If the alert filter fails, the alert still goes out.
-4. **Say what you know.** The console shows missing or late data in plain words and never fills a gap with a guess.
-5. **News informs, never directs.** A headline can raise attention. It never sets a trade direction.
-6. **Own your data.** It runs on your machine, with your keys and your data.
+1. Agents propose and the trader decides. Authority grows in steps: advise, compare, execute on paper, and finally opt in per bot with an immediate off switch.
+2. Exactly one component writes each kind of state: the paper book, alerts, strategies and settings.
+3. A failed model call means hold, and the stop stays in force. A failed alert filter still lets the alert through.
+4. The console names missing or late data in plain words and shows no guessed values.
+5. A headline can raise attention, but it never sets a trade direction.
+6. Every trade uses paper money.
 
-## Where it stands
+## Road to 1.0
 
-A working prototype runs every day in advisory mode, against paper money. Versions stay below 1.0 until the system is genuinely stable.
+A working prototype runs every day in advisory mode. Version numbers stay below 1.0 until the system is stable.
 
-| Version | Theme |
+| Version | Goal |
 |---|---|
 | v0.2.0 | Ship the advisory foundation |
-| v0.3.0 | Daily driver on loopback |
+| v0.3.0 | Use it daily on one machine |
 | v0.4.0 | Alerts that follow a move through |
 | v0.5.0 | Evidence and a research baseline |
 | v0.6.0 | Opt-in paper execution |
 
-The milestones and their issues are public on [GitHub](https://github.com/mfittko/market-signals/milestones). Read [the introduction](introducing-market-signals.md) for the longer story.
+The milestones and their issues are public on [GitHub](https://github.com/mfittko/market-signals/milestones).
