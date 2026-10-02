@@ -30,9 +30,13 @@ const truncate = (s, n) => (typeof s === 'string' && s.length > n ? [...s].slice
 
 // Pure: no network, no secrets — safe to unit-test directly. deepLink is
 // optional (the bot kill-switch halt has none).
+// A push lands on a phone, which cannot open a loopback console URL. Such a
+// link is dropped, so the message text has to carry everything on its own.
+const LOOPBACK = /^https?:\/\/(localhost|127(\.\d+){3}|\[::1\])(:\d+)?(\/|$)/i;
+
 export function buildPushoverPayload(msg, deepLink) {
   const payload = { title: truncate('market-signals', CAPS.title), message: truncate(String(msg), CAPS.message) };
-  if (deepLink) {
+  if (deepLink && !LOOPBACK.test(String(deepLink))) {
     payload.url = truncate(String(deepLink), CAPS.url);
     payload.url_title = truncate('open chart', CAPS.url_title); // its own cap is 100, not the url's 512
   }
