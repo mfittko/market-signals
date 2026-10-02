@@ -7,9 +7,7 @@ description: How to run Market Signals on your own machine, and what a trading d
 
 <p class="lede">You run Market Signals on your own machine. It needs macOS or Linux, a current Node release, a market data key and a language model key. The agent console also needs Docker and Go.</p>
 
-> The agent console ships with v0.2.0. Until then it lives in the [prototype pull request](https://github.com/mfittko/market-signals/pull/232).
-
-## Start the engine
+## Start the engine and the console
 
 The engine serves its own dashboard and runs the decision cycle on every candle.
 
@@ -19,7 +17,15 @@ cd market-signals
 node scripts/signal-server.mjs        # engine on http://127.0.0.1:8787
 ```
 
-The agent console and its setup steps arrive with v0.2.0. The [milestones](https://github.com/mfittko/market-signals/milestones) track its progress.
+The agent console runs next to it.
+
+```sh
+cd platform
+scripts/dev.sh up                     # Postgres, control plane, worker, console
+open http://127.0.0.1:3000
+```
+
+In the console's Settings, enter your model endpoint and key, then tick the markets and timeframes you want to watch.
 
 ## Check the desk
 
@@ -30,6 +36,8 @@ The desk lists every watched market. A green badge shows that a bot is on, and e
 ## Open a market
 
 The instrument page shows the live chart with the supertrend line, each flip, volume and news markers. The table below it lists every signal with the filter's verdict and reason. The right column holds the agents, the copilot chat and the latest headlines.
+
+The news card shows headlines in English and only those that can move this market. The model translates each headline, judges its relevance and summarizes the article, and the console keeps those results. The card opens on escalations, and you can switch to all relevant headlines. Hover a headline to read its summary.
 
 ![The WTI M5 instrument page.](screen:instrument "Live candles, signals with their verdicts, agents and news on one page.")
 
