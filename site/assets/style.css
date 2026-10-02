@@ -22,14 +22,14 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .nav { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
-.nav-in { max-width: 960px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; justify-content: space-between; }
+.nav-in { max-width: 1080px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; justify-content: space-between; }
 .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; color: var(--text); }
 .nav nav { display: flex; flex-wrap: wrap; gap: 4px; }
 .nav nav a { padding: 4px 10px; border-radius: 6px; color: var(--muted); font-size: 14px; }
 .nav nav a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
 .nav nav a[aria-current="page"] { background: var(--info-bg); color: var(--info); font-weight: 600; }
 
-.page { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+.page { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
 .page h1 { font-size: clamp(28px, 5vw, 40px); line-height: 1.15; letter-spacing: -0.02em; margin: 8px 0 12px; }
 .page h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin: 40px 0 8px; }
 .page h3 { font-size: 18px; margin: 28px 0 6px; }
@@ -64,9 +64,9 @@ a:hover { text-decoration: underline; }
 .layer span { color: var(--muted); font-size: 15px; }
 .flow { text-align: center; color: var(--muted); font-size: 13px; margin: -4px 0; }
 
-figure.shot { margin: 20px -8px; }
+figure.shot { margin: 24px 0; }
 figure.shot img { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 10px; }
 figure.shot figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; padding: 0 8px; }
 
-.foot { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
-@media (min-width: 900px) { figure.shot { margin: 24px -100px; } }
+.foot { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
+@media (min-width: 900px) { figure.shot { margin: 28px 40px; } }
