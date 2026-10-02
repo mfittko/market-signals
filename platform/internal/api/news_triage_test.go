@@ -10,9 +10,27 @@ import (
 	"testing"
 )
 
-func TestTriageNewsTranslatesMarksAndFailsOpen(t *testing.T) {
+type triagedDoc struct {
+	Hidden int `json:"hidden"`
+	Items  []struct {
+		Title, TitleOriginal string
+		Relevant             *bool
+		Pending              bool
+	} `json:"items"`
+}
+
+func triageOnce(t *testing.T, s *Server, raw json.RawMessage) triagedDoc {
+	t.Helper()
+	var d triagedDoc
+	if err := json.Unmarshal(s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw), &d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
+func TestTriageNewsAnswersAtOnceThenTranslatesAndHides(t *testing.T) {
 	calls := 0
-	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil)), tri: &newsTriage{seen: map[string]triage{}}}
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil)), tri: newNewsTriage()}
 	s.cfg.Complete = func(_ context.Context, msgs []map[string]any) (string, error) {
 		calls++
 		if !strings.Contains(msgs[1]["content"].(string), "WTICO/USD") {
@@ -22,31 +40,38 @@ func TestTriageNewsTranslatesMarksAndFailsOpen(t *testing.T) {
 	}
 	raw := json.RawMessage(`{"ok":true,"items":[{"title":"Eierfrikadellen: Mit einem Kniff"},{"title":"Oil rises on supply fears"}]}`)
 
-	var got struct {
-		Hidden int `json:"hidden"`
-		Items  []struct {
-			Title, TitleOriginal string
-			Relevant             *bool
-		} `json:"items"`
+	first := triageOnce(t, s, raw)
+	if !first.Items[0].Pending || !first.Items[1].Pending {
+		t.Fatalf("unknown headlines must be pending on the first answer: %+v", first)
 	}
-	if err := json.Unmarshal(s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Hidden != 1 || got.Items[0].Title != "Egg patties: one trick keeps them fluffy" || got.Items[0].TitleOriginal != "Eierfrikadellen: Mit einem Kniff" || *got.Items[0].Relevant {
+	s.tri.wg.Wait()
+
+	got := triageOnce(t, s, raw)
+	if got.Hidden != 1 || got.Items[0].Title != "Egg patties: one trick keeps them fluffy" || got.Items[0].TitleOriginal != "Eierfrikadellen: Mit einem Kniff" || *got.Items[0].Relevant || got.Items[0].Pending {
 		t.Fatalf("first item not translated and hidden: %+v", got)
 	}
 	if !*got.Items[1].Relevant || got.Items[1].TitleOriginal != "" {
 		t.Fatalf("English relevant item changed: %+v", got.Items[1])
 	}
-
-	s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw)
 	if calls != 1 {
 		t.Fatalf("cached headlines called the model again: %d calls", calls)
 	}
+}
 
-	s.tri.seen = map[string]triage{}
-	s.cfg.Complete = func(context.Context, []map[string]any) (string, error) { return "", errors.New("down") }
-	if out := s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw); strings.Contains(string(out), `"relevant"`) {
-		t.Fatalf("a failed model call must leave items unmarked: %s", out)
+func TestTriageNewsFailsOpenAndBacksOff(t *testing.T) {
+	calls := 0
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil)), tri: newNewsTriage()}
+	s.cfg.Complete = func(context.Context, []map[string]any) (string, error) { calls++; return "", errors.New("down") }
+	raw := json.RawMessage(`{"ok":true,"items":[{"title":"Oil rises"}]}`)
+
+	triageOnce(t, s, raw)
+	s.tri.wg.Wait()
+	got := triageOnce(t, s, raw)
+	if got.Items[0].Pending || got.Items[0].Relevant != nil {
+		t.Fatalf("after a failed triage the item must show unmarked: %+v", got.Items[0])
+	}
+	s.tri.wg.Wait()
+	if calls != 1 {
+		t.Fatalf("a failed triage must pause retries: %d calls", calls)
 	}
 }

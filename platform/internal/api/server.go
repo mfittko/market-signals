@@ -46,7 +46,7 @@ type Server struct {
 
 func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	eng := tools.NewEngine(cfg.EngineURL)
-	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: &newsTriage{seen: map[string]triage{}}}
+	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage()}
 	s.routes()
 	return s
 }

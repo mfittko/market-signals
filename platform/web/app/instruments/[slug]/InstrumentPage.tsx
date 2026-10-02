@@ -14,7 +14,7 @@ import { useWatchers } from '@/lib/alerts';
 const LIMIT = 10;
 const POLL_MS = 15000;
 type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string };
-type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
+type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Keyed by slug: switching instruments unmounts the old view completely (data, timeframe,
@@ -40,9 +40,10 @@ function InstrumentView() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
   const [showOffTopic, setShowOffTopic] = useState(false);
-  const relevantNews = news.filter((n) => n.relevant !== false);
-  const offTopic = news.length - relevantNews.length;
-  const shownNews = showOffTopic ? news : relevantNews;
+  const pendingNews = news.filter((n) => n.pending).length;
+  const relevantNews = news.filter((n) => n.relevant !== false && !n.pending);
+  const offTopic = news.filter((n) => n.relevant === false).length;
+  const shownNews = showOffTopic ? news.filter((n) => !n.pending) : relevantNews;
 
   const latestLoad = useRef('');
   const load = useCallback(async () => {
@@ -169,7 +170,7 @@ function InstrumentView() {
           <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
           <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{offTopic > 0 && ` · ${offTopic} off topic`}</span>}>
-            {shownNews.length === 0 ? <div className="empty">{offTopic > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
+            {shownNews.length === 0 ? <div className="empty">{pendingNews > 0 ? `Translating and sorting ${pendingNews} headlines…` : offTopic > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
               <ul className="news">
                 {(showNews ? shownNews : shownNews.slice(0, 6)).map((n, i) => (
                   <li key={i} className={n.relevant === false ? 'muted' : undefined}>
@@ -179,6 +180,7 @@ function InstrumentView() {
                 ))}
               </ul>
             )}
+            {pendingNews > 0 && shownNews.length > 0 && <div className="small muted">Translating and sorting {pendingNews} more headlines…</div>}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {shownNews.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${shownNews.length}`}</button>}
               {offTopic > 0 && <button className="linkish" onClick={() => setShowOffTopic(!showOffTopic)}>{showOffTopic ? 'Hide off-topic' : `Show ${offTopic} off-topic`}</button>}
