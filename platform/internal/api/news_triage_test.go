@@ -75,3 +75,21 @@ func TestTriageNewsFailsOpenAndBacksOff(t *testing.T) {
 		t.Fatalf("a failed triage must pause retries: %d calls", calls)
 	}
 }
+
+func TestArticleGuardsAndText(t *testing.T) {
+	for _, a := range []string{"127.0.0.1:80", "10.1.2.3:443", "192.168.0.5:80", "169.254.169.254:80", "[::1]:443", "0.0.0.0:80"} {
+		if publicOnly("tcp", a, nil) == nil {
+			t.Fatalf("%s must be refused", a)
+		}
+	}
+	if err := publicOnly("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Fatalf("a public address was refused: %v", err)
+	}
+	if _, err := fetchArticle(context.Background(), "file:///etc/passwd"); err == nil {
+		t.Fatal("a non-web URL must be refused")
+	}
+	got := htmlText(`<html><script>x()</script><nav>menu</nav><p>Oil &amp; gas  rise</p><style>p{}</style></html>`)
+	if got != "Oil & gas rise" {
+		t.Fatalf("htmlText = %q", got)
+	}
+}

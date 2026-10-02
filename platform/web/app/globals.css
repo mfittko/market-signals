@@ -193,3 +193,8 @@ select { background: var(--surface); color: var(--text); border: 1px solid var(-
 .grill-find { margin: 4px 0 8px; overflow-wrap: anywhere; } .grill-find ul { margin: 4px 0 0; padding-left: 18px; }
 .grill-rec { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--good); background: var(--good-bg); border-radius: 4px; }
 .grill .choices { margin: 10px 0; }
+/* News summary popover: hover or keyboard focus on desktop, inline under the headline on touch screens. */
+.news-item { position: relative; }
+.news-pop { display: none; position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin-top: 4px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 13px; }
+.news-item:hover .news-pop, .news-item:focus-within .news-pop { display: block; }
+@media (hover: none) { .news-item .news-pop { display: block; position: static; box-shadow: none; margin: 6px 0 0; } }

@@ -9,12 +9,13 @@ import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart
 import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
 import { Card, Loading } from '@/components/ui';
+import Markdown from 'react-markdown';
 import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
 type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string };
-type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
+type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; summary?: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Keyed by slug: switching instruments unmounts the old view completely (data, timeframe,
@@ -39,10 +40,11 @@ function InstrumentView() {
   const [liveErr, setLiveErr] = useState<string | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
-  const [onlyEscalation, setOnlyEscalation] = useState(false);
+  const [escalationPref, setOnlyEscalation] = useState(true);
   const pendingNews = news.filter((n) => n.pending).length;
   const relevantNews = news.filter((n) => n.relevant !== false && !n.pending);
   const escalations = relevantNews.filter((n) => n.escalation).length;
+  const onlyEscalation = escalationPref && escalations > 0; // no escalations: fall back to every relevant headline
   const shownNews = onlyEscalation ? relevantNews.filter((n) => n.escalation) : relevantNews;
 
   const latestLoad = useRef('');
@@ -173,9 +175,15 @@ function InstrumentView() {
             {shownNews.length === 0 ? <div className="empty">{pendingNews > 0 ? `Translating and sorting ${pendingNews} headlines…` : news.length > 0 ? 'No headlines on this market.' : 'No cached headlines.'}</div> : (
               <ul className="news">
                 {(showNews ? shownNews : shownNews.slice(0, 6)).map((n, i) => (
-                  <li key={i} className={n.relevant === false ? 'muted' : undefined}>
-                    <div className="small muted num">{when(n.time)} · {n.source}{n.titleOriginal && ' · translated'}{n.escalation && <strong className="bad-t"> · escalation</strong>}</div>
-                    {n.url ? <a href={n.url} target="_blank" rel="noreferrer noopener" title={n.titleOriginal}>{n.title}</a> : <span title={n.titleOriginal}>{n.title}</span>}
+                  <li key={i} className={n.summary ? 'news-item has-pop' : 'news-item'} tabIndex={n.summary ? 0 : undefined}>
+                    <div className="small muted num">{when(n.time)} · {n.source}{n.titleOriginal && ' · translated'}{n.summary && ' · summary'}{n.escalation && <strong className="bad-t"> · escalation</strong>}</div>
+                    {n.url ? <a href={n.url} target="_blank" rel="noreferrer noopener">{n.title}</a> : <span>{n.title}</span>}
+                    {(n.summary || n.titleOriginal) && (
+                      <div className="news-pop md" role="tooltip">
+                        {n.summary && <Markdown disallowedElements={['img', 'a']} unwrapDisallowed>{n.summary}</Markdown>}
+                        {n.titleOriginal && <div className="small muted">Original: {n.titleOriginal}</div>}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -183,7 +191,7 @@ function InstrumentView() {
             {pendingNews > 0 && shownNews.length > 0 && <div className="small muted">Translating and sorting {pendingNews} more headlines…</div>}
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {shownNews.length > 6 && <button className="linkish" onClick={() => setShowNews(!showNews)}>{showNews ? 'Show fewer' : `Show all ${shownNews.length}`}</button>}
-              {escalations > 0 && <button className="linkish" onClick={() => setOnlyEscalation(!onlyEscalation)}>{onlyEscalation ? 'Show all headlines' : `Only escalations (${escalations})`}</button>}
+              {escalations > 0 && <button className="linkish" onClick={() => setOnlyEscalation(!escalationPref)}>{onlyEscalation ? 'Show all headlines' : `Only escalations (${escalations})`}</button>}
             </div>
           </Card>
         </div>
