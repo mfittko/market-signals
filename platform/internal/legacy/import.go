@@ -795,7 +795,7 @@ func (im *importer) instrumentsAndAgents(o Options) error {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	tools := []string{"get_snapshot", "get_portfolio", "get_recent_candles", "get_recent_signals", "schedule_followup"}
+	tools := []string{"get_snapshot", "get_portfolio", "get_recent_candles", "get_recent_signals", "get_prediction", "schedule_followup"}
 	for _, k := range keys {
 		bot := st.Bot.Bots[k]
 		parts := strings.Split(k, "|")

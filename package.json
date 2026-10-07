@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.1",
   "engines": {
     "node": ">=22.18"
   },
   "description": "Local, self-hosted trading-signals dashboard + LLM copilot: supertrend flip alerts filtered by an LLM gate, paper-trading bots, and agent skills. Plain Node, zero runtime deps.",
   "scripts": {
-    "verify": "node scripts/verify-packaging.mjs",
+    "verify": "node scripts/verify.mjs",
     "test": "env -u MS_CONTROL_PLANE_URL -u MS_INGEST_TOKEN MS_NO_NOTIFY=1 node --test test/*.test.mjs",
     "test:e2e": "env -u MS_CONTROL_PLANE_URL -u MS_INGEST_TOKEN MS_NO_NOTIFY=1 node --test test/e2e/*.e2e.mjs"
   },

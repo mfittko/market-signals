@@ -58,6 +58,11 @@ func fakeEngine(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"method":"`+r.Method+`","origin":"`+r.Header.Get("Origin")+`"}`)
 	})
+	for _, p := range []string{"/api/predict", "/api/predictions"} {
+		mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"method":"`+r.Method+`"}`)
+		})
+	}
 	mux.HandleFunc("/api/portfolio-secret", func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `leak`) })
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"ok":true,"feed":[{"instrument":"WTICO/USD","granularity":"M5","lastCandleTime":"2026-01-01T10:05:00.000000000Z"}]}`)
@@ -521,6 +526,20 @@ func TestEngineProxyAllowlist(t *testing.T) {
 	if code, _ := get("DELETE", "/api/v1/engine/settings"); code != 404 {
 		t.Fatalf("DELETE settings should be refused, got %d", code)
 	}
+	// a prediction run is POST only, so a GET or prefetch never triggers a paid call;
+	// stored runs are read with GET
+	if code, body := get("POST", "/api/v1/engine/predict"); code != 200 || !strings.Contains(body, `"method":"POST"`) {
+		t.Fatalf("predict not forwarded: %d %s", code, body)
+	}
+	if code, _ := get("GET", "/api/v1/engine/predict"); code != 404 {
+		t.Fatalf("GET predict should be refused, got %d", code)
+	}
+	if code, body := get("GET", "/api/v1/engine/predictions"); code != 200 || !strings.Contains(body, `"method":"GET"`) {
+		t.Fatalf("predictions not forwarded: %d %s", code, body)
+	}
+	if code, _ := get("POST", "/api/v1/engine/predictions"); code != 404 {
+		t.Fatalf("POST predictions should be refused, got %d", code)
+	}
 	// paper bot switches, allocation and executable paths never pass through the console
 	post := func(body string) int {
 		req, _ := http.NewRequest("POST", ts.URL+"/api/v1/engine/settings", strings.NewReader(body))
@@ -554,6 +573,7 @@ func TestEngineProxyAllowlist(t *testing.T) {
 		`{"watchers":"WTICO/USD|M5"}`,
 		`{"provider":"openai","models":{"openai":"m"},"OPENAI_BASE_URL":"u","OPENAI_API_KEY":"k","ANTHROPIC_API_KEY":"k","maxCompletionTokens":100}`,
 		`{"PUSHOVER_ENABLED":"1","PUSHOVER_USER":"u","PUSHOVER_TOKEN":"t"}`,
+		`{"TYPESAFE_API_KEY":"k","predictionEnabled":"1"}`,
 		`{"ind":"ema","freshBars":3,"impulseVolMult":2,"impulseVolWindow":20,"impulseCooldownBars":5,"filterMaxCompletionTokens":200,"keepFresh":"1","sentinelSourceFootnotes":"0","NEWSAPI_AI_MODE":"auto","GNEWS_MODE":"off"}`,
 	} {
 		if code := post(body); code != 200 {

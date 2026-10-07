@@ -96,7 +96,7 @@ func seedAgents(ctx context.Context, st *queue.Store) error {
 	if err != nil || len(have) > 0 {
 		return err
 	}
-	tools := []string{"get_snapshot", "get_portfolio", "get_recent_candles", "get_recent_signals", "schedule_followup"}
+	tools := []string{"get_snapshot", "get_portfolio", "get_recent_candles", "get_recent_signals", "get_prediction", "schedule_followup"}
 	for _, a := range []queue.Agent{
 		{ID: "wti-m5-mock", Name: "WTI M5 (deterministic mock)", Instrument: "WTICO/USD", Granularity: "M5", Runtime: "mock", AllowedTools: tools, Enabled: true},
 		{ID: "wti-m5-llm", Name: "WTI M5 (LLM research)", Instrument: "WTICO/USD", Granularity: "M5", Runtime: "llm", AllowedTools: tools, Enabled: true},

@@ -13,12 +13,11 @@ jobs:
         with:
           node-version: lts/*
       # No deps to install (stdlib only) — run the checks directly.
-      - name: Packaging smoke check
-        run: npm run verify
       - name: Syntax-check skill and repo scripts
         run: find skills scripts -name '*.mjs' -print -exec node --check {} +
-      - name: Unit tests
-        run: npm test
+      # packaging smoke check + unit tests (scripts/verify.mjs; Go and console run in their own jobs)
+      - name: Verify
+        run: npm run verify
 
   platform-go:
     runs-on: ubuntu-latest

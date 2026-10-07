@@ -74,8 +74,10 @@ Engine unit tests. They use a fixture database and fake provider binaries, asser
 
 ```sh
 npm test
-npm run verify            # packaging integrity of the skills plugin
+npm run verify            # packaging check + unit tests (+ console typecheck and Go tests when installed)
 ```
+
+Node and npm are the toolchain. The `packageManager: bun` pin in package.json exists only so the dev-loops gate validation runner can pick a runtime for these same scripts.
 
 The golden fixtures in [test/golden/](test/golden/README.md) record what the engine computes for fixed synthetic inputs: indicators, fills, sizing, halts and attribution. A port or refactor replays them. `node scripts/golden-fixtures.mjs` verifies the committed fixtures, and `--write` regenerates them.
 
@@ -118,6 +120,7 @@ The engine reference lives in [docs/engine.md](docs/engine.md). It covers:
 - the four gates and their prompts,
 - market-sentinel news and the NewsAPI.ai and GNews providers,
 - provider configuration in `data/settings.json`, the verdict budget, the fallback provider and Pushover,
+- opt-in live prediction (`TYPESAFE_API_KEY`, `predictionEnabled`, `/api/predict` and `/api/predictions`),
 - the `data/` layout,
 - the agent skills, backtesting and packaging.
 

@@ -35,6 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
+import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionForTool } from './predictions.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -55,7 +56,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'predictionEnabled', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -74,7 +75,7 @@ function validateGranularityMinMap(patchVal, key, min) {
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
-const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'GNEWS_KEY', 'PUSHOVER_TOKEN', 'PUSHOVER_USER', 'sttOpenaiKey'];
+const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'GNEWS_KEY', 'PUSHOVER_TOKEN', 'PUSHOVER_USER', 'sttOpenaiKey', 'TYPESAFE_API_KEY'];
 const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
@@ -87,6 +88,8 @@ export function maskedSettings(settingsPath) {
   const out = { activeProvider, providerDefaultModels: PROVIDER_DEFAULT_MODEL };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
+    // a blank secret (hand-edited settings.json) reads as unset, same rule as writeSettings
+    if (SECRET_KEYS.includes(k) && typeof s[k] === 'string' && s[k].trim() === '') continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
   }
   // #99 read-time seed: expose a models map so the contextual provider panel can
@@ -181,6 +184,9 @@ export function writeSettings(settingsPath, patch) {
   if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
     throw new Error("keepFresh must be '0', '1', or a boolean");
   }
+  if (patch.predictionEnabled !== undefined && patch.predictionEnabled !== null && patch.predictionEnabled !== '' && !['0', '1', true, false].includes(patch.predictionEnabled)) {
+    throw new Error("predictionEnabled must be '0', '1', or a boolean");
+  }
   // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
   // (chart/quote poll interval, seconds) — both per-granularity maps.
   validateGranularityMinMap(patch.cycleMinutes, 'cycleMinutes', 1);
@@ -218,7 +224,8 @@ export function writeSettings(settingsPath, patch) {
   const next = { ...current };
   for (const [k, v] of Object.entries(patch)) {
     if (SECRET_KEYS.includes(k) && v === MASK) continue; // masked = unchanged
-    if (v === '' || v === null) delete next[k];
+    // a whitespace-only secret counts as no secret, so the console never reports a blank key as stored
+    if (v === '' || v === null || (SECRET_KEYS.includes(k) && typeof v === 'string' && v.trim() === '')) delete next[k];
     else if (k === 'bot') {
       // deep-merge: a partial bot patch must not drop stored keys the UI form
       // doesn't carry; bot.bots merges PER COMBO (null deletes one bot entry)
@@ -728,7 +735,32 @@ function loadRateSlugs() {
 }
 const RATE_SLUGS = loadRateSlugs();
 const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
+// The candle window a prediction reads: enough bars to resample at least 13 H1
+// bars, so the H1 trend is known on M1 too, with the forming bar when live.
+async function predictionCandles(dbPath, instrument, granularity, cfg, fetcher) {
+  const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
+  return (await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) })).candles;
+}
+
 export const CHAT_TOOLS = [
+  {
+    name: 'market_prediction',
+    description: 'Advisory prediction for the current candle: whether to enter long, short or not at all over the next 3 candles of a timeframe, with calibrated probabilities, setup quality (0-4), trend confirmation and the inputs it was based on. Reuses the latest prediction while it is still valid (one candle duration), otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
+    input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, granularity: { type: 'string', description: 'timeframe, e.g. M5; defaults to the current view' } }, additionalProperties: false },
+    run: async (a, ctx) => {
+      // copilot only: the paper-trading bot never receives a prediction
+      if (ctx?.caller !== 'chat') throw new Error('market_prediction is available to the copilot only');
+      if (!predictionActive(ctx.settings)) throw new Error('predictions are off in settings');
+      // the view is only a default: an explicit but invalid argument is refused, never swapped for another pair
+      if (a?.instrument != null && !(typeof a.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument))) throw new Error(`invalid instrument: ${a.instrument}`);
+      if (a?.granularity != null && !isPredictionGranularity(a.granularity)) throw new Error(`unsupported granularity: ${a.granularity}`);
+      const instrument = a?.instrument ?? ctx.view?.instrument;
+      const granularity = a?.granularity ?? ctx.view?.granularity;
+      if (!instrument || !isPredictionGranularity(granularity)) throw new Error('instrument and granularity are required');
+      const loadCandles = () => predictionCandles(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher);
+      return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, { instrument, granularity, loadCandles }, { reuse: true, fetchFn: ctx.providerFetch })));
+    },
+  },
   {
     name: 'fxempire_articles',
     description: 'Fetch recent FXEmpire news articles for tracked instruments (live SSR source since #28). If it returns none for the window, fall back to web search rather than retrying with wider windows.',
@@ -837,12 +869,20 @@ export const CHAT_TOOLS = [
 // drafts are chat-only, never a side effect of a trade decision — real
 // source of truth for both the runtime call site and its test).
 export function botToolDefs() {
-  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory' && t.name !== 'save_gate_prompt');
+  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory' && t.name !== 'save_gate_prompt' && t.name !== 'market_prediction');
+}
+// Tools offered to the copilot chat. The prediction tool is offered only while
+// predictions are on, so the model never plans around a tool that will refuse.
+export function chatToolDefs(cfg) {
+  return CHAT_TOOLS.filter((t) => t.name !== 'market_prediction' || predictionActive(cfg))
+    .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
   if (!tool) throw new Error(`unknown tool ${name}`);
-  return String(tool.run(input ?? {}, ctx)).slice(0, 8000);
+  // sync tools stay sync; an async tool (the prediction) returns a promise, which every caller awaits
+  const out = tool.run(input ?? {}, ctx);
+  return out instanceof Promise ? out.then((v) => String(v).slice(0, 8000)) : String(out).slice(0, 8000);
 }
 
 // The model annotates each reply with an evolving thread title (issue #38);
@@ -914,7 +954,7 @@ export function chatSystemFor(cfg) {
 // Gate transparency (#58): server-built (no secrets) so the settings gates
 // section and the chat context both read the SAME effective prompt/toolset
 // per gate — one source of truth, never re-derived client-side.
-async function gatesInfo(dbPath) {
+async function gatesInfo(dbPath, cfg) {
   const filterEff = await resolveFilterSystem(dbPath);
   const recheckEff = await resolveRecheckSystem(dbPath);
   const strat = activeStrategy(dbPath);
@@ -938,7 +978,7 @@ async function gatesInfo(dbPath) {
       prompt: strat ? strat.prompt : null,
     },
     chat: {
-      toolset: CHAT_TOOLS.map((t) => t.name),
+      toolset: chatToolDefs(cfg).map((t) => t.name),
       prompt: CHAT_SYSTEM,
     },
   };
@@ -1123,7 +1163,7 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
   } catch { /* best-effort warning only */ }
 }
 
-export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch }) {
   warnLegacyLaunchAgent();
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
@@ -1256,6 +1296,35 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         const limit = Number.isInteger(n) && n > 0 && n <= 100 ? n : 10;
         const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit, kinds: 'all' } : { limit, kinds: 'all' });
         return json(res, 200, { ok: true, signals });
+      }
+      // Live prediction for the current candle. POST because every call is a
+      // paid provider request; each run is stored for restore, and nothing in
+      // the trading paths reads it.
+      if (url.pathname === '/api/predict' && req.method === 'POST') {
+        const body = await readJson(req, res);
+        if (body === undefined) return;
+        const cfg = readSettings(settingsPath);
+        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store the API key and turn predictions on in settings' });
+        const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
+        const granularity = isPredictionGranularity(body?.granularity) ? body.granularity : null;
+        if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        try {
+          const loadCandles = () => predictionCandles(dbPath, instrument, granularity, cfg, fetcher);
+          const prediction = await currentPrediction(dbPath, cfg, { instrument, granularity, loadCandles }, { reuse: body?.reuse === true, fetchFn: providerFetch });
+          return json(res, 200, { ok: true, prediction });
+        } catch (err) {
+          return json(res, err.status ?? 502, { ok: false, error: err.message });
+        }
+      }
+      // Stored prediction runs for one instrument and timeframe, newest first.
+      // Reading never calls the provider.
+      if (url.pathname === '/api/predictions' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') ?? '';
+        const granularity = url.searchParams.get('granularity') ?? '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isPredictionGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        const n = Number(url.searchParams.get('limit'));
+        const directional = url.searchParams.get('directional') === '1';
+        return json(res, 200, { ok: true, predictions: listPredictions(dbPath, instrument, granularity, Number.isInteger(n) && n > 0 ? n : 20, Date.now(), { directional }) });
       }
       // #70: operator-initiated re-check of the LATEST signal of the current
       // view (never a deep-linked/historical one). Same-origin guarded above
@@ -1504,7 +1573,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/gate-prompts' && req.method === 'GET') {
-        return json(res, 200, { ok: true, gates: await gatesInfo(dbPath) });
+        return json(res, 200, { ok: true, gates: await gatesInfo(dbPath, readSettings(settingsPath)) });
       }
       if (url.pathname === '/api/gate-prompts' && req.method === 'POST') {
         const body = await readJson(req, res);
@@ -1781,12 +1850,12 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         try {
           const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
-            toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+            toolDefs: chatToolDefs(cfg),
             execTool: (n, i) => {
               toolsUsed.push(n);
               send({ type: 'tool', name: n, input: i, state: 'running' }); // progress for the console; the reply itself is unchanged
               // then() turns a synchronous throw (unknown tool, bad input) into a rejection, so done always fires
-              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
+              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg, caller: 'chat', providerFetch, fetcher }))
                 .finally(() => send({ type: 'tool', name: n, state: 'done' }));
             },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,

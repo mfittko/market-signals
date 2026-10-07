@@ -1136,7 +1136,7 @@ test('served page <script> parses as valid JS (template-literal escape guard)', 
 
 test('chat tools: registry executes with clamped args, rejects unknown tools and bad input', async () => {
   const { CHAT_TOOLS, execChatTool } = await import('../scripts/signal-server.mjs');
-  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['fxempire_articles', 'sentinel_news', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory', 'save_gate_prompt']);
+  assert.deepEqual(CHAT_TOOLS.map((t) => t.name), ['market_prediction', 'fxempire_articles', 'sentinel_news', 'truthsocial_posts', 'live_rates', 'save_strategy', 'save_memory', 'save_gate_prompt']);
   for (const t of CHAT_TOOLS) assert.equal(t.input_schema.additionalProperties, false, t.name);
   assert.throws(() => execChatTool('nope', {}), /unknown tool/);
   assert.throws(() => execChatTool('live_rates', { market: 'commodities', slugs: 'x; rm -rf /' }), /invalid slugs/);

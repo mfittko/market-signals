@@ -183,11 +183,22 @@ A one-off iOS licence of about $5 covers iPhone, iPad and Apple Watch. The free 
 
 To turn it on, open the settings modal (⚙), go to the Advanced tab, switch `PUSHOVER_ENABLED` on and fill in `PUSHOVER_TOKEN` (your Pushover application API token) and `PUSHOVER_USER` (your user key). Then press Save. The values go to `data/settings.json`. The LaunchAgent never loads `.env`, so settings is the only place that reaches the live watcher and bot. Both fields are masked write-only secrets, like the LLM API keys. With the toggle on and a key missing, the engine attempts no call and logs one line. It does not error on every alert.
 
+### Live prediction (opt-in)
+
+Live prediction is off by default. It asks a paid provider for the likely next move of the current candle. The result is advisory: the bot, the filter and the notifier never read it. Set both settings below in the console's Settings page, on the "Prediction model" card, or by hand in `data/settings.json`. The engine's own settings modal has no prediction fields.
+
+- `TYPESAFE_API_KEY` is the provider key. It is a masked, write-only secret, like the LLM API keys. Every prediction run is a paid provider call.
+- `predictionEnabled` is the toggle. It takes `'0'`, `'1'` or a boolean, and it defaults to off.
+- Predictions are on only when the key is non-blank and `predictionEnabled` is `'1'` or `true`. A whitespace-only key reads as unset.
+- Supported timeframes are M1, M5, M15, M30, H1 and H4.
+- `POST /api/predict` with `{ instrument, granularity, reuse? }` runs a prediction for the current candle and stores it. With `reuse: true`, the engine returns the latest stored run while it is still valid and makes no provider call. Concurrent reuse requests for one pair share one provider call. When predictions are off, the route returns 409.
+- `GET /api/predictions?instrument=&granularity=&limit=&directional=1` lists stored runs, newest first. With `directional=1` it keeps only long and short runs. It never calls the provider.
+
 ## The data/ layout
 
 Everything under `data/` is gitignored: the database, settings with keys, notes and logs.
 
-- `candles.db` is the one database the engine reads and writes (`node:sqlite`). Tables: `candles`, `signals`, `signal_snapshots`, `signal_rechecks` (re-checks, https://github.com/mfittko/market-signals/issues/70), `chat_threads` and `chat_messages`, the virtual CFD book (`portfolio`, `positions`, `bot_trades`, `bot_journal`, `bot_state`), `strategies`, `memories`, `gate_prompts`, and `news` and `articles` (sentinel and legacy article caches).
+- `candles.db` is the one database the engine reads and writes (`node:sqlite`). Tables: `candles`, `signals`, `signal_snapshots`, `signal_rechecks` (re-checks, https://github.com/mfittko/market-signals/issues/70), `chat_threads` and `chat_messages`, the virtual CFD book (`portfolio`, `positions`, `bot_trades`, `bot_journal`, `bot_state`), `strategies`, `memories`, `gate_prompts`, `news` and `articles` (sentinel and legacy article caches), and `predictions` (advisory live prediction runs).
 - `settings.json` holds the provider, watcher and bot config (see above).
 - `notes.md` holds free-form trader notes. The filter and chat read it.
 - `*-launchd.log` holds the LaunchAgent stdout and stderr.
@@ -225,4 +236,4 @@ node scripts/backtest.mjs --posts posts.json --since 2026-06-27T00:00:00Z --unti
 
 ## Packaging
 
-The skills ship as a Claude Code plugin and a Pi extension (`plugin.yaml`, `.claude-plugin/`). `npm run verify` checks packaging integrity.
+The skills ship as a Claude Code plugin and a Pi extension (`plugin.yaml`, `.claude-plugin/`). `npm run verify` checks packaging integrity and runs the unit tests.

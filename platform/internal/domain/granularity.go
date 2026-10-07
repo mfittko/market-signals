@@ -26,3 +26,13 @@ func GranularityDuration(g string) (time.Duration, error) {
 	}
 	return time.Duration(n) * time.Minute, nil
 }
+
+// PredictionGranularity reports whether the engine's prediction endpoint accepts g. The set mirrors
+// GRAN_WORDS in scripts/jev.mjs, less D, which GranularityDuration refuses.
+func PredictionGranularity(g string) bool {
+	switch g {
+	case "M1", "M5", "M15", "M30", "H1", "H4":
+		return true
+	}
+	return false
+}

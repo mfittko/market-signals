@@ -9,6 +9,7 @@ export type MoreSettingsData = {
   llmFallbackProvider?: string; impulseVolMult?: number; impulseVolWindow?: number; impulseCooldownBars?: number;
   NEWSAPI_AI_MODE?: string; GNEWS_MODE?: string; sentinelSourceFootnotes?: string | boolean;
   PUSHOVER_ENABLED?: string | boolean; PUSHOVER_USER?: string; PUSHOVER_TOKEN?: string; notifierBin?: string;
+  TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean;
 };
 type Base = { current: Record<string, unknown> };
 type Run = (patch: object, text: string | undefined, base: Base) => Promise<boolean>;
@@ -61,6 +62,7 @@ export function AlertsCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
             <label><span><input type="checkbox" checked={prefs.proposal} onChange={(e) => set('proposal', e.target.checked)} /> Agent proposals to open or close</span></label>
             <label><span><input type="checkbox" checked={prefs.trade} onChange={(e) => set('trade', e.target.checked)} /> Paper trades opened or closed</span></label>
             <label><span><input type="checkbox" checked={prefs.signal} onChange={(e) => set('signal', e.target.checked)} /> Signals the filter passes (the engine already sends its own macOS alert)</span></label>
+            <label><span><input type="checkbox" checked={prefs.prediction} onChange={(e) => set('prediction', e.target.checked)} /> Prediction flips between long and short, on instrument pages with auto-update on</span></label>
             <p className="small muted">They fire while a console tab is open. Each preference applies to this browser only.</p>
           </>}
         </div>
@@ -120,6 +122,26 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
         <label>GNews mode<select value={gnews} onChange={(e) => setGnews(e.target.value)}>{['off', 'shadow', 'auto'].map((m) => <option key={m}>{m}</option>)}</select></label>
         <div><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
       </form>
+    </Card>
+  );
+}
+
+// Live prediction: the instrument page shows its card only when a provider key is stored and this is on.
+// The engine applies the same rule, so a toggle saved without a key still makes no call.
+export function PredictionCard({ s, run, busy }: { s: MoreSettingsData; run: Run; busy: boolean }) {
+  const [key, setKey] = useState('');
+  const stored = s.TYPESAFE_API_KEY === MASK;
+  const bl = useRef<Record<string, unknown>>({ predictionEnabled: on(s.predictionEnabled) ? '1' : '0', TYPESAFE_API_KEY: s.TYPESAFE_API_KEY });
+  return (
+    <Card title="Prediction model">
+      <div className="form">
+        <p className="small muted">Adds a Prediction card to each instrument page. It predicts whether to enter long, short or not at all over the next 3 candles, and keeps every run. Advisory only: it never places a trade.</p>
+        <label><span><input type="checkbox" checked={stored && on(s.predictionEnabled)} disabled={busy || !stored} onChange={(e) => void run({ predictionEnabled: e.target.checked ? '1' : '0' }, undefined, bl)} /> Show predictions on instrument pages</span></label>
+        {!stored && <p className="small muted">Store a TypeSafe API key first.</p>}
+        <label>TypeSafe API key {stored && <span className="muted small">(stored, leave blank to keep)</span>}
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder={stored ? MASK : ''} /></label>
+        <div><button type="button" disabled={busy || !key.trim()} onClick={() => void run({ TYPESAFE_API_KEY: key.trim() }, undefined, bl).then(() => setKey(''))}>Save key</button></div>
+      </div>
     </Card>
   );
 }
