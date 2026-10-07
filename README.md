@@ -77,6 +77,8 @@ npm test
 npm run verify            # packaging check + unit tests (+ console typecheck and Go tests when installed)
 ```
 
+Node and npm are the toolchain. The `packageManager: bun` pin in package.json exists only so the dev-loops gate validation runner can pick a runtime for these same scripts.
+
 The golden fixtures in [test/golden/](test/golden/README.md) record what the engine computes for fixed synthetic inputs: indicators, fills, sizing, halts and attribution. A port or refactor replays them. `node scripts/golden-fixtures.mjs` verifies the committed fixtures, and `--write` regenerates them.
 
 Browser walkthrough (dashboard and all five modals across four viewport orientations). This is dev-only. CI runs it as an opt-in matrix job when the served page changes.

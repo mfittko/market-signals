@@ -5,8 +5,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 const testEnv = { ...process.env, MS_NO_NOTIFY: "1" };
 delete testEnv.MS_CONTROL_PLANE_URL;
 delete testEnv.MS_INGEST_TOKEN;

@@ -216,8 +216,10 @@ test('processSignal pushes via Pushover on a fresh alerted flip — the first se
   process.env.PATH = `${curlDir}:${prevPath}`;
   delete process.env.MS_NO_NOTIFY; // proves the real wiring fires, not the structural guard (that's covered separately)
   try {
+    // pin a fake filter so no provider configured in the environment can suppress the flip
+    const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "ok"}'`);
     const { opts, result, candles: c } = fixture(dir, {
-      settings: { PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr' },
+      settings: { PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr', provider: 'pi', piBin },
     });
     const res = await processSignal(opts, result, c);
     assert.equal(res.sent, true, res.reason);
@@ -1706,8 +1708,10 @@ test('processSignal: a failing Pushover push leaves the alert recorded as sent+n
   process.env.PATH = `${shadow}:${prevPath}`;
   delete process.env.MS_NO_NOTIFY;
   try {
+    // pin a fake filter so no provider configured in the environment can suppress the flip
+    const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "ok"}'`);
     const { opts, result, candles: c } = fixture(dir, {
-      settings: { PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr' },
+      settings: { PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok', PUSHOVER_USER: 'usr', provider: 'pi', piBin },
     });
     const res = await processSignal(opts, result, c);
     assert.equal(res.sent, true, `a rejected push must not fail the alert: ${res.reason}`);

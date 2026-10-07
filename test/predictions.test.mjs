@@ -279,6 +279,24 @@ test('concurrent reuse calls share one run; calls without reuse stay independent
   assert.deepEqual([a.id, calls.length], [b.id, 1]);
   await Promise.all([1, 2].map(() => currentPrediction(dbPath, KEYED, input, { now, fetchFn: okFetch(calls) })));
   assert.equal(calls.length, 3);
+  // different pairs run independently
+  const pairs = ['EUR/USD', 'GBP/USD'].map((instrument) => ({ ...input, instrument }));
+  await Promise.all(pairs.map((p) => currentPrediction(dbPath, KEYED, p, { reuse: true, now, fetchFn: okFetch(calls) })));
+  assert.equal(calls.length, 5);
+});
+
+test('a failed shared reuse run reaches every waiting caller, stores nothing, and is not cached', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-')), 'db.sqlite');
+  const calls = [];
+  const now = Date.parse(bars.at(-1).time) + 30000;
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => formingBars };
+  const failFetch = async (url, init) => { calls.push({ url, init }); return { ok: false, status: 401 }; };
+  const results = await Promise.allSettled([1, 2].map(() => currentPrediction(dbPath, KEYED, input, { reuse: true, now, fetchFn: failFetch })));
+  assert.deepEqual(results.map((r) => r.status), ['rejected', 'rejected']);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(listPredictions(dbPath, 'WTICO/USD', 'M5'), []);
+  const next = await currentPrediction(dbPath, KEYED, input, { reuse: true, now, fetchFn: okFetch(calls) });
+  assert.deepEqual([next.reused, calls.length], [false, 2], 'the next reuse call makes a new provider call');
 });
 
 test('listPredictions with directional skips no_trade runs', async () => {
