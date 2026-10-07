@@ -107,14 +107,16 @@ export async function jevDecide(settings, state, granularity, { fetchFn = fetch,
     }
     if (res.status === 401) throw new Error('TypeSafe rejected the API key (401)');
     if (!res.ok) throw new Error(`TypeSafe request failed (HTTP ${res.status})`);
-    const json = await res.json();
-    const a = json.answers || {};
-    const fin = Number.isFinite;
+    let json;
+    try { json = await res.json(); } catch { throw new Error('TypeSafe answer is not valid JSON'); }
+    const a = json?.answers || {};
+    const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
+    const unit = (v) => inRange(v, 0, 1);
     const probs = a.action?.probabilities;
     if (a.action?.type !== 'choice' || !['long', 'short', 'no_trade'].includes(a.action.choice)
-      || !probs || typeof probs !== 'object' || !Object.values(probs).every(fin)
-      || a.setup_quality?.type !== 'score' || !fin(a.setup_quality.score)
-      || a.trend_confirmed?.type !== 'noul' || !fin(a.trend_confirmed.noul)) {
+      || !probs || typeof probs !== 'object' || !['long', 'short', 'no_trade'].every((k) => unit(probs[k]))
+      || a.setup_quality?.type !== 'score' || !inRange(a.setup_quality.score, 0, 4)
+      || a.trend_confirmed?.type !== 'noul' || !unit(a.trend_confirmed.noul)) {
       throw new Error('TypeSafe answer is missing typed fields');
     }
     return {

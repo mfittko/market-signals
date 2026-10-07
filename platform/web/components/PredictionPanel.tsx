@@ -96,7 +96,9 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   // auto-update: one run per new candle while ticked; the live feed only polls while the tab is visible
   useEffect(() => {
     if (!enabled || !loaded || !auto || busy || !liveCandleTime) return;
-    if (runs[0]?.candleTime === liveCandleTime || autoCandle.current === liveCandleTime) return;
+    // strictly newer only: the live feed can step back to the last closed bar when an upstream fetch fails
+    const seen = Math.max(Date.parse(runs[0]?.candleTime ?? '') || 0, Date.parse(autoCandle.current ?? '') || 0);
+    if (!(Date.parse(liveCandleTime) > seen)) return;
     autoCandle.current = liveCandleTime;
     void predict();
   }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict]);

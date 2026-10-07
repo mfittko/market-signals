@@ -96,7 +96,13 @@ test('jevDecide retries once on 429/529, and fails readably on 401, timeout and 
     (a) => { a.action.probabilities.long = 'high'; },
     (a) => { a.setup_quality.score = null; },
     (a) => { delete a.trend_confirmed.noul; },
+    (a) => { a.action.probabilities = {}; },
+    (a) => { delete a.action.probabilities.short; },
+    (a) => { a.action.probabilities.long = 1.5; },
+    (a) => { a.setup_quality.score = 5; },
+    (a) => { a.trend_confirmed.noul = -0.1; },
   ];
+  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') }) }), { message: 'TypeSafe answer is not valid JSON' });
   for (const breakIt of broken) {
     const bad = answer(); breakIt(bad.answers);
     await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => bad }) }), /missing typed fields/, String(breakIt));
