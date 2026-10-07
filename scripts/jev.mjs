@@ -10,7 +10,7 @@ import { computeSupertrend, detectFlips, granularityMs } from './supertrend.mjs'
 import { htfSupertrend } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
 
-export const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
+const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const JEV_MODEL = 'jev-latest';
 const JEV_TIMEOUT_MS = 5000;
 // The questions judge an entry over this many candles of the selected timeframe.

@@ -154,3 +154,12 @@ test('POST /api/jev returns one prediction, validates input, and masks the key i
     assert.match(bad.error, /jevEnabled/);
   });
 });
+
+test('POST /api/jev rejects a malformed instrument before any fetch', async () => {
+  await withServer(KEYED, async ({ base, calls }) => {
+    for (const instrument of ['', 'x', 'WTI CO/USD', '../../etc', 'A'.repeat(30)]) {
+      assert.equal((await post(base, { instrument, granularity: 'M5' })).status, 400, instrument);
+    }
+    assert.equal(calls.length, 0);
+  });
+});

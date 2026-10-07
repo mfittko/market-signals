@@ -1,10 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 
 type Action = 'long' | 'short' | 'no_trade';
-export type JevPrediction = {
+type JevPrediction = {
   instrument: string; granularity: string; candleTime: string; forming: boolean; price: number; horizonBars: number; askedAt: string;
   action: Action; probabilities: Record<Action, number>; confidence: number | null;
   quality: number; trendConfirmed: number; model: string | null; latencyMs: number; state: Record<string, string>;
@@ -34,8 +34,9 @@ export function JevPanel({ symbol, granularity }: { symbol: string; granularity:
       .then((s) => setEnabled(s.TYPESAFE_API_KEY === MASK && (s.jevEnabled === '1' || s.jevEnabled === true)))
       .catch(() => setEnabled(false));
   }, []);
-  // an answer belongs to one timeframe; switching drops it
-  useEffect(() => { setP(null); setErr(null); }, [granularity]);
+  // an answer belongs to one timeframe; switching drops it, including a request still in flight
+  const current = useRef(granularity);
+  useEffect(() => { current.current = granularity; setP(null); setErr(null); }, [granularity]);
   useEffect(() => {
     if (!p) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -46,10 +47,11 @@ export function JevPanel({ symbol, granularity }: { symbol: string; granularity:
 
   const check = async () => {
     setBusy(true); setErr(null);
+    const asked = granularity;
     try {
-      const r = await api<{ prediction: JevPrediction }>('/engine/jev', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity }) });
-      setP(r.prediction); setNow(Date.now());
-    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+      const r = await api<{ prediction: JevPrediction }>('/engine/jev', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity: asked }) });
+      if (current.current === asked) { setP(r.prediction); setNow(Date.now()); }
+    } catch (e) { if (current.current === asked) setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
 

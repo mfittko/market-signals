@@ -1272,11 +1272,13 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, jevF
         if (body === undefined) return;
         const cfg = readSettings(settingsPath);
         if (!jevActive(cfg)) return json(res, 409, { ok: false, error: 'Jev is off: store a TypeSafe API key and turn Jev on in settings' });
-        const instrument = typeof body?.instrument === 'string' && body.instrument ? body.instrument : null;
+        const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
         const granularity = typeof body?.granularity === 'string' && isGranularity(body.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         try {
-          const { candles } = await chartData(dbPath, instrument, { granularity, fetcher, count: 400 });
+          // enough bars to resample at least 13 H1 bars, so the H1 trend is known on M1 too
+          const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
+          const { candles } = await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) });
           if (!candles.length) return json(res, 404, { ok: false, error: `no candles for ${instrument} ${granularity}` });
           return json(res, 200, { ok: true, prediction: await jevPredict(cfg, { instrument, granularity, candles }, { fetchFn: jevFetch }) });
         } catch (err) {
