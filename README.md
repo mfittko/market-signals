@@ -120,6 +120,7 @@ The engine reference lives in [docs/engine.md](docs/engine.md). It covers:
 - the four gates and their prompts,
 - market-sentinel news and the NewsAPI.ai and GNews providers,
 - provider configuration in `data/settings.json`, the verdict budget, the fallback provider and Pushover,
+- opt-in live prediction (`TYPESAFE_API_KEY`, `predictionEnabled`, `/api/predict` and `/api/predictions`),
 - the `data/` layout,
 - the agent skills, backtesting and packaging.
 
