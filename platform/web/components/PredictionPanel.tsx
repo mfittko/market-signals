@@ -141,6 +141,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
             ))}
           </div>
           <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>
+          {/* a historic backtest found no directional edge beyond chance; keep this until a calibrated version shows one */}
+          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.</p>
           <p className="small muted" style={{ margin: '4px 0' }}>
             {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : ''} at {p.price} · over the next {p.horizonBars} candles · {age(p.askedAt, now)}
           </p>
