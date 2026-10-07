@@ -29,9 +29,9 @@ const left = (iso: string, now: number) => {
   const s = Math.max(0, Math.round((Date.parse(iso) - now) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 };
-// auto-update is chosen per instrument and remembered in this browser
-const loadAuto = (symbol: string) => { try { return localStorage.getItem(AUTO_KEY + symbol) === '1'; } catch { return false; } };
-const saveAuto = (symbol: string, on: boolean) => { try { localStorage.setItem(AUTO_KEY + symbol, on ? '1' : '0'); } catch { /* private window */ } };
+// auto-update is chosen per instrument and timeframe and remembered in this browser
+const loadAuto = (symbol: string, gran: string) => { try { return localStorage.getItem(`${AUTO_KEY}${symbol}|${gran}`) === '1'; } catch { return false; } };
+const saveAuto = (symbol: string, gran: string, on: boolean) => { try { localStorage.setItem(`${AUTO_KEY}${symbol}|${gran}`, on ? '1' : '0'); } catch { /* private window */ } };
 const opposite = (a: Action, b: Action) => (a === 'long' && b === 'short') || (a === 'short' && b === 'long');
 
 // Desktop notification for a long/short flip; it fires only while this console tab is open.
@@ -62,8 +62,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const autoRef = useRef(false);
   runsRef.current = runs; autoRef.current = auto;
 
+  useEffect(() => { setAuto(loadAuto(symbol, granularity)); }, [symbol, granularity]);
   useEffect(() => {
-    setAuto(loadAuto(symbol));
     api<{ TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean }>('/engine/settings')
       .then((s) => setEnabled(s.TYPESAFE_API_KEY === MASK && (s.predictionEnabled === '1' || s.predictionEnabled === true)))
       .catch(() => setEnabled(false));
@@ -115,7 +115,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
 
   return (
     <Card title="Prediction" aside={<button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
-      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); saveAuto(symbol, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
+      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
       {err && <p className="msg err" role="alert">{err}</p>}
       {!p && !err && <p className="small muted">Predicts whether to enter long, short or not at all on the current {granularity} candle, judged over the next 3 candles. Advisory only.</p>}
       {p && (
