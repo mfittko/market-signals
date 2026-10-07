@@ -105,10 +105,10 @@ export async function jevDecide(settings, state, granularity, { fetchFn = fetch,
       await new Promise((r) => setTimeout(r, retryDelayMs));
       continue;
     }
-    if (res.status === 401) throw new Error('TypeSafe rejected the API key (401)');
-    if (!res.ok) throw new Error(`TypeSafe request failed (HTTP ${res.status})`);
+    if (res.status === 401) throw new Error('The prediction service rejected the API key (401)');
+    if (!res.ok) throw new Error(`The prediction service request failed (HTTP ${res.status})`);
     let json;
-    try { json = await res.json(); } catch { throw new Error('TypeSafe answer is not valid JSON'); }
+    try { json = await res.json(); } catch { throw new Error('The prediction service answer is not valid JSON'); }
     const a = json?.answers || {};
     const inRange = (v, lo, hi) => Number.isFinite(v) && v >= lo && v <= hi;
     const unit = (v) => inRange(v, 0, 1);
@@ -117,7 +117,7 @@ export async function jevDecide(settings, state, granularity, { fetchFn = fetch,
       || !probs || typeof probs !== 'object' || !['long', 'short', 'no_trade'].every((k) => unit(probs[k]))
       || a.setup_quality?.type !== 'score' || !inRange(a.setup_quality.score, 0, 4)
       || a.trend_confirmed?.type !== 'noul' || !unit(a.trend_confirmed.noul)) {
-      throw new Error('TypeSafe answer is missing typed fields');
+      throw new Error('The prediction service answer is missing typed fields');
     }
     return {
       action: a.action.choice,

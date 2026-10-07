@@ -102,7 +102,7 @@ test('jevDecide retries once on 429/529, and fails readably on 401, timeout and 
     (a) => { a.setup_quality.score = 5; },
     (a) => { a.trend_confirmed.noul = -0.1; },
   ];
-  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') }) }), { message: 'TypeSafe answer is not valid JSON' });
+  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => JSON.parse('<html>') }) }), { message: 'The prediction service answer is not valid JSON' });
   for (const breakIt of broken) {
     const bad = answer(); breakIt(bad.answers);
     await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => bad }) }), /missing typed fields/, String(breakIt));
@@ -212,6 +212,11 @@ test('every prediction run is stored and restorable, newest first, scoped to the
     assert.equal((await fetch(`${base}/api/predictions?instrument=x&granularity=M5`)).status, 400);
     assert.equal(calls.length, 2, 'reading stored runs never calls the provider');
     assert.equal(listPredictions(dbPath, 'WTICO/USD', 'M5', 1000).length, 2);
+    // the route passes reuse through: a second reuse call inside the candle makes no provider call
+    const a = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    const before = calls.length;
+    const b = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    assert.deepEqual([b.reused, b.id, calls.length], [true, a.id, before]);
   });
 });
 

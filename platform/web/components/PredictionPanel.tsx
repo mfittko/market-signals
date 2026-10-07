@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
-import { loadPrefs } from '@/lib/alerts';
+import { loadPrefs, timeMs } from '@/lib/alerts';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -17,16 +17,16 @@ const HISTORY = 10;
 const LABEL: Record<Action, string> = { long: 'Long', short: 'Short', no_trade: 'No trade' };
 const TONE: Record<Action, string> = { long: 'var(--good)', short: 'var(--bad)', no_trade: 'var(--muted)' };
 const pct = (v: number | null | undefined) => (v == null ? '–' : `${Math.round(v * 100)}%`);
-const hm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-const day = (iso: string) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+const hm = (iso: string) => new Date(timeMs(iso)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const day = (iso: string) => new Date(timeMs(iso)).toLocaleDateString([], { month: 'short', day: 'numeric' });
 const age = (iso: string, now: number) => {
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  const s = Math.max(0, Math.round((now - timeMs(iso)) / 1000));
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s ago`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
 };
 const left = (iso: string, now: number) => {
-  const s = Math.max(0, Math.round((Date.parse(iso) - now) / 1000));
+  const s = Math.max(0, Math.round((timeMs(iso) - now) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 };
 // auto-update is chosen per instrument and timeframe and remembered in this browser
@@ -100,8 +100,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   useEffect(() => {
     if (!enabled || !loaded || !auto || busy || !liveCandleTime) return;
     // strictly newer only: the live feed can step back to the last closed bar when an upstream fetch fails
-    const seen = Math.max(Date.parse(runs[0]?.candleTime ?? '') || 0, Date.parse(autoCandle.current ?? '') || 0);
-    if (!(Date.parse(liveCandleTime) > seen)) return;
+    const seen = Math.max(timeMs(runs[0]?.candleTime ?? '') || 0, timeMs(autoCandle.current ?? '') || 0);
+    if (!(timeMs(liveCandleTime) > seen)) return;
     autoCandle.current = liveCandleTime;
     void predict();
   }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict]);
@@ -114,7 +114,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   if (!enabled || !granularity) return null;
   const p = runs.find((r) => r.id === shownId) ?? runs[0];
   const isLatest = p && p.id === runs[0]?.id;
-  const expired = (r: Prediction) => Date.parse(r.expiresAt) <= now;
+  const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
 
   return (
     <Card title="Prediction" aside={<button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>

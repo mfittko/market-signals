@@ -1301,7 +1301,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const body = await readJson(req, res);
         if (body === undefined) return;
         const cfg = readSettings(settingsPath);
-        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store a TypeSafe API key and turn predictions on in settings' });
+        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store the API key and turn predictions on in settings' });
         const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
         const granularity = isPredictionGranularity(body?.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });

@@ -34,7 +34,8 @@ In the console:
    the bundled fixture instead of the engine. `smoke-mock` has no engine candles, so the same request without `"source":"demo"` returns 502. To freeze what the engine sees, register a mock agent on a real engine instrument first. A run without `"source":"demo"` freezes what the engine sees now,
    so the engine must be reachable. The launcher connects to `127.0.0.1:8787` when it is up, or to `MS_ENGINE_URL`.
 2. The control plane reads the engine with GET calls. The one exception is the agent `get_prediction` tool, which
-   calls `POST /api/predict` when no valid stored prediction exists. The GET calls have side effects: when the
+   always calls `POST /api/predict` with `reuse: true`. The engine makes a paid provider call only when no valid
+   stored prediction exists. The GET calls have side effects: when the
    engine's stored candles are stale, a chart GET makes the engine fetch live candles from its upstream provider
    and upsert them into its SQLite. The position monitor polls M1 charts every 15 seconds for each instrument
    with an open shadow position, and tool calls, snapshots and the live route read charts too. The console proxy also forwards a fixed allowlist of engine
