@@ -225,4 +225,4 @@ node scripts/backtest.mjs --posts posts.json --since 2026-06-27T00:00:00Z --unti
 
 ## Packaging
 
-The skills ship as a Claude Code plugin and a Pi extension (`plugin.yaml`, `.claude-plugin/`). `npm run verify` checks packaging integrity.
+The skills ship as a Claude Code plugin and a Pi extension (`plugin.yaml`, `.claude-plugin/`). `npm run verify` checks packaging integrity and runs the unit tests.

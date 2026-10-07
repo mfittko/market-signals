@@ -74,7 +74,7 @@ Engine unit tests. They use a fixture database and fake provider binaries, asser
 
 ```sh
 npm test
-npm run verify            # packaging integrity of the skills plugin
+npm run verify            # packaging check + unit tests (+ console typecheck and Go tests when installed)
 ```
 
 The golden fixtures in [test/golden/](test/golden/README.md) record what the engine computes for fixed synthetic inputs: indicators, fills, sizing, halts and attribution. A port or refactor replays them. `node scripts/golden-fixtures.mjs` verifies the committed fixtures, and `--write` regenerates them.
