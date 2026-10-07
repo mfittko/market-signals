@@ -1395,7 +1395,9 @@ export async function processSignal(opts, result, candles) {
 
   const wr = result.backtest.winRatePct;
   const lowConf = !verdict && wr !== null && wr < 30 ? ' [low-confidence]' : '';
-  const extra = verdictSource === 'llm' && verdict?.reason ? ` — ${verdict.reason}` : '';
+  // Suppressed verdicts returned above, so any reason left (an LLM verdict or a
+  // fail-open filter error) belongs in the self-contained push text.
+  const extra = verdict?.reason ? ` — ${verdict.reason}` : '';
   const msg = `${opts.instrument} ${opts.granularity} ${sig.signal.toUpperCase()} @ ${result.close} — flip ${localHm(sig.time)}, win rate ${wr ?? '?'}%${lowConf}${extra}`;
   const deepLink = chartDeepLink(settings, opts.instrument, opts.granularity, sig.time);
   try {

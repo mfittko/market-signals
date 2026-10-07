@@ -48,7 +48,8 @@ test('buildPushoverPayload: field shape, no url/url_title without a deep link, c
   const withLink = buildPushoverPayload('WTI SELL @ 88.0', 'https://desk.example/?t=x');
   assert.deepEqual(withLink, { title: 'market-signals', message: 'WTI SELL @ 88.0', url: 'https://desk.example/?t=x', url_title: 'open chart' });
 
-  for (const local of ['http://127.0.0.1:3737/instruments/wtico-usd', 'http://localhost:8787/?t=x', 'http://[::1]:3737/']) {
+  for (const local of ['http://127.0.0.1:3737/instruments/wtico-usd', 'http://localhost:8787/?t=x', 'http://[::1]:3737/',
+    'http://user@127.0.0.1/x', 'http://127.1/', 'http://0x7f.1/', 'http://[0:0:0:0:0:0:0:1]/', 'http://[::ffff:127.0.0.1]/', 'http://LOCALHOST./', 'not a url']) {
     assert.deepEqual(buildPushoverPayload('WTI SELL @ 88.0', local), { title: 'market-signals', message: 'WTI SELL @ 88.0' }, `loopback link dropped: ${local}`);
   }
 

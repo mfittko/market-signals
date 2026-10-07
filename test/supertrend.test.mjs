@@ -306,6 +306,7 @@ test('processSignal fails open on filter error and records the verdict', async (
     const res = await processSignal(opts, result, c);
     assert.equal(res.sent, true, res.reason);
     assert.equal(res.verdictSource, 'error');
+    assert.match(res.message, / — filter error/, 'the fail-open reason is in the self-contained push text');
     const [row] = signalOutcomes(opts.db, 'WTICO/USD', 'M5');
     assert.equal(row.verdict, 'alert');
     assert.match(row.reason, /filter error/);

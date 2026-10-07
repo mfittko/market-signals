@@ -32,11 +32,19 @@ const truncate = (s, n) => (typeof s === 'string' && s.length > n ? [...s].slice
 // optional (the bot kill-switch halt has none).
 // A push lands on a phone, which cannot open a loopback console URL. Such a
 // link is dropped, so the message text has to carry everything on its own.
-const LOOPBACK = /^https?:\/\/(localhost|127(\.\d+){3}|\[::1\])(:\d+)?(\/|$)/i;
+// Classify the PARSED hostname: WHATWG URL strips userinfo and normalizes
+// 127.1, 0x7f.1 and the expanded IPv6 forms to their canonical spelling.
+// A link that does not parse is dropped too, since the phone cannot open it.
+function isLoopbackUrl(link) {
+  let host;
+  try { host = new URL(link).hostname.toLowerCase().replace(/\.$/, ''); } catch { return true; }
+  return host === 'localhost' || host.endsWith('.localhost') || /^127\.\d+\.\d+\.\d+$/.test(host)
+    || host === '[::1]' || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/.test(host);
+}
 
 export function buildPushoverPayload(msg, deepLink) {
   const payload = { title: truncate('market-signals', CAPS.title), message: truncate(String(msg), CAPS.message) };
-  if (deepLink && !LOOPBACK.test(String(deepLink))) {
+  if (deepLink && !isLoopbackUrl(String(deepLink))) {
     payload.url = truncate(String(deepLink), CAPS.url);
     payload.url_title = truncate('open chart', CAPS.url_title); // its own cap is 100, not the url's 512
   }
