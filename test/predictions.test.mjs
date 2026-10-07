@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { jevActive, jevState, jevDecide, jevPredict, jevQuestions } from '../scripts/jev.mjs';
+import { jevState, jevDecide, jevPredict, jevQuestions } from '../scripts/jev.mjs';
+import { predictionActive, listPredictions } from '../scripts/predictions.mjs';
 import { indicatorSummary } from '../scripts/lib/indicator-summary.mjs';
 import { storeCandles } from '../scripts/supertrend.mjs';
 import { buildServer } from '../scripts/signal-server.mjs';
@@ -29,15 +30,15 @@ const okFetch = (calls, body = answer()) => async (url, init) => {
   calls.push({ url, init });
   return { ok: true, status: 200, json: async () => body };
 };
-const KEYED = { TYPESAFE_API_KEY: 'k', jevEnabled: '1' };
+const KEYED = { TYPESAFE_API_KEY: 'k', predictionEnabled: '1' };
 
-test('jevActive needs a non-blank key and the toggle', () => {
-  assert.equal(jevActive({}), false);
-  assert.equal(jevActive({ jevEnabled: '1' }), false);
-  assert.equal(jevActive({ TYPESAFE_API_KEY: '  ', jevEnabled: '1' }), false);
-  assert.equal(jevActive({ TYPESAFE_API_KEY: 'k', jevEnabled: '0' }), false);
-  assert.equal(jevActive(KEYED), true);
-  assert.equal(jevActive({ TYPESAFE_API_KEY: 'k', jevEnabled: true }), true);
+test('predictionActive needs a non-blank provider key and the toggle', () => {
+  assert.equal(predictionActive({}), false);
+  assert.equal(predictionActive({ predictionEnabled: '1' }), false);
+  assert.equal(predictionActive({ TYPESAFE_API_KEY: '  ', predictionEnabled: '1' }), false);
+  assert.equal(predictionActive({ TYPESAFE_API_KEY: 'k', predictionEnabled: '0' }), false);
+  assert.equal(predictionActive(KEYED), true);
+  assert.equal(predictionActive({ TYPESAFE_API_KEY: 'k', predictionEnabled: true }), true);
 });
 
 test('jevState buckets values into words and leaks no price numbers', () => {
@@ -120,25 +121,25 @@ async function withServer(settings, fn) {
   storeCandles(dbPath, 'WTICO/USD', 'M5', bars);
   writeFileSync(settingsPath, JSON.stringify(settings));
   const calls = [];
-  const server = buildServer({ dbPath, settingsPath, fetcher: null, jevFetch: okFetch(calls) });
+  const server = buildServer({ dbPath, settingsPath, fetcher: null, providerFetch: okFetch(calls) });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  try { await fn({ base, calls }); } finally { server.close(); }
+  try { await fn({ base, calls, dbPath }); } finally { server.close(); }
 }
-const post = (base, body) => fetch(`${base}/api/jev`, { method: 'POST', body: JSON.stringify(body) });
+const post = (base, body) => fetch(`${base}/api/predict`, { method: 'POST', body: JSON.stringify(body) });
 
-test('POST /api/jev refuses with 409 and no TypeSafe call while off', async () => {
-  for (const s of [{}, { jevEnabled: '1' }, { TYPESAFE_API_KEY: ' ', jevEnabled: '1' }, { TYPESAFE_API_KEY: 'k', jevEnabled: '0' }]) {
+test('POST /api/predict refuses with 409 and no TypeSafe call while off', async () => {
+  for (const s of [{}, { predictionEnabled: '1' }, { TYPESAFE_API_KEY: ' ', predictionEnabled: '1' }, { TYPESAFE_API_KEY: 'k', predictionEnabled: '0' }]) {
     await withServer(s, async ({ base, calls }) => {
       const r = await post(base, { instrument: 'WTICO/USD', granularity: 'M5' });
       assert.equal(r.status, 409);
-      assert.match((await r.json()).error, /Jev is off/);
+      assert.match((await r.json()).error, /Predictions are off/);
       assert.equal(calls.length, 0);
     });
   }
 });
 
-test('POST /api/jev returns one prediction, validates input, and masks the key in settings', async () => {
+test('POST /api/predict returns one prediction, validates input, and masks the key in settings', async () => {
   await withServer(KEYED, async ({ base, calls }) => {
     const r = await post(base, { instrument: 'WTICO/USD', granularity: 'M5' });
     assert.equal(r.status, 200);
@@ -150,16 +151,52 @@ test('POST /api/jev returns one prediction, validates input, and masks the key i
     assert.equal((await post(base, { instrument: 'NOPE/USD', granularity: 'M5' })).status, 404);
     const s = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(s.TYPESAFE_API_KEY, '•••');
-    const bad = await (await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ jevEnabled: 'yes' }) })).json();
-    assert.match(bad.error, /jevEnabled/);
+    const bad = await (await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ predictionEnabled: 'yes' }) })).json();
+    assert.match(bad.error, /predictionEnabled/);
   });
 });
 
-test('POST /api/jev rejects a malformed instrument before any fetch', async () => {
+test('POST /api/predict rejects a malformed instrument before any fetch', async () => {
   await withServer(KEYED, async ({ base, calls }) => {
     for (const instrument of ['', 'x', 'WTI CO/USD', '../../etc', 'A'.repeat(30)]) {
       assert.equal((await post(base, { instrument, granularity: 'M5' })).status, 400, instrument);
     }
     assert.equal(calls.length, 0);
   });
+});
+
+test('every prediction run is stored and restorable, newest first, scoped to the pair', async () => {
+  await withServer(KEYED, async ({ base, calls, dbPath }) => {
+    const first = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5' })).json()).prediction;
+    const second = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5' })).json()).prediction;
+    assert.ok(second.id > first.id);
+    assert.equal(calls.length, 2);
+    const list = async (q) => (await (await fetch(`${base}/api/predictions?${q}`)).json());
+    const r = await list('instrument=WTICO%2FUSD&granularity=M5');
+    assert.deepEqual(r.predictions.map((p) => p.id), [second.id, first.id]);
+    assert.deepEqual(r.predictions[0], second, 'a restored run equals the run as returned');
+    assert.equal(r.predictions[0].provider, 'typesafe-jev');
+    assert.equal(typeof r.predictions[0].state.current_candle, 'string');
+    assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=M5&limit=1')).predictions.map((p) => p.id), [second.id]);
+    assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=H1')).predictions, []);
+    assert.equal((await fetch(`${base}/api/predictions?instrument=x&granularity=M5`)).status, 400);
+    assert.equal(calls.length, 2, 'reading stored runs never calls the provider');
+    assert.equal(listPredictions(dbPath, 'WTICO/USD', 'M5', 1000).length, 2);
+  });
+});
+
+test('a provider failure stores nothing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pred-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', bars);
+  writeFileSync(settingsPath, JSON.stringify(KEYED));
+  const server = buildServer({ dbPath, settingsPath, fetcher: null, providerFetch: async () => ({ ok: false, status: 401 }) });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const r = await post(`http://127.0.0.1:${server.address().port}`, { instrument: 'WTICO/USD', granularity: 'M5' });
+    assert.equal(r.status, 502);
+    assert.match((await r.json()).error, /rejected the API key/);
+    assert.deepEqual(listPredictions(dbPath, 'WTICO/USD', 'M5'), []);
+  } finally { server.close(); }
 });

@@ -35,7 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { jevActive, jevPredict } from './jev.mjs';
+import { listPredictions, predictionActive, runPrediction } from './predictions.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -56,7 +56,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'jevEnabled', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'predictionEnabled', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -182,8 +182,8 @@ export function writeSettings(settingsPath, patch) {
   if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
     throw new Error("keepFresh must be '0', '1', or a boolean");
   }
-  if (patch.jevEnabled !== undefined && patch.jevEnabled !== null && patch.jevEnabled !== '' && !['0', '1', true, false].includes(patch.jevEnabled)) {
-    throw new Error("jevEnabled must be '0', '1', or a boolean");
+  if (patch.predictionEnabled !== undefined && patch.predictionEnabled !== null && patch.predictionEnabled !== '' && !['0', '1', true, false].includes(patch.predictionEnabled)) {
+    throw new Error("predictionEnabled must be '0', '1', or a boolean");
   }
   // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
   // (chart/quote poll interval, seconds) — both per-granularity maps.
@@ -1127,7 +1127,7 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
   } catch { /* best-effort warning only */ }
 }
 
-export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, jevFetch = fetch }) {
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch }) {
   warnLegacyLaunchAgent();
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
@@ -1261,17 +1261,14 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, jevF
         const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit, kinds: 'all' } : { limit, kinds: 'all' });
         return json(res, 200, { ok: true, signals });
       }
-      // #70: operator-initiated re-check of the LATEST signal of the current
-      // view (never a deep-linked/historical one). Same-origin guarded above
-      // like every other non-GET route. Never touches the signals/
-      // signal_snapshots rows it reads — persists a NEW signal_rechecks row.
-      // Live Jev prediction for the current candle. POST because every call is a
-      // paid TypeSafe request; nothing is stored or read by the trading paths.
-      if (url.pathname === '/api/jev' && req.method === 'POST') {
+      // Live prediction for the current candle. POST because every call is a
+      // paid provider request; each run is stored for restore, and nothing in
+      // the trading paths reads it.
+      if (url.pathname === '/api/predict' && req.method === 'POST') {
         const body = await readJson(req, res);
         if (body === undefined) return;
         const cfg = readSettings(settingsPath);
-        if (!jevActive(cfg)) return json(res, 409, { ok: false, error: 'Jev is off: store a TypeSafe API key and turn Jev on in settings' });
+        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store a TypeSafe API key and turn predictions on in settings' });
         const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
         const granularity = typeof body?.granularity === 'string' && isGranularity(body.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
@@ -1280,11 +1277,24 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, jevF
           const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
           const { candles } = await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) });
           if (!candles.length) return json(res, 404, { ok: false, error: `no candles for ${instrument} ${granularity}` });
-          return json(res, 200, { ok: true, prediction: await jevPredict(cfg, { instrument, granularity, candles }, { fetchFn: jevFetch }) });
+          return json(res, 200, { ok: true, prediction: await runPrediction(dbPath, cfg, { instrument, granularity, candles }, { fetchFn: providerFetch }) });
         } catch (err) {
           return json(res, 502, { ok: false, error: err.message });
         }
       }
+      // Stored prediction runs for one instrument and timeframe, newest first.
+      // Reading never calls the provider.
+      if (url.pathname === '/api/predictions' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') ?? '';
+        const granularity = url.searchParams.get('granularity') ?? '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        const n = Number(url.searchParams.get('limit'));
+        return json(res, 200, { ok: true, predictions: listPredictions(dbPath, instrument, granularity, Number.isInteger(n) && n > 0 ? n : 20) });
+      }
+      // #70: operator-initiated re-check of the LATEST signal of the current
+      // view (never a deep-linked/historical one). Same-origin guarded above
+      // like every other non-GET route. Never touches the signals/
+      // signal_snapshots rows it reads — persists a NEW signal_rechecks row.
       if (url.pathname === '/api/recheck' && req.method === 'POST') {
         const body = await readJson(req, res);
         if (body === undefined) return;

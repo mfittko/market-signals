@@ -1,7 +1,6 @@
-// TypeSafe Jev live prediction for the current (forming) candle: long, short
-// or no trade over the next few candles, with calibrated probabilities. The
-// answer is a decision basis for a manual entry and is never stored or read
-// by the bot, the filter or the notifier.
+// Prediction provider: TypeSafe Jev. Answers long, short or no trade for the
+// current (forming) candle over the next few candles, with calibrated
+// probabilities. Gating and storage live in predictions.mjs.
 //
 // Jev reasons poorly over raw numbers (TypeSafe jev-1.13 "jaggedness" notes),
 // so every indicator value is bucketed into words in code before the call.
@@ -16,11 +15,7 @@ const JEV_TIMEOUT_MS = 5000;
 // The questions judge an entry over this many candles of the selected timeframe.
 export const JEV_HORIZON_BARS = 3;
 const HTF_LEVELS = ['M15', 'H1'];
-
-// The single on/off rule: a non-blank stored key AND the explicit opt-in toggle.
-export function jevActive(settings = {}) {
-  return Boolean(String(settings.TYPESAFE_API_KEY ?? '').trim()) && ['1', true].includes(settings.jevEnabled);
-}
+export const JEV_PROVIDER = 'typesafe-jev';
 
 const GRAN_WORDS = { M1: '1-minute', M5: '5-minute', M15: '15-minute', M30: '30-minute', H1: '1-hour', H4: '4-hour', D: 'daily' };
 
