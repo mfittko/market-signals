@@ -15,7 +15,7 @@ import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
-type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string };
+type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
 type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; summary?: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -69,7 +69,7 @@ function InstrumentView() {
       if (document.visibilityState !== 'visible') return;
       try {
         const r = await api<Live>(`/instruments/${slug}/live?granularity=${gran}`);
-        if (!dead) { setLive(r); setLiveErr(null); }
+        if (!dead) { setLive({ ...r, granularity: gran }); setLiveErr(null); }
       } catch (e) { if (!dead) setLiveErr(e instanceof Error ? e.message : String(e)); }
     };
     setLive(null);
@@ -170,7 +170,7 @@ function InstrumentView() {
         </div>
 
         <div className="grid">
-          <PredictionPanel symbol={d.symbol} granularity={d.granularity} liveCandleTime={live?.candles.at(-1)?.time} />
+          <PredictionPanel symbol={d.symbol} granularity={d.granularity} liveCandleTime={live?.granularity === d.granularity ? live.candles.at(-1)?.time : undefined} />
           <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
           <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{escalations > 0 && ` · ${escalations} escalation${escalations === 1 ? "" : "s"}`}</span>}>

@@ -90,11 +90,22 @@ test('jevDecide retries once on 429/529, and fails readably on 401, timeout and 
   await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: hang, timeoutMs: 10 }), /timeout|aborted/i);
   const noProbs = answer(); delete noProbs.answers.action.probabilities;
   await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => noProbs }) }), /missing typed fields/);
+  const broken = [
+    (a) => { a.action.choice = 'hold'; },
+    (a) => { delete a.action.choice; },
+    (a) => { a.action.probabilities.long = 'high'; },
+    (a) => { a.setup_quality.score = null; },
+    (a) => { delete a.trend_confirmed.noul; },
+  ];
+  for (const breakIt of broken) {
+    const bad = answer(); breakIt(bad.answers);
+    await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => bad }) }), /missing typed fields/, String(breakIt));
+  }
 });
 
 test('jevPredict answers for the forming candle with bar progress and higher-timeframe trends', async () => {
   const calls = [];
-  const now = Date.parse(bars.at(-1).time) + 100000; // a third of the way into the M5 bar
+  const now = Date.parse(bars.at(-1).time) + 150000; // half way into the M5 bar, clear of the 1/3 and 2/3 band edges
   const p = await jevPredict(KEYED, { instrument: 'WTICO/USD', granularity: 'M5', candles: formingBars }, { now, fetchFn: okFetch(calls) });
   assert.equal(p.candleTime, bars.at(-1).time);
   assert.equal(p.forming, true);
@@ -147,12 +158,23 @@ test('POST /api/predict returns one prediction, validates input, and masks the k
     assert.equal(prediction.action, 'long');
     assert.equal(prediction.candleTime, bars.at(-1).time);
     assert.equal(calls.length, 1);
-    assert.equal((await post(base, { instrument: 'WTICO/USD', granularity: 'bogus' })).status, 400);
+    for (const granularity of ['bogus', 'M0', 'H0', 'M7']) assert.equal((await post(base, { instrument: 'WTICO/USD', granularity })).status, 400, granularity);
+    assert.equal(calls.length, 1);
     assert.equal((await post(base, { instrument: 'NOPE/USD', granularity: 'M5' })).status, 404);
     const s = await (await fetch(`${base}/api/settings`)).json();
     assert.equal(s.TYPESAFE_API_KEY, '•••');
     const bad = await (await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ predictionEnabled: 'yes' }) })).json();
     assert.match(bad.error, /predictionEnabled/);
+  });
+});
+
+test('a whitespace-only TypeSafe key reads as unset, so the console hides the card', async () => {
+  await withServer({ TYPESAFE_API_KEY: ' ', predictionEnabled: '1' }, async ({ base }) => {
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).TYPESAFE_API_KEY, undefined, 'hand-edited blank key');
+  });
+  await withServer({ predictionEnabled: '1' }, async ({ base }) => {
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ TYPESAFE_API_KEY: '  ' }) });
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).TYPESAFE_API_KEY, undefined, 'blank key written through the API');
   });
 });
 

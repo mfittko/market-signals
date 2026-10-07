@@ -1,8 +1,8 @@
 // Live predictions for the current candle: the on/off rule, one run through
 // the provider, and storage of every run so the console can restore it.
 // Advisory only: nothing here is read by the bot, the filter or the notifier.
-import { granularityMs, withDb } from './supertrend.mjs';
-import { jevPredict, JEV_PROVIDER } from './jev.mjs';
+import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
+import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,6 +31,9 @@ export const PREDICTIONS_MAX_LIMIT = 100;
 export function predictionActive(settings = {}) {
   return Boolean(String(settings.TYPESAFE_API_KEY ?? '').trim()) && ['1', true].includes(settings.predictionEnabled);
 }
+
+// Only the timeframes the provider prompt names; M0 or M7 would give a zero or odd candle duration.
+export const isPredictionGranularity = (g) => isGranularity(g) && Object.hasOwn(GRAN_WORDS, g);
 
 // A run is valid for one candle duration of its timeframe from the moment it was made.
 const toRow = (r, now = Date.now()) => {

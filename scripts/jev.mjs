@@ -17,7 +17,7 @@ export const JEV_HORIZON_BARS = 3;
 const HTF_LEVELS = ['M15', 'H1'];
 export const JEV_PROVIDER = 'typesafe-jev';
 
-const GRAN_WORDS = { M1: '1-minute', M5: '5-minute', M15: '15-minute', M30: '30-minute', H1: '1-hour', H4: '4-hour', D: 'daily' };
+export const GRAN_WORDS = { M1: '1-minute', M5: '5-minute', M15: '15-minute', M30: '30-minute', H1: '1-hour', H4: '4-hour', D: 'daily' };
 
 const band = (v, edges, labels) => {
   if (v == null || !Number.isFinite(v)) return 'unknown';
@@ -109,7 +109,12 @@ export async function jevDecide(settings, state, granularity, { fetchFn = fetch,
     if (!res.ok) throw new Error(`TypeSafe request failed (HTTP ${res.status})`);
     const json = await res.json();
     const a = json.answers || {};
-    if (a.action?.type !== 'choice' || !a.action.probabilities || a.setup_quality?.type !== 'score' || a.trend_confirmed?.type !== 'noul') {
+    const fin = Number.isFinite;
+    const probs = a.action?.probabilities;
+    if (a.action?.type !== 'choice' || !['long', 'short', 'no_trade'].includes(a.action.choice)
+      || !probs || typeof probs !== 'object' || !Object.values(probs).every(fin)
+      || a.setup_quality?.type !== 'score' || !fin(a.setup_quality.score)
+      || a.trend_confirmed?.type !== 'noul' || !fin(a.trend_confirmed.noul)) {
       throw new Error('TypeSafe answer is missing typed fields');
     }
     return {

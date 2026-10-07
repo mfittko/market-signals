@@ -35,7 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { currentPrediction, listPredictions, predictionActive, predictionForTool } from './predictions.mjs';
+import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionForTool } from './predictions.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -88,6 +88,8 @@ export function maskedSettings(settingsPath) {
   const out = { activeProvider, providerDefaultModels: PROVIDER_DEFAULT_MODEL };
   for (const k of SETTINGS_KEYS) {
     if (s[k] === undefined) continue;
+    // a blank secret (hand-edited settings.json) reads as unset, same rule as writeSettings
+    if (SECRET_KEYS.includes(k) && typeof s[k] === 'string' && s[k].trim() === '') continue;
     out[k] = SECRET_KEYS.includes(k) ? MASK : s[k];
   }
   // #99 read-time seed: expose a models map so the contextual provider panel can
@@ -222,7 +224,8 @@ export function writeSettings(settingsPath, patch) {
   const next = { ...current };
   for (const [k, v] of Object.entries(patch)) {
     if (SECRET_KEYS.includes(k) && v === MASK) continue; // masked = unchanged
-    if (v === '' || v === null) delete next[k];
+    // a whitespace-only secret counts as no secret, so the console never reports a blank key as stored
+    if (v === '' || v === null || (SECRET_KEYS.includes(k) && typeof v === 'string' && v.trim() === '')) delete next[k];
     else if (k === 'bot') {
       // deep-merge: a partial bot patch must not drop stored keys the UI form
       // doesn't carry; bot.bots merges PER COMBO (null deletes one bot entry)
@@ -749,8 +752,8 @@ export const CHAT_TOOLS = [
       if (ctx?.caller !== 'chat') throw new Error('market_prediction is available to the copilot only');
       if (!predictionActive(ctx.settings)) throw new Error('predictions are off in settings');
       const instrument = typeof a?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument) ? a.instrument : ctx.view?.instrument;
-      const granularity = typeof a?.granularity === 'string' && isGranularity(a.granularity) ? a.granularity : ctx.view?.granularity;
-      if (!instrument || !granularity) throw new Error('instrument and granularity are required');
+      const granularity = isPredictionGranularity(a?.granularity) ? a.granularity : ctx.view?.granularity;
+      if (!instrument || !isPredictionGranularity(granularity)) throw new Error('instrument and granularity are required');
       const loadCandles = () => predictionCandles(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher);
       return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, { instrument, granularity, loadCandles }, { reuse: true, fetchFn: ctx.providerFetch })));
     },
@@ -948,7 +951,7 @@ export function chatSystemFor(cfg) {
 // Gate transparency (#58): server-built (no secrets) so the settings gates
 // section and the chat context both read the SAME effective prompt/toolset
 // per gate — one source of truth, never re-derived client-side.
-async function gatesInfo(dbPath) {
+async function gatesInfo(dbPath, cfg) {
   const filterEff = await resolveFilterSystem(dbPath);
   const recheckEff = await resolveRecheckSystem(dbPath);
   const strat = activeStrategy(dbPath);
@@ -972,7 +975,7 @@ async function gatesInfo(dbPath) {
       prompt: strat ? strat.prompt : null,
     },
     chat: {
-      toolset: CHAT_TOOLS.map((t) => t.name),
+      toolset: chatToolDefs(cfg).map((t) => t.name),
       prompt: CHAT_SYSTEM,
     },
   };
@@ -1300,7 +1303,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const cfg = readSettings(settingsPath);
         if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store a TypeSafe API key and turn predictions on in settings' });
         const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
-        const granularity = typeof body?.granularity === 'string' && isGranularity(body.granularity) ? body.granularity : null;
+        const granularity = isPredictionGranularity(body?.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         try {
           const loadCandles = () => predictionCandles(dbPath, instrument, granularity, cfg, fetcher);
@@ -1315,7 +1318,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
       if (url.pathname === '/api/predictions' && req.method === 'GET') {
         const instrument = url.searchParams.get('instrument') ?? '';
         const granularity = url.searchParams.get('granularity') ?? '';
-        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isPredictionGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         const n = Number(url.searchParams.get('limit'));
         return json(res, 200, { ok: true, predictions: listPredictions(dbPath, instrument, granularity, Number.isInteger(n) && n > 0 ? n : 20) });
       }
@@ -1566,7 +1569,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         } catch (err) { return json(res, 400, { ok: false, error: err.message }); }
       }
       if (url.pathname === '/api/gate-prompts' && req.method === 'GET') {
-        return json(res, 200, { ok: true, gates: await gatesInfo(dbPath) });
+        return json(res, 200, { ok: true, gates: await gatesInfo(dbPath, readSettings(settingsPath)) });
       }
       if (url.pathname === '/api/gate-prompts' && req.method === 'POST') {
         const body = await readJson(req, res);

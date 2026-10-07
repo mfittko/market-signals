@@ -135,7 +135,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               </div>
             ))}
           </div>
-          <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>
+          <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>
           <p className="small muted" style={{ margin: '4px 0' }}>
             {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : ''} at {p.price} · over the next {p.horizonBars} candles · {age(p.askedAt, now)}
           </p>

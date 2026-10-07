@@ -74,6 +74,8 @@ func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) er
 	return json.Unmarshal(body, out)
 }
 
+const predictTimeout = 20 * time.Second
+
 // Predict is the one non-GET engine call: it asks the engine for the current
 // advisory prediction, reusing a still-valid stored run. The engine refuses
 // while predictions are off; its error text is passed through to the model.
@@ -87,7 +89,11 @@ func (e *Engine) Predict(ctx context.Context, instrument, granularity string) (j
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := e.Client.Do(req)
+	// The engine's worst case (candle fetch, a 5 s provider attempt, a retry delay and a
+	// second 5 s attempt) exceeds the shared 10 s client timeout, so this call gets its own.
+	c := *e.Client
+	c.Timeout = predictTimeout
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("engine unreachable: %w", err)
 	}
