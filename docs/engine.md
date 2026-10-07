@@ -190,7 +190,7 @@ Live prediction is off by default. It asks a paid provider for the likely next m
 - `TYPESAFE_API_KEY` is the provider key. It is a masked, write-only secret, like the LLM API keys. Every prediction run is a paid provider call.
 - `predictionEnabled` is the toggle. It takes `'0'`, `'1'` or a boolean, and it defaults to off.
 - Predictions are on only when the key is non-blank and `predictionEnabled` is `'1'` or `true`. A whitespace-only key reads as unset.
-- Supported timeframes are M1, M5, M15, M30, H1, H4 and D.
+- Supported timeframes are M1, M5, M15, M30, H1 and H4.
 - `POST /api/predict` with `{ instrument, granularity, reuse? }` runs a prediction for the current candle and stores it. With `reuse: true`, the engine returns the latest stored run while it is still valid and makes no provider call. Concurrent reuse requests for one pair share one provider call. When predictions are off, the route returns 409.
 - `GET /api/predictions?instrument=&granularity=&limit=` lists stored runs, newest first. It never calls the provider.
 
