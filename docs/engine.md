@@ -179,7 +179,7 @@ These settings apply to the alert filter and the recheck gate only. They never a
 
 Pushover is off by default, and nothing changes until you configure it. When it is on, every alert goes to your phone through [Pushover](https://pushover.net): a supertrend flip, a volume-impulse alert and the bot's kill-switch halt. The desktop notification still fires as well. So it stays a safety net when a push fails or the monthly quota runs out.
 
-A one-off iOS licence of about $5 covers iPhone, iPad and Apple Watch. The free allowance is 10,000 messages per month. The alert text leaves this machine through the hosted Pushover service: instrument, timeframe, direction, price, time, win rate and the filter reason. Every hosted push target works this way, so weigh this before you enable it.
+A one-off iOS licence of about $5 covers iPhone, iPad and Apple Watch. The free allowance is 10,000 messages per month. The alert text leaves this machine through the hosted Pushover service. A flip push carries the instrument, timeframe, direction, price, time, win rate and the filter reason. A volume-impulse push carries the instrument, timeframe, direction, price, volume ratio and time. A kill-switch push carries the drawdown percent and the account equity. Every hosted push target works this way, so weigh this before you enable it.
 
 A push carries an "open chart" link only when the console URL is reachable from the phone. The engine drops a loopback link (`localhost`, `127.x.x.x` or `[::1]`). With the default `127.0.0.1` console, a push therefore arrives without a link.
 
