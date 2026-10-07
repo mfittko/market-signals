@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import { changedPatch } from '@/lib/settings-merge';
 import { llmPatch } from '@/lib/llm-patch';
 import { Card, Loading } from '@/components/ui';
-import { AlertsCard, FilterCard, WatchersCard } from '@/components/MoreSettings';
+import { AlertsCard, FilterCard, JevCard, WatchersCard } from '@/components/MoreSettings';
 
 type BotEntry = { enabled?: boolean; allocationPct?: number | null; strategyName?: string; riskPct?: number | null };
 type Settings = {
@@ -65,6 +65,7 @@ export default function SettingsPage() {
           <LlmCard s={s} run={run} busy={busy} />
           <AlertsCard s={s} run={run} busy={busy} />
           <FilterCard s={s} run={run} busy={busy} />
+          <JevCard s={s} run={run} busy={busy} />
         </div>
         <div className="grid">
           <WatchersCard />

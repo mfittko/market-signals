@@ -9,6 +9,7 @@ export type MoreSettingsData = {
   llmFallbackProvider?: string; impulseVolMult?: number; impulseVolWindow?: number; impulseCooldownBars?: number;
   NEWSAPI_AI_MODE?: string; GNEWS_MODE?: string; sentinelSourceFootnotes?: string | boolean;
   PUSHOVER_ENABLED?: string | boolean; PUSHOVER_USER?: string; PUSHOVER_TOKEN?: string; notifierBin?: string;
+  TYPESAFE_API_KEY?: string; jevEnabled?: string | boolean;
 };
 type Base = { current: Record<string, unknown> };
 type Run = (patch: object, text: string | undefined, base: Base) => Promise<boolean>;
@@ -120,6 +121,26 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
         <label>GNews mode<select value={gnews} onChange={(e) => setGnews(e.target.value)}>{['off', 'shadow', 'auto'].map((m) => <option key={m}>{m}</option>)}</select></label>
         <div><button type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button></div>
       </form>
+    </Card>
+  );
+}
+
+// Jev live prediction: the instrument page shows its card only when a key is stored and this is on.
+// The engine applies the same rule, so a toggle saved without a key still makes no call.
+export function JevCard({ s, run, busy }: { s: MoreSettingsData; run: Run; busy: boolean }) {
+  const [key, setKey] = useState('');
+  const stored = s.TYPESAFE_API_KEY === MASK;
+  const bl = useRef<Record<string, unknown>>({ jevEnabled: on(s.jevEnabled) ? '1' : '0', TYPESAFE_API_KEY: s.TYPESAFE_API_KEY });
+  return (
+    <Card title="Jev prediction">
+      <div className="form">
+        <p className="small muted">Adds a Check now button on each instrument page. It asks TypeSafe Jev whether to enter long, short or not at all over the next 3 candles. Advisory only: it never places a trade.</p>
+        <label><span><input type="checkbox" checked={stored && on(s.jevEnabled)} disabled={busy || !stored} onChange={(e) => void run({ jevEnabled: e.target.checked ? '1' : '0' }, undefined, bl)} /> Show the Jev prediction on instrument pages</span></label>
+        {!stored && <p className="small muted">Store a TypeSafe API key first.</p>}
+        <label>TypeSafe API key {stored && <span className="muted small">(stored, leave blank to keep)</span>}
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder={stored ? MASK : ''} /></label>
+        <div><button type="button" disabled={busy || !key.trim()} onClick={() => void run({ TYPESAFE_API_KEY: key.trim() }, undefined, bl).then(() => setKey(''))}>Save key</button></div>
+      </div>
     </Card>
   );
 }

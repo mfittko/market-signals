@@ -8,6 +8,7 @@ import { BotBadge, useActiveBots } from '@/lib/bots';
 import { CandleChart, type Candle, type STPoint } from '@/components/CandleChart';
 import { AgentsPanel } from '@/components/AgentsPanel';
 import { ChatPanel } from '@/components/ChatPanel';
+import { JevPanel } from '@/components/JevPanel';
 import { Card, Loading } from '@/components/ui';
 import Markdown from 'react-markdown';
 import { useWatchers } from '@/lib/alerts';
@@ -169,6 +170,7 @@ function InstrumentView() {
         </div>
 
         <div className="grid">
+          <JevPanel symbol={d.symbol} granularity={d.granularity} />
           <AgentsPanel agents={d.agents} onChange={load} />
           <ChatPanel symbol={d.symbol} granularity={d.granularity} />
           <Card title="News" aside={<span className="muted small">last 72h · {relevantNews.length}{escalations > 0 && ` · ${escalations} escalation${escalations === 1 ? "" : "s"}`}</span>}>
