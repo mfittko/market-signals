@@ -35,7 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { listPredictions, predictionActive, runPrediction } from './predictions.mjs';
+import { currentPrediction, listPredictions, predictionActive, predictionForTool } from './predictions.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -732,7 +732,29 @@ function loadRateSlugs() {
 }
 const RATE_SLUGS = loadRateSlugs();
 const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
+// The candle window a prediction reads: enough bars to resample at least 13 H1
+// bars, so the H1 trend is known on M1 too, with the forming bar when live.
+async function predictionCandles(dbPath, instrument, granularity, cfg, fetcher) {
+  const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
+  return (await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) })).candles;
+}
+
 export const CHAT_TOOLS = [
+  {
+    name: 'market_prediction',
+    description: 'Advisory prediction for the current candle: whether to enter long, short or not at all over the next 3 candles of a timeframe, with calibrated probabilities, setup quality (0-4), trend confirmation and the inputs it was based on. Reuses the latest prediction while it is still valid (one candle duration), otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
+    input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, granularity: { type: 'string', description: 'timeframe, e.g. M5; defaults to the current view' } }, additionalProperties: false },
+    run: async (a, ctx) => {
+      // copilot only: the paper-trading bot never receives a prediction
+      if (ctx?.caller !== 'chat') throw new Error('market_prediction is available to the copilot only');
+      if (!predictionActive(ctx.settings)) throw new Error('predictions are off in settings');
+      const instrument = typeof a?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument) ? a.instrument : ctx.view?.instrument;
+      const granularity = typeof a?.granularity === 'string' && isGranularity(a.granularity) ? a.granularity : ctx.view?.granularity;
+      if (!instrument || !granularity) throw new Error('instrument and granularity are required');
+      const loadCandles = () => predictionCandles(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher);
+      return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, { instrument, granularity, loadCandles }, { reuse: true, fetchFn: ctx.providerFetch })));
+    },
+  },
   {
     name: 'fxempire_articles',
     description: 'Fetch recent FXEmpire news articles for tracked instruments (live SSR source since #28). If it returns none for the window, fall back to web search rather than retrying with wider windows.',
@@ -841,12 +863,20 @@ export const CHAT_TOOLS = [
 // drafts are chat-only, never a side effect of a trade decision — real
 // source of truth for both the runtime call site and its test).
 export function botToolDefs() {
-  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory' && t.name !== 'save_gate_prompt');
+  return CHAT_TOOLS.filter((t) => t.name !== 'save_strategy' && t.name !== 'save_memory' && t.name !== 'save_gate_prompt' && t.name !== 'market_prediction');
+}
+// Tools offered to the copilot chat. The prediction tool is offered only while
+// predictions are on, so the model never plans around a tool that will refuse.
+export function chatToolDefs(cfg) {
+  return CHAT_TOOLS.filter((t) => t.name !== 'market_prediction' || predictionActive(cfg))
+    .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
 }
 export function execChatTool(name, input, ctx = {}) {
   const tool = CHAT_TOOLS.find((t) => t.name === name);
   if (!tool) throw new Error(`unknown tool ${name}`);
-  return String(tool.run(input ?? {}, ctx)).slice(0, 8000);
+  // sync tools stay sync; an async tool (the prediction) returns a promise, which every caller awaits
+  const out = tool.run(input ?? {}, ctx);
+  return out instanceof Promise ? out.then((v) => String(v).slice(0, 8000)) : String(out).slice(0, 8000);
 }
 
 // The model annotates each reply with an evolving thread title (issue #38);
@@ -1273,13 +1303,11 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const granularity = typeof body?.granularity === 'string' && isGranularity(body.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         try {
-          // enough bars to resample at least 13 H1 bars, so the H1 trend is known on M1 too
-          const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
-          const { candles } = await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) });
-          if (!candles.length) return json(res, 404, { ok: false, error: `no candles for ${instrument} ${granularity}` });
-          return json(res, 200, { ok: true, prediction: await runPrediction(dbPath, cfg, { instrument, granularity, candles }, { fetchFn: providerFetch }) });
+          const loadCandles = () => predictionCandles(dbPath, instrument, granularity, cfg, fetcher);
+          const prediction = await currentPrediction(dbPath, cfg, { instrument, granularity, loadCandles }, { reuse: body?.reuse === true, fetchFn: providerFetch });
+          return json(res, 200, { ok: true, prediction });
         } catch (err) {
-          return json(res, 502, { ok: false, error: err.message });
+          return json(res, err.status ?? 502, { ok: false, error: err.message });
         }
       }
       // Stored prediction runs for one instrument and timeframe, newest first.
@@ -1815,12 +1843,12 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         try {
           const reply = await llmChat(cfg, chatSystemFor(cfg), user, {
             onDelta: (text) => send({ type: 'delta', text }),
-            toolDefs: CHAT_TOOLS.map(({ name, description, input_schema }) => ({ name, description, input_schema })),
+            toolDefs: chatToolDefs(cfg),
             execTool: (n, i) => {
               toolsUsed.push(n);
               send({ type: 'tool', name: n, input: i, state: 'running' }); // progress for the console; the reply itself is unchanged
               // then() turns a synchronous throw (unknown tool, bad input) into a rejection, so done always fires
-              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg }))
+              return Promise.resolve().then(() => execChatTool(n, i, { dbPath, view: { instrument, granularity }, settings: cfg, caller: 'chat', providerFetch, fetcher }))
                 .finally(() => send({ type: 'tool', name: n, state: 'done' }));
             },
             onUsage: debugLlm ? (info) => send({ type: 'usage', provider: info.provider, model: info.model, inputTokens: info.usage?.inputTokens ?? null, outputTokens: info.usage?.outputTokens ?? null }) : undefined,

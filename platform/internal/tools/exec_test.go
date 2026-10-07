@@ -144,3 +144,36 @@ func TestRecentCandlesStayValidJSONWithTheNewestBarAtTheMaximumCount(t *testing.
 		t.Fatalf("newest candle must be kept, got %v", last)
 	}
 }
+
+func TestGetPredictionPostsTheSnapshotPairWithReuseAndPassesEngineErrors(t *testing.T) {
+	var got map[string]any
+	off := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/predict" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		if off {
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"ok":false,"error":"Predictions are off"}`))
+			return
+		}
+		w.Write([]byte(`{"ok":true,"prediction":{"action":"short","probabilities":{"long":0.1,"short":0.8,"no_trade":0.1},"valid":true}}`))
+	}))
+	t.Cleanup(srv.Close)
+	tc := &queue.ToolContext{}
+	tc.Snapshot.Instrument, tc.Snapshot.Granularity = "WTICO/USD", "M5"
+
+	// the model asks for another pair; the snapshot's scope wins
+	out, err := Exec(context.Background(), NewEngine(srv.URL), nil, 0, 0, tc, "get_prediction", json.RawMessage(`{}`))
+	if err != nil || !strings.Contains(out, `"action":"short"`) || !strings.Contains(out, "Advisory prediction only") {
+		t.Fatalf("prediction output: %v %s", err, out)
+	}
+	if got["instrument"] != "WTICO/USD" || got["granularity"] != "M5" || got["reuse"] != true {
+		t.Fatalf("request body: %v", got)
+	}
+	off = true
+	if _, err := Exec(context.Background(), NewEngine(srv.URL), nil, 0, 0, tc, "get_prediction", nil); err == nil || err.Error() != "Predictions are off" {
+		t.Fatalf("engine refusal must pass through: %v", err)
+	}
+}

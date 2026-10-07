@@ -62,6 +62,7 @@ export function AlertsCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
             <label><span><input type="checkbox" checked={prefs.proposal} onChange={(e) => set('proposal', e.target.checked)} /> Agent proposals to open or close</span></label>
             <label><span><input type="checkbox" checked={prefs.trade} onChange={(e) => set('trade', e.target.checked)} /> Paper trades opened or closed</span></label>
             <label><span><input type="checkbox" checked={prefs.signal} onChange={(e) => set('signal', e.target.checked)} /> Signals the filter passes (the engine already sends its own macOS alert)</span></label>
+            <label><span><input type="checkbox" checked={prefs.prediction} onChange={(e) => set('prediction', e.target.checked)} /> Prediction flips between long and short, on instrument pages with auto-update on</span></label>
             <p className="small muted">They fire while a console tab is open. Each preference applies to this browser only.</p>
           </>}
         </div>

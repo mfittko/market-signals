@@ -60,8 +60,8 @@ export async function fetchAlerts(): Promise<AlertEvent[]> {
 }
 
 // Desktop notification preferences live in this browser only.
-export type NotifyPrefs = { signal: boolean; proposal: boolean; trade: boolean };
-export const DEFAULT_PREFS: NotifyPrefs = { signal: false, proposal: true, trade: true };
+export type NotifyPrefs = { signal: boolean; proposal: boolean; trade: boolean; prediction: boolean };
+export const DEFAULT_PREFS: NotifyPrefs = { signal: false, proposal: true, trade: true, prediction: true };
 const KEY = 'ms.notify.prefs', SEEN = 'ms.notify.seen';
 export function loadPrefs(): NotifyPrefs {
   try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return DEFAULT_PREFS; }

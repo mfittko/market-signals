@@ -46,6 +46,8 @@ func Definitions() []Def {
 			obj(map[string]any{"count": map[string]any{"type": "integer", "minimum": 1, "maximum": 120}})},
 		{"get_recent_signals", "Recent supertrend signals for this agent's instrument and granularity, newest first.",
 			obj(map[string]any{"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": 20}})},
+		{"get_prediction", "Advisory prediction for the CURRENT candle of this agent's instrument and granularity: long, short or no trade over the next 3 candles, with calibrated probabilities, setup quality (0-4), trend confirmation, validity and the inputs it used. Reuses the latest prediction while it is valid (one candle duration), otherwise makes a new one. It is live, not part of the frozen snapshot, and never places a trade.",
+			obj(map[string]any{})},
 		{"schedule_followup", "Ask to be re-run after a delay (10-3600 seconds). Your current proposal is recorded as interim. The resumed run is validated and filled against this run's frozen snapshot, so the delay must end inside your freshness budget (default 900 seconds from the snapshot time) with 60 seconds left for the resumed run. A longer delay is refused with the current limit.",
 			obj(map[string]any{"seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 3600}, "reason": map[string]any{"type": "string"}})},
 	}
@@ -70,6 +72,40 @@ func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) er
 		return err
 	}
 	return json.Unmarshal(body, out)
+}
+
+// Predict is the one non-GET engine call: it asks the engine for the current
+// advisory prediction, reusing a still-valid stored run. The engine refuses
+// while predictions are off; its error text is passed through to the model.
+func (e *Engine) Predict(ctx context.Context, instrument, granularity string) (json.RawMessage, error) {
+	if e == nil || e.BaseURL == "" {
+		return nil, errors.New("engine URL is not configured")
+	}
+	body, _ := json.Marshal(map[string]any{"instrument": instrument, "granularity": granularity, "reuse": true})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.BaseURL+"/api/predict", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("engine unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Prediction json.RawMessage `json:"prediction"`
+		Error      string          `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("engine /api/predict returned %d", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK || len(out.Prediction) == 0 {
+		if out.Error == "" {
+			out.Error = fmt.Sprintf("engine /api/predict returned %d", resp.StatusCode)
+		}
+		return nil, errors.New(out.Error)
+	}
+	return out.Prediction, nil
 }
 
 type cached struct {
@@ -238,6 +274,12 @@ func Exec(ctx context.Context, eng *Engine, st *queue.Store, attemptID, fence in
 			return "", err
 		}
 		return bound(map[string]any{"signals": raw.Signals})
+	case "get_prediction":
+		p, err := eng.Predict(ctx, tc.Snapshot.Instrument, tc.Snapshot.Granularity)
+		if err != nil {
+			return "", err
+		}
+		return bound(map[string]any{"advisory": "Advisory prediction only. It never places or changes a trade; weigh it against your strategy and the snapshot.", "prediction": p})
 	case "schedule_followup":
 		var a struct {
 			Seconds int    `json:"seconds"`

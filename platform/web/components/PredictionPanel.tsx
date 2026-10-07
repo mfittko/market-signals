@@ -2,17 +2,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
+import { loadPrefs } from '@/lib/alerts';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
-  id: number; instrument: string; granularity: string; candleTime: string; forming: boolean; price: number; horizonBars: number; askedAt: string;
+  id: number; instrument: string; granularity: string; candleTime: string; forming: boolean; price: number; horizonBars: number; askedAt: string; expiresAt: string;
   action: Action; probabilities: Record<Action, number>; confidence: number | null;
   quality: number; trendConfirmed: number; latencyMs: number; state: Record<string, string>;
 };
 
 const MASK = '•••';
-const AUTO_KEY = 'predictionAutoUpdate';
-const HISTORY = 20;
+const AUTO_KEY = 'predictionAutoUpdate:';
+const HISTORY = 10;
 const LABEL: Record<Action, string> = { long: 'Long', short: 'Short', no_trade: 'No trade' };
 const TONE: Record<Action, string> = { long: 'var(--good)', short: 'var(--bad)', no_trade: 'var(--muted)' };
 const pct = (v: number | null | undefined) => (v == null ? '–' : `${Math.round(v * 100)}%`);
@@ -24,12 +25,27 @@ const age = (iso: string, now: number) => {
   if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s ago`;
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m ago`;
 };
-const loadAuto = () => { try { return localStorage.getItem(AUTO_KEY) === '1'; } catch { return false; } };
-const saveAuto = (on: boolean) => { try { localStorage.setItem(AUTO_KEY, on ? '1' : '0'); } catch { /* private window */ } };
+const left = (iso: string, now: number) => {
+  const s = Math.max(0, Math.round((Date.parse(iso) - now) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+};
+// auto-update is chosen per instrument and remembered in this browser
+const loadAuto = (symbol: string) => { try { return localStorage.getItem(AUTO_KEY + symbol) === '1'; } catch { return false; } };
+const saveAuto = (symbol: string, on: boolean) => { try { localStorage.setItem(AUTO_KEY + symbol, on ? '1' : '0'); } catch { /* private window */ } };
+const opposite = (a: Action, b: Action) => (a === 'long' && b === 'short') || (a === 'short' && b === 'long');
+
+// Desktop notification for a long/short flip; it fires only while this console tab is open.
+function notifyFlip(p: Prediction, was: Action) {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || !loadPrefs().prediction) return;
+  const n = new Notification(`Prediction flipped to ${LABEL[p.action]} on ${p.instrument} ${p.granularity}`, {
+    body: `${LABEL[p.action]} ${pct(p.probabilities[p.action])}, was ${LABEL[was]}. At ${p.price}. Advisory only.`, tag: `prediction:${p.id}`,
+  });
+  n.onclick = () => { window.focus(); n.close(); };
+}
 
 // Shown only while a provider key is stored and predictions are on (the engine refuses otherwise).
 // Each run is one paid call and is stored, so the latest run comes back on reload. The answer never
-// reaches the bot, the filter or the alerts. `liveCandleTime` is the newest candle of the page's live
+// reaches the bot, the filter or the engine alerts; only this tab notifies on a long/short flip. `liveCandleTime` is the newest candle of the page's live
 // feed; with auto-update ticked, a new candle there triggers one run.
 export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbol: string; granularity: string; liveCandleTime?: string }) {
   const [enabled, setEnabled] = useState(false);
@@ -42,13 +58,16 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const [now, setNow] = useState(() => Date.now());
   const current = useRef(granularity);
   const autoCandle = useRef<string | null>(null);
+  const runsRef = useRef<Prediction[]>([]);
+  const autoRef = useRef(false);
+  runsRef.current = runs; autoRef.current = auto;
 
   useEffect(() => {
-    setAuto(loadAuto());
+    setAuto(loadAuto(symbol));
     api<{ TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean }>('/engine/settings')
       .then((s) => setEnabled(s.TYPESAFE_API_KEY === MASK && (s.predictionEnabled === '1' || s.predictionEnabled === true)))
       .catch(() => setEnabled(false));
-  }, []);
+  }, [symbol]);
 
   // restore: the stored runs of this instrument and timeframe, newest first
   useEffect(() => {
@@ -65,7 +84,11 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
     setBusy(true); setErr(null);
     try {
       const r = await api<{ prediction: Prediction }>('/engine/predict', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity: asked }) });
-      if (current.current === asked) { setRuns((rs) => [r.prediction, ...rs].slice(0, HISTORY)); setShownId(null); setNow(Date.now()); }
+      if (current.current !== asked) return;
+      // a flip between long and short, judged against the last directional run, alerts while auto-update is on
+      const prev = runsRef.current.find((x) => x.action !== 'no_trade');
+      if (autoRef.current && prev && opposite(prev.action, r.prediction.action)) notifyFlip(r.prediction, prev.action);
+      setRuns((rs) => [r.prediction, ...rs].slice(0, HISTORY)); setShownId(null); setNow(Date.now());
     } catch (e) { if (current.current === asked) setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }, [symbol, granularity]);
@@ -86,18 +109,20 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   if (!enabled || !granularity) return null;
   const p = runs.find((r) => r.id === shownId) ?? runs[0];
   const isLatest = p && p.id === runs[0]?.id;
+  const expired = (r: Prediction) => Date.parse(r.expiresAt) <= now;
 
   return (
     <Card title="Prediction" aside={<button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
-      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); saveAuto(e.target.checked); }} /> Auto-update on each new {granularity} candle</span></label>
+      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); saveAuto(symbol, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
       {err && <p className="msg err" role="alert">{err}</p>}
       {!p && !err && <p className="small muted">Predicts whether to enter long, short or not at all on the current {granularity} candle, judged over the next 3 candles. Advisory only.</p>}
       {p && (
-        <div aria-live="polite">
+        <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
             <strong style={{ fontSize: 22, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
             <span className="muted small">{pct(p.probabilities[p.action])} · confidence {pct(p.confidence)}</span>
+            {expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>}
           </div>
           <div style={{ display: 'grid', gap: 4, margin: '10px 0' }}>
             {(['long', 'short', 'no_trade'] as Action[]).map((a) => (
@@ -132,7 +157,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               <tr key={r.id} aria-selected={r.id === p?.id} style={r.id === p?.id ? { background: 'var(--neutral-bg)' } : undefined}>
                 <td className="num"><button className="linkish" onClick={() => setShownId(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
                 <td className="num">{hm(r.candleTime)}</td>
-                <td style={{ color: TONE[r.action] }}>{LABEL[r.action]} {pct(r.probabilities[r.action])}</td>
+                <td style={{ color: TONE[r.action] }}>{LABEL[r.action]} {pct(r.probabilities[r.action])}{expired(r) && <span className="muted"> · expired</span>}</td>
                 <td className="num">{r.price}</td>
               </tr>
             ))}</tbody>

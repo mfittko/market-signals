@@ -4,10 +4,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jevState, jevDecide, jevPredict, jevQuestions } from '../scripts/jev.mjs';
-import { predictionActive, listPredictions } from '../scripts/predictions.mjs';
+import { predictionActive, listPredictions, currentPrediction } from '../scripts/predictions.mjs';
 import { indicatorSummary } from '../scripts/lib/indicator-summary.mjs';
 import { storeCandles } from '../scripts/supertrend.mjs';
-import { buildServer } from '../scripts/signal-server.mjs';
+import { buildServer, botToolDefs, chatToolDefs, execChatTool } from '../scripts/signal-server.mjs';
 import { writeFileSync } from 'node:fs';
 
 const T0 = Date.UTC(2026, 0, 5, 0, 0);
@@ -174,7 +174,9 @@ test('every prediction run is stored and restorable, newest first, scoped to the
     const list = async (q) => (await (await fetch(`${base}/api/predictions?${q}`)).json());
     const r = await list('instrument=WTICO%2FUSD&granularity=M5');
     assert.deepEqual(r.predictions.map((p) => p.id), [second.id, first.id]);
-    assert.deepEqual(r.predictions[0], second, 'a restored run equals the run as returned');
+    const { reused, ...stored } = second;
+    assert.equal(reused, false);
+    assert.deepEqual(r.predictions[0], stored, 'a restored run equals the run as returned');
     assert.equal(r.predictions[0].provider, 'typesafe-jev');
     assert.equal(typeof r.predictions[0].state.current_candle, 'string');
     assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=M5&limit=1')).predictions.map((p) => p.id), [second.id]);
@@ -199,4 +201,44 @@ test('a provider failure stores nothing', async () => {
     assert.match((await r.json()).error, /rejected the API key/);
     assert.deepEqual(listPredictions(dbPath, 'WTICO/USD', 'M5'), []);
   } finally { server.close(); }
+});
+
+test('a run expires one candle duration after it was made, and reuse makes no call while valid', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pred-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const calls = [];
+  const asked = Date.parse(bars.at(-1).time) + 30000;
+  const input = { instrument: 'WTICO/USD', granularity: 'M1', loadCandles: async () => formingBars };
+  const first = await currentPrediction(dbPath, KEYED, input, { reuse: true, now: asked, fetchFn: okFetch(calls) });
+  assert.equal(first.reused, false);
+  assert.equal(first.expiresAt, new Date(asked + 60000).toISOString(), 'M1 runs expire after one minute');
+  assert.equal(first.valid, true);
+  const again = await currentPrediction(dbPath, KEYED, input, { reuse: true, now: asked + 59000, fetchFn: okFetch(calls) });
+  assert.deepEqual([again.reused, again.id, calls.length], [true, first.id, 1]);
+  assert.equal(listPredictions(dbPath, 'WTICO/USD', 'M1', 1, asked + 60000)[0].valid, false);
+  const fresh = await currentPrediction(dbPath, KEYED, input, { reuse: true, now: asked + 60000, fetchFn: okFetch(calls) });
+  assert.deepEqual([fresh.reused, calls.length], [false, 2]);
+  const forced = await currentPrediction(dbPath, KEYED, input, { now: asked + 61000, fetchFn: okFetch(calls) });
+  assert.deepEqual([forced.reused, calls.length], [false, 3], 'without reuse every call runs');
+  const m5 = await currentPrediction(dbPath, KEYED, { ...input, granularity: 'M5' }, { now: asked, fetchFn: okFetch(calls) });
+  assert.equal(m5.expiresAt, new Date(asked + 300000).toISOString());
+});
+
+test('market_prediction: copilot only, offered only while on, never to the paper bot', async () => {
+  assert.ok(!botToolDefs().some((t) => t.name === 'market_prediction'));
+  assert.ok(!chatToolDefs({}).some((t) => t.name === 'market_prediction'));
+  assert.ok(chatToolDefs(KEYED).some((t) => t.name === 'market_prediction'));
+  const dir = mkdtempSync(join(tmpdir(), 'pred-'));
+  const dbPath = join(dir, 'db.sqlite');
+  storeCandles(dbPath, 'WTICO/USD', 'M5', bars);
+  const calls = [];
+  const ctx = { dbPath, settings: KEYED, view: { instrument: 'WTICO/USD', granularity: 'M5' }, providerFetch: okFetch(calls), fetcher: null };
+  await assert.rejects(execChatTool('market_prediction', {}, { ...ctx, caller: undefined }), /copilot only/);
+  await assert.rejects(execChatTool('market_prediction', {}, { ...ctx, caller: 'chat', settings: {} }), /predictions are off/);
+  const out = JSON.parse(await execChatTool('market_prediction', {}, { ...ctx, caller: 'chat' }));
+  assert.match(out.advisory, /never places/);
+  assert.deepEqual([out.instrument, out.granularity, out.action, out.valid, out.reused], ['WTICO/USD', 'M5', 'long', true, false]);
+  const second = JSON.parse(await execChatTool('market_prediction', { granularity: 'M5' }, { ...ctx, caller: 'chat' }));
+  assert.equal(second.reused, true);
+  assert.equal(calls.length, 1);
 });
