@@ -3077,3 +3077,23 @@ test('indicators endpoint serves the strategy-prompt numbers read-only and rejec
     assert.notEqual((await fetch(`${base}/api/indicators`, { method: 'POST', body: '{}' })).status, 200);
   });
 });
+
+test('Jev: key is masked, toggle is validated, /api/chart carries verdicts only when active', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, settingsPath, dbPath }) => {
+    const { jevDecisions } = await import('../scripts/jev.mjs');
+    const first = (await (await fetch(`${base}/api/chart`)).json()).candles[0].time;
+    jevDecisions(dbPath, INSTRUMENT, 'M5', first, first); // creates the table
+    withDb(dbPath, (db) => db.prepare("INSERT INTO jev_decisions (instrument, granularity, time, action, p_long, decided_at) VALUES (?, 'M5', ?, 'long', 0.8, 'x')").run(INSTRUMENT, first));
+
+    assert.equal((await (await fetch(`${base}/api/chart`)).json()).jev, undefined, 'no key, no toggle: field absent');
+    const bad = await (await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ jevEnabled: 'yes' }) })).json();
+    assert.match(bad.error, /jevEnabled/);
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ jevEnabled: '1' }) });
+    assert.equal((await (await fetch(`${base}/api/chart`)).json()).jev, undefined, 'toggle without a key stays off');
+    await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ TYPESAFE_API_KEY: 'ts-secret' }) });
+    assert.equal((await (await fetch(`${base}/api/settings`)).json()).TYPESAFE_API_KEY, '•••');
+    assert.equal(JSON.parse(readFileSync(settingsPath, 'utf8')).TYPESAFE_API_KEY, 'ts-secret');
+    const jev = (await (await fetch(`${base}/api/chart`)).json()).jev;
+    assert.deepEqual(jev.map((r) => [r.time, r.action, r.pLong]), [[first, 'long', 0.8]]);
+  });
+});

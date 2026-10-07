@@ -35,6 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
+import { jevActive, jevDecisions } from './jev.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -55,7 +56,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'jevEnabled', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -74,7 +75,7 @@ function validateGranularityMinMap(patchVal, key, min) {
 const MODEL_PROVIDER_KEYS = PROVIDERS.filter((p) => p !== 'none');
 const BOT_SETTING_KEYS = ['enabled', 'riskPct', 'maxPositions', 'reviewTriggerPct', 'killSwitchDrawdownPct', 'resetHalt', 'watchers', 'leverage', 'bots'];
 const PER_BOT_KEYS = ['enabled', 'strategyId', 'strategyName', 'riskPct', 'killSwitchDrawdownPct', 'allocationPct'];
-const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'GNEWS_KEY', 'PUSHOVER_TOKEN', 'PUSHOVER_USER', 'sttOpenaiKey'];
+const SECRET_KEYS = ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'NEWSAPI_AI_KEY', 'GNEWS_KEY', 'PUSHOVER_TOKEN', 'PUSHOVER_USER', 'sttOpenaiKey', 'TYPESAFE_API_KEY'];
 const MASK = '•••';
 
 export function maskedSettings(settingsPath) {
@@ -180,6 +181,9 @@ export function writeSettings(settingsPath, patch) {
   // '0'/'1' (or true/false) and read via isSettingOn, not a strict JS boolean.
   if (patch.keepFresh !== undefined && patch.keepFresh !== null && patch.keepFresh !== '' && !['0', '1', true, false].includes(patch.keepFresh)) {
     throw new Error("keepFresh must be '0', '1', or a boolean");
+  }
+  if (patch.jevEnabled !== undefined && patch.jevEnabled !== null && patch.jevEnabled !== '' && !['0', '1', true, false].includes(patch.jevEnabled)) {
+    throw new Error("jevEnabled must be '0', '1', or a boolean");
   }
   // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
   // (chart/quote poll interval, seconds) — both per-granularity maps.
@@ -1155,6 +1159,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // #195: per-granularity light-tick override map — smallest clean path
         // is the payload the chart already fetches every load()/light-tick.
         data.uiRefreshSeconds = cfg.uiRefreshSeconds ?? null;
+        // Advisory per-candle Jev verdicts for the visible window; absent when off.
+        if (jevActive(cfg) && data.candles?.length) {
+          data.jev = jevDecisions(dbPath, instrument, granularity, data.candles[0].time, data.candles.at(-1).time);
+        }
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));

@@ -272,6 +272,7 @@
   #topbar select, #topbar button, dialog input:not([type=checkbox]), dialog select, dialog button:not(.dlg-x) { height: 30px; box-sizing: border-box; }
   dialog textarea { box-sizing: border-box; }
   input, select, textarea { background: #010409; color: #e6edf3; border: 1px solid #30363d; border-radius: 4px; padding: 4px 6px; }
+  input:disabled, select:disabled { opacity: 0.45; cursor: not-allowed; }
   /* #87: one shared primary-green treatment — calmer green, readable weight,
      subtle hover/active. Bare <button> is primary; secondary/destructive controls
      opt out by overriding background at their own (id/class) specificity.
@@ -1292,6 +1293,14 @@ function draw(d) {
   const t = (d.signal && d.signal.time) || qs.get('t');
   const sigCandle = cs.find(k => k.time === t);
   const marker = sigCandle ? [{ x: P(sigCandle.time), y: sigCandle.close }] : [];
+  // Advisory Jev verdicts: one marker per scored candle on a fixed bottom row.
+  const jevByMs = Object.fromEntries((d.jev || []).map((v) => [P(v.time), v]));
+  const jevP = (v) => (v.action === 'long' ? v.pLong : v.action === 'short' ? v.pShort : v.pFlat) ?? 0;
+  const jevColor = (v) => {
+    const rgb = v.action === 'long' ? '63,185,80' : v.action === 'short' ? '248,81,73' : '139,148,158';
+    return 'rgba(' + rgb + ',' + (0.25 + 0.75 * jevP(v)).toFixed(2) + ')';
+  };
+  const jevData = (d.jev || []).map((v) => ({ x: P(v.time), y: 0.5, v }));
 
   const overlays = [];
   if (d.indicators) {
@@ -1335,6 +1344,11 @@ function draw(d) {
         { type: 'scatter', data: marker, yAxisID: 'y', pointStyle: 'circle', radius: 7, backgroundColor: '#d29922', borderWidth: 0 },
         ...overlays,
         ...tradeMarkers,
+        { type: 'scatter', data: jevData, yAxisID: 'jev', borderWidth: 0,
+          pointStyle: (c) => (c.raw && c.raw.v.action === 'flat' ? 'circle' : 'triangle'),
+          rotation: (c) => (c.raw && c.raw.v.action === 'short' ? 180 : 0),
+          radius: (c) => (c.raw && c.raw.v.action === 'flat' ? 2 : 4),
+          backgroundColor: (c) => (c.raw ? jevColor(c.raw.v) : 'transparent') },
       ],
     },
     plugins: [{
@@ -1387,6 +1401,8 @@ function draw(d) {
                } } },
         y: { position: 'right', ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
         vol: { position: 'left', display: false, max: maxVol * 5, min: 0 },
+        // Jev row: the scale puts y=0.5 just above the bottom edge of the plot.
+        jev: { position: 'left', display: false, min: 0, max: 40 },
       },
       plugins: {
         legend: { display: false },
@@ -1404,6 +1420,12 @@ function draw(d) {
                 'volume ' + (k.volume ?? '—') + (k.partial ? '  (forming)' : ''),
               ];
               if (st) lines.push('supertrend ' + st.value + ' ' + st.trend);
+              const jv = jevByMs[P(k.time)];
+              if (jv) {
+                const pct = (x) => (x == null ? '—' : Math.round(x * 100) + '%');
+                lines.push('jev ' + jv.action + ' (long ' + pct(jv.pLong) + ' · short ' + pct(jv.pShort) + ' · flat ' + pct(jv.pFlat) + ')');
+                lines.push('jev setup ' + (jv.quality == null ? '—' : jv.quality.toFixed(1)) + '/4 · trend confirmed ' + pct(jv.trendConfirmed));
+              }
               return lines;
             },
           },
@@ -2024,7 +2046,7 @@ const GNEWS_MODE_VALUES = ['off', 'shadow', 'auto'];
 // descriptor (4th element) — field() below applies it generically instead of
 // special-casing one key by name.
 const NEWS_FIELDS = [['NEWSAPI_AI_KEY', 'password'], ['NEWSAPI_AI_MODE', 'select', NEWSAPI_AI_MODE_VALUES.map((m) => [m, m])], ['NEWSAPI_AI_INSTRUMENTS', 'text'], ['NEWSAPI_AI_REQUEST_BUDGET', 'number'], ['NEWSAPI_AI_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['GNEWS_KEY', 'password'], ['GNEWS_MODE', 'select', GNEWS_MODE_VALUES.map((m) => [m, m]), 'off'], ['GNEWS_INSTRUMENTS', 'text'], ['GNEWS_REQUEST_BUDGET', 'number'], ['GNEWS_BACKGROUND', 'select', [['', 'off'], ['1', 'on']]], ['sentinelSourceFootnotes', 'select', [['1', 'on'], ['0', 'off']], '1']];
-const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['PUSHOVER_ENABLED', 'select', [['', 'off'], ['1', 'on']]], ['PUSHOVER_TOKEN', 'password'], ['PUSHOVER_USER', 'password'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number']];
+const ADV_FIELDS = [['watchers', 'text'], ['instrument', 'text'], ['instruments', 'text'], ['granularity', 'text'], ['freshBars', 'number'], ['notesFile', 'text'], ['notifierBin', 'text'], ['PUSHOVER_ENABLED', 'select', [['', 'off'], ['1', 'on']]], ['PUSHOVER_TOKEN', 'password'], ['PUSHOVER_USER', 'password'], ['port', 'number'], ['keepFresh', 'select', [['1', 'on'], ['0', 'off']], '1'], ['cycleMinutes', 'json', '{"M1":1,"M5":5}'], ['uiRefreshSeconds', 'json', '{"M1":3,"M5":10}'], ['impulseVolMult', 'number'], ['impulseVolWindow', 'number'], ['impulseCooldownBars', 'number'], ['TYPESAFE_API_KEY', 'password'], ['jevEnabled', 'select', [['', 'off'], ['1', 'on']]]];
 // #172 (F31): one-line description per settings field, shown as both a title
 // attr (hover) and small text under the input (no hover required). port gets
 // the one danger case below (its .fieldhint.danger + ⚠ is inlined at the
@@ -2054,6 +2076,8 @@ const FIELD_HINTS = {
   uiRefreshSeconds: 'per-granularity chart/quote poll interval in seconds, JSON e.g. {"M1":3,"M5":10} — unset key defaults by granularity (M1 3s, M5 10s, M15 30s, M30/H1+ 60s). Faster means more chart requests.',
   impulseVolMult: 'volume-impulse alert threshold: each of the 2 most recent bars must be >= this multiple of the average volume over the prior window (default 2)',
   impulseVolWindow: 'volume-impulse: number of prior bars averaged for the volume-multiple check (default 20)',
+  TYPESAFE_API_KEY: 'TypeSafe API key for the Jev per-candle verdicts (advisory chart markers only)',
+  jevEnabled: 'score each closed candle with TypeSafe Jev and mark the verdict under the candle; needs TYPESAFE_API_KEY',
   impulseCooldownBars: 'volume-impulse: bars to wait before another impulse alert for the same combo (default 10). Fires on the close of the second qualifying bar.',
   PUSHOVER_ENABLED: 'send alerts to your phone via Pushover, IN ADDITION to the desktop notification (opt-in; off changes nothing). The alert text (instrument, direction, price) leaves this machine over Pushover\'s hosted service. Requires PUSHOVER_TOKEN and PUSHOVER_USER below. The free allowance is 10,000 messages/month per application token, and the desktop notification still carries the alert if a push is rejected.',
   PUSHOVER_TOKEN: 'Pushover application API token (from pushover.net) — required with PUSHOVER_USER for push to fire',
@@ -2198,6 +2222,13 @@ async function cfg() {
     f.querySelector('#llmDyn').innerHTML = renderLlmDyn(e.target.value);
   };
   const foot = f.querySelector('.cfgfoot');
+  // Jev runs only with a stored key; the server applies the same rule.
+  const jevKey = f.elements.TYPESAFE_API_KEY, jevSel = f.elements.jevEnabled;
+  if (jevKey && jevSel) {
+    const syncJev = () => { jevSel.disabled = !jevKey.value; };
+    jevKey.addEventListener('input', syncJev);
+    syncJev();
+  }
   document.getElementById('cfgTabs').onclick = (e) => {
     const tab = e.target.closest('button')?.dataset.tab; if (!tab) return;
     localStorage.setItem('cfgTab', tab);

@@ -2074,6 +2074,18 @@ async function runOne(opts) {
       result.bot = { error: err.message };
     }
   }
+
+  // Advisory Jev verdicts run last so a slow or failing TypeSafe call can
+  // never delay an alert or the bot; an unscored bar is retried next cycle.
+  if (opts.db) {
+    try {
+      const { scoreClosedBars } = await import('./jev.mjs');
+      result.jev = await scoreClosedBars(opts.db, readSettings(opts.settings), { instrument: opts.instrument, granularity: opts.granularity, candles, st, flips });
+    } catch (err) {
+      dbg(`jev scoring failed (alerts unaffected): ${err.message}`);
+      result.jev = { error: err.message };
+    }
+  }
   return result;
 }
 
