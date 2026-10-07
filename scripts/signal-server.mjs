@@ -35,7 +35,7 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { jevActive, jevDecisions } from './jev.mjs';
+import { jevActive, jevPredict } from './jev.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -1127,7 +1127,7 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
   } catch { /* best-effort warning only */ }
 }
 
-export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, jevFetch = fetch }) {
   warnLegacyLaunchAgent();
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
@@ -1159,10 +1159,6 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
         // #195: per-granularity light-tick override map — smallest clean path
         // is the payload the chart already fetches every load()/light-tick.
         data.uiRefreshSeconds = cfg.uiRefreshSeconds ?? null;
-        // Advisory per-candle Jev verdicts for the visible window; absent when off.
-        if (jevActive(cfg) && data.candles?.length) {
-          data.jev = jevDecisions(dbPath, instrument, granularity, data.candles[0].time, data.candles.at(-1).time);
-        }
         // per-combo bot state for the header icon (#49 design: dot=combo, ring=global halt)
         const botFor = resolveBotFor(cfg, instrument, granularity, dbPath);
         const pfB = portfolioView(dbPath, botConfig(cfg));
@@ -1269,6 +1265,24 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles }) {
       // view (never a deep-linked/historical one). Same-origin guarded above
       // like every other non-GET route. Never touches the signals/
       // signal_snapshots rows it reads — persists a NEW signal_rechecks row.
+      // Live Jev prediction for the current candle. POST because every call is a
+      // paid TypeSafe request; nothing is stored or read by the trading paths.
+      if (url.pathname === '/api/jev' && req.method === 'POST') {
+        const body = await readJson(req, res);
+        if (body === undefined) return;
+        const cfg = readSettings(settingsPath);
+        if (!jevActive(cfg)) return json(res, 409, { ok: false, error: 'Jev is off: store a TypeSafe API key and turn Jev on in settings' });
+        const instrument = typeof body?.instrument === 'string' && body.instrument ? body.instrument : null;
+        const granularity = typeof body?.granularity === 'string' && isGranularity(body.granularity) ? body.granularity : null;
+        if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        try {
+          const { candles } = await chartData(dbPath, instrument, { granularity, fetcher, count: 400 });
+          if (!candles.length) return json(res, 404, { ok: false, error: `no candles for ${instrument} ${granularity}` });
+          return json(res, 200, { ok: true, prediction: await jevPredict(cfg, { instrument, granularity, candles }, { fetchFn: jevFetch }) });
+        } catch (err) {
+          return json(res, 502, { ok: false, error: err.message });
+        }
+      }
       if (url.pathname === '/api/recheck' && req.method === 'POST') {
         const body = await readJson(req, res);
         if (body === undefined) return;
