@@ -74,7 +74,7 @@ func (e *Engine) Get(ctx context.Context, path string, q url.Values, out any) er
 	return json.Unmarshal(body, out)
 }
 
-const predictTimeout = 20 * time.Second
+const predictTimeout = 40 * time.Second
 
 // Predict is the one non-GET engine call: it asks the engine for the current
 // advisory prediction, reusing a still-valid stored run. The engine refuses
@@ -89,8 +89,9 @@ func (e *Engine) Predict(ctx context.Context, instrument, granularity string) (j
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// The engine's worst case (candle fetch, a 5 s provider attempt, a retry delay and a
-	// second 5 s attempt) exceeds the shared 10 s client timeout, so this call gets its own.
+	// The engine's worst case (a candle fetch of up to 25 s, a 5 s provider attempt, a retry
+	// delay and a second 5 s attempt, about 35.5 s) exceeds the shared 10 s client timeout,
+	// so this call gets its own.
 	c := *e.Client
 	c.Timeout = predictTimeout
 	resp, err := c.Do(req)

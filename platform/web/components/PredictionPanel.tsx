@@ -32,6 +32,8 @@ const left = (iso: string, now: number) => {
 // auto-update is chosen per instrument and timeframe and remembered in this browser
 const loadAuto = (symbol: string, gran: string) => { try { return localStorage.getItem(`${AUTO_KEY}${symbol}|${gran}`) === '1'; } catch { return false; } };
 const saveAuto = (symbol: string, gran: string, on: boolean) => { try { localStorage.setItem(`${AUTO_KEY}${symbol}|${gran}`, on ? '1' : '0'); } catch { /* private window */ } };
+// the timeframes the engine predicts on; mirrors isPredictionGranularity in scripts/predictions.mjs
+const SUPPORTED = new Set(['M1', 'M5', 'M15', 'M30', 'H1', 'H4']);
 const opposite = (a: Action, b: Action) => (a === 'long' && b === 'short') || (a === 'short' && b === 'long');
 
 // Desktop notification for a long/short flip; it fires only while this console tab is open.
@@ -84,7 +86,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   useEffect(() => {
     current.current = granularity;
     setRuns([]); setShownId(null); setErr(null); setLoadedFor(null); autoCandle.current = null; lastDir.current = null;
-    if (!enabled || !granularity) return;
+    if (!enabled || !SUPPORTED.has(granularity)) return;
     let live = true; // a restore that answers after this effect is cleaned up is ignored
     const q = `/engine/predictions?instrument=${encodeURIComponent(symbol)}&granularity=${granularity}`;
     Promise.all([api<{ predictions: Prediction[] }>(`${q}&limit=${HISTORY}`), api<{ predictions: Prediction[] }>(`${q}&limit=1&directional=1`)])
@@ -132,6 +134,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   }, []);
 
   if (!enabled || !granularity) return null;
+  if (!SUPPORTED.has(granularity)) return <Card title="Prediction"><p className="small muted">Predictions are not available on {granularity}. They run on M1, M5, M15, M30, H1 and H4.</p></Card>;
   const p = runs.find((r) => r.id === shownId) ?? runs[0];
   const isLatest = p && p.id === runs[0]?.id;
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
