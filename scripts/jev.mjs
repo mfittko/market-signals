@@ -34,7 +34,7 @@ const JEV_DDL = `CREATE TABLE IF NOT EXISTS jev_decisions (
 // The single on/off rule shared by the cycle and the chart: a stored key AND
 // the explicit opt-in toggle. A toggle left on after the key is removed is off.
 export function jevActive(settings = {}) {
-  return Boolean(settings.TYPESAFE_API_KEY) && ['1', true].includes(settings.jevEnabled);
+  return Boolean(String(settings.TYPESAFE_API_KEY ?? '').trim()) && ['1', true].includes(settings.jevEnabled);
 }
 
 const GRAN_WORDS = { M1: '1-minute', M5: '5-minute', M15: '15-minute', M30: '30-minute', H1: '1-hour', H4: '4-hour', D: 'daily' };
@@ -57,6 +57,8 @@ export function jevState(summary, { instrument, granularity, trend, barsSinceFli
   const range = bar.high - bar.low;
   const closeAt = range > 0 ? (bar.close - bar.low) / range : 0.5;
   const ex = summary.extremes;
+  const nearHigh = ex.highAtr != null && ex.highAtr < 1;
+  const nearLow = ex.lowAtr != null && ex.lowAtr < 1;
   return {
     instrument,
     timeframe: GRAN_WORDS[granularity] || granularity,
@@ -67,11 +69,11 @@ export function jevState(summary, { instrument, granularity, trend, barsSinceFli
     rsi: band(summary.rsi14, [30, 45, 55, 70], ['oversold', 'weak', 'neutral', 'strong', 'overbought']),
     macd: summary.macdHist == null ? 'unknown' : summary.macdHist >= 0 ? 'histogram positive' : 'histogram negative',
     bollinger: summary.bollinger ? band(summary.bollinger.pctB, [0, 0.2, 0.8, 1], ['below the lower band', 'near the lower band', 'mid-band', 'near the upper band', 'above the upper band']) : 'unknown',
-    last_bar: (bar.close >= bar.open ? 'green' : 'red') + ' ' + band(summary.barRangeAtr, [0.5, 1.5], ['small', 'normal-size', 'large']) + ' candle, closing '
+    last_bar: (bar.close >= bar.open ? 'green' : 'red') + (summary.barRangeAtr == null ? '' : ' ' + band(summary.barRangeAtr, [0.5, 1.5], ['small', 'normal-size', 'large'])) + ' candle, closing '
       + band(closeAt, [0.25, 0.75], ['near its low', 'mid-range', 'near its high']),
     volume: band(summary.volume.ratio20, [0.7, 1.3, 2], ['below average', 'average', 'above average', 'very high']),
-    recent_range: ex.highAtr != null && ex.highAtr < 1 ? 'near the 20-bar high'
-      : ex.lowAtr != null && ex.lowAtr < 1 ? 'near the 20-bar low' : 'inside the 20-bar range',
+    recent_range: nearHigh && nearLow ? 'inside a tight 20-bar range'
+      : nearHigh ? 'near the 20-bar high' : nearLow ? 'near the 20-bar low' : 'inside the 20-bar range',
   };
 }
 
@@ -115,7 +117,7 @@ export async function jevDecide(settings, state, { fetchFn = fetch, timeoutMs = 
     if (!res.ok) throw new Error(`jev HTTP ${res.status}`);
     const json = await res.json();
     const a = json.answers || {};
-    if (a.action?.type !== 'choice' || a.setup_quality?.type !== 'score' || a.trend_confirmed?.type !== 'noul') {
+    if (a.action?.type !== 'choice' || !a.action.probabilities || a.setup_quality?.type !== 'score' || a.trend_confirmed?.type !== 'noul') {
       throw new Error('jev response missing typed answers');
     }
     return {

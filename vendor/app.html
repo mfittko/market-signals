@@ -2225,7 +2225,9 @@ async function cfg() {
   // Jev runs only with a stored key; the server applies the same rule.
   const jevKey = f.elements.TYPESAFE_API_KEY, jevSel = f.elements.jevEnabled;
   if (jevKey && jevSel) {
-    const syncJev = () => { jevSel.disabled = !jevKey.value; };
+    // clearing the key also turns the toggle off, so a later key never
+    // re-enables Jev without an explicit choice
+    const syncJev = () => { jevSel.disabled = !jevKey.value; if (!jevKey.value) jevSel.value = ''; };
     jevKey.addEventListener('input', syncJev);
     syncJev();
   }

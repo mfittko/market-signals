@@ -70,6 +70,28 @@ test('jevDecide retries once on 429 and fails on other errors', async () => {
   await assert.rejects(jevDecide(KEYED, {}, { fetchFn: async () => ({ ok: true, status: 200, json: async () => ({ answers: {} }) }) }), /typed answers/);
 });
 
+test('jevDecide retries once on 529, aborts on timeout, and rejects answers without probabilities', async () => {
+  let n = 0;
+  const overloaded = async () => (++n === 1 ? { ok: false, status: 529 } : { ok: true, status: 200, json: async () => answer() });
+  assert.equal((await jevDecide(KEYED, {}, { fetchFn: overloaded, retryDelayMs: 0 })).action, 'long');
+  assert.equal(n, 2);
+  const hang = (_, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
+  await assert.rejects(jevDecide(KEYED, {}, { fetchFn: hang, timeoutMs: 10 }), /timeout|aborted/i);
+  const noProbs = answer(); delete noProbs.answers.action.probabilities;
+  await assert.rejects(jevDecide(KEYED, {}, { fetchFn: async () => ({ ok: true, status: 200, json: async () => noProbs }) }), /typed answers/);
+});
+
+test('jevActive treats a whitespace-only key as missing', () => {
+  assert.equal(jevActive({ TYPESAFE_API_KEY: '  ', jevEnabled: '1' }), false);
+});
+
+test('jevState: a tight range is neither near-high nor near-low only', () => {
+  const flat = Array.from({ length: 40 }, (_, i) => ({ time: new Date(Date.UTC(2026, 0, 5) + i * 300000).toISOString(), open: 100, high: 100.2, low: 99.8, close: 100, volume: 100 }));
+  const state = jevState(indicatorSummary(flat), { instrument: 'X', granularity: 'M5', trend: 'up', barsSinceFlip: null, bar: flat.at(-1) });
+  assert.equal(state.recent_range, 'inside a tight 20-bar range');
+  assert.equal(state.supertrend, 'bullish, no flip in view');
+});
+
 test('scoreClosedBars scores the newest bars once and is idempotent', async () => {
   const db = join(mkdtempSync(join(tmpdir(), 'jev-')), 'c.db');
   const st = computeSupertrend(bars);

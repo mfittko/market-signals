@@ -2074,18 +2074,8 @@ async function runOne(opts) {
       result.bot = { error: err.message };
     }
   }
-
-  // Advisory Jev verdicts run last so a slow or failing TypeSafe call can
-  // never delay an alert or the bot; an unscored bar is retried next cycle.
-  if (opts.db) {
-    try {
-      const { scoreClosedBars } = await import('./jev.mjs');
-      result.jev = await scoreClosedBars(opts.db, readSettings(opts.settings), { instrument: opts.instrument, granularity: opts.granularity, candles, st, flips });
-    } catch (err) {
-      dbg(`jev scoring failed (alerts unaffected): ${err.message}`);
-      result.jev = { error: err.message };
-    }
-  }
+  // Jev scoring is deferred to runWatcherCycle, after every combo's alerts.
+  opts.jevJobs?.push({ instrument: opts.instrument, granularity: opts.granularity, candles, st, flips });
   return result;
 }
 
@@ -2093,6 +2083,9 @@ async function runOne(opts) {
 // cache grounding), extracted from CLI main() unchanged so main() becomes a
 // thin wrapper — same code path either invoker uses, so alert behavior is
 // identical by construction (no separate "server mode" logic to drift).
+// Wall-clock cap for all Jev scoring in one cycle; well under the shortest
+// (M1) cycle so the in-flight guard never skips a cycle because of Jev.
+const JEV_CYCLE_BUDGET_MS = 15000;
 export async function runWatcherCycle(opts, cfg) {
   // #195 keep-fresh caller (per-granularity concurrent cycles) already has its
   // own scoped combos array in hand — accepting it directly here skips a
@@ -2100,12 +2093,31 @@ export async function runWatcherCycle(opts, cfg) {
   // other caller, CLI included, still resolves the combos itself as before).
   const combos = opts.combos ?? parseWatchers(cfg, { instrument: opts.instrument, granularity: opts.granularity });
   const results = [];
+  const jevJobs = [];
   for (const combo of combos) {
     try {
-      results.push(await runOne({ ...opts, ...combo }));
+      results.push(await runOne({ ...opts, ...combo, jevJobs }));
     } catch (err) {
       dbg(`watcher ${combo.instrument} ${combo.granularity} failed: ${err.message}`);
       results.push({ ok: false, ...combo, error: err.message });
+    }
+  }
+
+  // Advisory Jev verdicts run only after every combo's alerts and bot step, so
+  // a slow or failing TypeSafe call can never delay a signal. The time budget
+  // keeps a degraded API from stretching the cycle into the next one; skipped
+  // bars are retried next cycle.
+  if (opts.db && jevJobs.length) {
+    const { scoreClosedBars, jevActive } = await import('./jev.mjs');
+    const settings = readSettings(opts.settings);
+    const deadline = Date.now() + JEV_CYCLE_BUDGET_MS;
+    for (const job of jevActive(settings) ? jevJobs : []) {
+      if (Date.now() > deadline) break;
+      try {
+        await scoreClosedBars(opts.db, settings, job);
+      } catch (err) {
+        dbg(`jev scoring ${job.instrument} ${job.granularity} failed (alerts unaffected): ${err.message}`);
+      }
     }
   }
 
