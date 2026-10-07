@@ -1323,7 +1323,8 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const granularity = url.searchParams.get('granularity') ?? '';
         if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isPredictionGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         const n = Number(url.searchParams.get('limit'));
-        return json(res, 200, { ok: true, predictions: listPredictions(dbPath, instrument, granularity, Number.isInteger(n) && n > 0 ? n : 20) });
+        const directional = url.searchParams.get('directional') === '1';
+        return json(res, 200, { ok: true, predictions: listPredictions(dbPath, instrument, granularity, Number.isInteger(n) && n > 0 ? n : 20, Date.now(), { directional }) });
       }
       // #70: operator-initiated re-check of the LATEST signal of the current
       // view (never a deep-linked/historical one). Same-origin guarded above

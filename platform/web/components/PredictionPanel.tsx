@@ -61,9 +61,17 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const [now, setNow] = useState(() => Date.now());
   const current = useRef(granularity);
   const autoCandle = useRef<string | null>(null);
-  const runsRef = useRef<Prediction[]>([]);
+  // the newest long or short run, kept apart from the ten-row history so no_trade runs never erase the flip baseline
+  const lastDir = useRef<{ id: number; action: Action } | null>(null);
   const autoRef = useRef(false);
-  runsRef.current = runs; autoRef.current = auto;
+  autoRef.current = auto;
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    const on = () => setVisible(document.visibilityState === 'visible');
+    on();
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  }, []);
 
   useEffect(() => { setAutoState({ gran: granularity, on: loadAuto(symbol, granularity) }); }, [symbol, granularity]);
   useEffect(() => {
@@ -75,11 +83,21 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   // restore: the stored runs of this instrument and timeframe, newest first
   useEffect(() => {
     current.current = granularity;
-    setRuns([]); setShownId(null); setErr(null); setLoadedFor(null); autoCandle.current = null;
+    setRuns([]); setShownId(null); setErr(null); setLoadedFor(null); autoCandle.current = null; lastDir.current = null;
     if (!enabled || !granularity) return;
-    api<{ predictions: Prediction[] }>(`/engine/predictions?instrument=${encodeURIComponent(symbol)}&granularity=${granularity}&limit=${HISTORY}`)
-      .then((r) => { if (current.current === granularity) { setRuns(r.predictions); setLoadedFor(granularity); } })
-      .catch((e) => { if (current.current === granularity) { setErr(e instanceof Error ? e.message : String(e)); setLoadedFor(granularity); } });
+    let live = true; // a restore that answers after this effect is cleaned up is ignored
+    const q = `/engine/predictions?instrument=${encodeURIComponent(symbol)}&granularity=${granularity}`;
+    Promise.all([api<{ predictions: Prediction[] }>(`${q}&limit=${HISTORY}`), api<{ predictions: Prediction[] }>(`${q}&limit=1&directional=1`)])
+      .then(([r, d]) => {
+        if (!live) return;
+        // keep runs a "Predict now" completed while this restore was pending
+        setRuns((rs) => [...rs, ...r.predictions.filter((x) => !rs.some((y) => y.id === x.id))].sort((a, b) => b.id - a.id).slice(0, HISTORY));
+        const dir = d.predictions[0];
+        if (dir && (!lastDir.current || dir.id > lastDir.current.id)) lastDir.current = { id: dir.id, action: dir.action };
+        setLoadedFor(granularity);
+      })
+      .catch((e) => { if (live) { setErr(e instanceof Error ? e.message : String(e)); setLoadedFor(granularity); } });
+    return () => { live = false; };
   }, [enabled, symbol, granularity]);
 
   const predict = useCallback(async () => {
@@ -89,22 +107,24 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
       const r = await api<{ prediction: Prediction }>('/engine/predict', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity: asked }) });
       if (current.current !== asked) return;
       // a flip between long and short, judged against the last directional run, alerts while auto-update is on
-      const prev = runsRef.current.find((x) => x.action !== 'no_trade');
+      const prev = lastDir.current;
       if (autoRef.current && prev && opposite(prev.action, r.prediction.action)) notifyFlip(r.prediction, prev.action);
-      setRuns((rs) => [r.prediction, ...rs].slice(0, HISTORY)); setShownId(null); setNow(Date.now());
+      if (r.prediction.action !== 'no_trade' && (!prev || r.prediction.id > prev.id)) lastDir.current = { id: r.prediction.id, action: r.prediction.action };
+      setRuns((rs) => [r.prediction, ...rs.filter((x) => x.id !== r.prediction.id)].slice(0, HISTORY)); setShownId(null); setNow(Date.now());
     } catch (e) { if (current.current === asked) setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }, [symbol, granularity]);
 
-  // auto-update: one run per new candle while ticked; the live feed only polls while the tab is visible
+  // auto-update: one run per new candle while ticked and the tab is visible; a candle that arrived while
+  // hidden is picked up when the tab becomes visible again
   useEffect(() => {
-    if (!enabled || !loaded || !auto || busy || !liveCandleTime) return;
+    if (!enabled || !loaded || !auto || busy || !liveCandleTime || !visible || document.visibilityState !== 'visible') return;
     // strictly newer only: the live feed can step back to the last closed bar when an upstream fetch fails
     const seen = Math.max(timeMs(runs[0]?.candleTime ?? '') || 0, timeMs(autoCandle.current ?? '') || 0);
     if (!(timeMs(liveCandleTime) > seen)) return;
     autoCandle.current = liveCandleTime;
     void predict();
-  }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict]);
+  }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict, visible]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);

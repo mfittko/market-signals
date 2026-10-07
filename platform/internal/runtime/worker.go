@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfittko/market-signals/platform/internal/domain"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
@@ -141,7 +142,8 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 	}
 	var visible []tools.Def
 	for _, d := range defs {
-		if allow[d.Name] {
+		// the prediction endpoint refuses other timeframes, so such an agent never sees the tool
+		if allow[d.Name] && (d.Name != "get_prediction" || domain.PredictionGranularity(cl.Agent.Granularity)) {
 			visible = append(visible, d)
 		}
 	}

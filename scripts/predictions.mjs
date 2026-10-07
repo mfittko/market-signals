@@ -49,13 +49,32 @@ const toRow = (r, now = Date.now()) => {
 // The prediction for the pair right now. With `reuse`, the latest stored run is
 // returned while it is still valid (no provider call); otherwise `loadCandles`
 // supplies the current window and a new run is made and stored.
-export async function currentPrediction(dbPath, settings, { instrument, granularity, loadCandles }, { reuse = false, now = Date.now(), ...opts } = {}) {
-  if (reuse) {
-    const latest = listPredictions(dbPath, instrument, granularity, 1, now)[0];
-    if (latest?.valid) return { ...latest, reused: true };
+// Concurrent reuse callers for one pair share a single in-flight run, so they make one paid call.
+const inflight = new Map();
+
+export async function currentPrediction(dbPath, settings, input, { reuse = false, now = Date.now(), ...opts } = {}) {
+  const { instrument, granularity } = input;
+  if (!reuse) return freshPrediction(dbPath, settings, input, now, opts);
+  const latest = listPredictions(dbPath, instrument, granularity, 1, now)[0];
+  if (latest?.valid) return { ...latest, reused: true };
+  const key = `${dbPath}|${instrument}|${granularity}`;
+  let run = inflight.get(key);
+  if (!run) {
+    run = freshPrediction(dbPath, settings, input, now, opts).finally(() => inflight.delete(key));
+    inflight.set(key, run);
   }
+  return run;
+}
+
+async function freshPrediction(dbPath, settings, { instrument, granularity, loadCandles }, now, opts) {
   const candles = await loadCandles();
   if (!candles.length) throw Object.assign(new Error(`no candles for ${instrument} ${granularity}`), { status: 404 });
+  // The chart serves stored candles when the live fetch fails. A window whose newest bar started more
+  // than two candle durations ago is not the current candle, so it is refused rather than predicted on.
+  const newest = candles[candles.length - 1].time;
+  if (!(Date.parse(newest) > now - 2 * granularityMs(granularity))) {
+    throw Object.assign(new Error(`no current data for ${instrument} ${granularity}: the newest candle is from ${newest}, so no prediction was made`), { status: 503 });
+  }
   return { ...(await runPrediction(dbPath, settings, { instrument, granularity, candles }, { now, ...opts })), reused: false };
 }
 
@@ -73,11 +92,11 @@ export async function runPrediction(dbPath, settings, input, opts = {}) {
   });
 }
 
-// Stored runs for one instrument and timeframe, newest first.
-export function listPredictions(dbPath, instrument, granularity, limit = 20, now = Date.now()) {
+// Stored runs for one instrument and timeframe, newest first. `directional` keeps only long and short runs.
+export function listPredictions(dbPath, instrument, granularity, limit = 20, now = Date.now(), { directional = false } = {}) {
   return withDb(dbPath, (db) => {
     db.exec(DDL);
-    return db.prepare('SELECT * FROM predictions WHERE instrument = ? AND granularity = ? ORDER BY id DESC LIMIT ?')
+    return db.prepare(`SELECT * FROM predictions WHERE instrument = ? AND granularity = ?${directional ? " AND action != 'no_trade'" : ''} ORDER BY id DESC LIMIT ?`)
       .all(instrument, granularity, Math.min(Math.max(1, limit), PREDICTIONS_MAX_LIMIT)).map((r) => toRow(r, now));
   });
 }

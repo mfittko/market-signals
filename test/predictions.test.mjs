@@ -10,7 +10,8 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { buildServer, botToolDefs, chatToolDefs, execChatTool } from '../scripts/signal-server.mjs';
 import { writeFileSync } from 'node:fs';
 
-const T0 = Date.UTC(2026, 0, 5, 0, 0);
+// recent bars, so the newest one is the current M5 candle and passes the freshness check
+const T0 = Math.floor(Date.now() / 300000) * 300000 - 199 * 300000;
 // 200 rising M5 bars (enough to resample M15 and H1), the last one forming.
 const bars = Array.from({ length: 200 }, (_, i) => {
   const close = 100 + i * 0.05;
@@ -209,6 +210,7 @@ test('every prediction run is stored and restorable, newest first, scoped to the
     assert.equal(r.predictions[0].provider, 'typesafe-jev');
     assert.equal(typeof r.predictions[0].state.current_candle, 'string');
     assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=M5&limit=1')).predictions.map((p) => p.id), [second.id]);
+    assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=M5&limit=1&directional=1')).predictions.map((p) => p.id), [second.id]);
     assert.deepEqual((await list('instrument=WTICO%2FUSD&granularity=H1')).predictions, []);
     assert.equal((await fetch(`${base}/api/predictions?instrument=x&granularity=M5`)).status, 400);
     assert.equal(calls.length, 2, 'reading stored runs never calls the provider');
@@ -256,6 +258,37 @@ test('a run expires one candle duration after it was made, and reuse makes no ca
   assert.deepEqual([forced.reused, calls.length], [false, 3], 'without reuse every call runs');
   const m5 = await currentPrediction(dbPath, KEYED, { ...input, granularity: 'M5' }, { now: asked, fetchFn: okFetch(calls) });
   assert.equal(m5.expiresAt, new Date(asked + 300000).toISOString());
+});
+
+test('stale candles are refused before any provider call', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-')), 'db.sqlite');
+  const calls = [];
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => bars };
+  const now = Date.parse(bars.at(-1).time) + 600000; // two M5 candles after the newest bar started
+  await assert.rejects(currentPrediction(dbPath, KEYED, input, { now, fetchFn: okFetch(calls) }), (e) => e.status === 503 && /no current data/.test(e.message));
+  assert.equal(calls.length, 0);
+  assert.deepEqual(listPredictions(dbPath, 'WTICO/USD', 'M5'), []);
+});
+
+test('concurrent reuse calls share one run; calls without reuse stay independent', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-')), 'db.sqlite');
+  const calls = [];
+  const now = Date.parse(bars.at(-1).time) + 30000;
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => formingBars };
+  const [a, b] = await Promise.all([1, 2].map(() => currentPrediction(dbPath, KEYED, input, { reuse: true, now, fetchFn: okFetch(calls) })));
+  assert.deepEqual([a.id, calls.length], [b.id, 1]);
+  await Promise.all([1, 2].map(() => currentPrediction(dbPath, KEYED, input, { now, fetchFn: okFetch(calls) })));
+  assert.equal(calls.length, 3);
+});
+
+test('listPredictions with directional skips no_trade runs', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-')), 'db.sqlite');
+  const now = Date.parse(bars.at(-1).time) + 30000;
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => formingBars };
+  const long = await currentPrediction(dbPath, KEYED, input, { now, fetchFn: okFetch([]) });
+  for (let i = 0; i < 3; i++) await currentPrediction(dbPath, KEYED, input, { now, fetchFn: okFetch([], answer('no_trade')) });
+  assert.equal(listPredictions(dbPath, 'WTICO/USD', 'M5', 1, now)[0].action, 'no_trade');
+  assert.deepEqual(listPredictions(dbPath, 'WTICO/USD', 'M5', 1, now, { directional: true }).map((p) => p.id), [long.id]);
 });
 
 test('market_prediction: copilot only, offered only while on, never to the paper bot', async () => {
