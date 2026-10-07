@@ -26,6 +26,9 @@ var engineRoutes = map[string]bool{
 	"GET /messages":  true,
 	"POST /chat":     true,
 	"GET /portfolio": true, "GET /signals": true,
+	// POST /jev asks TypeSafe Jev for an advisory prediction on the current
+	// candle. The engine stores nothing and no trading path reads the answer.
+	"POST /jev": true,
 }
 
 // consoleSettingsKeys is the allowlist of engine settings the console Settings page writes.
@@ -45,6 +48,8 @@ var consoleSettingsKeys = map[string]bool{
 	"ind": true, "freshBars": true, "impulseVolMult": true, "impulseVolWindow": true,
 	"impulseCooldownBars": true, "filterMaxCompletionTokens": true, "keepFresh": true,
 	"sentinelSourceFootnotes": true, "NEWSAPI_AI_MODE": true, "GNEWS_MODE": true,
+	// Jev live prediction
+	"TYPESAFE_API_KEY": true, "jevEnabled": true,
 }
 
 // refusedSettingsKeys lists, sorted, the patch keys the console may not write.
