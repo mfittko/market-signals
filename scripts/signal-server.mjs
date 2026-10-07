@@ -751,8 +751,11 @@ export const CHAT_TOOLS = [
       // copilot only: the paper-trading bot never receives a prediction
       if (ctx?.caller !== 'chat') throw new Error('market_prediction is available to the copilot only');
       if (!predictionActive(ctx.settings)) throw new Error('predictions are off in settings');
-      const instrument = typeof a?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument) ? a.instrument : ctx.view?.instrument;
-      const granularity = isPredictionGranularity(a?.granularity) ? a.granularity : ctx.view?.granularity;
+      // the view is only a default: an explicit but invalid argument is refused, never swapped for another pair
+      if (a?.instrument != null && !(typeof a.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(a.instrument))) throw new Error(`invalid instrument: ${a.instrument}`);
+      if (a?.granularity != null && !isPredictionGranularity(a.granularity)) throw new Error(`unsupported granularity: ${a.granularity}`);
+      const instrument = a?.instrument ?? ctx.view?.instrument;
+      const granularity = a?.granularity ?? ctx.view?.granularity;
       if (!instrument || !isPredictionGranularity(granularity)) throw new Error('instrument and granularity are required');
       const loadCandles = () => predictionCandles(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher);
       return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, { instrument, granularity, loadCandles }, { reuse: true, fetchFn: ctx.providerFetch })));

@@ -87,7 +87,8 @@ test('jevDecide retries once on 429/529, and fails readably on 401, timeout and 
   }
   await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: false, status: 401 }) }), /rejected the API key/);
   const hang = (_, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
-  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: hang, timeoutMs: 10 }), /timeout|aborted/i);
+  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: hang, timeoutMs: 10 }), (e) => /unreachable or timed out/.test(e.message) && !/typesafe/i.test(e.message) && e.cause != null);
+  await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => { throw new TypeError('fetch failed'); } }), /unreachable or timed out/);
   const noProbs = answer(); delete noProbs.answers.action.probabilities;
   await assert.rejects(jevDecide(KEYED, {}, 'M5', { fetchFn: async () => ({ ok: true, status: 200, json: async () => noProbs }) }), /missing typed fields/);
   const broken = [
@@ -268,6 +269,10 @@ test('market_prediction: copilot only, offered only while on, never to the paper
   const ctx = { dbPath, settings: KEYED, view: { instrument: 'WTICO/USD', granularity: 'M5' }, providerFetch: okFetch(calls), fetcher: null };
   await assert.rejects(execChatTool('market_prediction', {}, { ...ctx, caller: undefined }), /copilot only/);
   await assert.rejects(execChatTool('market_prediction', {}, { ...ctx, caller: 'chat', settings: {} }), /predictions are off/);
+  // an explicit but invalid argument is refused, never replaced by the current view
+  for (const granularity of ['1h', 'h1', 'D']) await assert.rejects(execChatTool('market_prediction', { granularity }, { ...ctx, caller: 'chat' }), /unsupported granularity/);
+  await assert.rejects(execChatTool('market_prediction', { instrument: 'oil price' }, { ...ctx, caller: 'chat' }), /invalid instrument/);
+  assert.equal(calls.length, 0);
   const out = JSON.parse(await execChatTool('market_prediction', {}, { ...ctx, caller: 'chat' }));
   assert.match(out.advisory, /never places/);
   assert.deepEqual([out.instrument, out.granularity, out.action, out.valid, out.reused], ['WTICO/USD', 'M5', 'long', true, false]);

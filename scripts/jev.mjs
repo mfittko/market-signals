@@ -95,12 +95,18 @@ export async function jevDecide(settings, state, granularity, { fetchFn = fetch,
   const body = JSON.stringify({ model: JEV_MODEL, state, questions: jevQuestions(granularity) });
   const started = Date.now();
   for (let attempt = 0; ; attempt++) {
-    const res = await fetchFn(JEV_ENDPOINT, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${String(settings.TYPESAFE_API_KEY).trim()}`, 'content-type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    let res;
+    try {
+      res = await fetchFn(JEV_ENDPOINT, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${String(settings.TYPESAFE_API_KEY).trim()}`, 'content-type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      // network failure or timeout: neutral text, original kept as cause
+      throw new Error('The prediction service is unreachable or timed out', { cause: err });
+    }
     if ((res.status === 429 || res.status === 529) && attempt === 0) {
       await new Promise((r) => setTimeout(r, retryDelayMs));
       continue;
