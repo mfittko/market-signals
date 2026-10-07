@@ -53,8 +53,11 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const [shownId, setShownId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [auto, setAuto] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  // both carry the timeframe they belong to, so a render during a timeframe switch never acts on the old one's state
+  const [autoState, setAutoState] = useState({ gran: '', on: false });
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
+  const auto = autoState.gran === granularity && autoState.on;
+  const loaded = loadedFor === granularity;
   const [now, setNow] = useState(() => Date.now());
   const current = useRef(granularity);
   const autoCandle = useRef<string | null>(null);
@@ -62,7 +65,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const autoRef = useRef(false);
   runsRef.current = runs; autoRef.current = auto;
 
-  useEffect(() => { setAuto(loadAuto(symbol, granularity)); }, [symbol, granularity]);
+  useEffect(() => { setAutoState({ gran: granularity, on: loadAuto(symbol, granularity) }); }, [symbol, granularity]);
   useEffect(() => {
     api<{ TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean }>('/engine/settings')
       .then((s) => setEnabled(s.TYPESAFE_API_KEY === MASK && (s.predictionEnabled === '1' || s.predictionEnabled === true)))
@@ -72,11 +75,11 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   // restore: the stored runs of this instrument and timeframe, newest first
   useEffect(() => {
     current.current = granularity;
-    setRuns([]); setShownId(null); setErr(null); setLoaded(false); autoCandle.current = null;
+    setRuns([]); setShownId(null); setErr(null); setLoadedFor(null); autoCandle.current = null;
     if (!enabled || !granularity) return;
     api<{ predictions: Prediction[] }>(`/engine/predictions?instrument=${encodeURIComponent(symbol)}&granularity=${granularity}&limit=${HISTORY}`)
-      .then((r) => { if (current.current === granularity) { setRuns(r.predictions); setLoaded(true); } })
-      .catch((e) => { if (current.current === granularity) { setErr(e instanceof Error ? e.message : String(e)); setLoaded(true); } });
+      .then((r) => { if (current.current === granularity) { setRuns(r.predictions); setLoadedFor(granularity); } })
+      .catch((e) => { if (current.current === granularity) { setErr(e instanceof Error ? e.message : String(e)); setLoadedFor(granularity); } });
   }, [enabled, symbol, granularity]);
 
   const predict = useCallback(async () => {
@@ -115,7 +118,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
 
   return (
     <Card title="Prediction" aside={<button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
-      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAuto(e.target.checked); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
+      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
       {err && <p className="msg err" role="alert">{err}</p>}
       {!p && !err && <p className="small muted">Predicts whether to enter long, short or not at all on the current {granularity} candle, judged over the next 3 candles. Advisory only.</p>}
       {p && (
