@@ -1178,10 +1178,13 @@ export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now 
     });
     if (!res.ok) throw new Error(`pricing HTTP ${res.status}`);
     const p = (await res.json())?.prices?.[0];
-    const bid = Number(p?.bids?.[0]?.price);
-    const ask = Number(p?.asks?.[0]?.price);
-    if (!Number.isFinite(bid) || !Number.isFinite(ask)) throw new Error('pricing returned no bid/ask');
-    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid: (bid + ask) / 2, spread: ask - bid };
+    const bidS = String(p?.bids?.[0]?.price ?? ''), askS = String(p?.asks?.[0]?.price ?? '');
+    const bid = Number(bidS), ask = Number(askS);
+    if (!bidS || !askS || !Number.isFinite(bid) || !Number.isFinite(ask)) throw new Error('pricing returned no bid/ask');
+    // mid and spread at the quote's own precision, like OANDA's mid candles (no 93.04599999999999)
+    const dp = Math.max(...[bidS, askS].map((s) => (s.split('.')[1] ?? '').length));
+    const round = (v) => Number(v.toFixed(dp));
+    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid: round((bid + ask) / 2), spread: round(ask - bid) };
   };
   return (instrument) => {
     const hit = cache.get(instrument);

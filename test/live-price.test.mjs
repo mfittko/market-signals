@@ -27,8 +27,8 @@ test('livePriceSource maps the first bid/ask level, shares in-flight calls and c
   assert.equal(a, b);
   assert.equal(a.bid, 93.109);
   assert.equal(a.ask, 93.139);
-  assert.ok(Math.abs(a.mid - 93.124) < 1e-9);
-  assert.ok(Math.abs(a.spread - 0.03) < 1e-9);
+  assert.equal(a.mid, 93.124); // rounded to the quote's 3 decimals, no float tail
+  assert.equal(a.spread, 0.03);
   t = 999; await get('WTICO/USD');
   assert.equal(calls.length, 1, 'still inside the TTL');
   await get('EUR/USD');
