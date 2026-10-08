@@ -15,8 +15,16 @@ import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
+const PRICE_POLL_MS = 2000;
+type Price = { mid: number; spread: number; time: string | null };
 type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
 type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; summary?: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
+// Moves the forming (last, incomplete) candle to the near-live mid. Finished candles stay as the engine sent them.
+function withPrice(candles: Candle[], mid: number | undefined): Candle[] {
+  const last = candles[candles.length - 1];
+  if (mid === undefined || last.complete !== false) return candles;
+  return [...candles.slice(0, -1), { ...last, close: mid, high: Math.max(last.high, mid), low: Math.min(last.low, mid) }];
+}
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Keyed by slug: switching instruments unmounts the old view completely (data, timeframe,
@@ -39,6 +47,7 @@ function InstrumentView() {
   const [allTr, setAllTr] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [liveErr, setLiveErr] = useState<string | null>(null);
+  const [price, setPrice] = useState<Price | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
   const [escalationPref, setOnlyEscalation] = useState(true);
@@ -79,6 +88,22 @@ function InstrumentView() {
     return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug, gran]);
 
+  // Near-live price every 2s while the tab is visible. It moves the forming candle of the latest
+  // 15s live data, which stays the source of truth. A failed poll drops back to the 15s behaviour.
+  useEffect(() => {
+    let dead = false;
+    const pull = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const r = await api<Price>(`/instruments/${slug}/price`);
+        if (!dead && Number.isFinite(r.mid)) setPrice(r);
+      } catch { if (!dead) setPrice(null); } // back to the 15s live data
+    };
+    void pull();
+    const t = setInterval(pull, PRICE_POLL_MS);
+    return () => { dead = true; clearInterval(t); };
+  }, [slug]);
+
   useEffect(() => {
     let dead = false;
     api<{ items: NewsItem[] }>(`/instruments/${slug}/news?hours=72`).then((r) => { if (!dead) setNews(r.items ?? []); }).catch(() => { if (!dead) setNews([]); });
@@ -90,7 +115,8 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const candles = live?.candles.length ? live.candles : d.candles;
+  const liveCandles = live?.candles.length ? withPrice(live.candles, price?.mid) : null;
+  const candles = liveCandles ?? d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
@@ -110,14 +136,14 @@ function InstrumentView() {
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small chart-aside">
-          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
+          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}${price ? ` · spread ${price.spread.toPrecision(2)}` : ''}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
           {(live || liveErr) && lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
         {!live && !liveErr ? (
           // Draw once, from the source that will stay: imported history first would jump when the live candles arrive.
           <div className="chart-wait" aria-busy="true"><Loading /></div>
         ) : candles.length ? (
-          <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
+          <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={price?.mid ?? live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
             news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />
