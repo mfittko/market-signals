@@ -1,7 +1,6 @@
 // Shared by the Prediction card and the chart tooltip: the chosen horizon (3, 6 or 12 candles) of the
 // up/down lookup, and the cost shield. Which instruments have a meaningful long-minus-short difference
 // is decided in one place, SIDE_DIFF_CALIBRATED in scripts/local-predict.mjs (sent as shield.shared).
-export const SHARED_NOTE = 'applies to both sides; direction not measurable for this instrument';
 
 // The card's horizon choice, remembered in this browser for every pair; the chart follows it.
 export const HORIZONS = [3, 6, 12] as const;
@@ -22,8 +21,8 @@ const dur = (bars: number, g: string) => { const m = (bars * granMs(g)) / 60000;
 export const horizonLabel = (n: number, g: string) => `${n} candles (${dur(n, g)})`;
 
 // The up/down lookup per horizon (updown in scripts/local-predict.mjs): an empirical frequency table, not an edge.
-// bars: whole percentages Long / Neutral / Short summing to 100.
-export type UpDownH = { level: string; key: string; n: number; pL: number; pN: number; pS: number; bars: [number, number, number]; label: string; d: number; ci: [number, number]; words: string };
+// bars: whole percentages Long / Short of the moves that went somewhere (>= 0.25 ATR), summing to 100.
+export type UpDownH = { level: string; key: string; n: number; pL: number; pN: number; pS: number; bars: [number, number]; label: string; d: number; ci: [number, number]; words: string };
 export type UpDown = { horizons: Record<string, UpDownH>; period: string } | null;
 export const LEAN_COLOR = (label: string) => (label.startsWith('Long') ? 'var(--good)' : label.startsWith('Short') ? 'var(--bad)' : 'var(--muted)');
 

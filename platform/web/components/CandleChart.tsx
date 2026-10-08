@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
-import { isWarning, LEAN_COLOR, SHARED_NOTE, STATE_COLOR, stateText, type SeriesEntry, type SideState } from '@/lib/prediction';
+import { isWarning, LEAN_COLOR, STATE_COLOR, stateText, type SeriesEntry, type SideState } from '@/lib/prediction';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -308,18 +308,18 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
 const Dot = ({ s }: { s: SideState }) => <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[s.state], marginRight: 4 }} />;
 // a dot only for a warning (red or orange); "No warning" stays plain
 const side = (name: string, s: SideState) => <span>{name && `${name} `}{isWarning(s) && <Dot s={s} />}{isWarning(s) ? <strong>{stateText(s, false)}</strong> : stateText(s, false)}</span>;
-// "● Costly now · applies to both sides …" or "Long No warning · Short ● Don't trade now", the Now line, then the up/down lean and shares
+// "● Costly now" (one shared state) or "Long No warning · Short ● Don't trade now" (per side), the Now line, then the up/down lean and shares
 function PredictionLine({ e, horizon }: { e: SeriesEntry; horizon: number }) {
   const sh = e.cells[0]?.shield ?? e.shield;
   const u = e.updown?.horizons?.[horizon];
   return (
     <div className="tip-sec small">
       {sh && (sh.shared && sh.both
-        ? <div>{side('', sh.both)} <span className="muted">· {SHARED_NOTE}</span></div>
+        ? <div>{side('', sh.both)}</div>
         : <div>{side('Long', sh.long)} · {side('Short', sh.short)}</div>)}
       {sh?.reason && <div style={{ color: 'var(--warn)' }}>{sh.reason.why.replace(/^./, (x) => x.toUpperCase())}</div>}
       {e.now && <div>{e.now.text}</div>}
-      {u && <div><strong style={{ color: LEAN_COLOR(u.label) }}>{u.label}</strong> <span className="muted">over {horizon} candles · Long {u.bars[0]}% · Neutral {u.bars[1]}% · Short {u.bars[2]}%</span></div>}
+      {u && <div><strong style={{ color: LEAN_COLOR(u.label) }}>{u.label}</strong> <span className="muted">over {horizon} candles · Long {u.bars[0]}% · Short {u.bars[1]}%</span></div>}
     </div>
   );
 }

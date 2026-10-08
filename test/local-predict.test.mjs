@@ -8,7 +8,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SHARED_NOTE, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -190,7 +190,7 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.deepEqual([pp.key, pp.long, pp.short, base.horizonBars], ['H12_up', pp.cells[0].long, pp.cells[0].short, 12]);
   assert.deepEqual(base.detail.shield, pp.cells[0].shield, 'the run stores the per-side state of the default cell');
   assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
-  assert.equal(base.state.state_both_sides, `${shieldText(base.detail.shield.both)} (${SHARED_NOTE})`, 'WTI: one shared state');
+  assert.equal(base.state.state_both_sides, shieldText(base.detail.shield.both), 'WTI: one shared state');
   assert.equal(base.state.long_state, undefined);
   // the run stores the up/down lookup per horizon, with the bucket, level, n and the headline
   for (const N of [3, 6, 12]) {
@@ -407,7 +407,6 @@ test('shieldState, WTI (side difference not meaningful): one shared state from f
   assert.deepEqual([st(cell(10, 10), spread).both.state, st(cell(10, 10), spread).both.why], ['red', 'spread wide (0.27 of stop)']);
   assert.deepEqual([st(null).shared, st(null).both.state, st(null).both.label], [true, 'grey', 'No warning · no calibrated estimate']);
   assert.ok(SIDE_DIFF_CALIBRATED.has('SPX500/USD') && !SIDE_DIFF_CALIBRATED.has('XAU/USD'));
-  assert.equal(SHARED_NOTE, 'applies to both sides; direction not measurable for this instrument');
 });
 
 test('nowMotion: run length, pace in ATR, direction, volume against the slot or the recent median', () => {
@@ -486,20 +485,18 @@ test('up/down fallback: L0 -> L1 -> L2 -> L3 -> base by n >= 300 and missing par
   for (const lv of ['L0', 'L1', 'L2', 'L3']) for (const [k, row] of Object.entries(table[lv])) assert.ok(row[0] >= 300, `${lv} ${k}`);
 });
 
-test('up/down headline: Neutral when the 95% interval of d includes 0, lean words by |d|, tie is Neutral', () => {
-  // same d = +2 pp, different n
-  assert.equal(udHeadline(0.44, 0.42, 1000).label, 'Neutral');
-  assert.equal(udHeadline(0.44, 0.42, 100000).label, 'Long, slight');
-  const h = udHeadline(0.44, 0.42, 1000);
-  assert.ok(h.ci[0] < 0 && h.ci[1] > 0 && Math.abs(h.d - 0.02) < 1e-12);
-  assert.ok(Math.abs((h.ci[1] - h.d) - 1.96 * Math.sqrt((0.86 - 0.0004) / 1000)) < 1e-12);
-  assert.equal(udHeadline(0.46, 0.42, 100000).label, 'Long');
-  assert.equal(udHeadline(0.40, 0.46, 100000).label, 'Long'.replace('Long', 'Short, clear'));
-  assert.equal(udHeadline(0.42, 0.455, 100000).label, 'Short');
+test('up/down headline: Neutral below 3 pp whatever n, side from 3 pp, clear from 6 pp, tie Neutral; two bars sum to 100', () => {
+  const at = (pp) => udHeadline(0.42 + pp / 100, 0.42, 1000).label;
+  assert.deepEqual([at(2.9), at(3.0), at(5.9), at(6.0)], ['Neutral', 'Long', 'Long', 'Long, clear']);
+  assert.deepEqual([udHeadline(0.40, 0.429, 1e6).label, udHeadline(0.40, 0.43, 50).label, udHeadline(0.40, 0.46, 50).label], ['Neutral', 'Short', 'Short, clear'], 'n does not matter');
   assert.equal(udHeadline(0.43, 0.43, 1e9).label, 'Neutral', 'tie');
-  // the three bars always sum to 100
-  for (const ps of [[0.436, 0.141, 0.423], [1 / 3, 1 / 3, 1 / 3], [0.005, 0.005, 0.99], [0.4449, 0.1102, 0.4449]]) assert.equal(percent100(ps).reduce((x, y) => x + y, 0), 100, String(ps));
-  assert.deepEqual(percent100([1 / 3, 1 / 3, 1 / 3]).sort(), [33, 33, 34]);
+  const h = udHeadline(0.44, 0.42, 1000);
+  assert.ok(Math.abs(h.d - 0.02) < 1e-12 && Math.abs((h.ci[1] - h.d) - 1.96 * Math.sqrt((0.86 - 0.0004) / 1000)) < 1e-12, 'd and its interval stay for Details');
+  // the two bars: Long and Short of the moves that went somewhere, summing to 100
+  for (const [l, s] of [[0.436, 0.423], [0.5, 0.5], [0.461, 0.410], [0.01, 0.99], [1 / 3, 1 / 3]]) assert.equal(percent100([l / (l + s), s / (l + s)]).reduce((x, y) => x + y, 0), 100, `${l} ${s}`);
+  const u = updown('WTICO/USD', 'M5', { direction: 'falling', pace: 'fast', volume: 'normal', h1: 'agrees' }).horizons[6];
+  assert.deepEqual([u.bars.length, u.bars[0] + u.bars[1]], [2, 100]);
+  assert.equal(u.bars[0], Math.round((u.pL / (u.pL + u.pS)) * 100));
 });
 
 // ---- per-candle series for the chart tooltip

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
-import { conditionsText, HORIZONS, horizonLabel, isWarning, LEAN_COLOR, loadHorizon, saveHorizon, SHARED_NOTE, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState, type UpDown, type UpDownH } from '@/lib/prediction';
+import { conditionsText, HORIZONS, horizonLabel, isWarning, LEAN_COLOR, loadHorizon, saveHorizon, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState, type UpDown, type UpDownH } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -230,7 +230,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               {/* a measured reason applies to both sides: shown once, and both lines read Don't trade now */}
               {shield.reason && <p className="small" style={{ margin: 0, color: 'var(--warn)' }}>{shield.reason.why.replace(/^./, (c) => c.toUpperCase())}</p>}
               {shield.shared && shield.both
-                ? <><StateLine name="" s={shield.both} withWhy={!shield.reason} /><span className="small muted" style={{ paddingLeft: 18 }}>{SHARED_NOTE.replace(/^./, (c) => c.toUpperCase())}.</span></>
+                ? <StateLine name="" s={shield.both} withWhy={!shield.reason} />
                 : <><StateLine name="Long" s={shield.long} withWhy={!shield.reason} /><StateLine name="Short" s={shield.short} withWhy={!shield.reason} /></>}
             </div>
           ) : (
@@ -253,8 +253,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
                     </select>
                   </label>
                   <UdBar name="Long" v={ud.bars[0]} tone={TONE.long} />
-                  <UdBar name="Neutral" v={ud.bars[1]} tone="var(--muted)" />
-                  <UdBar name="Short" v={ud.bars[2]} tone={TONE.short} />
+                  <UdBar name="Short" v={ud.bars[1]} tone={TONE.short} />
                   <p className="small muted" style={{ margin: 0 }}>after {ud.n.toLocaleString('en-US')} similar moments ({ud.words}), {d.updown?.period}</p>
                 </>
               ) : <p className="small muted" style={{ margin: 0 }}>Long/Neutral/Short: no table for this instrument and timeframe.</p>}
@@ -269,7 +268,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
             {shield && (shield.shared && shield.both
               ? <p style={{ margin: '6px 0' }}>Costs: {conditionsText(shield.both)}</p>
               : <p style={{ margin: '6px 0' }}>Costs: Long {conditionsText(shield.long)} · Short {conditionsText(shield.short)}</p>)}
-            {ud && <p style={{ margin: '4px 0' }}>Long minus Short: {signedPp(ud.d)} pp, 95% interval {signedPp(ud.ci[0])} to {signedPp(ud.ci[1])} pp; Neutral when the interval includes 0. Bucket level {ud.level}{ud.key ? ` (${ud.key})` : ''}.</p>}
+            {ud && <p style={{ margin: '4px 0' }}>Bars: share of moves that went somewhere (≥ 0.25 ATR). All moments: Long {pct(ud.pL)}, Neutral {pct(ud.pN)}, Short {pct(ud.pS)}.</p>}
+            {ud && <p style={{ margin: '4px 0' }}>Long minus Short: {signedPp(ud.d)} pp, 95% interval {signedPp(ud.ci[0])} to {signedPp(ud.ci[1])} pp; Neutral below 3 pp, clear from 6 pp. Bucket level {ud.level}{ud.key ? ` (${ud.key})` : ''}.</p>}
             {ud && <p className="muted" style={{ margin: '4px 0' }}>{UD_NOTE}</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}

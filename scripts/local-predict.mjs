@@ -273,7 +273,6 @@ export const SIDE_DIFF_CALIBRATED = new Set(['EUR/USD', 'SPX500/USD']);
 // { state, label, why, conditions, code, decile, avgR }: `why` goes in the headline (red and orange only),
 // `conditions` (the decile band) and avgR go in Details.
 export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'No warning' };
-export const SHARED_NOTE = 'applies to both sides; direction not measurable for this instrument';
 const SHORT_NAME = { 'WTICO/USD': 'WTI', 'BCO/USD': 'Brent' };
 export function shieldState({ instrument, granularity, cell = null, reasons = [] }) {
   const reason = reasons[0] ? { code: reasons[0].code, why: reasons[0].short ?? reasons[0].text.replace(/^./, (c) => c.toLowerCase()) } : null;
@@ -413,26 +412,24 @@ export function udWords(p, level) {
   return parts.join(', ');
 }
 
-// The headline from the bucket counts. d = P(long) - P(short) with a 95% interval from the multinomial
-// variance (pL + pS - d^2) / n. The interval includes 0: "Neutral". Otherwise the larger side with a word
-// by |d|: "slight" below 3 pp, plain from 3 to 6 pp, "clear" from 6 pp.
+// The headline (operator rule): d = P(long) - P(short) of the bucket. "Neutral" when |d| < 3 pp, whatever n;
+// otherwise the larger side, "clear" from 6 pp. The 95% interval of d (multinomial variance
+// (pL + pS - d^2) / n) is kept for Details only. 1e-9 absorbs float noise at the 3 and 6 pp edges.
 export function udHeadline(pL, pS, n) {
   const d = pL - pS;
   const half = 1.96 * Math.sqrt(Math.max(pL + pS - d * d, 0) / n);
-  const ci = [d - half, d + half];
-  if (ci[0] <= 0 && ci[1] >= 0) return { label: 'Neutral', d, ci };
-  const side = d > 0 ? 'Long' : 'Short';
   const a = Math.abs(d) * 100;
-  return { label: a < 3 ? `${side}, slight` : a < 6 ? side : `${side}, clear`, d, ci };
+  const side = d > 0 ? 'Long' : 'Short';
+  return { label: a < 3 - 1e-9 ? 'Neutral' : a < 6 - 1e-9 ? side : `${side}, clear`, d, ci: [d - half, d + half] };
 }
 
-// Whole percentages that sum to 100 (largest remainder), for the three bars.
+// Whole percentages that sum to 100 (largest remainder).
 export function percent100(ps) {
   const raw = ps.map((p) => p * 100);
   const out = raw.map(Math.floor);
   const order = raw.map((v, i) => [v - out[i], i]).sort((a, b) => b[0] - a[0]);
   const missing = 100 - out.reduce((a, b) => a + b, 0);
-  for (let k = 0; k < missing; k++) out[order[k % 3][1]]++;
+  for (let k = 0; k < missing; k++) out[order[k % order.length][1]]++;
   return out;
 }
 
@@ -449,7 +446,8 @@ export function updown(instrument, granularity, p) {
       if (keys?.[lv] && t[lv][keys[lv]]) { level = lv; key = keys[lv]; row = t[lv][keys[lv]]; break; }
     }
     const [n, pL, pN, pS] = row;
-    horizons[N] = { level, key, n, pL, pN, pS, bars: percent100([pL, pN, pS]), ...udHeadline(pL, pS, n), words: p ? udWords(p, level) : 'all moments' };
+    horizons[N] = { level, key, n, pL, pN, pS, // the card's two bars: the moves that went somewhere (>= 0.25 ATR) split into Long and Short
+      bars: percent100([pL / (pL + pS), pS / (pL + pS)]), ...udHeadline(pL, pS, n), words: p ? udWords(p, level) : 'all moments' };
   }
   return { parts: p, horizons, period: `${table.from.slice(0, 4)} to ${table.to.slice(0, 10)}` };
 }
@@ -496,7 +494,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     long_now: pp.available ? avgR(pp.long) : pp.text,
     short_now: pp.available ? avgR(pp.short) : pp.text,
     ...(shield.shared
-      ? { state_both_sides: `${shieldText(shield.both)} (${SHARED_NOTE})`, conditions_both_sides: conditionsText(shield.both) }
+      ? { state_both_sides: shieldText(shield.both), conditions_both_sides: conditionsText(shield.both) }
       : { long_state: shieldText(shield.long), short_state: shieldText(shield.short), long_conditions: conditionsText(shield.long), short_conditions: conditionsText(shield.short) }),
     ...(now_ ? { now: now_.text.replace(/^Now: /, '') } : {}),
     ...(ud ? Object.fromEntries(UD_HORIZONS.map((N) => [`updown_${N}_candles`, udText(ud.horizons[N])])) : {}),
