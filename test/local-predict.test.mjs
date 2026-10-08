@@ -4,11 +4,12 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -548,6 +549,17 @@ test('predictionSeries: forming and unclosed candles are never scored, results a
   const again = await predictionSeries(dbPath, input, now + 60000);
   assert.equal(baReads, 1);
   assert.deepEqual(again.entries, first.entries);
+  // The cached row shape is pinned to LOCAL_MODEL (the cache key): a shape change without a version bump
+  // would serve old rows in the old shape. On a failure: bump LOCAL_MODEL, then update both pins here.
+  const shape = (v) => (Array.isArray(v) ? (v.every((x) => typeof x === 'number') ? `number[${v.length}]` : `[${v.length ? shape(v[0]) : ''}]`)
+    : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${k}:${shape(v[k])}`).join(',')}}` : typeof v);
+  const db = new DatabaseSync(dbPath);
+  const row = db.prepare('SELECT model, entry FROM prediction_series ORDER BY candle_ms DESC LIMIT 1').get();
+  db.close();
+  const pin = { model: row.model, shape: createHash('sha256').update(shape(JSON.parse(row.entry))).digest('hex').slice(0, 16) };
+  // never update only the shape hash: a new hash needs a new model string
+  assert.deepEqual(pin, { model: 'local-stats-v5 (big day abs11 A1_nostress; P(profit) pprofit20 shield; up/down lookup, two bars)', shape: 'b8e13be408534c7d' }, 'stored series shape changed: bump LOCAL_MODEL');
+  assert.equal(row.model, LOCAL_MODEL);
   // a window: from/to in ms, and the cap
   const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);
   assert.deepEqual(part.entries.map((x) => x.candleTime), closed.slice(50, 55).map((c) => c.time));

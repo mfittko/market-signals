@@ -25,7 +25,10 @@ import { htfSupertrend, resampleCandles } from './indicators.mjs';
 import { PP_HORIZONS, PP_TARGETS, ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
-export const LOCAL_MODEL = 'local-stats-v4 (big day abs11 A1_nostress; P(profit) pprofit20 shield; up/down lookup)';
+// Also the cache key of prediction_series rows (scripts/predictions.mjs): any change to the stored series
+// shape (seriesCore, localSeries output) must bump this version, or old cached rows are served in the old
+// shape. A test pins the shape hash to this string.
+export const LOCAL_MODEL = 'local-stats-v5 (big day abs11 A1_nostress; P(profit) pprofit20 shield; up/down lookup, two bars)';
 // Default P(profit) cell order: the first shipped cell sets the stored action and probabilities.
 export const PP_CELL_ORDER = PP_HORIZONS.flatMap((h) => PP_TARGETS.map((t) => [h, t]));
 // Operator-approved headline rule: a side is named only when its expected R is at
