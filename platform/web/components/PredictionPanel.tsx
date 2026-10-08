@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
-import { cellLabel, loadCell, saveCell, SHARED_NOTE, SIDE_DIFF_NOTE, STATE_COLOR, stateText, type Shield, type SideState } from '@/lib/prediction';
+import { cellLabel, conditionsText, isWarning, loadCell, saveCell, SHARED_NOTE, SIDE_DIFF_NOTE, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -21,6 +21,7 @@ type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePar
 type Lean = { side: 'long' | 'short'; gapPp: number; greyed: boolean; label: string; pLean: number; pOther: number };
 type LocalDetail = {
   shield?: Shield;
+  now?: NowMotion | null;
   bigDay?: BigDayPart;
   pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart; cells?: Cell[] };
   headline?: string; headlineReason?: string | null;
@@ -57,8 +58,8 @@ function StateLine({ name, s, withWhy }: { name: string; s: SideState; withWhy: 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: name ? '44px 12px 1fr' : '12px 1fr', alignItems: 'baseline', gap: 6 }}>
       {name && <span className="small muted">{name}</span>}
-      <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: STATE_COLOR[s.state] }} />
-      <span><strong style={{ color: s.state === 'grey' ? undefined : STATE_COLOR[s.state] }}>{s.label}</strong><span className="small">{stateText(s, withWhy).slice(s.label.length)}</span></span>
+      <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: isWarning(s) ? STATE_COLOR[s.state] : 'var(--muted)' }} />
+      <span><strong style={{ color: isWarning(s) ? STATE_COLOR[s.state] : undefined }}>{stateText(s, false)}</strong><span className="small">{stateText(s, withWhy).slice(stateText(s, false).length)}</span></span>
     </div>
   );
 }
@@ -257,6 +258,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
             </p>
           )}
+          {/* describes the closed bars only; no forecast */}
+          {d.now && <p className="small" style={{ margin: '4px 0' }}>{d.now.text}</p>}
           {cells.length > 0 && (
             <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="muted">Over</span>
@@ -273,6 +276,9 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           <details className="small">
             <summary className="muted">Details</summary>
             {shield && <p style={{ margin: '6px 0' }}>Trade: {head!.label}{head!.reason ? ` · ${head!.reason}` : ''}</p>}
+            {shield && (shield.shared && shield.both
+              ? <p style={{ margin: '4px 0' }}>Conditions: {conditionsText(shield.both)}</p>
+              : <p style={{ margin: '4px 0' }}>Conditions: Long {conditionsText(shield.long)} · Short {conditionsText(shield.short)}</p>)}
             {/* the lean never appears in the headline or the state lines; a small gap or a cell without a grey rule shows greyed */}
             {cell?.lean && <p className={cell.lean.greyed ? 'muted' : undefined} style={{ margin: '4px 0', opacity: cell.lean.greyed ? 0.7 : 1 }} title={cell.lean.greyed ? `gap ${cell.lean.gapPp.toFixed(1)} pp: too small to read` : undefined}>Lean: {cell.lean.side.toUpperCase()} ({pct(cell.lean.pLean)} vs {pct(cell.lean.pOther)}) · {cell.lean.label}</p>}
             {side?.long && side.short && <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
@@ -282,7 +288,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now')) && k !== 'long_state' && k !== 'short_state' && k !== 'state_both_sides').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now')) && k !== 'long_state' && k !== 'short_state' && !['state_both_sides', 'conditions_both_sides', 'long_conditions', 'short_conditions', 'now'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
             <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · chance of profit over {cell ? cell.horizon : 72} candles, big day over the session · {age(p.askedAt, now)}</p>
             {history}

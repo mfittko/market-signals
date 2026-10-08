@@ -246,7 +246,7 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
       const f = ppFeatures(S, i);
       pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity)) } : { available: false, text: 'not enough bid/ask history' };
     }
-    return { candleTime: t, spreadR, reasons, pprofit: pp, hasBidAsk: i != null };
+    return { candleTime: t, spreadR, reasons, pprofit: pp, now: k == null ? null : nowMotion(bars, k, st[k]?.atr), hasBidAsk: i != null };
   });
 }
 
@@ -261,29 +261,31 @@ export const SIDE_DIFF_CALIBRATED = new Set(['EUR/USD', 'SPX500/USD']);
 // per closed candle and cell, from a P decile:
 //   red "Don't trade now": a measured no-trade reason fires (both sides), or the decile is 1
 //   orange "Costly now": decile 2-3
-//   grey "Normal": decile 4-8
-//   green "Low-cost moment": decile 9-10 and no reason fires
+//   grey "No warning": otherwise (deciles 4-10)
+// There is no green state: pprofit20 has no decile with avg R above 0, so a "good" state cannot be earned.
 // EUR/USD and SPX500 (SIDE_DIFF_CALIBRATED): one state per side from that side's decile.
 // Every other instrument: one shared state (`both`) from floor(mean of the two side deciles), with
 // avgR the mean of the two decile avg R; `long`/`short` are still stored for the record.
-// Without a calibrated estimate: red when a reason fires, else grey "Normal · no calibrated estimate".
+// Without a calibrated estimate: red when a reason fires, else grey "No warning · no calibrated estimate".
 // avgR is the decile's mean net R (null for an empty decile). `cell` needs long/short {decile, expectedR}.
-// Returns { reason: {code, why} | null, shared, long, short, both? }; a state is { state, label, why, code, decile, avgR }.
-export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'Normal', green: 'Low-cost moment' };
+// Returns { reason: {code, why} | null, shared, long, short, both? }; a state is
+// { state, label, why, conditions, code, decile, avgR }: `why` goes in the headline (red and orange only),
+// `conditions` (the decile band) and avgR go in Details.
+export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'No warning' };
 export const SHARED_NOTE = 'applies to both sides; direction not measurable for this instrument';
 const SHORT_NAME = { 'WTICO/USD': 'WTI', 'BCO/USD': 'Brent' };
 export function shieldState({ instrument, granularity, cell = null, reasons = [] }) {
   const reason = reasons[0] ? { code: reasons[0].code, why: reasons[0].short ?? reasons[0].text.replace(/^./, (c) => c.toLowerCase()) } : null;
   const where = `${SHORT_NAME[instrument] ?? instrument} ${granularity}`;
+  const band = (d) => (d <= 3 ? `bottom ${d * 10}% of conditions for ${where}` : d <= 8 ? `usual conditions for ${where}` : `top ${(11 - d) * 10}% of conditions for ${where}`);
   const sideState = (s) => {
     const decile = s?.decile ?? null;
-    const base = { decile, avgR: s?.expectedR ?? null };
+    const base = { decile, avgR: s?.expectedR ?? null, conditions: s ? band(decile) : null };
     if (reason) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: reason.why, code: reason.code };
     if (!s) return { ...base, state: 'grey', label: `${SHIELD_LABEL.grey} · no calibrated estimate`, why: null, code: 'no_estimate' };
-    if (decile <= 1) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: `bottom 10% of conditions for ${where}`, code: 'decile_1' };
-    if (decile <= 3) return { ...base, state: 'orange', label: SHIELD_LABEL.orange, why: `bottom ${decile * 10}% of conditions for ${where}`, code: `decile_${decile}` };
-    if (decile <= 8) return { ...base, state: 'grey', label: SHIELD_LABEL.grey, why: `usual conditions for ${where}`, code: `decile_${decile}` };
-    return { ...base, state: 'green', label: SHIELD_LABEL.green, why: `top ${(11 - decile) * 10}% of conditions for ${where}`, code: `decile_${decile}` };
+    if (decile <= 1) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: band(decile), code: 'decile_1' };
+    if (decile <= 3) return { ...base, state: 'orange', label: SHIELD_LABEL.orange, why: band(decile), code: `decile_${decile}` };
+    return { ...base, state: 'grey', label: SHIELD_LABEL.grey, why: null, code: `decile_${decile}` };
   };
   const out = { reason, shared: !SIDE_DIFF_CALIBRATED.has(instrument), long: sideState(cell?.long), short: sideState(cell?.short) };
   if (out.shared) {
@@ -319,7 +321,44 @@ export function leanFor({ instrument, granularity, cell }) {
 export const leanText = (l) => `Lean: ${l.side.toUpperCase()} (${pct(l.pLean)} vs ${pct(l.pOther)}) · ${l.label}`;
 
 // "Don't trade now · spread wide (0.27 of stop) · avg −0.91 R"
-export const shieldText = (st) => [st.label, st.why, st.avgR == null ? 'avg R n/a' : `avg ${st.avgR >= 0 ? '+' : '−'}${Math.abs(st.avgR).toFixed(2)} R`].filter(Boolean).join(' · ');
+export const shieldText = (st) => [st.label, st.why].filter(Boolean).join(' · ');
+const avgRText = (r) => (r == null ? 'avg R n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
+// Details: "decile 9 of 10, top 20% of conditions for WTI M5 · avg −0.14 R"
+export const conditionsText = (st) => `${st.decile == null ? 'no calibrated estimate' : `decile ${st.decile} of 10, ${st.conditions}`} · ${avgRText(st.avgR)}`;
+
+// "Now": a description of the closed bars, not a forecast. N = the current run of closed bars
+// moving the same way as the last one (close vs open), capped at NOW_MAX_BARS (at least 1).
+// move = (last close - first open of the run) / ATR (the supertrend ATR of the last bar);
+// fast at |move| >= 1.5 ATR, steady at >= 0.5, else flat (no direction word then).
+// volume = tick volume of the last bar / the median at the same UTC time-of-day slot over the prior
+// 20 days in the window (at least 10 such bars), else the median of the prior 288 bars (at least 20);
+// omitted when neither is available. continuationRate is a hook for a later historical rate.
+export const NOW_MAX_BARS = 6;
+export function volumeRatio(bars, k) {
+  const v = bars[k]?.volume;
+  if (!(v > 0)) return null;
+  const slot = Date.parse(bars[k].time) % 86400000;
+  const prior = bars.slice(0, k).filter((b) => b.volume > 0);
+  const same = prior.filter((b) => Date.parse(b.time) % 86400000 === slot).slice(-20);
+  if (same.length >= 10) return { ratio: v / median(same.map((b) => b.volume)), base: 'time-of-day slot, 20 days' };
+  const recent = prior.slice(-288);
+  if (recent.length >= 20) return { ratio: v / median(recent.map((b) => b.volume)), base: `prior ${recent.length} bars` };
+  return null;
+}
+export function nowMotion(bars, k, atr) {
+  const b = bars[k];
+  if (!b || !(atr > 0)) return null;
+  const dir = Math.sign(b.close - b.open);
+  let n = 1;
+  if (dir !== 0) while (n < NOW_MAX_BARS && k - n >= 0 && Math.sign(bars[k - n].close - bars[k - n].open) === dir) n++;
+  const moveAtr = (b.close - bars[k - n + 1].open) / atr;
+  const size = Math.abs(moveAtr);
+  const pace = size >= 1.5 ? 'fast' : size >= 0.5 ? 'steady' : 'flat';
+  const direction = pace === 'flat' ? null : moveAtr > 0 ? 'rising' : 'falling';
+  const vol = volumeRatio(bars, k);
+  const parts = [direction ? `${direction} ${pace}` : 'flat', `${moveAtr >= 0 ? '+' : '−'}${size.toFixed(1)} ATR in ${n} bar${n > 1 ? 's' : ''}`, vol && `volume ${vol.ratio.toFixed(1)}× normal`];
+  return { bars: n, moveAtr, pace, direction, volumeRatio: vol?.ratio ?? null, volumeBase: vol?.base ?? null, continuationRate: null, text: `Now: ${parts.filter(Boolean).join(' · ')}` };
+}
 
 // The operator-approved headline rule (strict): a side only when its expected R is at least
 // +0.05 R and its interval lies above 0, and no measured reason fires. The artifacts carry
@@ -358,6 +397,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
 
   // 3. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
   const spreadR = spreadOf(ba.find((b) => Date.parse(b.time) === lastMs), st.at(-1).atr);
+  const now_ = nowMotion(bars, bars.length - 1, st.at(-1).atr);
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
   // 2. P(profit) per side and cell (bid/ask bars of the viewed timeframe); each cell has its own headline
@@ -370,7 +410,10 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     big_day_today: big.text,
     long_now: pp.available ? avgR(pp.long) : pp.text,
     short_now: pp.available ? avgR(pp.short) : pp.text,
-    ...(shield.shared ? { state_both_sides: `${shieldText(shield.both)} (${SHARED_NOTE})` } : { long_state: shieldText(shield.long), short_state: shieldText(shield.short) }),
+    ...(shield.shared
+      ? { state_both_sides: `${shieldText(shield.both)} (${SHARED_NOTE})`, conditions_both_sides: conditionsText(shield.both) }
+      : { long_state: shieldText(shield.long), short_state: shieldText(shield.short), long_conditions: conditionsText(shield.long), short_conditions: conditionsText(shield.short) }),
+    ...(now_ ? { now: now_.text.replace(/^Now: /, '') } : {}),
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
@@ -392,7 +435,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
       // shield: per-side state of the default cell (each cell carries its own in pprofit.cells); headline: the strict trade rule
       // lean: side with the higher P of the default cell, its gap and greyed flag (Details only)
       shield, lean: pp.available ? pp.cells[0].lean : null, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
-      reasons, trend, spreadR,
+      reasons, trend, spreadR, now: now_,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
   };
