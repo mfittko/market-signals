@@ -12,6 +12,7 @@ import { PredictionPanel } from '@/components/PredictionPanel';
 import { Card, Loading } from '@/components/ui';
 import Markdown from 'react-markdown';
 import { useWatchers } from '@/lib/alerts';
+import { loadCell, onCellChange, type SeriesEntry } from '@/lib/prediction';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
@@ -79,6 +80,25 @@ function InstrumentView() {
     return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug, gran]);
 
+  // Local prediction per closed candle for the chart tooltip; fetched again when a new candle closes.
+  // Free on the engine side; while predictions are off the request fails and the tooltip shows none.
+  const [series, setSeries] = useState<{ key: string; entries: SeriesEntry[] } | null>(null);
+  const [cellKey, setCellKey] = useState<string | null>(null);
+  useEffect(() => { setCellKey(loadCell()); return onCellChange(() => setCellKey(loadCell())); }, []);
+  const liveCandles = live?.granularity === gran ? live.candles : null;
+  const closedTimes = liveCandles?.filter((c) => c.complete !== false).map((c) => c.time) ?? [];
+  const firstClosed = closedTimes[0];
+  const lastClosed = closedTimes.at(-1);
+  useEffect(() => {
+    if (!d?.symbol || !gran || !firstClosed || !lastClosed) return;
+    const key = `${d.symbol}|${gran}|${lastClosed}`;
+    let dead = false;
+    api<{ entries: SeriesEntry[] }>(`/engine/predictions/series?instrument=${encodeURIComponent(d.symbol)}&granularity=${gran}&from=${encodeURIComponent(firstClosed)}&to=${encodeURIComponent(lastClosed)}`)
+      .then((r) => { if (!dead) setSeries({ key: `${d.symbol}|${gran}`, entries: r.entries ?? [] }); })
+      .catch(() => { /* predictions off or engine offline: no tooltip line */ });
+    return () => { dead = true; };
+  }, [d?.symbol, gran, firstClosed, lastClosed]);
+
   useEffect(() => {
     let dead = false;
     api<{ items: NewsItem[] }>(`/instruments/${slug}/news?hours=72`).then((r) => { if (!dead) setNews(r.items ?? []); }).catch(() => { if (!dead) setNews([]); });
@@ -120,7 +140,8 @@ function InstrumentView() {
           <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
-            news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />
+            news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))}
+            predictions={series?.key === `${d.symbol}|${d.granularity}` ? { instrument: d.symbol, entries: series.entries, cellKey } : undefined} />
         ) : <div className="empty">No candles for this granularity.</div>}
         {liveErr && <p className="small muted" role="status">Live data unavailable: {liveErr}. Showing imported history.</p>}
       </Card>

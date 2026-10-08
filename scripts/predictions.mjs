@@ -3,8 +3,8 @@
 // Advisory only: nothing here is read by the bot, the filter or the notifier.
 import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
 import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
-import { localPredict, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
-import { baWindow, ppAvailable, PP_WINDOW_BARS } from './pprofit.mjs';
+import { cutoffMs, LOCAL_MODEL, localPredict, localSeries, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
+import { baWindow, ppAvailable, ppModel, PP_WINDOW_BARS } from './pprofit.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,7 +26,16 @@ const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   state TEXT NOT NULL,
   detail TEXT
 );
-CREATE INDEX IF NOT EXISTS predictions_pair ON predictions (instrument, granularity, id)`;
+CREATE INDEX IF NOT EXISTS predictions_pair ON predictions (instrument, granularity, id);
+CREATE TABLE IF NOT EXISTS prediction_series (
+  instrument TEXT NOT NULL,
+  granularity TEXT NOT NULL,
+  candle_ms INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  entry TEXT NOT NULL,
+  computed_at TEXT NOT NULL,
+  PRIMARY KEY (instrument, granularity, candle_ms, model)
+)`;
 
 // Creates the table, and adds the provider-specific `detail` column to a table made before it existed.
 function ensureTable(db) {
@@ -155,4 +164,80 @@ export function predictionForTool(p) {
     candleTime: p.candleTime, candleForming: p.forming, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid,
     reused: p.reused ?? false, inputs: p.state,
   };
+}
+
+// ---- per-candle series for the chart tooltip
+// At most this many closed candles per request; an older `from` is cut to the newest SERIES_MAX.
+export const SERIES_MAX = 500;
+
+// The compact chart entry for one candle from a local run's detail or a computed series row.
+// `inSample` marks a candle before the cell artifact's training cutoff.
+function seriesEntry(instrument, granularity, core, source, computedAt) {
+  const ms = Date.parse(core.candleTime);
+  const pp = core.pprofit ?? { available: false, text: 'no calibrated estimate' };
+  const cells = pp.available ? pp.cells.map((c) => {
+    const model = ppModel(instrument, granularity, c.horizon, c.target);
+    return {
+      key: c.key, horizon: c.horizon, target: c.target, pLong: c.long.p, pShort: c.short.p, expectedRLong: c.long.expectedR, expectedRShort: c.short.expectedR,
+      headline: c.headline, reason: c.headlineReason ?? null, inSample: model ? ms < cutoffMs(model) : null,
+    };
+  }) : [];
+  return {
+    candleTime: core.candleTime, source, computedAt, spreadR: core.spreadR ?? null,
+    reasons: (core.reasons ?? []).map(({ code, text }) => ({ code, text })), available: pp.available, text: pp.available ? null : pp.text, cells,
+  };
+}
+// What a series row stores: the local scorer output without the per-side details the chart never reads.
+const seriesCore = ({ candleTime, spreadR, reasons, pprofit: pp }) => ({
+  candleTime, spreadR, reasons,
+  pprofit: pp.available ? { available: true, cells: pp.cells.map(({ key, horizon, target, long, short, headline, headlineReason }) => ({ key, horizon, target, long: { p: long.p, expectedR: long.expectedR }, short: { p: short.p, expectedR: short.expectedR }, headline, headlineReason })) } : pp,
+});
+
+// One entry per closed candle of the window [from, to] (ms, both optional), newest SERIES_MAX only.
+// A stored local run for the candle is used as is ("live"). Otherwise the free local scorer runs
+// on the chart window ("computed", never a provider call) and the result is cached in
+// prediction_series, so later reads are cached. The forming candle is never scored.
+// `loadCandles` gives the chart window (mid), `loadBa` the bid/ask bars, read only when a candle is missing.
+export async function predictionSeries(dbPath, { instrument, granularity, from = null, to = null, loadCandles, loadBa }, now = Date.now()) {
+  const gMs = granularityMs(granularity);
+  const candles = (await loadCandles()).filter((c) => c.partial !== true && c.complete !== false && Date.parse(c.time) + gMs <= now);
+  const all = candles.filter((c) => (from == null || Date.parse(c.time) >= from) && (to == null || Date.parse(c.time) <= to));
+  const win = all.slice(-SERIES_MAX);
+  const [live, cached] = withDb(dbPath, (db) => {
+    ensureTable(db);
+    const runs = new Map();
+    // newest run per candle; runs stored before per-cell scores existed are recomputed instead
+    for (const r of db.prepare("SELECT candle_time, asked_at, detail FROM predictions WHERE instrument = ? AND granularity = ? AND provider = ? AND detail IS NOT NULL ORDER BY id DESC LIMIT 5000").all(instrument, granularity, LOCAL_PROVIDER)) {
+      const ms = Date.parse(r.candle_time);
+      const d = JSON.parse(r.detail);
+      if (runs.has(ms) || !d.pprofit || (d.pprofit.available && !d.pprofit.cells)) continue;
+      runs.set(ms, { core: { candleTime: r.candle_time, spreadR: d.spreadR, reasons: d.reasons, pprofit: d.pprofit }, at: r.asked_at });
+    }
+    const rows = db.prepare('SELECT candle_ms, entry, computed_at FROM prediction_series WHERE instrument = ? AND granularity = ? AND model = ?').all(instrument, granularity, LOCAL_MODEL);
+    return [runs, new Map(rows.map((r) => [r.candle_ms, { core: JSON.parse(r.entry), at: r.computed_at }]))];
+  });
+  const missing = win.filter((c) => !live.has(Date.parse(c.time)) && !cached.has(Date.parse(c.time)));
+  if (missing.length) {
+    const ba = await loadBa().catch(() => []);
+    const computedAt = new Date(now).toISOString();
+    const fresh = localSeries({ instrument, granularity, candles, ba }, missing.map((c) => c.time));
+    withDb(dbPath, (db) => {
+      ensureTable(db);
+      const put = db.prepare('INSERT OR REPLACE INTO prediction_series (instrument, granularity, candle_ms, model, entry, computed_at) VALUES (?, ?, ?, ?, ?, ?)');
+      for (const e of fresh) {
+        const core = seriesCore(e);
+        cached.set(Date.parse(e.candleTime), { core, at: computedAt });
+        // a candle without its bid/ask bar is not cached: a later read with the bar scores it
+        if (e.hasBidAsk) put.run(instrument, granularity, Date.parse(e.candleTime), LOCAL_MODEL, JSON.stringify(core), computedAt);
+      }
+    });
+  }
+  const entries = win.map((c) => {
+    const ms = Date.parse(c.time);
+    const l = live.get(ms);
+    if (l) return seriesEntry(instrument, granularity, l.core, 'live', l.at);
+    const s = cached.get(ms);
+    return seriesEntry(instrument, granularity, { ...s.core, candleTime: c.time }, 'computed', s.at);
+  });
+  return { entries, capped: all.length > win.length, max: SERIES_MAX };
 }

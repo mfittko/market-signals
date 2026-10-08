@@ -189,21 +189,65 @@ function bigDay(instrument, m30, now) {
   return { ...base, available: true, reached: false, p, z, x: f.x, text: `${pct(p)} for a move of ${T1.toFixed(1)}% or more today (usual ${pct(model.training_base_rate)}; ${f.exc.toFixed(1)}% so far)` };
 }
 
+// The shipped cells (horizon x target) of a pair, in PP_CELL_ORDER, each with its artifact.
+const shippedCells = (instrument, granularity) => PP_CELL_ORDER.map(([h, t]) => [h, t, ppModel(instrument, granularity, h, t)]).filter(([, , m]) => m);
+
+// One cell's P(profit) per side for the feature row `f`, with its own headline under `reasons`.
+function scoreCell([horizon, target, model], f, reasons) {
+  const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
+  const c = { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
+  const h = headline({ available: true, ...c }, reasons);
+  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason };
+}
+
 // P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
-// shipped cell (horizon x target). The features are the same for all cells. The top-level
-// long/short are the first cell in PP_CELL_ORDER; `cells` holds all of them.
-function pprofit(instrument, granularity, ba, lastMs) {
-  const shipped = PP_CELL_ORDER.map(([h, t]) => [h, t, ppModel(instrument, granularity, h, t)]).filter(([, , m]) => m);
+// shipped cell. The features are the same for all cells. The top-level long/short are
+// the first cell in PP_CELL_ORDER; `cells` holds all of them.
+function pprofit(instrument, granularity, ba, lastMs, reasons) {
+  const shipped = shippedCells(instrument, granularity);
   if (!shipped.length) return { available: false, text: 'no calibrated estimate' };
   const i = ba.findIndex((b) => Date.parse(b.time) === lastMs);
   if (i < 0) return { available: false, text: 'no current bid/ask data' };
   const f = ppFeatures(ppSeries(ba.slice(0, i + 1), granularity), i);
   if (!f) return { available: false, text: 'not enough bid/ask history' };
-  const cells = shipped.map(([horizon, target, model]) => {
-    const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
-    return { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
-  });
+  const cells = shipped.map((c) => scoreCell(c, f, reasons));
   return { available: true, ...cells[0], cells };
+}
+
+// Spread at a bar as a share of the stop distance (1.5 x the supertrend ATR), as in the no-trade study.
+const spreadOf = (bar, atr) => (bar && atr > 0 ? (bar.ask_c - bar.bid_c) / (STOP_ATR * atr) : null);
+
+// Training cutoff of an artifact in ms; the artifacts write it without a zone, in UTC.
+export const cutoffMs = (model) => Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(model.training_cutoff) ? model.training_cutoff : `${model.training_cutoff}Z`);
+
+// The local scorer for many closed candles at once, for the chart: per candle the P(profit)
+// cells with their headlines, the measured reasons and the spread, exactly as localPredict
+// computes them for that candle. Supertrend and the bid/ask features are causal, so one pass
+// over the window gives each candle the values it had when it closed (a test checks this).
+// `times` are candle start times of closed bars in `candles`. No big day, trend or news here.
+export function localSeries({ instrument, granularity, candles, ba = [] }, times) {
+  const bars = candles.filter((c) => c.partial !== true && c.complete !== false);
+  const st = bars.length ? computeSupertrend(bars, {}) : [];
+  const gMs = granularityMs(granularity);
+  const shipped = shippedCells(instrument, granularity);
+  const S = shipped.length && ba.length ? ppSeries(ba, granularity) : null;
+  const baAt = new Map(ba.map((b, i) => [Date.parse(b.time), i]));
+  const barAt = new Map(bars.map((b, k) => [Date.parse(b.time), k]));
+  return times.map((t) => {
+    const ms = Date.parse(t);
+    const i = baAt.get(ms);
+    const k = barAt.get(ms);
+    const spreadR = spreadOf(i == null ? null : ba[i], k == null ? null : st[k]?.atr);
+    const reasons = noTradeReasons({ instrument, spreadR, closeMs: ms + gMs });
+    let pp;
+    if (!shipped.length) pp = { available: false, text: 'no calibrated estimate' };
+    else if (i == null) pp = { available: false, text: 'no bid/ask data for this candle' };
+    else {
+      const f = ppFeatures(S, i);
+      pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons)) } : { available: false, text: 'not enough bid/ask history' };
+    }
+    return { candleTime: t, spreadR, reasons, pprofit: pp, hasBidAsk: i != null };
+  });
 }
 
 // The operator-approved headline rule (strict): a side only when its expected R is at least
@@ -241,23 +285,14 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   // 1. big-day chance (30-min, side-free)
   const big = bigDay(instrument, m30, now);
 
-  // 2. P(profit) per side (bid/ask bars of the viewed timeframe)
-  const pp = pprofit(instrument, granularity, ba, lastMs);
-
   // 3. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
-  const bar = ba.find((b) => Date.parse(b.time) === lastMs);
-  const atr = st.at(-1).atr;
-  const spreadR = bar && atr > 0 ? (bar.ask_c - bar.bid_c) / (STOP_ATR * atr) : null;
+  const spreadR = spreadOf(ba.find((b) => Date.parse(b.time) === lastMs), st.at(-1).atr);
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
+  // 2. P(profit) per side and cell (bid/ask bars of the viewed timeframe); each cell has its own headline
+  const pp = pprofit(instrument, granularity, ba, lastMs, reasons);
+
   const head = headline(pp, reasons);
-  // each cell gets its own headline under the same rule, so the card can show any of them
-  if (pp.available) {
-    for (const c of pp.cells) {
-      const h = headline({ available: true, ...c }, reasons);
-      Object.assign(c, { headline: h.label, headlineAction: h.action, headlineReason: h.reason });
-    }
-  }
   const action = head.action;
   const state = {
     big_day_today: big.text,

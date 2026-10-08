@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
+import { cellLabel, loadCell, saveCell, SIDE_DIFF_CALIBRATED, SIDE_DIFF_NOTE } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -30,10 +31,6 @@ const CAVEAT = 'Mostly reflects spread and hour. Not an edge.';
 const cellNote = (c: Cell | null) => (!c ? `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 72 candles. ${CAVEAT}`
   : c.target === 'up' ? `Price after costs at the end of ${c.horizon} candles: above the entry for long, below for short. ${CAVEAT}`
     : `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after ${c.horizon} candles. ${CAVEAT}`);
-const dur = (bars: number, g: string) => { const m = (bars * granMs(g)) / 60000; return m < 60 ? `${m} min` : `${+(m / 60).toFixed(1)} h`; };
-const cellLabel = (c: Cell, g: string) => `${c.horizon} candles (${dur(c.horizon, g)}) · ${c.target === 'up' ? 'price better' : 'trade plan'}`;
-const CELL_KEY = 'predictionCell';
-const loadCell = () => { try { return localStorage.getItem(CELL_KEY); } catch { return null; } };
 // expected R of the P decile; an empty decile has none
 const signedR = (r: number | null) => (r == null ? 'avg R: n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
 // a calibrated P can be exactly 0
@@ -238,13 +235,14 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           {cells.length > 0 && (
             <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="muted">Over</span>
-              <select value={cell!.key} onChange={(e) => { setCellKey(e.target.value); try { localStorage.setItem(CELL_KEY, e.target.value); } catch { /* private window */ } }}>
+              <select value={cell!.key} onChange={(e) => { setCellKey(e.target.value); saveCell(e.target.value); }}>
                 {cells.map((c) => <option key={c.key} value={c.key}>{cellLabel(c, p.granularity)}</option>)}
               </select>
             </label>
           )}
           {side?.long && side.short
-            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} /></div>
+            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
+              {!SIDE_DIFF_CALIBRATED.has(p.instrument) && <span className="small muted">{SIDE_DIFF_NOTE}</span>}</div>
             : head!.reason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>

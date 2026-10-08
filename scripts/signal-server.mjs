@@ -35,8 +35,9 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionForTool, predictionProvider, PREDICTION_PROVIDERS } from './predictions.mjs';
+import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionSeries, SERIES_MAX, predictionForTool, predictionProvider, PREDICTION_PROVIDERS } from './predictions.mjs';
 import { A1_WINDOW_BARS, LOCAL_PROVIDER } from './local-predict.mjs';
+import { baWindow, ppAvailable, PP_WINDOW_BARS } from './pprofit.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -1337,6 +1338,30 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         try {
           const prediction = await currentPrediction(dbPath, cfg, predictionInput(dbPath, instrument, granularity, cfg, fetcher), { reuse: body?.reuse === true, fetchFn: providerFetch });
           return json(res, 200, { ok: true, prediction });
+        } catch (err) {
+          return json(res, err.status ?? 502, { ok: false, error: err.message });
+        }
+      }
+      // Local scores per closed candle for the chart tooltip, newest SERIES_MAX candles of
+      // [from, to]. Free: stored local runs are reused, other candles are scored locally and
+      // cached; the paid provider is never called and the forming candle is never scored.
+      if (url.pathname === '/api/predictions/series' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') ?? '';
+        const granularity = url.searchParams.get('granularity') ?? '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isPredictionGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        const at = (k) => { const v = url.searchParams.get(k); return v ? Date.parse(v) : null; };
+        const from = at('from'), to = at('to');
+        if (Number.isNaN(from) || Number.isNaN(to)) return json(res, 400, { ok: false, error: 'from and to must be ISO times' });
+        const cfg = readSettings(settingsPath);
+        if (!['1', true].includes(cfg.predictionEnabled)) return json(res, 409, { ok: false, error: 'Predictions are off: turn predictions on in settings' });
+        try {
+          const series = await predictionSeries(dbPath, {
+            instrument, granularity, from, to,
+            // a supertrend warm-up ahead of the oldest scored candle, so its ATR has settled
+            loadCandles: async () => (await chartData(dbPath, instrument, { granularity, fetcher, count: SERIES_MAX + 200 })).candles,
+            loadBa: () => baWindow(instrument, granularity, ppAvailable(instrument, granularity) ? PP_WINDOW_BARS : SERIES_MAX + 200, { fetchFn: providerFetch }),
+          });
+          return json(res, 200, { ok: true, ...series });
         } catch (err) {
           return json(res, err.status ?? 502, { ok: false, error: err.message });
         }

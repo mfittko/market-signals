@@ -27,8 +27,11 @@ var engineRoutes = map[string]bool{
 	"POST /chat":     true,
 	"GET /portfolio": true, "GET /signals": true,
 	// POST /predict runs one paid, advisory prediction on the current candle and
-	// stores it; GET /predictions only reads stored runs. No trading path reads them.
-	"POST /predict": true, "GET /predictions": true,
+	// stores it; GET /predictions only reads stored runs. GET /predictions/series
+	// returns the free local scores per closed candle for the chart tooltip (it
+	// scores and caches missing candles locally, never calling a paid provider).
+	// No trading path reads them.
+	"POST /predict": true, "GET /predictions": true, "GET /predictions/series": true,
 }
 
 // consoleSettingsKeys is the allowlist of engine settings the console Settings page writes.

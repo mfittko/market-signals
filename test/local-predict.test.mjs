@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { storeCandles } from '../scripts/supertrend.mjs';
-import { listPredictions } from '../scripts/predictions.mjs';
+import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -344,4 +344,86 @@ test('a predictions table from before the detail column is migrated in place', (
   const [row] = listPredictions(dbPath, 'WTICO/USD', 'M5');
   assert.equal(row.detail, null);
   assert.equal(row.provider, 'typesafe-jev');
+});
+
+// ---- per-candle series for the chart tooltip
+test('localSeries: one pass over the window gives each candle what localPredict gave when it closed', () => {
+  const ba = baBars(PP[0].bars);
+  const candles = midBars(ba).slice(-400);
+  for (const k of [150, 399]) {
+    const t = candles[k].time;
+    const i = ba.findIndex((b) => b.time === t);
+    const [e] = localSeries({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba }, [t]);
+    const p = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles: candles.slice(0, k + 1), ba: ba.slice(0, i + 1) }, { now: Date.parse(t) + 301000 });
+    assert.equal(e.spreadR, p.detail.spreadR, `spread at ${t}`);
+    assert.deepEqual(e.reasons, p.detail.reasons);
+    assert.deepEqual(e.pprofit.cells.map((c) => [c.key, c.long.p, c.short.p, c.long.expectedR, c.headline, c.headlineReason]),
+      p.detail.pprofit.cells.map((c) => [c.key, c.long.p, c.short.p, c.long.expectedR, c.headline, c.headlineReason]), `cells at ${t}`);
+  }
+  const [none] = localSeries({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba: [] }, [candles[10].time]);
+  assert.deepEqual([none.pprofit.text, none.spreadR, none.hasBidAsk], ['no bid/ask data for this candle', null, false]);
+});
+
+test('predictionSeries: forming and unclosed candles are never scored, results are cached, in-sample is flagged', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-series-')), 'db.sqlite');
+  const ba = baBars(PP[0].bars);
+  const closed = midBars(ba).slice(-60);
+  const lastMs = Date.parse(closed.at(-1).time);
+  const now = lastMs + 300000 + 1000;
+  // a forming bar after the last closed one, and a bar marked complete that has not closed yet
+  const candles = [...closed, { ...closed.at(-1), time: new Date(lastMs + 300000).toISOString(), complete: false }];
+  let baReads = 0;
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => candles, loadBa: async () => { baReads++; return ba; } };
+  const first = await predictionSeries(dbPath, input, now);
+  assert.equal(first.entries.length, 60);
+  assert.equal(first.entries.at(-1).candleTime, closed.at(-1).time, 'the forming candle is excluded');
+  assert.ok(first.entries.every((e) => e.source === 'computed' && e.computedAt === new Date(now).toISOString()));
+  assert.equal(baReads, 1);
+  const e = first.entries.at(-1);
+  assert.deepEqual(e.cells.map((c) => c.key), ['H12_up', 'H12_plan', 'H48_plan']);
+  assert.ok(e.cells.every((c) => c.headline === 'Neutral' && c.pLong > 0 && c.pShort > 0 && typeof c.spreadR === 'undefined'));
+  assert.ok(typeof e.spreadR === 'number');
+  // the fixture bars are from before the artifact's training cutoff
+  const cutoff = cutoffMs(ppModel('WTICO/USD', 'M5', 12, 'up'));
+  assert.ok(lastMs < cutoff);
+  assert.ok(e.cells.every((c) => c.inSample === true));
+  // a second read is served from the cache: no bid/ask read, same computed_at
+  const again = await predictionSeries(dbPath, input, now + 60000);
+  assert.equal(baReads, 1);
+  assert.deepEqual(again.entries, first.entries);
+  // a window: from/to in ms, and the cap
+  const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);
+  assert.deepEqual(part.entries.map((x) => x.candleTime), closed.slice(50, 55).map((c) => c.time));
+  // the newest closed candle is not scored before it closes
+  const early = await predictionSeries(dbPath, input, lastMs + 299000);
+  assert.equal(early.entries.at(-1).candleTime, closed.at(-2).time);
+  assert.equal(SERIES_MAX, 500);
+});
+
+test('GET /api/predictions/series: stored live run for its candle, computed and cached for the rest, off when predictions are off', async () => {
+  await withLocalServer({ predictionEnabled: '1' }, async ({ base, calls, m5 }) => {
+    const series = (q = '') => fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M5${q}`);
+    const live = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    const r = await series();
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.deepEqual([body.max, body.capped, body.entries.length], [500, false, m5.length]);
+    const last = body.entries.at(-1);
+    assert.deepEqual([last.candleTime, last.source, last.computedAt], [live.candleTime, 'live', live.askedAt]);
+    assert.equal(last.cells[0].pLong, live.detail.pprofit.cells[0].long.p);
+    assert.ok(last.cells.every((c) => c.inSample === false), 'the shifted fixture is after the training cutoff');
+    assert.ok(body.entries.slice(0, -1).every((e) => e.source === 'computed'));
+    const baCalls = calls.filter((u) => u.includes('price=BA')).length;
+    const again = await (await series()).json();
+    assert.deepEqual(again.entries, body.entries, 'cached');
+    assert.equal(calls.filter((u) => u.includes('price=BA')).length, baCalls, 'no bid/ask fetch for a cached window');
+    assert.equal(typesafeCalls(calls), 0);
+    const win = await (await series(`&from=${encodeURIComponent(m5[10].time)}&to=${encodeURIComponent(m5[12].time)}`)).json();
+    assert.deepEqual(win.entries.map((e) => e.candleTime), m5.slice(10, 13).map((c) => c.time));
+    assert.equal((await series('&from=yesterday')).status, 400);
+    assert.equal((await fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M7`)).status, 400);
+  });
+  await withLocalServer({ predictionEnabled: '0' }, async ({ base }) => {
+    assert.equal((await fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M5`)).status, 409);
+  });
 });

@@ -100,11 +100,23 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - History of the last 10 runs, collapsed, as the last item. Every run stays stored as forward evaluation data.
    - The three Jev bars, the subtitle, Predict now and the auto-update checkbox show only for Jev. Flip notifications are kept. Local history rows read "Neutral · L 16% / S 17%"; Jev keeps History below the card.
    - The settings card has a provider select. The Go allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
-5. Parity.
+   - Long-short difference. pprofit20 (M5, 2023+) regressed the observed long-minus-short outcome on the predicted P(long) − P(short). The 95% interval of the slope contains 1 only for EUR/USD (0.91 [0.54, 1.26]) and SPX500 (0.63 [0.20, 1.10]). WTI is 0.04 [−0.45, 0.52], NATGAS −0.08, XAU 0.40 [0.06, 0.75] and XAG 0.36 [0.05, 0.70]. For every other instrument the card and the tooltip keep both numbers and add the muted line "Difference between sides not meaningful for this instrument." The list is one constant, `SIDE_DIFF_CALIBRATED` in `platform/web/lib/prediction.ts`.
+   - The A4 cells give the same picture with more spread: EUR/USD M5 and M15 slopes are 0.63 to 0.98, but XAG M5 H12 up is 0.89 [0.66, 1.13], and SPX500 is 0.33 to 0.63. The constant follows the M5 study for now.
+5. Per-candle prediction in the chart tooltip.
+   - `GET /api/predictions/series?instrument=&granularity=&from=&to=` (`predictionSeries` in `scripts/predictions.mjs`) returns one entry per closed candle of the window. Each entry has the candle time, the source, `computedAt`, the spread in R, the reasons (code and text) and, per shipped cell, P long, P short, expected R per side, the headline, its reason and `inSample`.
+   - Source "live": a stored local run exists for the candle, and its detail is used unchanged. Runs stored before per-cell scores existed are recomputed instead.
+   - Source "computed": `localSeries` in `scripts/local-predict.mjs` runs the same scorer as `localPredict`. It makes one pass over the chart window: supertrend ATR for the spread, `ppSeries` once for the bid/ask features, then `scoreCell` and `noTradeReasons` per candle. A test checks that this equals `localPredict` on the truncated window for two candles. The result goes into a new cache table `prediction_series`, keyed by instrument, timeframe, candle and model, with `computed_at` after the candle close. Later reads use the cache and fetch no bid/ask data. Computed rows stay out of the `predictions` table, so card history and reuse are unchanged.
+   - A candle without its bid/ask bar is returned as "no bid/ask data for this candle" and is not cached. The forming candle, and a candle whose close is still in the future, are never scored.
+   - The window is capped at the newest 500 closed candles (`SERIES_MAX`); the response says `capped: true` when the request covered more. The bid/ask window is the newest 5000 bars, so computed scores reach back about 3500 candles at most.
+   - `inSample` is true when the candle starts before the cell artifact's `training_cutoff` (read as UTC). All shipped cells have the cutoff 2026-10-07T18:30 UTC, because the final fit uses all data; every candle before it is in-sample.
+   - The engine needs predictions switched on (409 otherwise). It never calls a paid provider for the series, including when Jev is selected.
+   - The Go proxy allow-list accepts `GET /predictions/series` only.
+   - The instrument page fetches the series for the live window and fetches again when a new candle closes. The tooltip shows one line under the OHLC values for the card's chosen cell, e.g. "Prediction (12 candles · price better): Neutral · Long 46% · Short 47% · spread 0.12 of stop". An in-sample candle adds "(model trained on this period)". A pair without a shipped cell shows "Prediction: no calibrated estimate". The card's cell choice is shared through `platform/web/lib/prediction.ts`, and the chart follows a change without a reload.
+6. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
    - P(profit) fixtures are four A4 parity exports, one per timeframe and both targets: WTICO/USD M5 H12 up, EUR/USD M5 H48 plan, WTICO/USD M15 H48 plan and WTICO/USD M1 H12 up. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to 42 rows and the bars they need (150 to 245 KB each). `data/research/localpred/pp-check.mjs` shows the trimmed windows are safe: identical results on the last 2400 bars (M5, M15) and 2000 bars (M1) as on the full export; drift starts only at 2200 M5 bars and 1800 M1 bars (latr warm-up). All four cells are shipped, so the test loads the artifacts from config.
-6. Running-app check.
+7. Running-app check.
    - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
    - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
    - The live engine and console were not touched.
@@ -156,15 +168,21 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 - **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
   - In the running-app check of the compact card, the card moved from the 09:35 to the 09:40 local candle 65 s after the script started, without a click.
   - Screenshots (fifth round, A4 cells):
-    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5, default cell "12 candles (1 h) · price better": Neutral · no side clears costs, Long 47% / avg −0.13 R, Short 48% / avg −0.13 R, big day 31%)
-    - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px)
+    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (sixth round: WTI M5, default cell "12 candles (1 h) · price better": Neutral · no side clears costs, Long 46% / avg −0.13 R, Short 45% / avg −0.16 R, then the muted line "Difference between sides not meaningful for this instrument.")
+    - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (fifth round, the same card at 390 px before the side-difference line)
     - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` ("48 candles (4 h) · trade plan" chosen: Long 17% / avg −0.17 R, Short 18% / avg −0.16 R; Details open with the plan note for 48 candles)
     - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD M5, no shipped cell: "Neutral · no calibrated estimate", no select, no bars)
     - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
+  - Screenshots (sixth round, chart tooltip, WTI; same review setup):
+    - `docs/spikes/local-prediction-provider/tooltip-M1-desktop.png` and `tooltip-M1-mobile.png` (M1 14:08: "Prediction (12 candles · price better): Neutral · Long 43% · Short 44% · spread 0.26 of stop", then the side-difference line)
+    - `docs/spikes/local-prediction-provider/tooltip-M5-desktop.png` and `tooltip-M5-mobile.png` (M5 11:00: Neutral · Long 46% · Short 47% · spread 0.12 of stop)
+    - `docs/spikes/local-prediction-provider/tooltip-M15-in-sample-desktop.png` (M15 Oct 7 13:30, before the training cutoff: "Prediction (48 candles · trade plan): Neutral · Long 19% · Short 15% · spread 0.08 of stop (model trained on this period)"; WTI M15 ships only H48 plan, so the tooltip falls back to it)
+  - The first series read on WTI M1 scored 500 candles in one request (the window was capped) and stored them; the next reads came from the cache.
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 19 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 22 tests pass. They cover:
+    - the series: `localSeries` equals `localPredict` per candle; forming and unclosed candles excluded; cache hit without a bid/ask read; from/to window; in-sample flag; the route with a stored live run, computed and cached entries, 400 on bad input and 409 while predictions are off
     - big-day parity, and P(profit) parity for four A4 cells (M1, M5, M15; up and plan)
     - cell resolution: only shipped horizon x target cells, `ppAvailable` per pair
     - short window
@@ -178,8 +196,8 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 805 tests pass, plus the console typecheck.
-  - `go test ./internal/api ./internal/tools`: pass.
+  - `npm run verify`: 808 tests pass, plus the console typecheck.
+  - `go test ./...` in `platform`: pass, including the allow-list test for `GET /predictions/series` (forwarded) and `POST /predictions/series` (refused).
 
 ## Recommendation
 
@@ -187,7 +205,8 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
-   - P(profit) per side with average R and the strict Neutral headline, per shipped horizon x target cell, with the "Over" select
+   - P(profit) per side with average R and the strict Neutral headline, per shipped horizon x target cell, with the "Over" select, and the side-difference line outside EUR/USD and SPX500
+   - the same scores per closed candle in the chart tooltip, with the in-sample mark
    - the two study-backed no-trade reasons
    - the trend as context
    - the news line, as display only, for relevant headlines that are not routine
@@ -202,6 +221,8 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 - Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
 - Should the strict rule also require a minimum P decile support, now that intervals exist?
 - The 18-feature P(profit) model barely beats a spread-only model in any A4 cell. Should the Go port ship the full model, or a spread-and-hour lookup with the same calibration and decile table?
+- Should the side-difference list come from the artifact (a per-cell slope and interval) instead of a console constant? The A4 cells disagree with the M5 study in places (XAG M5 H12 up 0.89, SPX500 M1 0.33 to 0.49).
+- Should the series cache move into the Go store, and should the chart get an out-of-sample-only mode? With a final fit on all data, every candle before 2026-10-07 18:30 UTC is in-sample.
 - Which cell should be the default (stored action, `probabilities`, agent tool), and should the card hide cells for the pairs where the chosen one failed calibration instead of falling back to the first shipped cell?
 - Should P(profit) on M5 be scored only at the research cadence (quarter-hour closes), or on every closed bar as now?
 - Should the bid/ask window be persisted, so that a restart does not refetch 5000 bars per pair?

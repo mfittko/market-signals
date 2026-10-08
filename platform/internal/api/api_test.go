@@ -58,7 +58,7 @@ func fakeEngine(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"method":"`+r.Method+`","origin":"`+r.Header.Get("Origin")+`"}`)
 	})
-	for _, p := range []string{"/api/predict", "/api/predictions"} {
+	for _, p := range []string{"/api/predict", "/api/predictions", "/api/predictions/series"} {
 		mux.HandleFunc(p, func(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, `{"method":"`+r.Method+`"}`)
 		})
@@ -539,6 +539,13 @@ func TestEngineProxyAllowlist(t *testing.T) {
 	}
 	if code, _ := get("POST", "/api/v1/engine/predictions"); code != 404 {
 		t.Fatalf("POST predictions should be refused, got %d", code)
+	}
+	// the per-candle series for the chart tooltip is read-only
+	if code, body := get("GET", "/api/v1/engine/predictions/series"); code != 200 || !strings.Contains(body, `"method":"GET"`) {
+		t.Fatalf("predictions/series not forwarded: %d %s", code, body)
+	}
+	if code, _ := get("POST", "/api/v1/engine/predictions/series"); code != 404 {
+		t.Fatalf("POST predictions/series should be refused, got %d", code)
 	}
 	// paper bot switches, allocation and executable paths never pass through the console
 	post := func(body string) int {
