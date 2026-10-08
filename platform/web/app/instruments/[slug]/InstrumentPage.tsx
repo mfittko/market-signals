@@ -115,8 +115,8 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const liveCandles = live?.candles.length ? withPrice(live.candles, price?.mid) : null;
-  const candles = liveCandles ?? d.candles;
+  const pricedCandles = live?.candles.length ? withPrice(live.candles, price?.mid) : null;
+  const candles = pricedCandles ?? d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
