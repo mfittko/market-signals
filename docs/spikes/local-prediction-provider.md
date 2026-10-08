@@ -66,7 +66,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - Updates come from two places. The engine cycle (`runWatcherCycle`, after the alert path) refreshes every watched pair. The card asks again whenever the live feed shows a candle newer than its run covers. It retries every 15 s until the engine has the closed bar.
 4. Card and settings.
    - After the operator preview, a local run has a compact layout in the same component. The Jev layout is unchanged.
-   - The validity chip sits in the card header.
+   - Local runs have no validity chip, because they refresh on every closed candle. Jev keeps it in the card header.
    - The first line is the headline with its reason, e.g. "Neutral · no side clears costs".
    - Two bars follow, recalculated on every closed candle, e.g. "Long now: 16% chance of profit (avg −0.17 R)" and "Short now: 17% chance of profit (avg −0.15 R)".
      - The bars carry a tooltip with the plan note: "Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 6 h. Mostly reflects spread and hour. Not an edge." The same note is the first muted line in Details.
@@ -81,7 +81,8 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - the latest relevant headline, even when routine
      - all inputs in plain words
      - the candle and horizon footer
-   - The three Jev bars, the subtitle, Predict now and the auto-update checkbox show only for Jev. History (local rows read "Neutral · L 16% / S 17%") and flip notifications are kept.
+     - History of the last 10 runs, collapsed, as the last item. Every run stays stored as forward evaluation data.
+   - The three Jev bars, the subtitle, Predict now and the auto-update checkbox show only for Jev. Flip notifications are kept. Local history rows read "Neutral · L 16% / S 17%"; Jev keeps History below the card.
    - The settings card has a provider select. The Go allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
 5. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
@@ -138,7 +139,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 - **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
   - In the running-app check of the compact card, the card moved from the 09:35 to the 09:40 local candle 65 s after the script started, without a click.
   - Screenshots (fourth round):
-    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: Neutral · no side clears costs, Long 16% / avg −0.17 R, Short 17% / avg −0.15 R, big day 31%, relevant news)
+    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: Neutral · no side clears costs, Long 16% / avg −0.17 R, Short 17% / avg −0.15 R, big day 30%; no chip; History inside Details)
     - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px)
     - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` (Details open with the plan note)
     - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (XAG/USD M5, whose calibration failed: "Neutral · no calibrated estimate", no bars)

@@ -200,9 +200,10 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
   const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
   const clip = (s: string) => (s.length > 90 ? `${s.slice(0, 89)}…` : s);
+  const history = runs.length > 1 && <History runs={runs} shownId={p?.id} now={now} onShow={setShownId} />;
 
   return (
-    <Card title="Prediction" aside={local ? chip ?? undefined : <button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
+    <Card title="Prediction" aside={local ? undefined : <button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
       {!local && <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>}
       {err && <p className="msg err" role="alert">{err}</p>}
       {!p && !err && <p className="small muted">{local ? `Waiting for the next closed ${granularity} candle.` : `Predicts whether to enter long, short or not at all on the current ${granularity} candle, judged over the next 3 candles.`} Advisory only.</p>}
@@ -230,6 +231,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
             <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · trade plan up to 72 candles, big day over the session · {age(p.askedAt, now)}</p>
+            {history}
           </details>
         </div>
       )}
@@ -267,24 +269,31 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           </details>
         </div>
       )}
-      {runs.length > 1 && (
-        <details className="small" style={{ marginTop: 8 }}>
-          <summary className="muted">History ({runs.length})</summary>
-          <div className="scroll"><table>
-            <thead><tr><th>Asked</th><th>Candle</th><th>Prediction</th><th>Price</th></tr></thead>
-            <tbody>{runs.map((r) => (
-              <tr key={r.id} aria-selected={r.id === p?.id} style={r.id === p?.id ? { background: 'var(--neutral-bg)' } : undefined}>
-                <td className="num"><button className="linkish" onClick={() => setShownId(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
-                <td className="num">{hm(r.candleTime)}</td>
-                <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
-                  ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pct(r.probabilities.long)} / S ${pct(r.probabilities.short)}` : ''}</>
-                  : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
-                <td className="num">{r.price}</td>
-              </tr>
-            ))}</tbody>
-          </table></div>
-        </details>
-      )}
+      {!d && history}
     </Card>
   );
 }
+
+// The latest stored runs of this pair; every run stays stored as forward evaluation data.
+function History({ runs, shownId, now, onShow }: { runs: Prediction[]; shownId?: number; now: number; onShow: (id: number) => void }) {
+  const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
+  return (
+    <details className="small" style={{ marginTop: 8 }}>
+      <summary className="muted">History ({runs.length})</summary>
+      <div className="scroll"><table>
+        <thead><tr><th>Asked</th><th>Candle</th><th>Prediction</th><th>Price</th></tr></thead>
+        <tbody>{runs.map((r) => (
+          <tr key={r.id} aria-selected={r.id === shownId} style={r.id === shownId ? { background: 'var(--neutral-bg)' } : undefined}>
+            <td className="num"><button className="linkish" onClick={() => onShow(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
+            <td className="num">{hm(r.candleTime)}</td>
+            <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
+              ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pct(r.probabilities.long)} / S ${pct(r.probabilities.short)}` : ''}</>
+              : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
+            <td className="num">{r.price}</td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </details>
+  );
+}
+
