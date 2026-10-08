@@ -1163,8 +1163,40 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
   } catch { /* best-effort warning only */ }
 }
 
-export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch }) {
+// Near-live top-of-book price from the same OANDA proxy the candles come from.
+// One cache entry per instrument: calls within ttlMs reuse the last result and
+// concurrent callers share one in-flight request, so any number of viewers cost
+// at most one upstream call per ttlMs per instrument.
+export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now } = {}) {
+  const cache = new Map(); // instrument -> { at, promise }
+  const load = async (instrument) => {
+    const url = new URL('https://p.fxempire.com/oanda/pricing');
+    url.searchParams.set('instruments', instrument);
+    const res = await fetchFn(url, {
+      headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`pricing HTTP ${res.status}`);
+    const p = (await res.json())?.prices?.[0];
+    const bid = Number(p?.bids?.[0]?.price);
+    const ask = Number(p?.asks?.[0]?.price);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask)) throw new Error('pricing returned no bid/ask');
+    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid: (bid + ask) / 2, spread: ask - bid };
+  };
+  return (instrument) => {
+    const hit = cache.get(instrument);
+    if (hit && now() - hit.at < ttlMs) return hit.promise;
+    const entry = { at: now(), promise: load(instrument) };
+    // a failure is not kept: the next call after it settles retries upstream
+    entry.promise.catch(() => { if (cache.get(instrument) === entry) cache.delete(instrument); });
+    cache.set(instrument, entry);
+    return entry.promise;
+  };
+}
+
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch, priceFetch = fetch }) {
   warnLegacyLaunchAgent();
+  const livePrice = livePriceSource(priceFetch);
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
   // attemptedGaps (unfillable-gap memory) and lastLiveFetch (the on-read gate)
@@ -1245,6 +1277,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         data.watchers = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
+      }
+      // Near-live bid/ask for the open instrument page. Cached for 1 s per instrument.
+      if (url.pathname === '/api/price' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') || '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        try {
+          return json(res, 200, await livePrice(instrument));
+        } catch (err) {
+          return json(res, 502, { ok: false, error: `price unavailable: ${err.message}` });
+        }
       }
       // Recent headlines for one instrument, read from the news cache. Read-only.
       if (url.pathname === '/api/news' && req.method === 'GET') {
