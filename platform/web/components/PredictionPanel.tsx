@@ -14,24 +14,34 @@ type Prediction = {
 // What the local provider stores in `detail` (scripts/local-predict.mjs)
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
 type SidePart = { p: number; expectedR: number | null; decile: number };
+// one shipped horizon x target cell; runs stored before cells existed have none
+type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null };
 type LocalDetail = {
   bigDay?: BigDayPart;
-  pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart };
+  pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart; cells?: Cell[] };
   headline?: string; headlineReason?: string | null;
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
-const PLAN_NOTE = 'Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 6 h. Mostly reflects spread and hour. Not an edge.';
+const CAVEAT = 'Mostly reflects spread and hour. Not an edge.';
+// what "profit" means for a cell; runs without cells used the 72-candle plan
+const cellNote = (c: Cell | null) => (!c ? `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 72 candles. ${CAVEAT}`
+  : c.target === 'up' ? `Price after costs at the end of ${c.horizon} candles: above the entry for long, below for short. ${CAVEAT}`
+    : `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after ${c.horizon} candles. ${CAVEAT}`);
+const dur = (bars: number, g: string) => { const m = (bars * granMs(g)) / 60000; return m < 60 ? `${m} min` : `${+(m / 60).toFixed(1)} h`; };
+const cellLabel = (c: Cell, g: string) => `${c.horizon} candles (${dur(c.horizon, g)}) · ${c.target === 'up' ? 'price better' : 'trade plan'}`;
+const CELL_KEY = 'predictionCell';
+const loadCell = () => { try { return localStorage.getItem(CELL_KEY); } catch { return null; } };
 // expected R of the P decile; an empty decile has none
 const signedR = (r: number | null) => (r == null ? 'avg R: n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
 // a calibrated P can be exactly 0
 const pctP = (v: number | null | undefined) => (v != null && v < 0.005 ? '<1%' : pct(v));
 // "Long now: [bar] 24% chance of profit (avg −0.09 R)"
-function ProfitBar({ name, s, tone }: { name: string; s: SidePart; tone: string }) {
+function ProfitBar({ name, s, tone, note }: { name: string; s: SidePart; tone: string; note: string }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '78px 1fr', alignItems: 'center', gap: 8 }} className="small" title={PLAN_NOTE}>
+    <div style={{ display: 'grid', gridTemplateColumns: '78px 1fr', alignItems: 'center', gap: 8 }} className="small" title={note}>
       <span>{name} now</span>
       <span style={{ display: 'grid', gap: 2 }}>
         <span style={{ height: 8, borderRadius: 4, background: 'var(--neutral-bg)', overflow: 'hidden' }} role="meter" aria-label={`${name} chance of profit`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.p * 100)}>
@@ -98,6 +108,9 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const local = provider === LOCAL;
   const [runs, setRuns] = useState<Prediction[]>([]);
   const [shownId, setShownId] = useState<number | null>(null);
+  // the chosen horizon x target cell, remembered in this browser for every pair
+  const [cellKey, setCellKey] = useState<string | null>(null);
+  useEffect(() => { setCellKey(loadCell()); }, []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // both carry the timeframe they belong to, so a render during a timeframe switch never acts on the old one's state
@@ -199,6 +212,11 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
   const d = p?.provider === LOCAL ? p.detail ?? null : null;
   const pp = d?.pprofit;
+  const cells = pp?.available ? pp.cells ?? [] : [];
+  const cell = cells.find((c) => c.key === cellKey) ?? cells[0] ?? null;
+  const side = cell ?? (pp?.available ? pp : null);
+  const head = cell ? { label: cell.headline, action: cell.headlineAction, reason: cell.headlineReason } : d && { label: d.headline ?? LABEL[p.action], action: p.action, reason: d.headlineReason ?? null };
+  const note = cellNote(cell);
   const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
   const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
@@ -214,26 +232,34 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <p style={{ margin: '4px 0' }}>
-            <strong style={{ fontSize: 18, color: TONE[p.action] }}>{d.headline ?? LABEL[p.action]}</strong>
-            {d.headlineReason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {d.headlineReason}</span>}
+            <strong style={{ fontSize: 18, color: TONE[head!.action] }}>{head!.label}</strong>
+            {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
           </p>
-          {pp?.available && pp.long && pp.short
-            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={pp.long} tone={TONE.long} /><ProfitBar name="Short" s={pp.short} tone={TONE.short} /></div>
-            : d.headlineReason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
+          {cells.length > 0 && (
+            <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="muted">Over</span>
+              <select value={cell!.key} onChange={(e) => { setCellKey(e.target.value); try { localStorage.setItem(CELL_KEY, e.target.value); } catch { /* private window */ } }}>
+                {cells.map((c) => <option key={c.key} value={c.key}>{cellLabel(c, p.granularity)}</option>)}
+              </select>
+            </label>
+          )}
+          {side?.long && side.short
+            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} /></div>
+            : head!.reason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
           {d.reasons.slice(d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
           <details className="small">
             <summary className="muted">Details</summary>
-            <p className="muted" style={{ margin: '6px 0' }}>{PLAN_NOTE}</p>
-            {pp?.available && pp.long && pp.short && <p style={{ margin: '4px 0' }}>Long: P {pctP(pp.long.p)}, {signedR(pp.long.expectedR)} (decile {pp.long.decile} of 10) · Short: P {pctP(pp.short.p)}, {signedR(pp.short.expectedR)} (decile {pp.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
+            <p className="muted" style={{ margin: '6px 0' }}>{note}</p>
+            {side?.long && side.short && <p style={{ margin: '4px 0' }}>Long: P {pctP(side.long.p)}, {signedR(side.long.expectedR)} (decile {side.long.decile} of 10) · Short: P {pctP(side.short.p)}, {signedR(side.short.expectedR)} (decile {side.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now'))).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · trade plan up to 72 candles, big day over the session · {age(p.askedAt, now)}</p>
+            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · chance of profit over {cell ? cell.horizon : 72} candles, big day over the session · {age(p.askedAt, now)}</p>
             {history}
           </details>
         </div>

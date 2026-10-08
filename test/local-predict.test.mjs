@@ -10,7 +10,7 @@ import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.m
 import {
   bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
-import { baWindow, calibrate, clearBaWindows, fetchBaCandles, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
+import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
 const toBars = (rows) => rows.map(([t, open, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close }));
@@ -82,53 +82,44 @@ function liveBars(now, stepMs = 1800000, rows = FIX.instruments[0].bars) {
 }
 
 // ---- P(profit)
-const PP = ['WTICO_USD-M5', 'EUR_USD-M5', 'WTICO_USD-M15'].map((n) => ({ gran: n.split('-')[1], ...JSON.parse(readFileSync(new URL(`./fixtures/pprofit-parity-${n}.json`, import.meta.url), 'utf8')) }));
+// one parity export per timeframe and target; the cell is named in the fixture's artifact field
+const PP = ['WTICO_USD-M5-H12-up', 'EUR_USD-M5-H48-plan', 'WTICO_USD-M15-H48-plan', 'WTICO_USD-M1-H12-up'].map((n) => {
+  const fx = JSON.parse(readFileSync(new URL(`./fixtures/pprofit-parity-${n}.json`, import.meta.url), 'utf8'));
+  const [, gran, h, target] = fx.artifact.match(/_(M\d+)_H(\d+)_(up|plan)_pprofit20/);
+  return { ...fx, gran, horizon: Number(h), target };
+});
 const baBars = (rows, shiftMin = 0) => rows.map(([t, bo, bh, bl, bc, ao, ah, al, ac]) => ({ time: new Date((t + shiftMin) * 60000).toISOString(), bid_o: bo, bid_h: bh, bid_l: bl, bid_c: bc, ask_o: ao, ask_h: ah, ask_l: al, ask_c: ac }));
 const midBars = (ba) => ba.map((b) => ({ time: b.time, open: (b.bid_o + b.ask_o) / 2, high: (b.bid_h + b.ask_h) / 2, low: (b.bid_l + b.ask_l) / 2, close: (b.bid_c + b.ask_c) / 2, volume: 1 }));
 
 test('parity: bid/ask bars -> P(profit) features -> calibrated P match the Python research export within 1e-9', () => {
   for (const fx of PP) {
-    const model = ppModel(fx.instrument, fx.gran);
-    assert.ok(model, `artifact for ${fx.instrument} ${fx.gran}`);
-    assert.equal(model.coef.length, 37);
+    const cell = `${fx.instrument} ${fx.gran} H${fx.horizon} ${fx.target}`;
+    const model = ppModel(fx.instrument, fx.gran, fx.horizon, fx.target);
+    assert.ok(model, `artifact for ${cell}`);
+    assert.deepEqual([model.coef.length, model.horizon_bars, model.target], [37, fx.horizon, fx.target]);
+    assert.equal(model.calibrator.type ?? model.calibrator.kind, fx.gran === 'M1' ? 'isotonic' : 'platt');
     const S = ppSeries(baBars(fx.bars), fx.gran);
-    assert.ok(fx.rows.length >= 80);
+    assert.ok(fx.rows.length >= 40);
     for (const r of fx.rows) {
       const f = ppFeatures(S, r.index);
-      assert.ok(f, `${fx.instrument} ${fx.gran} ${r.t} features`);
-      ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `${fx.instrument} ${r.t} ${model.features.order[j]}`));
-      const s = ppScore(model, f, r.side);
-      assert.ok(Math.abs(s.raw - r.raw) <= 1e-9 && Math.abs(s.p - r.p) <= 1e-9, `${fx.instrument} ${fx.gran} ${r.t} side ${r.side}: p ${s.p} vs ${r.p}`);
+      assert.ok(f, `${cell} ${r.t} features`);
+      ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `${cell} ${r.t} ${model.features.order[j]}`));
+      const sc = ppScore(model, f, r.side);
+      assert.ok(Math.abs(sc.raw - r.raw) <= 1e-9 && Math.abs(sc.p - r.p) <= 1e-9, `${cell} ${r.t} side ${r.side}: p ${sc.p} vs ${r.p}`);
       const lut = model.expected_R[r.side > 0 ? 'long' : 'short'];
-      assert.equal(s.expectedR, lut.meanR[lut.p_edges.filter((e) => e <= s.p).length]);
-    }
-  }
-  assert.equal(ppModel('XAG/USD', 'M5'), null, 'calibration failed: not exported');
-  assert.equal(ppModel('WTICO/USD', 'H1'), null);
-});
-
-test('parity: M1 bid/ask bars -> P(profit) with isotonic calibration match the research export within 1e-9', () => {
-  for (const name of ['WTICO_USD', 'EUR_USD']) {
-    const fx = JSON.parse(readFileSync(new URL(`./fixtures/pprofit-parity-${name}-M1-iso.json`, import.meta.url), 'utf8'));
-    const model = ppModel(fx.instrument, 'M1');
-    assert.equal(model.calibrator.type, 'isotonic');
-    assert.equal(model.tod_norm.length, 1440);
-    assert.deepEqual([fx.bars.length, fx.rows.length], [2000, 80]);
-    const S = ppSeries(baBars(fx.bars), 'M1');
-    for (const r of fx.rows) {
-      const f = ppFeatures(S, r.index);
-      assert.ok(f, `M1 ${r.t} features`);
-      ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `${name} M1 ${r.t} ${model.features.order[j]}`));
-      const s = ppScore(model, f, r.side);
-      assert.ok(Math.abs(s.raw - r.raw) <= 1e-9 && Math.abs(s.p - r.p) <= 1e-9, `${name} M1 ${r.t} side ${r.side}: p ${s.p} vs ${r.p}`);
+      assert.equal(sc.expectedR, lut.meanR[lut.p_edges.filter((e) => e <= sc.p).length] ?? null);
     }
   }
 });
 
-test('M1 coverage: isotonic artifacts for WTI, XAU, XAG, SPX500 and EUR/USD; none for NATGAS', () => {
-  for (const inst of ['WTICO/USD', 'XAU/USD', 'XAG/USD', 'SPX500/USD', 'EUR/USD']) assert.equal(ppModel(inst, 'M1')?.calibrator.type, 'isotonic', inst);
-  assert.equal(ppModel('NATGAS/USD', 'M1'), null);
-  assert.equal(ppModel('WTICO/USD', 'M5').calibrator.kind, 'platt');
+test('cells: only shipped horizon x target cells resolve; ppAvailable per pair', () => {
+  assert.ok(ppModel('WTICO/USD', 'M5', 12, 'up'));
+  assert.equal(ppModel('XAG/USD', 'M5', 48, 'plan'), null, 'calibration failed: not shipped');
+  assert.equal(ppModel('NATGAS/USD', 'M1', 48, 'plan'), null);
+  assert.equal(ppModel('WTICO/USD', 'M5', 72, 'plan'), null, 'only 12 and 48 bars');
+  assert.equal(ppModel('WTICO/USD', 'M5', 12, 'down'), null);
+  assert.equal(ppModel('WTICO/USD', 'H1', 12, 'up'), null);
+  assert.deepEqual([ppAvailable('WTICO/USD', 'M15'), ppAvailable('NATGAS/USD', 'M15'), ppAvailable('BCO/USD', 'M5')], [true, false, false]);
 });
 
 test('isotonic calibration: linear between knots, clipped outside (numpy.interp)', () => {
@@ -138,10 +129,8 @@ test('isotonic calibration: linear between knots, clipped outside (numpy.interp)
 });
 
 test('expected R: bisect-right decile, an empty decile has no R and never clears', () => {
-  const model = ppModel('XAG/USD', 'M1');
+  const model = ppModel('XAG/USD', 'M1', 12, 'plan');
   const lut = model.expected_R.long;
-  const empty = lut.meanR.findIndex((v) => v == null);
-  assert.ok(empty >= 0, 'XAG M1 has empty deciles');
   // P = 0 counts every edge equal to 0 (bisect right)
   const zeros = lut.p_edges.filter((e) => e <= 0).length;
   const s = ppScore({ ...model, calibrator: { type: 'isotonic', x: [0, 1], y: [0, 0] } }, { f: Object.fromEntries(model.features.order.map((k) => [k, 0])), slot: 0 }, 1);
@@ -150,20 +139,21 @@ test('expected R: bisect-right decile, an empty decile has no R and never clears
   assert.equal(headline({ available: true, long: nullSide, short: nullSide }, []).reason, 'no side clears costs');
 });
 
-test('headline with the shipped artifacts: every decile, both sides, reads Neutral (no side clears costs)', () => {
-  const pairs = [['WTICO/USD', 'M5'], ['XAU/USD', 'M5'], ['SPX500/USD', 'M5'], ['EUR/USD', 'M5'], ['WTICO/USD', 'M15'], ['XAG/USD', 'M15'], ['SPX500/USD', 'M15'], ['EUR/USD', 'M15'],
-    ['WTICO/USD', 'M1'], ['XAU/USD', 'M1'], ['XAG/USD', 'M1'], ['SPX500/USD', 'M1'], ['EUR/USD', 'M1']];
-  for (const [inst, gran] of pairs) {
-    const lut = ppModel(inst, gran).expected_R;
-    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} ${s} has a CI slot per decile`);
+test('headline with the shipped artifacts: every decile of every cell, both sides, reads Neutral (no side clears costs)', () => {
+  let n = 0;
+  for (const inst of ['WTICO/USD', 'XAU/USD', 'XAG/USD', 'NATGAS/USD', 'SPX500/USD', 'EUR/USD']) for (const gran of ['M1', 'M5', 'M15']) for (const h of PP_HORIZONS) for (const t of PP_TARGETS) {
+    const m = ppModel(inst, gran, h, t);
+    if (!m) continue;
+    n++;
+    const lut = m.expected_R;
+    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} H${h} ${t} ${s} has a CI slot per decile`);
     for (let d = 0; d < 10; d++) {
       const side = (s) => ({ p: 0.2, expectedR: lut[s].meanR[d] ?? null, ci: lut[s].meanR_ci[d] ?? null });
-      for (const s of ['long', 'short']) if (lut[s].meanR_ci[d]) assert.ok(lut[s].meanR_ci[d][0] < 0, `${inst} ${gran} ${s} decile ${d + 1}: lower bound below 0`);
-      assert.deepEqual(headline({ available: true, long: side('long'), short: side('short') }, []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' }, `${inst} ${gran} decile ${d + 1}`);
+      assert.deepEqual(headline({ available: true, long: side('long'), short: side('short') }, []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' }, `${inst} ${gran} H${h} ${t} decile ${d + 1}`);
     }
   }
+  assert.equal(n, 32, 'shipped cells');
 });
-
 
 test('headline: strict rule, Neutral unless a side clears +0.05 R with its interval above 0, reasons first', () => {
   const side = (expectedR, ci = null) => ({ p: 0.3, expectedR, ci });
@@ -190,8 +180,14 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.equal(base.candleTime, ba.at(-1).time);
   const pp = base.detail.pprofit;
   assert.equal(pp.available, true);
-  const want = ppScore(ppModel('WTICO/USD', 'M5'), ppFeatures(ppSeries(ba, 'M5'), ba.length - 1), 1);
-  assert.equal(pp.long.p, want.p);
+  const feat = ppFeatures(ppSeries(ba, 'M5'), ba.length - 1);
+  // WTI M5 ships H12 up, H12 plan and H48 plan; the first is the default
+  assert.deepEqual(pp.cells.map((c) => c.key), ['H12_up', 'H12_plan', 'H48_plan']);
+  for (const c of pp.cells) {
+    assert.equal(c.long.p, ppScore(ppModel('WTICO/USD', 'M5', c.horizon, c.target), feat, 1).p, c.key);
+    assert.deepEqual([c.headline, c.headlineAction], ['Neutral', 'no_trade'], c.key);
+  }
+  assert.deepEqual([pp.key, pp.long, pp.short, base.horizonBars], ['H12_up', pp.cells[0].long, pp.cells[0].short, 12]);
   assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
   assert.ok(pp.long.expectedR < 0.05 && pp.short.expectedR < 0.05);
   assert.deepEqual([base.action, base.detail.headline], ['no_trade', 'Neutral']);

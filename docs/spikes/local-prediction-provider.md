@@ -27,22 +27,35 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - The export drops the cross-instrument `stress` feature. Serving it would need the five other instruments' 252-session history on every run. The variant is named `A1_nostress`.
      - The 16 features are ported to Node from 30-min mid bars: previous-session realized volatility (1, 5, 22 sessions), realized volatility so far and over the last 6h, excursion and move so far, share of T1, range so far against the same-slot median of 60 sessions, time of day, weekday, and opening gap.
      - Once the session has already moved T1 %, the card shows "reached" instead of a probability.
-   - **P(profit) per side.** This is the calibrated probability that a long and a short entered at the next bar open is profitable after bid/ask costs under a fixed plan:
-     - stop 1.5 x Wilder ATR14 = 1R
-     - breakeven after +1R
-     - target 3R
-     - exit at an opposite supertrend flip or after 72 bars
-     
-     It comes with the mean net R of its P decile.
-     - Source: `data/research/engine/audit/pprofit20` (`pp20.py`). The 13 artifacts whose calibration passed and that carry information are copied unchanged into `config/prediction-models/`. Since the M1 amendment every artifact carries `expected_R.<side>.meanR_ci`, a 95% day-block bootstrap interval per decile; coefficients are unchanged:
-       - M5: WTICO/USD, XAU/USD, SPX500/USD, EUR/USD
-       - M15: WTICO/USD, XAG/USD, SPX500/USD, EUR/USD
-       - M1 (amendment A3, isotonic calibration): WTICO/USD, XAU/USD, XAG/USD, SPX500/USD, EUR/USD. NATGAS M1 is not shipped (status "degenerate: not for display": median out-of-sample P below 1%). The earlier Platt M1 artifacts are not shipped: WTI and EUR/USD failed calibration, and XAU Platt is replaced by its isotonic version.
+   - **P(profit) per side, per horizon and target.** This is the calibrated probability that a long and a short entered at the next bar open is profitable after bid/ask costs. Since amendment A4 (operator horizons) each artifact is one cell: horizon H = 12 or 48 candles of the viewed timeframe, and one of two targets:
+     - `up`: the price at the close of bar i + H is better than the entry after costs (long: bid close above the entry ask; short: ask close below the entry bid).
+     - `plan`: a fixed plan ends net positive. Stop 1.5 x Wilder ATR14 = 1R, breakeven after +1R, target 3R, exit at an opposite supertrend flip or after H bars.
+
+     Each cell comes with the mean net R of its P decile and a 95% day-block bootstrap interval per decile.
+     - Source: `data/research/engine/audit/pprofit20` (`pp20.py`, preregistration `prereg_horizons.json`). The grid is 3 timeframes x 2 horizons x 2 targets x 6 instruments = 72 cells. Calibration is isotonic on M1 and Platt on M5 and M15, fixed per timeframe. 34 cells passed calibration; 2 of them (NATGAS M1 H12 and H48 plan) are degenerate (median P below 1%). `data/research/localpred/ship_a4.mjs` (gitignored) copies the remaining 32 unchanged into `config/prediction-models/artifact_<INST>_<TF>_H<H>_<target>_pprofit20.json`. The A1 to A3 artifacts (72-bar and 360-bar exits) are removed.
+     - Shipped cells (`ok`), cells that failed calibration (`fail` or `-`) and degenerate cells:
+
+       | Cell | WTI | XAU | XAG | NATGAS | SPX500 | EUR/USD |
+       | --- | --- | --- | --- | --- | --- | --- |
+       | M1 H12 up | ok | ok | - | ok | ok | ok |
+       | M1 H12 plan | fail | ok | ok | degenerate | ok | ok |
+       | M1 H48 up | ok | ok | - | - | - | fail |
+       | M1 H48 plan | ok | ok | ok | degenerate | ok | ok |
+       | M5 H12 up | ok | - | ok | ok | ok | ok |
+       | M5 H12 plan | ok | ok | - | - | - | fail |
+       | M5 H48 up | fail | - | - | - | - | ok |
+       | M5 H48 plan | ok | ok | - | - | ok | ok |
+       | M15 H12 up | fail | - | - | - | - | ok |
+       | M15 H12 plan | fail | - | - | - | - | fail |
+       | M15 H48 up | fail | - | - | - | - | fail |
+       | M15 H48 plan | ok | - | ok | - | - | ok |
+
+     - All cells use the same 18 features, so one feature row per closed bar scores every shipped cell of the pair. `ppModel(instrument, timeframe, horizon, target)` resolves one cell; `ppAvailable` says whether a pair has any.
      - M1 specifics: tod_norm has 1440 entries (5-minute slot values stored per minute), 1R = 1.5 x ATR14 of mid M1, latr over 1440 M1 bars, the M1 supertrend for st_al and dst, H1 alignment unchanged; at least about 1450 M1 bars of history (the fixture uses 2000).
      - Model: logistic regression on 18 features plus side and side interactions (37 coefficients), and an expected-R lookup by P decile per side (bisect-right on the edges). M5 and M15 use Platt calibration. M1 uses isotonic calibration: knots on the raw score, linear interpolation between them, clipped to the end values outside (numpy.interp semantics), so P can be exactly 0; the card shows "<1%" then. An empty decile carries no expected R or interval (XAG M1 has 3, EUR/USD M1 2, WTI M1 1 per side); the bar then shows its P with "avg R: n/a", and the side counts as not clearing costs.
      - `scripts/pprofit.mjs` ports the 18 features: spread / 1R, three time-of-day harmonics, Monday and Friday, realized volatility over 12 and 72 bars, ATR against its 1440-bar mean, the day range so far minus its time-of-day norm, and side-signed move from the day open, supertrend alignment, H1 alignment, distance to the supertrend line and a 3-bar burst.
      - Inputs are the bid/ask candles of the viewed timeframe, with mid = (bid + ask) / 2 per field, as in research. One full 5000-bar fetch per pair is cached in memory; later runs fetch the newest 10 bars.
-     - Every other pair (XAG and NATGAS on M5, XAU and NATGAS on M15, NATGAS on M1, other instruments, other timeframes) shows "no calibrated estimate". When a measured reason also fires, the headline names the reason and the card adds "Long/short: no calibrated estimate".
+     - A pair without any shipped cell (XAU, NATGAS and SPX500 on M15, other instruments, other timeframes) shows "no calibrated estimate". When a measured reason also fires, the headline names the reason and the card adds "Long/short: no calibrated estimate".
    - **No-trade reasons.** Only the two the study measured as helpful:
      - The spread is wide: (ask close minus bid close) / (1.5 ATR) at the closed bar of the viewed timeframe is above 0.2. Bid and ask come from one small `price=BA` request to the existing candle feed.
      - Thin trading hour: the UTC hour of the bar close is in the fixed per-instrument list.
@@ -58,8 +71,8 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - The headline is "Long" or "Short" only when a side clears and no measured no-trade reason fires.
    - Otherwise it is "Neutral" with one reason: the first measured reason (spread wide, thin hour), else "no side clears costs", else "no calibrated estimate".
    - There are no "leaning" labels.
-   - The run stores P(long), P(short), the expected R and decile per side, the headline and its reason.
-   - `probabilities.long` and `probabilities.short` hold P(profit). `probabilities.no_trade` is 1 for a Neutral headline.
+   - The rule runs per cell. Each cell in `detail.pprofit.cells` stores P, expected R, interval and decile per side, and its own headline and reason.
+   - The first shipped cell in the order H12 up, H12 plan, H48 up, H48 plan is the default. Its values fill `detail.pprofit.long/short`, the stored `action`, `probabilities.long/short` and `horizonBars`. `probabilities.no_trade` is 1 for a Neutral headline.
 3. Storage and updates.
    - `scripts/predictions.mjs` selects the provider with the new setting `predictionProvider`: `local` is the default, `typesafe-jev` is optional. `predictionActive` needs the toggle for both providers, and a TypeSafe key only for Jev.
    - Local runs use the `predictions` table with provider `local`. A new nullable `detail` column holds the structured parts. The column is added in place on existing databases.
@@ -70,8 +83,9 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - After the operator preview, a local run has a compact layout in the same component. The Jev layout is unchanged.
    - Local runs have no validity chip, because they refresh on every closed candle. Jev keeps it in the card header.
    - The first line is the headline with its reason, e.g. "Neutral · no side clears costs".
-   - Two bars follow, recalculated on every closed candle, e.g. "Long now: 16% chance of profit (avg −0.17 R)" and "Short now: 17% chance of profit (avg −0.15 R)".
-     - The bars carry a tooltip with the plan note: "Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 6 h. Mostly reflects spread and hour. Not an edge." The same note is the first muted line in Details.
+   - An "Over" select lists the shipped cells of the pair, e.g. "12 candles (1 h) · price better", "12 candles (1 h) · trade plan", "48 candles (4 h) · trade plan" on WTI M5. The choice is remembered in the browser for every pair; an unavailable choice falls back to the first cell. The headline follows the chosen cell.
+   - Two bars follow, recalculated on every closed candle, e.g. "Long now: 47% chance of profit (avg −0.13 R)" and "Short now: 48% chance of profit (avg −0.13 R)" for WTI M5 H12 up.
+     - The bars carry a tooltip with the cell note, e.g. "Price after costs at the end of 12 candles: above the entry for long, below for short. Mostly reflects spread and hour. Not an edge." or "Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 48 candles. …". The same note is the first muted line in Details. The "long now" and "short now" input lines are hidden in Details, because the bars show the chosen cell.
      - A pair without an artifact shows "no calibrated estimate" instead of the bars, in the headline reason.
    - Next comes "Big-day chance today: 26% for ≥ 5.4% (usual 5%) · 2.8% so far". "Usual" is the training base rate.
    - Then "Trend: up, H1 agrees".
@@ -89,7 +103,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 5. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
-   - P(profit) fixtures are the pprofit20 parity exports (6000 bid/ask bars, 400 rows) for WTICO/USD M5, EUR/USD M5 and WTICO/USD M15. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to the last 3000 bars and 82 rows (about 250 KB each). The Node port gives identical results on the last 3000 bars as on all 6000, but drifts at 2000 bars (latr warm-up), so the trim is safe. The isotonic M1 exports for WTICO/USD and EUR/USD (2000 bars, 80 rows each) are kept whole (about 175 KB each); both artifacts are shipped, so the test loads them from config.
+   - P(profit) fixtures are four A4 parity exports, one per timeframe and both targets: WTICO/USD M5 H12 up, EUR/USD M5 H48 plan, WTICO/USD M15 H48 plan and WTICO/USD M1 H12 up. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to 42 rows and the bars they need (150 to 245 KB each). `data/research/localpred/pp-check.mjs` shows the trimmed windows are safe: identical results on the last 2400 bars (M5, M15) and 2000 bars (M1) as on the full export; drift starts only at 2200 M5 bars and 1800 M1 bars (latr warm-up). All four cells are shipped, so the test loads the artifacts from config.
 6. Running-app check.
    - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
    - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
@@ -99,17 +113,17 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 
 - **Parity holds.**
   - Big day: Node features match the Python export to max |dx| 2.2e-16 (WTI) and 1.3e-15 (EUR/USD). p matches to max |dp| 1.5e-16 over 16 rows.
-  - P(profit): features match to max |dx| 1.8e-13 (WTI M5), 1.5e-12 (EUR/USD M5), 7.6e-14 (WTI M15) 1.6e-13 (WTI M1 isotonic) and 1.9e-12 (EUR/USD M1 isotonic). P matches to 3.2e-15 over 406 rows (exactly on the isotonic rows).
+  - P(profit), A4 cells: features match to max |dx| 1.8e-13 (WTI M5 H12 up), 1.5e-12 (EUR/USD M5 H48 plan), 7.6e-14 (WTI M15 H48 plan) and 1.6e-13 (WTI M1 H12 up, isotonic). P matches to 2.5e-15 over 168 rows (exactly on the isotonic rows).
   - The test tolerance is 1e-9.
-- **P(profit) has no serving skew.** On the live OANDA bid/ask feed (the last 5000 bars, as production reads them), P at the fixture rows equals the research P to below 5e-6 for all three fixtures. Research and production read the same bid/ask source. Script: `data/research/localpred/pp-skew.mjs` (gitignored).
-- **No side clears costs anywhere.**
-  - The best decile's expected R per artifact is at most −0.04 R, with one exception: SPX500 M15 long, top decile, +0.011 R. On M1 the best decile is at most −0.09 R (SPX500), and −0.15 to −0.29 R elsewhere.
-  - The artifacts now carry a 95% interval per decile, so the strict rule evaluates fully. The lower bound is below 0 in every decile of every shipped artifact (highest: −0.031 R, SPX500 M15 long), and no mean reaches +0.05 R. A test runs the rule over all 13 artifacts, both sides and all deciles: every case reads "Neutral · no side clears costs". One upper bound reaches above +0.05 (SPX500 M15 long top decile, +0.055 R), but the rule needs the lower bound above 0.
-  - The headline is Neutral everywhere. The live check gave WTI M5 at 10:00 local: long 16% (−0.17 R), short 17% (−0.15 R).
-  - Discrimination is weak: walk-forward 2023+ AUC is 0.57 to 0.65 per side.
-  - The number mostly reflects spread and hour, as the card says.
-- **Research cadence.** On M5, research scored only the bars that close on a quarter hour. The card scores every closed bar, so the two M5 bars in between are not covered by research rows. M15 research scored every bar. M1 research scored every 5th bar (the M5 close), with a 360-bar (6 h) time exit.
-- **M1 live check (copy setup, 10:5x local).** Every M1 pair read Neutral. The spread reason fired on WTI (0.27), XAU (0.22), XAG (0.29), EUR/USD (0.61) and NATGAS (2.13). SPX500 read "no side clears costs". P(profit) on M1 ranged from 8% to 16% per side, with average R from −0.17 to −0.55 R.
+- **P(profit) has no serving skew.** On the live OANDA bid/ask feed (the last 5000 bars, as production reads them), P at the fixture rows equaled the research P to below 5e-6 for the three A1 to A3 fixtures checked; the A4 cells use the same features. Research and production read the same bid/ask source. Script: `data/research/localpred/pp-skew.mjs` (gitignored).
+- **No side clears costs in any cell, at either horizon or target.**
+  - The best decile's expected R per shipped A4 cell is negative everywhere: from −0.048 R (WTI M15 H48 plan) and −0.052 R (EUR/USD M15 H12 up) down to −0.43 R (NATGAS M1 H12 up). M1 cells are the worst (−0.08 to −0.43 R).
+  - No decile mean reaches +0.05 R, and no interval lies above 0. A test runs the strict rule over all 32 shipped cells, both sides and all deciles: every case reads "Neutral · no side clears costs". The shorter horizon and the price-better target do not change this.
+  - The live check gave WTI M5 at 11:40 local: H12 up long 47% / short 48% (avg −0.13 R each), H48 plan long 17% (−0.17 R) / short 18% (−0.16 R). "Price better after 12 candles" sits near a coin flip minus costs; the trade plan rarely reaches its target.
+- **P(profit) is close to a spread meter.** Walk-forward 2023+ AUC of the 18-feature model is close to that of a spread-only model in every shipped cell, e.g. WTI M5 H12 up 0.572 against 0.571 (long), EUR/USD M1 H12 plan 0.804 against 0.804, XAU M5 H48 plan 0.583 against 0.558. The high M1 AUCs (0.72 to 0.92 on plan cells) come from the spread: on M1 the spread is a large share of 1R. The card's "Mostly reflects spread and hour" is accurate.
+- **Base rates by target.** The share of profitable entries in 2023+ is 38% to 48% for `up` cells on M5 and M15 and 20% to 41% on M1; `plan` cells reach 12% to 30% on M5 and M15 and 2% to 22% on M1.
+- **Research cadence.** On M5, research scored only the bars that close on a quarter hour. The card scores every closed bar, so the two M5 bars in between are not covered by research rows. M15 research scored every bar. M1 research scored every 5th bar (the M5 close). The A4 cells keep these cadences.
+- **M1 live check (copy setup, 10:5x local, A3 artifacts before A4).** Every M1 pair read Neutral. The spread reason fired on WTI (0.27), XAU (0.22), XAG (0.29), EUR/USD (0.61) and NATGAS (2.13). SPX500 read "no side clears costs". P(profit) on M1 ranged from 8% to 16% per side, with average R from −0.17 to −0.55 R.
 - **Dropping stress costs nothing measurable.** Walk-forward 2023+ AUC without and with stress:
   - WTI 0.900 / 0.900
   - XAU 0.838 / 0.839
@@ -141,29 +155,30 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - A test covers that news changes neither the side, the bars nor the big-day number.
 - **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
   - In the running-app check of the compact card, the card moved from the 09:35 to the 09:40 local candle 65 s after the script started, without a click.
-  - Screenshots (fourth round):
-    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: Neutral · no side clears costs, Long 16% / avg −0.17 R, Short 17% / avg −0.15 R, big day 30%; no chip; History inside Details)
+  - Screenshots (fifth round, A4 cells):
+    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5, default cell "12 candles (1 h) · price better": Neutral · no side clears costs, Long 47% / avg −0.13 R, Short 48% / avg −0.13 R, big day 31%)
     - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px)
-    - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` (Details open with the plan note)
-    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (XAG/USD M5, whose calibration failed: "Neutral · no calibrated estimate", no bars)
+    - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` ("48 candles (4 h) · trade plan" chosen: Long 17% / avg −0.17 R, Short 18% / avg −0.16 R; Details open with the plan note for 48 candles)
+    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD M5, no shipped cell: "Neutral · no calibrated estimate", no select, no bars)
     - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 20 tests pass. They cover:
-    - big-day and P(profit) parity (M5, M15 and M1)
+  - `node --test test/local-predict.test.mjs`: 19 tests pass. They cover:
+    - big-day parity, and P(profit) parity for four A4 cells (M1, M5, M15; up and plan)
+    - cell resolution: only shipped horizon x target cells, `ppAvailable` per pair
     - short window
     - reasons, news relevance and news input
     - the headline rule (Neutral below the bar, the interval required, reason precedence, the higher side wins)
-    - the rule over all 13 shipped artifacts: every decile reads Neutral
-    - isotonic calibration (interpolation and clipping), bisect-right deciles, empty deciles, and M1 coverage
-    - P(profit) per side and news invariance
+    - the rule over all 32 shipped cells: every decile reads Neutral
+    - isotonic calibration (interpolation and clipping), bisect-right deciles and empty deciles
+    - P(profit) per cell with its own headline, the default cell, and news invariance
     - reached sessions
     - the no-artifact fallback
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 806 tests pass, plus the console typecheck.
+  - `npm run verify`: 805 tests pass, plus the console typecheck.
   - `go test ./internal/api ./internal/tools`: pass.
 
 ## Recommendation
@@ -172,7 +187,7 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
-   - P(profit) per side with average R and the strict Neutral headline, where a calibrated artifact exists
+   - P(profit) per side with average R and the strict Neutral headline, per shipped horizon x target cell, with the "Over" select
    - the two study-backed no-trade reasons
    - the trend as context
    - the news line, as display only, for relevant headlines that are not routine
@@ -186,6 +201,8 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 - Should the scorer read bid/ask M1 resampled to 30 minutes (exact research inputs), or OANDA mid M30? The measured drift is at most 0.002.
 - Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
 - Should the strict rule also require a minimum P decile support, now that intervals exist?
+- The 18-feature P(profit) model barely beats a spread-only model in any A4 cell. Should the Go port ship the full model, or a spread-and-hour lookup with the same calibration and decile table?
+- Which cell should be the default (stored action, `probabilities`, agent tool), and should the card hide cells for the pairs where the chosen one failed calibration instead of falling back to the first shipped cell?
 - Should P(profit) on M5 be scored only at the research cadence (quarter-hour closes), or on every closed bar as now?
 - Should the bid/ask window be persisted, so that a restart does not refetch 5000 bars per pair?
 - Should the thin-hour lists and T1 move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?

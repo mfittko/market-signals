@@ -9,9 +9,11 @@
 //    on 30-min mid bars); test/fixtures holds a bars -> features -> probability
 //    parity export. abs11 A1 failed its preregistered operating rule, so this is
 //    a display-only research preview.
-// 2. P(profit) for a long and a short entered now under a fixed trade plan,
-//    with the expected R of its P decile (pprofit20, scripts/pprofit.mjs), on
-//    the pairs whose calibration passed. It mostly reflects spread and hour.
+// 2. P(profit) for a long and a short entered now, per horizon (12 or 48 candles)
+//    and target ("up": price better after costs at the end; "plan": the fixed
+//    trade plan ends net positive), with the expected R of its P decile
+//    (pprofit20, scripts/pprofit.mjs), for the cells whose calibration passed.
+//    It mostly reflects spread and hour.
 // 3. No-trade reasons: only rules a no-trade study measured as helpful
 //    (wide spread, thin trading hour).
 // 4. Trend: supertrend side and H1 agreement, a description, not a prediction.
@@ -20,12 +22,12 @@
 import { readFileSync } from 'node:fs';
 import { computeSupertrend, granularityMs } from './supertrend.mjs';
 import { htfSupertrend } from './indicators.mjs';
-import { ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
+import { PP_HORIZONS, PP_TARGETS, ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
 export const LOCAL_MODEL = 'local-stats-v2 (big day abs11 A1_nostress; P(profit) pprofit20)';
-// The P(profit) trade plan ends after 72 bars at the latest.
-export const LOCAL_HORIZON_BARS = 72;
+// Default P(profit) cell order: the first shipped cell sets the stored action and probabilities.
+export const PP_CELL_ORDER = PP_HORIZONS.flatMap((h) => PP_TARGETS.map((t) => [h, t]));
 // Operator-approved headline rule: a side is named only when its expected R is at
 // least +0.05 R and its interval lies above 0; otherwise the headline is Neutral.
 export const MIN_EXPECTED_R = 0.05;
@@ -187,16 +189,21 @@ function bigDay(instrument, m30, now) {
   return { ...base, available: true, reached: false, p, z, x: f.x, text: `${pct(p)} for a move of ${T1.toFixed(1)}% or more today (usual ${pct(model.training_base_rate)}; ${f.exc.toFixed(1)}% so far)` };
 }
 
-// P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`.
+// P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
+// shipped cell (horizon x target). The features are the same for all cells. The top-level
+// long/short are the first cell in PP_CELL_ORDER; `cells` holds all of them.
 function pprofit(instrument, granularity, ba, lastMs) {
-  const model = ppModel(instrument, granularity);
-  if (!model) return { available: false, text: 'no calibrated estimate' };
+  const shipped = PP_CELL_ORDER.map(([h, t]) => [h, t, ppModel(instrument, granularity, h, t)]).filter(([, , m]) => m);
+  if (!shipped.length) return { available: false, text: 'no calibrated estimate' };
   const i = ba.findIndex((b) => Date.parse(b.time) === lastMs);
   if (i < 0) return { available: false, text: 'no current bid/ask data' };
   const f = ppFeatures(ppSeries(ba.slice(0, i + 1), granularity), i);
   if (!f) return { available: false, text: 'not enough bid/ask history' };
-  const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
-  return { available: true, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
+  const cells = shipped.map(([horizon, target, model]) => {
+    const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
+    return { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
+  });
+  return { available: true, ...cells[0], cells };
 }
 
 // The operator-approved headline rule (strict): a side only when its expected R is at least
@@ -244,6 +251,13 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
   const head = headline(pp, reasons);
+  // each cell gets its own headline under the same rule, so the card can show any of them
+  if (pp.available) {
+    for (const c of pp.cells) {
+      const h = headline({ available: true, ...c }, reasons);
+      Object.assign(c, { headline: h.label, headlineAction: h.action, headlineReason: h.reason });
+    }
+  }
   const action = head.action;
   const state = {
     big_day_today: big.text,
@@ -261,7 +275,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   if (news?.relevant) state.news = `${news.relevant.escalation}: ${news.relevant.title} (not used for direction or reasons)`;
 
   return {
-    instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: LOCAL_HORIZON_BARS,
+    instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: pp.available ? pp.horizon : PP_HORIZONS[0],
     askedAt: new Date(now).toISOString(), model: LOCAL_MODEL, action,
     // long/short: P(profit) of each side (null without an artifact); no_trade: 1 for a Neutral headline
     probabilities: { long: pp.available ? pp.long.p : null, short: pp.available ? pp.short.p : null, no_trade: action === 'no_trade' ? 1 : 0 },

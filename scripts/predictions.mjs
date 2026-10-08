@@ -4,7 +4,7 @@
 import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
 import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
 import { localPredict, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
-import { baWindow, ppModel, PP_WINDOW_BARS } from './pprofit.mjs';
+import { baWindow, ppAvailable, PP_WINDOW_BARS } from './pprofit.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +97,7 @@ async function freshPrediction(dbPath, settings, { instrument, granularity, load
   if (predictionProvider(settings) === LOCAL_PROVIDER) {
     input.m30 = loadM30 ? await loadM30() : (granularity === 'M30' ? candles : []);
     // bid/ask bars of the viewed timeframe: a long window where a P(profit) artifact exists, else the spread only
-    input.ba = await baWindow(instrument, granularity, ppModel(instrument, granularity) ? PP_WINDOW_BARS : 3, { fetchFn: opts.fetchFn }).catch(() => []);
+    input.ba = await baWindow(instrument, granularity, ppAvailable(instrument, granularity) ? PP_WINDOW_BARS : 3, { fetchFn: opts.fetchFn }).catch(() => []);
   }
   return { reused: false, ...(await runPrediction(dbPath, settings, input, { now, ...opts })) };
 }
@@ -141,10 +141,10 @@ export function predictionForTool(p) {
   if (p.provider === LOCAL_PROVIDER) {
     const d = p.detail ?? {};
     return {
-      advisory: 'Advisory statistics only. probabilities.long/short are calibrated P(profit) of a fixed trade plan (stop 1.5 ATR, breakeven at +1R, target 3R, out after 72 bars) after costs; they mostly reflect spread and hour and are not an edge. It never places or changes a trade; confirm with price action before any entry.',
+      advisory: 'Advisory statistics only. probabilities.long/short are calibrated P(profit) after costs of the first cell in pProfit.cells (horizon in candles; target up = price better than the entry at the end, plan = stop 1.5 ATR, breakeven at +1R, target 3R, out at the horizon); they mostly reflect spread and hour and are not an edge. It never places or changes a trade; confirm with price action before any entry.',
       provider: p.provider, instrument: p.instrument, granularity: p.granularity, action: p.action, probabilities: p.probabilities,
       headline: d.headline ?? null, headlineReason: d.headlineReason ?? null, pProfit: d.pprofit ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
-      trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: 'fixed plan, out after 72 bars at the latest',
+      trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: `next ${p.horizonBars} candles (see pProfit.cells for each horizon and target)`,
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };
   }

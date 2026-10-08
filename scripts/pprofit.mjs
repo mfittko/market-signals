@@ -1,9 +1,11 @@
-// P(profit) for a long and a short entered now, per instrument and timeframe,
-// from the pprofit20 research artifacts in config/prediction-models (logistic
-// model with side interactions, Platt calibration, expected R by P decile).
-// The trade is a fixed plan: stop 1.5 x Wilder ATR14 = 1R, breakeven at +1R,
-// target 3R, out at an opposite supertrend flip or after 72 bars, net of
-// bid/ask. Calibrated in development evidence only; never an edge claim.
+// P(profit) for a long and a short entered now, per instrument, timeframe,
+// horizon H (12 or 48 bars) and target, from the pprofit20 research artifacts in
+// config/prediction-models (logistic model with side interactions, Platt or
+// isotonic calibration, expected R by P decile with a bootstrap interval).
+// Targets: "up" = the price after costs at bar H is better than the entry;
+// "plan" = a fixed trade plan (stop 1.5 x Wilder ATR14 = 1R, breakeven at +1R,
+// target 3R, out at an opposite supertrend flip or after H bars) ends net
+// positive. Calibrated in development evidence only; never an edge claim.
 // This module ports the research features (pp20.py bar_features) to Node and
 // keeps a bid/ask candle window per pair. test/fixtures holds a parity export.
 import { readFileSync } from 'node:fs';
@@ -15,25 +17,30 @@ const STOP_ATR = 1.5;
 const CLIP = { spr: [0, 2], lrv12: [-3, 3], lrv72: [-3, 3], latr: [-3, 3], lrng: [-5, 5], mv: [-20, 20], dst: [-10, 10] };
 const clip = (k, v) => Math.min(Math.max(v, CLIP[k][0]), CLIP[k][1]);
 
+// Horizons (bars of the viewed timeframe) and targets the research exported.
+// "up": price better than the entry after costs at bar H; "plan": the trade plan with a time exit at H.
+export const PP_HORIZONS = [12, 48];
+export const PP_TARGETS = ['up', 'plan'];
+
 const models = new Map();
-// The research artifact for a pair, or null (only calibrated pairs were exported).
-export function ppModel(instrument, granularity) {
-  const key = `${instrument}|${granularity}`;
+// The research artifact for one cell (instrument, timeframe, horizon, target), or null
+// when the cell was not shipped (failed calibration, degenerate, or never exported).
+export function ppModel(instrument, granularity, horizon, target) {
+  const key = `${instrument}|${granularity}|${horizon}|${target}`;
   if (!models.has(key)) {
     let m = null;
-    const tag = instrument.replace('/', '_');
-    // M1 uses the isotonic-calibrated variant; M5 and M15 the Platt one
-    const names = { M1: [`${tag}_M1_iso`], M5: [tag], M15: [`${tag}_M15`] }[granularity] ?? [];
-    for (const n of names) {
+    if (/^M\d+$/.test(granularity) && PP_HORIZONS.includes(horizon) && PP_TARGETS.includes(target)) {
       try {
-        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${n}_pprofit20.json`, import.meta.url), 'utf8'));
-        break;
-      } catch { /* no artifact under this name */ }
+        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}_${granularity}_H${horizon}_${target}_pprofit20.json`, import.meta.url), 'utf8'));
+      } catch { /* cell not shipped */ }
     }
     models.set(key, m);
   }
   return models.get(key);
 }
+
+// Whether any cell ships for the pair (decides how much bid/ask history to fetch).
+export const ppAvailable = (instrument, granularity) => PP_HORIZONS.some((h) => PP_TARGETS.some((t) => ppModel(instrument, granularity, h, t)));
 
 // Wilder ATR14 on mid: TR_0 = h - l; seed = mean(TR_0..TR_13) at index 13.
 function atr14(h, l, c, n = 14) {
