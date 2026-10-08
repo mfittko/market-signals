@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
-import { cellLabel, conditionsText, isWarning, loadCell, saveCell, SHARED_NOTE, SIDE_DIFF_NOTE, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState } from '@/lib/prediction';
+import { conditionsText, HORIZONS, horizonLabel, isWarning, LEAN_COLOR, loadHorizon, saveHorizon, SHARED_NOTE, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState, type UpDown, type UpDownH } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -14,45 +14,31 @@ type Prediction = {
 };
 // What the local provider stores in `detail` (scripts/local-predict.mjs)
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
-type SidePart = { p: number; expectedR: number | null; decile: number };
-// one shipped horizon x target cell; runs stored before cells existed have none
-type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null; shield?: Shield; lean?: Lean | null };
-// the side with the higher P and its lean22 track record (scripts/local-predict.mjs leanFor); Details only
-type Lean = { side: 'long' | 'short'; gapPp: number; greyed: boolean; label: string; pLean: number; pOther: number };
 type LocalDetail = {
   shield?: Shield;
   now?: NowMotion | null;
   bigDay?: BigDayPart;
-  pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart; cells?: Cell[] };
+  updown?: UpDown;
   headline?: string; headlineReason?: string | null;
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
-const CAVEAT = 'Mostly reflects spread and hour. Not an edge.';
-// what "profit" means for a cell; runs without cells used the 72-candle plan
-const cellNote = (c: Cell | null) => (!c ? `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 72 candles. ${CAVEAT}`
-  : c.target === 'up' ? `Price after costs at the end of ${c.horizon} candles: above the entry for long, below for short. ${CAVEAT}`
-    : `Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after ${c.horizon} candles. ${CAVEAT}`);
-// expected R of the P decile; an empty decile has none
-const signedR = (r: number | null) => (r == null ? 'avg R: n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
-// a calibrated P can be exactly 0
-const pctP = (v: number | null | undefined) => (v != null && v < 0.005 ? '<1%' : pct(v));
-// "Long now: [bar] 24% chance of profit (avg −0.09 R)"
-function ProfitBar({ name, s, tone, note }: { name: string; s: SidePart; tone: string; note: string }) {
+// "Long [bar] 46%" for the three up/down bars
+function UdBar({ name, v, tone }: { name: string; v: number; tone: string }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '78px 1fr', alignItems: 'center', gap: 8 }} className="small" title={note}>
-      <span>{name} now</span>
-      <span style={{ display: 'grid', gap: 2 }}>
-        <span style={{ height: 8, borderRadius: 4, background: 'var(--neutral-bg)', overflow: 'hidden' }} role="meter" aria-label={`${name} chance of profit`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.p * 100)}>
-          <span style={{ display: 'block', height: '100%', width: pct(s.p), background: tone }} />
-        </span>
-        <span>{pctP(s.p)} chance of profit ({signedR(s.expectedR)})</span>
+    <div style={{ display: 'grid', gridTemplateColumns: '64px 1fr 36px', alignItems: 'center', gap: 8 }} className="small">
+      <span>{name}</span>
+      <span style={{ height: 8, borderRadius: 4, background: 'var(--neutral-bg)', overflow: 'hidden' }} role="meter" aria-label={`${name} share`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={v}>
+        <span style={{ display: 'block', height: '100%', width: `${v}%`, background: tone }} />
       </span>
+      <span className="num">{v}%</span>
     </div>
   );
 }
+const signedPp = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}`;
+const UD_NOTE = 'Outcome after the chosen number of candles: close against the close now, Long at +0.25 ATR or more, Short at −0.25 ATR or less, else Neutral. A frequency table of similar past moments, not an edge.';
 // "Long  ● Don't trade now · bottom 10% of conditions for WTI M5 · avg −0.91 R"
 function StateLine({ name, s, withWhy }: { name: string; s: SideState; withWhy: boolean }) {
   return (
@@ -120,8 +106,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const [runs, setRuns] = useState<Prediction[]>([]);
   const [shownId, setShownId] = useState<number | null>(null);
   // the chosen horizon x target cell, remembered in this browser for every pair
-  const [cellKey, setCellKey] = useState<string | null>(null);
-  useEffect(() => { setCellKey(loadCell()); }, []);
+  const [horizon, setHorizon] = useState(6);
+  useEffect(() => { setHorizon(loadHorizon()); }, []);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // both carry the timeframe they belong to, so a render during a timeframe switch never acts on the old one's state
@@ -222,14 +208,9 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const isLatest = p && p.id === runs[0]?.id;
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
   const d = p?.provider === LOCAL ? p.detail ?? null : null;
-  const pp = d?.pprofit;
-  const cells = pp?.available ? pp.cells ?? [] : [];
-  const cell = cells.find((c) => c.key === cellKey) ?? cells[0] ?? null;
-  const side = cell ?? (pp?.available ? pp : null);
-  const head = cell ? { label: cell.headline, action: cell.headlineAction, reason: cell.headlineReason } : d && { label: d.headline ?? LABEL[p.action], action: p.action, reason: d.headlineReason ?? null };
-  const note = cellNote(cell);
-  // the per-side state for the chosen cell; runs stored before states existed show the strict rule instead
-  const shield = cell ? cell.shield : d?.shield;
+  const head = d && { label: d.headline ?? LABEL[p.action], action: p.action, reason: d.headlineReason ?? null };
+  const shield = d?.shield;
+  const ud: UpDownH | null = d?.updown?.horizons?.[horizon] ?? null;
   const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
   const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
@@ -260,37 +241,42 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           )}
           {/* describes the closed bars only; no forecast */}
           {d.now && <p className="small" style={{ margin: '4px 0' }}>{d.now.text}</p>}
-          {cells.length > 0 && (
-            <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span className="muted">Over</span>
-              <select value={cell!.key} onChange={(e) => { setCellKey(e.target.value); saveCell(e.target.value); }}>
-                {cells.map((c) => <option key={c.key} value={c.key}>{cellLabel(c, p.granularity)}</option>)}
-              </select>
-            </label>
+          {d.updown !== undefined && (
+            <div style={{ margin: '8px 0', display: 'grid', gap: 4 }}>
+              {ud ? (
+                <>
+                  <p style={{ margin: 0 }}><strong style={{ fontSize: 17, color: LEAN_COLOR(ud.label) }}>{ud.label}</strong></p>
+                  <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="muted">Over</span>
+                    <select value={horizon} onChange={(e) => { const n = Number(e.target.value); setHorizon(n); saveHorizon(n); }}>
+                      {HORIZONS.map((n) => <option key={n} value={n}>{horizonLabel(n, p.granularity)}</option>)}
+                    </select>
+                  </label>
+                  <UdBar name="Long" v={ud.bars[0]} tone={TONE.long} />
+                  <UdBar name="Neutral" v={ud.bars[1]} tone="var(--muted)" />
+                  <UdBar name="Short" v={ud.bars[2]} tone={TONE.short} />
+                  <p className="small muted" style={{ margin: 0 }}>after {ud.n.toLocaleString('en-US')} similar moments ({ud.words}), {d.updown?.period}</p>
+                </>
+              ) : <p className="small muted" style={{ margin: 0 }}>Long/Neutral/Short: no table for this instrument and timeframe.</p>}
+            </div>
           )}
-          {!shield && !(side?.long && side.short) && head!.reason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
           {d.reasons.slice(shield ? 1 : d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
           <details className="small">
             <summary className="muted">Details</summary>
-            {shield && <p style={{ margin: '6px 0' }}>Trade: {head!.label}{head!.reason ? ` · ${head!.reason}` : ''}</p>}
             {shield && (shield.shared && shield.both
-              ? <p style={{ margin: '4px 0' }}>Conditions: {conditionsText(shield.both)}</p>
-              : <p style={{ margin: '4px 0' }}>Conditions: Long {conditionsText(shield.long)} · Short {conditionsText(shield.short)}</p>)}
-            {/* the lean never appears in the headline or the state lines; a small gap or a cell without a grey rule shows greyed */}
-            {cell?.lean && <p className={cell.lean.greyed ? 'muted' : undefined} style={{ margin: '4px 0', opacity: cell.lean.greyed ? 0.7 : 1 }} title={cell.lean.greyed ? `gap ${cell.lean.gapPp.toFixed(1)} pp: too small to read` : undefined}>Lean: {cell.lean.side.toUpperCase()} ({pct(cell.lean.pLean)} vs {pct(cell.lean.pOther)}) · {cell.lean.label}</p>}
-            {side?.long && side.short && <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
-              {shield?.shared && <span className="muted">{SIDE_DIFF_NOTE}</span>}</div>}
-            <p className="muted" style={{ margin: '6px 0' }}>{note}</p>
-            {side?.long && side.short && <p style={{ margin: '4px 0' }}>Long: P {pctP(side.long.p)}, {signedR(side.long.expectedR)} (decile {side.long.decile} of 10) · Short: P {pctP(side.short.p)}, {signedR(side.short.expectedR)} (decile {side.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
+              ? <p style={{ margin: '6px 0' }}>Costs: {conditionsText(shield.both)}</p>
+              : <p style={{ margin: '6px 0' }}>Costs: Long {conditionsText(shield.long)} · Short {conditionsText(shield.short)}</p>)}
+            {ud && <p style={{ margin: '4px 0' }}>Long minus Short: {signedPp(ud.d)} pp, 95% interval {signedPp(ud.ci[0])} to {signedPp(ud.ci[1])} pp; Neutral when the interval includes 0. Bucket level {ud.level}{ud.key ? ` (${ud.key})` : ''}.</p>}
+            {ud && <p className="muted" style={{ margin: '4px 0' }}>{UD_NOTE}</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now')) && k !== 'long_state' && k !== 'short_state' && !['state_both_sides', 'conditions_both_sides', 'long_conditions', 'short_conditions', 'now'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !/^updown_|^long_now$|^short_now$/.test(k) && k !== 'long_state' && k !== 'short_state' && !['state_both_sides', 'conditions_both_sides', 'long_conditions', 'short_conditions', 'now'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · chance of profit over {cell ? cell.horizon : 72} candles, big day over the session · {age(p.askedAt, now)}</p>
+            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · big day over the session · {age(p.askedAt, now)}</p>
             {history}
           </details>
         </div>
@@ -347,7 +333,7 @@ function History({ runs, shownId, now, onShow }: { runs: Prediction[]; shownId?:
             <td className="num"><button className="linkish" onClick={() => onShow(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
             <td className="num">{hm(r.candleTime)}</td>
             <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
-              ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pctP(r.probabilities.long)} / S ${pctP(r.probabilities.short)}` : ''}</>
+              ? <>{r.detail?.updown?.horizons?.['6']?.label ?? r.detail?.shield?.both?.label ?? r.detail?.headline ?? LABEL[r.action]}</>
               : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
             <td className="num">{r.price}</td>
           </tr>

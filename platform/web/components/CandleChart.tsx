@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
-import { isWarning, SHARED_NOTE, SIDE_DIFF_NOTE, STATE_COLOR, stateText, targetLabel, type SeriesEntry, type SideState } from '@/lib/prediction';
+import { isWarning, LEAN_COLOR, SHARED_NOTE, STATE_COLOR, stateText, type SeriesEntry, type SideState } from '@/lib/prediction';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -24,7 +24,7 @@ type Props = {
   trades?: TradeMark[];
   news?: NewsMark[];
   // local prediction per closed candle, shown in the tooltip for the card's chosen cell
-  predictions?: { instrument: string; entries: SeriesEntry[]; cellKey: string | null };
+  predictions?: { entries: SeriesEntry[]; horizon: number };
 };
 
 const MIN_BAR = 7; // px per candle slot: fewer bars are drawn on narrow screens
@@ -270,7 +270,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
       </svg>
 
       {hover && hv && (
-        <div className="chart-tip" role="status" style={{ left: Math.min(Math.max(x(hover.i), 0), W), transform: `translateX(${x(hover.i) > W * 0.55 ? 'calc(-100% - 14px)' : '14px'})` }}>
+        <div className="chart-tip" role="status" style={narrow ? { left: 8, right: 8, maxWidth: 'none' } /* a phone has no room beside the cursor: full width */ : { left: Math.min(Math.max(x(hover.i), 0), W), transform: `translateX(${x(hover.i) > W * 0.55 ? 'calc(-100% - 14px)' : '14px'})` }}>
           <div className="tip-h">{stamp(hv.time)}{hv.complete === false && <span className="tip-live">forming</span>}</div>
           <div className="tip-grid num">
             <span>O</span><span>{hv.open}</span><span>H</span><span>{hv.high}</span>
@@ -279,7 +279,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
           <div className="small muted num">
             {(((hv.close - hv.open) / hv.open) * 100).toFixed(2)}% · range {(hv.high - hv.low).toFixed(3)} · vol {hv.volume}
           </div>
-          {hvPred && <PredictionLine e={hvPred} cellKey={predictions?.cellKey ?? null} instrument={predictions?.instrument ?? ''} />}
+          {hvPred && <PredictionLine e={hvPred} horizon={predictions?.horizon ?? 6} />}
           {hvSt && <div className="small">Supertrend <span className="num">{fmt(hvSt.value)}</span> <span className={hvSt.trend === 'up' ? 'good-t' : 'bad-t'}>{hvSt.trend}</span></div>}
           {hvMarks?.signals.map((g, k) => (
             <div key={`g${k}`} className="tip-sec"><strong className={g.signal === 'buy' ? 'good-t' : 'bad-t'}>{g.signal} flip</strong>{g.kind && g.kind !== 'supertrend-flip' ? ` · ${g.kind.replace('supertrend-', '')}` : ''}{g.verdict ? ` · ${g.verdict}` : ''}{g.price ? ` @ ${g.price}` : ''}{g.reason && <div className="small">{g.reason.length > 160 ? `${g.reason.slice(0, 160)}…` : g.reason}</div>}</div>
@@ -305,15 +305,13 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   );
 }
 
-const pct = (v: number) => (v < 0.005 ? '<1%' : `${Math.round(v * 100)}%`);
 const Dot = ({ s }: { s: SideState }) => <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[s.state], marginRight: 4 }} />;
 // a dot only for a warning (red or orange); "No warning" stays plain
 const side = (name: string, s: SideState) => <span>{name && `${name} `}{isWarning(s) && <Dot s={s} />}{isWarning(s) ? <strong>{stateText(s, false)}</strong> : stateText(s, false)}</span>;
-// "● Costly now · applies to both sides …" or "Long No warning · Short ● Don't trade now", the Now line, then the P values, muted
-function PredictionLine({ e, cellKey, instrument }: { e: SeriesEntry; cellKey: string | null; instrument: string }) {
-  const c = e.cells.find((x) => x.key === cellKey) ?? e.cells[0];
-  const sh = c?.shield ?? e.shield;
-  const spread = e.spreadR == null ? '' : `spread ${e.spreadR.toFixed(2)} of stop`;
+// "● Costly now · applies to both sides …" or "Long No warning · Short ● Don't trade now", the Now line, then the up/down lean and shares
+function PredictionLine({ e, horizon }: { e: SeriesEntry; horizon: number }) {
+  const sh = e.cells[0]?.shield ?? e.shield;
+  const u = e.updown?.horizons?.[horizon];
   return (
     <div className="tip-sec small">
       {sh && (sh.shared && sh.both
@@ -321,11 +319,7 @@ function PredictionLine({ e, cellKey, instrument }: { e: SeriesEntry; cellKey: s
         : <div>{side('Long', sh.long)} · {side('Short', sh.short)}</div>)}
       {sh?.reason && <div style={{ color: 'var(--warn)' }}>{sh.reason.why.replace(/^./, (x) => x.toUpperCase())}</div>}
       {e.now && <div>{e.now.text}</div>}
-      <div className="muted">
-        {c ? <>{c.horizon} candles · {targetLabel(c.target)}: Long {pct(c.pLong)} · Short {pct(c.pShort)}{spread && ` · ${spread}`}</> : <>{e.text ?? 'no calibrated estimate'}{spread && ` · ${spread}`}</>}
-        {c?.inSample && ' (model trained on this period)'}
-      </div>
-      {c && sh?.shared && <div className="muted">{SIDE_DIFF_NOTE}</div>}
+      {u && <div><strong style={{ color: LEAN_COLOR(u.label) }}>{u.label}</strong> <span className="muted">over {horizon} candles · Long {u.bars[0]}% · Neutral {u.bars[1]}% · Short {u.bars[2]}%</span></div>}
     </div>
   );
 }

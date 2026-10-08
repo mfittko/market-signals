@@ -8,7 +8,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SHARED_NOTE, SIDE_DIFF_CALIBRATED, leanFor, leanText, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SHARED_NOTE, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -192,8 +192,12 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
   assert.equal(base.state.state_both_sides, `${shieldText(base.detail.shield.both)} (${SHARED_NOTE})`, 'WTI: one shared state');
   assert.equal(base.state.long_state, undefined);
-  assert.deepEqual(base.detail.lean, pp.cells[0].lean, 'the run stores the lean of the default cell');
-  assert.ok(pp.cells.every((c) => c.lean === null || (typeof c.lean.gapPp === 'number' && typeof c.lean.greyed === 'boolean' && ['long', 'short'].includes(c.lean.side))));
+  // the run stores the up/down lookup per horizon, with the bucket, level, n and the headline
+  for (const N of [3, 6, 12]) {
+    const h = base.detail.updown.horizons[N];
+    assert.ok(['L0', 'L1', 'L2', 'L3', 'base'].includes(h.level) && h.n >= 300 && Math.abs(h.pL + h.pN + h.pS - 1) < 1e-9);
+    assert.equal(base.state[`updown_${N}_candles`].split(' · ')[0], h.label);
+  }
   assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
   assert.ok(pp.long.expectedR < 0.05 && pp.short.expectedR < 0.05);
   assert.deepEqual([base.action, base.detail.headline], ['no_trade', 'Neutral']);
@@ -446,27 +450,56 @@ test('nowMotion: run length, pace in ATR, direction, volume against the slot or 
   assert.equal(nowMotion(b, b.length - 1, null), null);
 });
 
-test('leanFor: gap 0 hides, a small gap or a cell without a grey rule greys, the label is the A1 one', () => {
-  const rec = JSON.parse(readFileSync(new URL('../config/prediction-models/lean_track_record.json', import.meta.url), 'utf8')).cells;
-  const cell = (horizon, target, pl, ps) => ({ horizon, target, long: { p: pl }, short: { p: ps } });
-  const lean = (inst, gran, c) => leanFor({ instrument: inst, granularity: gran, cell: c });
-  // WTI M5 H12 up: the cell greys below 5 pp
-  assert.equal(lean('WTICO/USD', 'M5', cell(12, 'up', 0.45, 0.45)), null, 'gap 0: no lean');
-  const small = lean('WTICO/USD', 'M5', cell(12, 'up', 0.47, 0.45));
-  assert.deepEqual([small.side, small.greyed, Math.round(small.gapPp)], ['long', true, 2]);
-  assert.equal(small.label, rec.WTICO_USD_M5_H12_up.amendment_A1.label);
-  assert.notEqual(small.label, rec.WTICO_USD_M5_H12_up.label, 'not the registered label');
-  assert.equal(leanText(small), `Lean: LONG (47% vs 45%) · ${rec.WTICO_USD_M5_H12_up.amendment_A1.label}`);
-  assert.equal(lean('WTICO/USD', 'M5', cell(12, 'up', 0.42, 0.46)).greyed, true, '4 pp is still below this cell\'s 5 pp');
-  assert.deepEqual([lean('WTICO/USD', 'M5', cell(12, 'up', 0.40, 0.46)).side, lean('WTICO/USD', 'M5', cell(12, 'up', 0.40, 0.46)).greyed], ['short', false]);
-  // EUR/USD M5 H12 up greys below 1 pp in research; the card still greys below 3 pp
-  assert.equal(lean('EUR/USD', 'M5', cell(12, 'up', 0.48, 0.46)).greyed, true);
-  assert.equal(lean('EUR/USD', 'M5', cell(12, 'up', 0.50, 0.46)).greyed, false);
-  // no grey rule for the cell: always greyed
-  assert.equal(rec.WTICO_USD_M5_H48_plan.amendment_A1.grey_below_gap_pp, null);
-  assert.equal(lean('WTICO/USD', 'M5', cell(48, 'plan', 0.30, 0.10)).greyed, true);
-  // a cell missing from the track record: no lean
-  assert.equal(lean('BCO/USD', 'M5', cell(12, 'up', 0.5, 0.4)), null);
+// ---- up / neutral / down lookup
+test('up/down parity: bars -> bucket keys -> table lookup match the Python builder (WTI M5, EUR/USD M1)', () => {
+  for (const name of ['WTICO_USD-M5', 'EUR_USD-M1']) {
+    const fx = JSON.parse(readFileSync(new URL(`./fixtures/updown-parity-${name}.json`, import.meta.url), 'utf8'));
+    const bars = fx.bars.map(([t, open, high, low, close, volume]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close, volume }));
+    const parts = udParts(bars, fx.timeframe);
+    assert.ok(fx.rows.length >= 300);
+    for (const r of fx.rows) {
+      const p = parts[r.index];
+      const where = `${name} ${bars[r.index].time}`;
+      assert.deepEqual(p ? udKeys(p) : { L0: '', L1: '', L2: '', L3: '' }, r.keys, `keys ${where}`);
+      if (r.ratio != null) assert.ok(Math.abs(p.volumeRatio - r.ratio) <= 1e-9, `volume ratio ${where}`);
+      const ud = updown(fx.instrument, fx.timeframe, p);
+      for (const [N, want] of Object.entries(r.lookup)) {
+        const h = ud.horizons[N];
+        assert.deepEqual([h.level, h.key, h.n, h.pL, h.pN, h.pS, h.label], [want.level, want.key, want.n, ...want.p, want.headline], `lookup N=${N} ${where}`);
+      }
+    }
+  }
+});
+
+test('up/down fallback: L0 -> L1 -> L2 -> L3 -> base by n >= 300 and missing parts', () => {
+  const ud = (p) => updown('WTICO/USD', 'M5', p).horizons[6];
+  const table = udTable('WTICO/USD', 'M5').horizons['6'];
+  const p = { direction: 'falling', pace: 'fast', volume: 'normal', h1: 'agrees' };
+  assert.deepEqual([ud(p).level, ud(p).key, ud(p).n], ['L0', 'falling|fast|normal|agrees', table.L0['falling|fast|normal|agrees'][0]]);
+  assert.equal(ud({ ...p, volume: null }).level, 'L1', 'no volume ratio: L1');
+  assert.equal(ud({ ...p, volume: null, h1: null }).level, 'L2', 'no H1: L2');
+  assert.equal(ud({ ...p, h1: null }).level, 'L2', 'L0 needs both volume and H1');
+  assert.equal(ud(null).level, 'base');
+  assert.deepEqual(ud(null).words, 'all moments');
+  assert.equal(ud(p).words, 'falling fast, normal volume, H1 agrees');
+  // every stored bucket has n >= 300
+  for (const lv of ['L0', 'L1', 'L2', 'L3']) for (const [k, row] of Object.entries(table[lv])) assert.ok(row[0] >= 300, `${lv} ${k}`);
+});
+
+test('up/down headline: Neutral when the 95% interval of d includes 0, lean words by |d|, tie is Neutral', () => {
+  // same d = +2 pp, different n
+  assert.equal(udHeadline(0.44, 0.42, 1000).label, 'Neutral');
+  assert.equal(udHeadline(0.44, 0.42, 100000).label, 'Long, slight');
+  const h = udHeadline(0.44, 0.42, 1000);
+  assert.ok(h.ci[0] < 0 && h.ci[1] > 0 && Math.abs(h.d - 0.02) < 1e-12);
+  assert.ok(Math.abs((h.ci[1] - h.d) - 1.96 * Math.sqrt((0.86 - 0.0004) / 1000)) < 1e-12);
+  assert.equal(udHeadline(0.46, 0.42, 100000).label, 'Long');
+  assert.equal(udHeadline(0.40, 0.46, 100000).label, 'Long'.replace('Long', 'Short, clear'));
+  assert.equal(udHeadline(0.42, 0.455, 100000).label, 'Short');
+  assert.equal(udHeadline(0.43, 0.43, 1e9).label, 'Neutral', 'tie');
+  // the three bars always sum to 100
+  for (const ps of [[0.436, 0.141, 0.423], [1 / 3, 1 / 3, 1 / 3], [0.005, 0.005, 0.99], [0.4449, 0.1102, 0.4449]]) assert.equal(percent100(ps).reduce((x, y) => x + y, 0), 100, String(ps));
+  assert.deepEqual(percent100([1 / 3, 1 / 3, 1 / 3]).sort(), [33, 33, 34]);
 });
 
 // ---- per-candle series for the chart tooltip

@@ -21,11 +21,11 @@
 // reason or a number.
 import { readFileSync } from 'node:fs';
 import { computeSupertrend, granularityMs } from './supertrend.mjs';
-import { htfSupertrend } from './indicators.mjs';
+import { htfSupertrend, resampleCandles } from './indicators.mjs';
 import { PP_HORIZONS, PP_TARGETS, ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
-export const LOCAL_MODEL = 'local-stats-v3 (big day abs11 A1_nostress; P(profit) pprofit20; shield states)';
+export const LOCAL_MODEL = 'local-stats-v4 (big day abs11 A1_nostress; P(profit) pprofit20 shield; up/down lookup)';
 // Default P(profit) cell order: the first shipped cell sets the stored action and probabilities.
 export const PP_CELL_ORDER = PP_HORIZONS.flatMap((h) => PP_TARGETS.map((t) => [h, t]));
 // Operator-approved headline rule: a side is named only when its expected R is at
@@ -197,7 +197,7 @@ function scoreCell([horizon, target, model], f, reasons, instrument, granularity
   const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
   const c = { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
   const h = headline({ available: true, ...c }, reasons);
-  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }), lean: leanFor({ instrument, granularity, cell: c }) };
+  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }) };
 }
 
 // P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
@@ -233,6 +233,7 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
   const S = shipped.length && ba.length ? ppSeries(ba, granularity) : null;
   const baAt = new Map(ba.map((b, i) => [Date.parse(b.time), i]));
   const barAt = new Map(bars.map((b, k) => [Date.parse(b.time), k]));
+  const parts = udTable(instrument, granularity) ? udParts(bars, granularity) : [];
   return times.map((t) => {
     const ms = Date.parse(t);
     const i = baAt.get(ms);
@@ -246,7 +247,7 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
       const f = ppFeatures(S, i);
       pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity)) } : { available: false, text: 'not enough bid/ask history' };
     }
-    return { candleTime: t, spreadR, reasons, pprofit: pp, now: k == null ? null : nowMotion(bars, k, st[k]?.atr), hasBidAsk: i != null };
+    return { candleTime: t, spreadR, reasons, pprofit: pp, now: k == null ? null : nowMotion(bars, k, st[k]?.atr), updown: k == null ? null : updown(instrument, granularity, parts[k] ?? null), hasBidAsk: i != null };
   });
 }
 
@@ -295,32 +296,6 @@ export function shieldState({ instrument, granularity, cell = null, reasons = []
   }
   return out;
 }
-// Lean: the side with the higher P for a cell, with its track record from lean22
-// (config/prediction-models/lean_track_record.json, keyed <INST>_<TF>_H<H>_<target>). Details only,
-// never in the headline or the shield lines. Gap 0 (equal P, common on isotonic M1): no lean.
-// Greyed when the gap is below LEAN_GREY_PP, below the cell's own amendment_A1.grey_below_gap_pp
-// when that is higher, or always when the cell has none. The label is the A1 one (decisive hit rate, tie share).
-export const LEAN_GREY_PP = 3;
-let leanRecord;
-const leanCells = () => {
-  if (leanRecord === undefined) {
-    try { leanRecord = JSON.parse(readFileSync(new URL('../config/prediction-models/lean_track_record.json', import.meta.url), 'utf8')).cells; } catch { leanRecord = null; }
-  }
-  return leanRecord;
-};
-export function leanFor({ instrument, granularity, cell }) {
-  const rec = leanCells()?.[`${instrument.replace('/', '_')}_${granularity}_H${cell.horizon}_${cell.target}`]?.amendment_A1;
-  const gap = Math.abs(cell.long.p - cell.short.p) * 100;
-  if (!rec || gap < 1e-9) return null;
-  const side = cell.long.p >= cell.short.p ? 'long' : 'short';
-  const greyBelow = rec.grey_below_gap_pp;
-  const greyed = greyBelow == null || gap < Math.max(LEAN_GREY_PP, greyBelow);
-  return { side, gapPp: gap, greyed, label: rec.label, pLean: cell[side].p, pOther: cell[side === 'long' ? 'short' : 'long'].p };
-}
-// "Lean: LONG (47% vs 45%) · right 51% of the time …"
-export const leanText = (l) => `Lean: ${l.side.toUpperCase()} (${pct(l.pLean)} vs ${pct(l.pOther)}) · ${l.label}`;
-
-// "Don't trade now · spread wide (0.27 of stop) · avg −0.91 R"
 export const shieldText = (st) => [st.label, st.why].filter(Boolean).join(' · ');
 const avgRText = (r) => (r == null ? 'avg R n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
 // Details: "decile 9 of 10, top 20% of conditions for WTI M5 · avg −0.14 R"
@@ -338,12 +313,17 @@ export function volumeRatio(bars, k) {
   const v = bars[k]?.volume;
   if (!(v > 0)) return null;
   const slot = Date.parse(bars[k].time) % 86400000;
-  const prior = bars.slice(0, k).filter((b) => b.volume > 0);
-  const same = prior.filter((b) => Date.parse(b.time) % 86400000 === slot).slice(-20);
+  const same = bars.slice(0, k).filter((b) => b.volume > 0 && Date.parse(b.time) % 86400000 === slot).slice(-20);
   if (same.length >= 10) return { ratio: v / median(same.map((b) => b.volume)), base: 'time-of-day slot, 20 days' };
-  const recent = prior.slice(-288);
-  if (recent.length >= 20) return { ratio: v / median(recent.map((b) => b.volume)), base: `prior ${recent.length} bars` };
-  return null;
+  return volumeRatio288(bars, k);
+}
+// The 288-bar fallback alone: the prior 288 bars, those with volume, at least 20. The up/down
+// buckets use only this one, so live runs and the history table (updown.py) measure volume the same way.
+export function volumeRatio288(bars, k) {
+  const v = bars[k]?.volume;
+  if (!(v > 0)) return null;
+  const recent = bars.slice(Math.max(0, k - 288), k).filter((b) => b.volume > 0);
+  return recent.length >= 20 ? { ratio: v / median(recent.map((b) => b.volume)), base: `prior ${recent.length} bars` } : null;
 }
 export function nowMotion(bars, k, atr) {
   const b = bars[k];
@@ -374,6 +354,110 @@ export function headline(pp, reasons) {
 const pctP = (p) => (p < 0.005 ? '<1%' : pct(p)); // a calibrated P can be exactly 0
 const avgR = (s) => `${pctP(s.p)} chance of profit (${s.expectedR == null ? 'avg R: n/a' : `avg ${s.expectedR >= 0 ? '+' : ''}${s.expectedR.toFixed(2)} R`})`;
 
+// Up / neutral / down: an empirical lookup table per instrument and timeframe
+// (config/prediction-models/updown_<INST>_<TF>.json, built by data/research/localpred/updown.py from
+// 2018 to now). Bucket = the Now-line parts of the closed bar (direction, pace), volume high (>= 2.0x the
+// prior 288-bar median) or normal, and whether the H1 supertrend agrees with this timeframe's.
+// Outcome: close N bars later vs close now, long at >= +0.25 ATR, short at <= -0.25 ATR, else neutral.
+// Levels when a bucket has n < 300 or a part is missing: L0 all parts, L1 no volume, L2 no H1, L3 direction, base.
+// It always gives a direction; it is a frequency table, not an edge claim.
+export const UD_HORIZONS = [3, 6, 12];
+const UD_LEVELS = ['L0', 'L1', 'L2', 'L3'];
+const udTables = new Map();
+export function udTable(instrument, granularity) {
+  const key = `${instrument}|${granularity}`;
+  if (!udTables.has(key)) {
+    let t = null;
+    try { t = JSON.parse(readFileSync(new URL(`../config/prediction-models/updown_${instrument.replace('/', '_')}_${granularity}.json`, import.meta.url), 'utf8')); } catch { /* no table */ }
+    udTables.set(key, t);
+  }
+  return udTables.get(key);
+}
+
+// Bucket parts for every closed bar of `bars` (one supertrend pass on this timeframe and one on H1).
+// The H1 trend of bar k is the one of the last H1 bar that ends at or before bar k closes.
+export function udParts(bars, granularity) {
+  const n = bars.length;
+  if (n < 12) return new Array(n).fill(null);
+  const st = computeSupertrend(bars, {});
+  const gMs = granularityMs(granularity);
+  const coarse = resampleCandles(bars, granularity, 'H1');
+  let h1 = [];
+  try { h1 = computeSupertrend(coarse, {}); } catch { /* fewer than 12 H1 bars */ }
+  const ends = coarse.map((c) => Date.parse(c.time) + 3600000);
+  let j = -1;
+  return bars.map((b, k) => {
+    const m = nowMotion(bars, k, st[k]?.atr);
+    if (!m) return null;
+    const close = Date.parse(b.time) + gMs;
+    while (j + 1 < ends.length && ends[j + 1] <= close) j++;
+    const h = j >= 0 ? h1[j]?.trend ?? null : null;
+    const vol = volumeRatio288(bars, k);
+    return {
+      direction: m.direction ?? 'flat', pace: m.pace, volume: vol == null ? null : vol.ratio >= 2 ? 'high' : 'normal', volumeRatio: vol?.ratio ?? null,
+      h1: h == null || !st[k] ? null : h === st[k].trend ? 'agrees' : 'disagrees',
+    };
+  });
+}
+export const udKeys = (p) => {
+  const dp = `${p.direction}|${p.pace}`;
+  return { L0: p.h1 && p.volume ? `${dp}|${p.volume}|${p.h1}` : '', L1: p.h1 ? `${dp}|${p.h1}` : '', L2: dp, L3: p.direction };
+};
+// "falling fast, high volume, H1 agrees" for the level actually used
+export function udWords(p, level) {
+  const parts = [p.pace === 'flat' ? 'flat' : `${p.direction} ${p.pace}`];
+  if (level === 'L3') return p.direction === 'flat' ? 'flat' : p.direction;
+  if (level === 'base') return 'all moments';
+  if (level === 'L0') parts.push(`${p.volume} volume`);
+  if (level === 'L0' || level === 'L1') parts.push(`H1 ${p.h1}`);
+  return parts.join(', ');
+}
+
+// The headline from the bucket counts. d = P(long) - P(short) with a 95% interval from the multinomial
+// variance (pL + pS - d^2) / n. The interval includes 0: "Neutral". Otherwise the larger side with a word
+// by |d|: "slight" below 3 pp, plain from 3 to 6 pp, "clear" from 6 pp.
+export function udHeadline(pL, pS, n) {
+  const d = pL - pS;
+  const half = 1.96 * Math.sqrt(Math.max(pL + pS - d * d, 0) / n);
+  const ci = [d - half, d + half];
+  if (ci[0] <= 0 && ci[1] >= 0) return { label: 'Neutral', d, ci };
+  const side = d > 0 ? 'Long' : 'Short';
+  const a = Math.abs(d) * 100;
+  return { label: a < 3 ? `${side}, slight` : a < 6 ? side : `${side}, clear`, d, ci };
+}
+
+// Whole percentages that sum to 100 (largest remainder), for the three bars.
+export function percent100(ps) {
+  const raw = ps.map((p) => p * 100);
+  const out = raw.map(Math.floor);
+  const order = raw.map((v, i) => [v - out[i], i]).sort((a, b) => b[0] - a[0]);
+  const missing = 100 - out.reduce((a, b) => a + b, 0);
+  for (let k = 0; k < missing; k++) out[order[k % 3][1]]++;
+  return out;
+}
+
+// The lookup for bucket parts `p` (null when the bar has none): per horizon the level used, n, P and the headline.
+export function updown(instrument, granularity, p) {
+  const table = udTable(instrument, granularity);
+  if (!table) return null;
+  const keys = p ? udKeys(p) : null;
+  const horizons = {};
+  for (const N of UD_HORIZONS) {
+    const t = table.horizons[String(N)];
+    let level = 'base', key = '', row = t.base;
+    for (const lv of UD_LEVELS) {
+      if (keys?.[lv] && t[lv][keys[lv]]) { level = lv; key = keys[lv]; row = t[lv][keys[lv]]; break; }
+    }
+    const [n, pL, pN, pS] = row;
+    horizons[N] = { level, key, n, pL, pN, pS, bars: percent100([pL, pN, pS]), ...udHeadline(pL, pS, n), words: p ? udWords(p, level) : 'all moments' };
+  }
+  return { parts: p, horizons, period: `${table.from.slice(0, 4)} to ${table.to.slice(0, 10)}` };
+}
+
+// Run inputs: "Long, slight · L 46% / N 13% / S 41% · d +5.1 pp [+4.4, +5.8] · n 18525 (falling fast, normal volume, H1 agrees, L0)"
+const pp1 = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v * 100).toFixed(1)}`;
+export const udText = (h) => `${h.label} · L ${pct(h.pL)} / N ${pct(h.pN)} / S ${pct(h.pS)} · d ${pp1(h.d)} pp [${pp1(h.ci[0])}, ${pp1(h.ci[1])}] · n ${h.n} (${h.words}, ${h.level})`;
+
 // One local run for the newest CLOSED candle of the viewed timeframe.
 // `candles` are the viewed timeframe (a forming bar is dropped), `m30` the 30-min
 // window for the big-day model, `ba` closed bid/ask bars of the viewed timeframe
@@ -398,6 +482,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   // 3. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
   const spreadR = spreadOf(ba.find((b) => Date.parse(b.time) === lastMs), st.at(-1).atr);
   const now_ = nowMotion(bars, bars.length - 1, st.at(-1).atr);
+  const ud = udTable(instrument, granularity) ? updown(instrument, granularity, udParts(bars, granularity).at(-1)) : null;
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
   // 2. P(profit) per side and cell (bid/ask bars of the viewed timeframe); each cell has its own headline
@@ -414,6 +499,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
       ? { state_both_sides: `${shieldText(shield.both)} (${SHARED_NOTE})`, conditions_both_sides: conditionsText(shield.both) }
       : { long_state: shieldText(shield.long), short_state: shieldText(shield.short), long_conditions: conditionsText(shield.long), short_conditions: conditionsText(shield.short) }),
     ...(now_ ? { now: now_.text.replace(/^Now: /, '') } : {}),
+    ...(ud ? Object.fromEntries(UD_HORIZONS.map((N) => [`updown_${N}_candles`, udText(ud.horizons[N])])) : {}),
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
@@ -433,9 +519,8 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
       // shield: per-side state of the default cell (each cell carries its own in pprofit.cells); headline: the strict trade rule
-      // lean: side with the higher P of the default cell, its gap and greyed flag (Details only)
-      shield, lean: pp.available ? pp.cells[0].lean : null, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
-      reasons, trend, spreadR, now: now_,
+      shield, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
+      reasons, trend, spreadR, now: now_, updown: ud,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
   };

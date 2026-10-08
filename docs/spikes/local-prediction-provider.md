@@ -126,12 +126,8 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - Details: a "Conditions" line with the decile, its band and the decile avg R, e.g. "Conditions: decile 9 of 10, top 20% of conditions for WTI M5 · avg −0.14 R" (or per side for EUR/USD and SPX500). The run inputs keep the decile and avg R (`conditions_both_sides`, or `long_conditions` and `short_conditions`).
    - Every run stores both side states with decile, avg R and code, per cell (`detail.pprofit.cells[].shield`) and for the default cell (`detail.shield`, plus `long_state` and `short_state` in the inputs, or `state_both_sides` for a shared state). The series route recomputes the state from the stored deciles, so runs from before this change get it too.
    - Card, EUR/USD and SPX500: two lines replace the headline, "Long ● <State> · <why>" and the same for Short. Every other instrument: one line "● <State> · <why>" with the shared note below it, and no Long/Short lines. Dots use the CSS tokens `--bad` and `--warn`; "No warning" has a muted dot. When a reason fires it is shown once above the state lines, which read "Don't trade now" without repeating it.
-   - Details now opens with the strict rule result ("Trade: Neutral · no side clears costs", still computed and stored), then the Long/Short bars and the side-difference note.
-   - Lean (Details only, never in the headline or the state lines). `config/prediction-models/lean_track_record.json` is an unchanged copy of the lean22 track record, keyed `<INST>_<TF>_H<H>_<target>`. `leanFor` in `scripts/local-predict.mjs` picks the side with the higher P of the chosen cell:
-     - gap 0 (equal P, common on isotonic M1): no lean line
-     - greyed when the gap is below 3 pp, below the cell's own `amendment_A1.grey_below_gap_pp` when that is higher (5 pp for WTI M5 H12 up and XAU M5 plan cells), or always when that value is null
-     - text: "Lean: LONG (47% vs 45%) · <amendment_A1.label>", e.g. "right 51% of the time (50-51%) when the two sides end differently; both sides end the same 1% of the time, 2023+"
-     - every run stores side, gap in pp, greyed flag and label per cell (`pprofit.cells[].lean`) and for the default cell (`detail.lean`)
+   - Since the up/down card (section 9) the shield uses the first shipped P(profit) cell (H12 up where shipped) and has no cell select. Details shows its decile band and avg R as "Costs: …". The strict trade rule is still computed and stored (the run `action`), but no longer shown.
+   - A lean line from the lean22 track record was shown in Details for one round and is removed with the up/down card, together with `config/prediction-models/lean_track_record.json`.
    - Tooltip: the same rule. EUR/USD and SPX500 show "Long <State> · Short <State>"; every other instrument shows "<State> · applies to both sides; direction not measurable for this instrument". A dot appears only for red and orange. Then the reason when one fires, the Now line, then the long/short P and spread, muted.
 7. Now line (descriptive, no forecast). `nowMotion` in `scripts/local-predict.mjs`, computed in the local provider from the same mid candles, for the run and per candle in the series.
    - Text: "Now: <rising|falling> <fast|steady> · <±x.x ATR in N bars> · volume <v.v×> normal", or "Now: flat · …" without a direction word.
@@ -140,11 +136,23 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - volume = tick volume of the last bar / the median tick volume at the same UTC time-of-day slot over the prior 20 days in the window, when at least 10 such bars exist; otherwise the median of the prior 288 bars (at least 20). The clause is left out when neither exists or the last bar has no volume. The chart window holds about 400 M5 bars, so the live card uses the 288-bar fallback today (`volumeBase` records which).
    - On the card the line sits directly under the shield, above the cell select, the big-day line and Trend. The tooltip shows it too.
    - `now.continuationRate` is null: a hook for a later historical continuation rate. Nothing is shown for it.
-8. Parity.
+8. Up / neutral / down lookup (operator decision: always give a direction, imperfect is fine, no edge claim). This replaces the P(profit) bars, the P(profit) cell select, the trade line and the lean line on the card.
+   - Builder: `data/research/localpred/updown.py` (gitignored; run with the data/research/engine venv). Source: `data/research/history.db` `candles_ba` (read-only), M1 mid prices ((bid + ask) / 2) and tick volume, 2018-01-01 to the newest bar (2026-10-07 or -08), resampled to M5 and M15. Instruments: WTICO/USD, XAU/USD, XAG/USD, NATGAS/USD, SPX500/USD, EUR/USD. Timeframes M1, M5, M15. Horizons N = 3, 6, 12 bars. Output: `config/prediction-models/updown_<INST>_<TF>.json` (18 files, about 13 KB each).
+   - Bucket per closed bar, with the Now-line definitions: direction (rising, falling, flat) and pace (fast, steady, flat) from `nowMotion`; volume high when the last bar's tick volume is 2.0x or more the median of the prior 288 bars (bars with volume, at least 20), else normal; H1 agrees or disagrees: the supertrend (10, 3) of H1 bars resampled from the same bars, last H1 bar that ends at or before the bar close, against this timeframe's supertrend trend. The bucket uses only the 288-bar median, so live and history measure volume the same way; the Now line itself still prefers the time-of-day slot when the window has 20 days of it.
+   - ATR: the production supertrend ATR (Wilder, period 10), the same one the Now line uses. The coordinator's brief said "ATR14 (production supertrend ATR)"; production uses period 10, so period 10 it is.
+   - Outcome: close at t + N against close at t (mid). Long at +0.25 ATR or more, Short at −0.25 ATR or less, else Neutral.
+   - Per bucket: n and P(long), P(neutral), P(short). Levels when a bucket has n < 300 or a part is missing: L0 direction|pace|volume|H1, L1 without volume, L2 without H1, L3 direction only, then the instrument/timeframe/N base rate. Only buckets with n ≥ 300 are stored. The run stores the level used, the key and n.
+   - Headline (operator rule): d = P(long) − P(short) of the bucket used, 95% interval d ± 1.96 √((P(long) + P(short) − d²) / n). The interval includes 0: "Neutral". Otherwise the larger side with a word by |d|: "Long, slight" below 3 pp, "Long" from 3 to 6 pp, "Long, clear" from 6 pp (the same for Short). A tie is Neutral.
+   - Node: `udParts`, `udKeys`, `updown`, `udHeadline` and `percent100` in `scripts/local-predict.mjs`. The live run scores the last closed bar of the chart window; `localSeries` scores every candle. The run stores `detail.updown` (bucket parts, per horizon the level, key, n, the three P, whole percentages summing to 100, d, its interval and the headline) and the inputs `updown_3_candles`, `updown_6_candles`, `updown_12_candles`. Series rows stored before the lookup existed are recomputed (the series cache key moved to `local-stats-v4`).
+   - Card, under the cost shield and the Now line: the headline in colour (Long green, Short red, Neutral muted), an "Over" select with 3, 6 or 12 candles and the time span ("6 candles (30 min)"), three bars Long / Neutral / Short that sum to 100, and a muted line "after 8,707 similar moments (falling fast, high volume, H1 disagrees), 2018 to 2026-10-07". Details: the cost decile line, "Long minus Short: +5.0 pp, 95% interval … ; Neutral when the interval includes 0. Bucket level L0 (…)", and the outcome definition.
+   - Tooltip: the cost state and the Now line as before, then "Long over 6 candles · Long 46% · Neutral 13% · Short 41%" for the card's horizon. On a phone the tooltip now spans the chart width instead of sitting beside the cursor, where it was clipped.
+   - Parity: `updown.py` exports the last 1500 bars of WTI M5 and EUR/USD M1 with bucket keys computed on that slice only (as Node sees a window) and the lookup for the last 600 bars (`test/fixtures/updown-parity-WTICO_USD-M5.json`, `updown-parity-EUR_USD-M1.json`). Node matches every key, the volume ratio to 1e-9, and every lookup (level, key, n, P, headline) for N = 3, 6, 12.
+   - Window caveat: the table uses supertrend states from the full history; a live window starts the supertrend (and the H1 supertrend) about 400 bars back. Trend states converge within a few dozen bars, so a mismatch is possible only right after a window start, which the parity fixture shows Node and Python handle the same way.
+9. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
    - P(profit) fixtures are four A4 parity exports, one per timeframe and both targets: WTICO/USD M5 H12 up, EUR/USD M5 H48 plan, WTICO/USD M15 H48 plan and WTICO/USD M1 H12 up. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to 42 rows and the bars they need (150 to 245 KB each). `data/research/localpred/pp-check.mjs` shows the trimmed windows are safe: identical results on the last 2400 bars (M5, M15) and 2000 bars (M1) as on the full export; drift starts only at 2200 M5 bars and 1800 M1 bars (latr warm-up). All four cells are shipped, so the test loads the artifacts from config.
-9. Running-app check.
+10. Running-app check.
    - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
    - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
    - The live engine and console were not touched.
@@ -195,34 +203,32 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - A test covers that news changes neither the side, the bars nor the big-day number.
 - **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
   - In the running-app check of the compact card, the card moved from the 09:35 to the 09:40 local candle 65 s after the script started, without a click.
-  - Screenshots (fifth round, A4 cells):
-    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (sixth round: WTI M5, default cell "12 candles (1 h) · price better": Neutral · no side clears costs, Long 46% / avg −0.13 R, Short 45% / avg −0.16 R, then the muted line "Difference between sides not meaningful for this instrument.")
-    - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (fifth round, the same card at 390 px before the side-difference line)
-    - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` ("48 candles (4 h) · trade plan" chosen: Long 17% / avg −0.17 R, Short 18% / avg −0.16 R; Details open with the plan note for 48 candles)
-    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD M5, no shipped cell: "Neutral · no calibrated estimate", no select, no bars)
-    - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
-  - Screenshots (sixth round, chart tooltip, WTI; same review setup):
-    - `docs/spikes/local-prediction-provider/tooltip-M1-desktop.png` and `tooltip-M1-mobile.png` (M1 14:08: "Prediction (12 candles · price better): Neutral · Long 43% · Short 44% · spread 0.26 of stop", then the side-difference line)
-    - `docs/spikes/local-prediction-provider/tooltip-M5-desktop.png` and `tooltip-M5-mobile.png` (M5 11:00: Neutral · Long 46% · Short 47% · spread 0.12 of stop)
-    - `docs/spikes/local-prediction-provider/tooltip-M15-in-sample-desktop.png` (M15 Oct 7 13:30, before the training cutoff: "Prediction (48 candles · trade plan): Neutral · Long 19% · Short 15% · spread 0.08 of stop (model trained on this period)"; WTI M15 ships only H48 plan, so the tooltip falls back to it)
-  - The first series read on WTI M1 scored 500 candles in one request (the window was capped) and stored them; the next reads came from the cache.
+  - Screenshots: see "Screenshots (current card)" below. Earlier rounds (P(profit) bars, cell select, per-side and green states, lean line) are removed from the repository with the UI they showed.
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
 - **Shield states on the live window (WTI M5, H12 price better, the last 500 closed candles up to 14:35 local on 2026-10-08; per side, before the shared state).**
   - Long/short pairs: red/red 185, grey/grey 101, green/green 97, grey/green 83, green/grey 34. Orange did not occur. All 185 red candles came from a reason (spread or thin hour), none from decile 1.
   - In 117 of the 500 candles the two sides differed. For WTI that difference is not measurable (slope 0.04), so these were the misleading cases; the shared state removes them.
   - Green appeared on about a third of the candles, always with a negative avg R (about −0.14 R). It is now "No warning", like every other non-warning decile.
 - **Now line on the live window.** The 15:15 local bar after the sell flip reads "Now: falling fast · −3.5 ATR in 5 bars · volume 2.1× normal"; the bar after it, 15:20, reads "Now: flat · +0.2 ATR in 1 bar · volume 2.1× normal". Volume used the 288-bar fallback.
-- **Screenshots (ninth round; same review setup):**
-  - `docs/spikes/local-prediction-provider/nw-card-falling-synth-desktop.png` and `nw-card-falling-synth-mobile.png`: SYNTHESIZED. The live card at 15:20 was flat, so the latest stored run is shown with `detail.now` replaced by the Now value the series computed for the falling 15:15 bar ("Now: falling fast · −3.5 ATR in 5 bars · volume 2.1× normal"). Everything else is the live run: "● No warning", the shared note, big day, Trend.
-  - `docs/spikes/local-prediction-provider/nw-card-details-desktop.png` and `nw-card-details-mobile.png` (live 15:20: Now flat; Details with "Trade: Neutral · no side clears costs", "Conditions: decile 9 of 10, top 20% of conditions for WTI M5 · avg −0.14 R", the greyed Lean line and the bars)
-  - `docs/spikes/local-prediction-provider/nw-tooltip-no-warning-desktop.png` and `nw-tooltip-no-warning-mobile.png` (15:20: "No warning · applies to both sides …", no dot, Now flat)
-  - `docs/spikes/local-prediction-provider/nw-tooltip-falling-desktop.png` and `nw-tooltip-falling-mobile.png` (15:15, the operator's bar: "No warning", "Now: falling fast · −3.5 ATR in 5 bars · volume 2.1× normal")
-  - `docs/spikes/local-prediction-provider/nw-tooltip-red-desktop.png` (08:50: "● Don't trade now", "Spread wide (0.21 of stop)")
-  - `docs/spikes/local-prediction-provider/per-side-card-eurusd-desktop.png` (eighth round, before this change: EUR/USD per-side lines, then with avg R in the headline)
-- **The lean and the state can point different ways.** At 14:40 the lean was LONG (P 47% vs 47%, greyed), while Short had the higher decile (9 against long decile 8), because each side has its own decile edges. The lean is always greyed or hidden on most cells: the A1 decisive hit rates are 50% to 53%.
+- **Up / neutral / down: the table barely beats the base rate (stability check).** Fit on 2018-2022, scored on 2023+ (54 instrument × timeframe × horizon cells, 88,000 to 1,395,000 test bars each):
+  - Log loss improves on the base-rate table by 0.0000 to 0.0033 (relative 0.0% to 0.3%); in 3 cells it is worse (WTI M5 N=12 0.9406 against 0.9404; XAU M5 N=12 and SPX500 M5 N=12 within 0.0001). Brier moves the same way (best: NATGAS M15 N=3, 0.6400 against 0.6417). M15 and short horizons gain the most; M1 gains almost nothing.
+  - Reliability of P(long), WTI M5 N=6: predicted 0.431 → observed 0.434 (n 218,429); predicted 0.461 → observed 0.445 (n 48,381). The high-P(long) buckets are about 1.6 pp overconfident out of sample.
+  - On 2023+ every bar found its L0 bucket (all L0 buckets have n ≥ 300 on the full and the 2018-2022 data); the fallback levels matter only for parts that are missing (no H1 history or no volume).
+- **The pattern is mean reversion, and small.** WTI M5, N = 6 bars, full period (base: Long 43.6%, Neutral 14.1%, Short 42.3%, n 620,815):
+  - Largest leans: falling fast, normal volume, H1 agrees: Long 46.1%, Neutral 12.9%, Short 41.0% (n 18,525, d +5.2 pp); falling fast, high volume, H1 agrees: Long 46.0% / Short 40.9% (n 10,601, d +5.1 pp); rising fast, normal volume, H1 disagrees: Long 41.6% / Short 45.3% (n 18,399, d −3.8 pp).
+  - Most common buckets: flat, normal volume, H1 agrees: Long 43.2% / Short 41.9% (n 110,003, d +1.4 pp); flat, normal volume, H1 disagrees: Long 43.1% / Short 42.2% (n 95,251, d +1.0 pp).
+  - Fast moves lean against themselves over the next 6 bars; flat bars inherit the base rate's slight long tilt.
+- **Headlines on 2023+ (WTI M5, N = 6, shipped full-period table, so in-sample):** Long, slight 45.1%; Long 26.0%; Neutral 14.0%; Short, slight 11.6%; Short 3.3%; no "clear" headline. With n in the tens of thousands, a 1 to 2 pp gap is already outside its interval, so Neutral is rare and the long tilt of the base rate shows as "Long, slight" most of the time.
+- **Screenshots (current card; WTI M5, review setup with a copy of the engine database):**
+  - `docs/spikes/local-prediction-provider/ud-card-live-desktop.png` and `ud-card-live-mobile.png` (live 16:05: No warning; Now: falling steady · −0.5 ATR in 1 bar · volume 1.5× normal; Long; 45% / 13% / 42%; after 48,052 similar moments (falling steady, normal volume, H1 disagrees))
+  - `docs/spikes/local-prediction-provider/ud-card-details-desktop.png` and `ud-card-details-mobile.png` (Details: Costs decile line, Long minus Short +3.0 pp [+2.2, +3.9], bucket level L0, the outcome definition)
+  - `docs/spikes/local-prediction-provider/ud-card-falling-fast-synth-desktop.png` and `ud-card-falling-fast-synth-mobile.png`: SYNTHESIZED. The latest stored run with `detail.now` and `detail.updown` replaced by the series values of the falling-fast 15:15 local bar: Now: falling fast · −3.5 ATR in 5 bars · volume 2.1× normal; Long; 46% / 13% / 41%; after 8,707 similar moments (falling fast, high volume, H1 disagrees).
+  - `docs/spikes/local-prediction-provider/ud-tooltip-falling-fast-desktop.png` and `ud-tooltip-falling-fast-mobile.png` (the real 15:15 bar: No warning, the Now line, "Long over 6 candles · Long 46% · Neutral 13% · Short 41%")
+  - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 26 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 28 tests pass. They cover:
+    - up/down: bucket and lookup parity with the Python builder (WTI M5, EUR/USD M1), the fallback order, every stored bucket n ≥ 300, the headline (same d with n 1,000 is Neutral and with n 100,000 is "Long, slight"; plain and clear words; the tie), and bars that sum to 100
     - no green state at any decile pair; red, orange and grey mapping per side (EUR/USD) and shared (WTI); avg R and the band only in the Details text
     - the Now line on a synthetic falling run: fast (capped at 6 bars), steady, flat, the volume ratio against the recent median and the time-of-day slot, the volume clause left out, no ATR; and equal Now values from `localSeries` and `localPredict`
     - the shared state: WTI with different side deciles gives one state from floor(mean decile) and the mean avg R; EUR/USD keeps per-side states
@@ -242,7 +248,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 812 tests pass, plus the console typecheck.
+  - `npm run verify`: 814 tests pass, plus the console typecheck.
   - `go test ./...` in `platform`: pass, including the allow-list test for `GET /predictions/series` (forwarded) and `POST /predictions/series` (refused).
 
 ## Recommendation
@@ -252,9 +258,9 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
    - the shield state (red, orange, or grey "No warning") with its reason, avg R in Details, per side for EUR/USD and SPX500 and shared for every other instrument, per shipped horizon x target cell, with the "Over" select
-   - in Details: the strict trade rule, P(profit) bars per side, and the side-difference line outside EUR/USD and SPX500
+   - the up/down lookup with its Long / Neutral / Short bars and the significance-based headline, as an honest frequency table: it barely beats the base rate out of sample
    - the descriptive Now line
-   - the same states and the Now line per closed candle in the chart tooltip, with the in-sample mark
+   - the same states, the Now line and the up/down shares per closed candle in the chart tooltip
    - the two study-backed no-trade reasons
    - the trend as context
    - the news line, as display only, for relevant headlines that are not routine

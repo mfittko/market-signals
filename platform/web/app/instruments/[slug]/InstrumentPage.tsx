@@ -12,7 +12,7 @@ import { PredictionPanel } from '@/components/PredictionPanel';
 import { Card, Loading } from '@/components/ui';
 import Markdown from 'react-markdown';
 import { useWatchers } from '@/lib/alerts';
-import { loadCell, onCellChange, type SeriesEntry } from '@/lib/prediction';
+import { loadHorizon, onHorizonChange, type SeriesEntry } from '@/lib/prediction';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
@@ -83,8 +83,8 @@ function InstrumentView() {
   // Local prediction per closed candle for the chart tooltip; fetched again when a new candle closes.
   // Free on the engine side; while predictions are off the request fails and the tooltip shows none.
   const [series, setSeries] = useState<{ key: string; entries: SeriesEntry[] } | null>(null);
-  const [cellKey, setCellKey] = useState<string | null>(null);
-  useEffect(() => { setCellKey(loadCell()); return onCellChange(() => setCellKey(loadCell())); }, []);
+  const [horizon, setHorizon] = useState(6);
+  useEffect(() => { setHorizon(loadHorizon()); return onHorizonChange(() => setHorizon(loadHorizon())); }, []);
   const liveCandles = live?.granularity === gran ? live.candles : null;
   const closedTimes = liveCandles?.filter((c) => c.complete !== false).map((c) => c.time) ?? [];
   const firstClosed = closedTimes[0];
@@ -141,7 +141,7 @@ function InstrumentView() {
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
             news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))}
-            predictions={series?.key === `${d.symbol}|${d.granularity}` ? { instrument: d.symbol, entries: series.entries, cellKey } : undefined} />
+            predictions={series?.key === `${d.symbol}|${d.granularity}` ? { entries: series.entries, horizon } : undefined} />
         ) : <div className="empty">No candles for this granularity.</div>}
         {liveErr && <p className="small muted" role="status">Live data unavailable: {liveErr}. Showing imported history.</p>}
       </Card>

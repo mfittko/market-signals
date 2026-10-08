@@ -1,27 +1,31 @@
-// Shared by the Prediction card and the chart tooltip: the chosen horizon x target cell, its label,
-// and the shield state. Which instruments have a meaningful long-minus-short difference is decided
-// in one place, SIDE_DIFF_CALIBRATED in scripts/local-predict.mjs; the engine sends it as shield.shared.
-export const SIDE_DIFF_NOTE = 'Difference between sides not meaningful for this instrument.';
+// Shared by the Prediction card and the chart tooltip: the chosen horizon (3, 6 or 12 candles) of the
+// up/down lookup, and the cost shield. Which instruments have a meaningful long-minus-short difference
+// is decided in one place, SIDE_DIFF_CALIBRATED in scripts/local-predict.mjs (sent as shield.shared).
 export const SHARED_NOTE = 'applies to both sides; direction not measurable for this instrument';
 
-// The card's cell choice, remembered in this browser for every pair; the chart follows it.
-const CELL_KEY = 'predictionCell';
-const CELL_EVENT = 'prediction-cell';
-export const loadCell = () => { try { return localStorage.getItem(CELL_KEY); } catch { return null; } };
-export function saveCell(key: string) {
-  try { localStorage.setItem(CELL_KEY, key); } catch { /* private window */ }
-  window.dispatchEvent(new Event(CELL_EVENT));
+// The card's horizon choice, remembered in this browser for every pair; the chart follows it.
+export const HORIZONS = [3, 6, 12] as const;
+const HORIZON_KEY = 'predictionHorizon';
+const HORIZON_EVENT = 'prediction-horizon';
+export const loadHorizon = (): number => { try { const v = Number(localStorage.getItem(HORIZON_KEY)); return (HORIZONS as readonly number[]).includes(v) ? v : 6; } catch { return 6; } };
+export function saveHorizon(n: number) {
+  try { localStorage.setItem(HORIZON_KEY, String(n)); } catch { /* private window */ }
+  window.dispatchEvent(new Event(HORIZON_EVENT));
 }
-export function onCellChange(fn: () => void) {
-  window.addEventListener(CELL_EVENT, fn);
-  return () => window.removeEventListener(CELL_EVENT, fn);
+export function onHorizonChange(fn: () => void) {
+  window.addEventListener(HORIZON_EVENT, fn);
+  return () => window.removeEventListener(HORIZON_EVENT, fn);
 }
-
 const granMs = (g: string) => Number(g.slice(1)) * (g[0] === 'H' ? 3600000 : 60000);
 const dur = (bars: number, g: string) => { const m = (bars * granMs(g)) / 60000; return m < 60 ? `${m} min` : `${+(m / 60).toFixed(1)} h`; };
-export const targetLabel = (target: string) => (target === 'up' ? 'price better' : 'trade plan');
-// "12 candles (1 h) · price better"
-export const cellLabel = (c: { horizon: number; target: string }, g: string) => `${c.horizon} candles (${dur(c.horizon, g)}) · ${targetLabel(c.target)}`;
+// "6 candles (30 min)"
+export const horizonLabel = (n: number, g: string) => `${n} candles (${dur(n, g)})`;
+
+// The up/down lookup per horizon (updown in scripts/local-predict.mjs): an empirical frequency table, not an edge.
+// bars: whole percentages Long / Neutral / Short summing to 100.
+export type UpDownH = { level: string; key: string; n: number; pL: number; pN: number; pS: number; bars: [number, number, number]; label: string; d: number; ci: [number, number]; words: string };
+export type UpDown = { horizons: Record<string, UpDownH>; period: string } | null;
+export const LEAN_COLOR = (label: string) => (label.startsWith('Long') ? 'var(--good)' : label.startsWith('Short') ? 'var(--bad)' : 'var(--muted)');
 
 // The state (shieldState in scripts/local-predict.mjs): a shield against clearly wrong moments, not
 // trading advice. red "Don't trade now", orange "Costly now", otherwise grey "No warning"; no green.
@@ -43,4 +47,4 @@ export type NowMotion = { bars: number; moveAtr: number; pace: 'fast' | 'steady'
 
 // One closed candle of GET /engine/predictions/series (scripts/predictions.mjs predictionSeries).
 export type SeriesCell = { key: string; horizon: number; target: 'up' | 'plan'; pLong: number; pShort: number; expectedRLong: number | null; expectedRShort: number | null; decileLong: number; decileShort: number; headline: string; reason: string | null; inSample: boolean | null; shield: Shield };
-export type SeriesEntry = { candleTime: string; source: 'live' | 'computed'; computedAt: string; spreadR: number | null; reasons: { code: string; text: string }[]; available: boolean; text: string | null; cells: SeriesCell[]; shield: Shield; now: NowMotion | null };
+export type SeriesEntry = { candleTime: string; source: 'live' | 'computed'; computedAt: string; spreadR: number | null; reasons: { code: string; text: string }[]; available: boolean; text: string | null; cells: SeriesCell[]; shield: Shield; now: NowMotion | null; updown: UpDown };

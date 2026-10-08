@@ -185,15 +185,15 @@ function seriesEntry(instrument, granularity, core, source, computedAt) {
     };
   }) : [];
   return {
-    candleTime: core.candleTime, source, computedAt, spreadR: core.spreadR ?? null, now: core.now ?? null,
+    candleTime: core.candleTime, source, computedAt, spreadR: core.spreadR ?? null, now: core.now ?? null, updown: core.updown ?? null,
     reasons: (core.reasons ?? []).map(({ code, text }) => ({ code, text })), available: pp.available, text: pp.available ? null : pp.text, cells,
     // the state without a cell (reasons only), for pairs without a calibrated estimate
     shield: shieldState({ instrument, granularity, reasons: core.reasons ?? [] }),
   };
 }
 // What a series row stores: the local scorer output without the per-side details the chart never reads.
-const seriesCore = ({ candleTime, spreadR, reasons, now, pprofit: pp }) => ({
-  candleTime, spreadR, reasons, now: now ?? null,
+const seriesCore = ({ candleTime, spreadR, reasons, now, updown, pprofit: pp }) => ({
+  candleTime, spreadR, reasons, now: now ?? null, updown: updown ?? null,
   pprofit: pp.available ? { available: true, cells: pp.cells.map(({ key, horizon, target, long, short, headline, headlineReason }) => ({ key, horizon, target, long: { p: long.p, expectedR: long.expectedR, decile: long.decile }, short: { p: short.p, expectedR: short.expectedR, decile: short.decile }, headline, headlineReason })) } : pp,
 });
 
@@ -210,12 +210,12 @@ export async function predictionSeries(dbPath, { instrument, granularity, from =
   const [live, cached] = withDb(dbPath, (db) => {
     ensureTable(db);
     const runs = new Map();
-    // newest run per candle; runs stored before per-cell scores existed are recomputed instead
+    // newest run per candle; runs stored before per-cell scores or the up/down lookup existed are recomputed instead
     for (const r of db.prepare("SELECT candle_time, asked_at, detail FROM predictions WHERE instrument = ? AND granularity = ? AND provider = ? AND detail IS NOT NULL ORDER BY id DESC LIMIT 5000").all(instrument, granularity, LOCAL_PROVIDER)) {
       const ms = Date.parse(r.candle_time);
       const d = JSON.parse(r.detail);
-      if (runs.has(ms) || !d.pprofit || (d.pprofit.available && !d.pprofit.cells)) continue;
-      runs.set(ms, { core: { candleTime: r.candle_time, spreadR: d.spreadR, reasons: d.reasons, now: d.now ?? null, pprofit: d.pprofit }, at: r.asked_at });
+      if (runs.has(ms) || !d.pprofit || (d.pprofit.available && !d.pprofit.cells) || !('updown' in d)) continue;
+      runs.set(ms, { core: { candleTime: r.candle_time, spreadR: d.spreadR, reasons: d.reasons, now: d.now ?? null, updown: d.updown ?? null, pprofit: d.pprofit }, at: r.asked_at });
     }
     const rows = db.prepare('SELECT candle_ms, entry, computed_at FROM prediction_series WHERE instrument = ? AND granularity = ? AND model = ?').all(instrument, granularity, LOCAL_MODEL);
     return [runs, new Map(rows.map((r) => [r.candle_ms, { core: JSON.parse(r.entry), at: r.computed_at }]))];
