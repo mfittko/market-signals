@@ -112,11 +112,24 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - The engine needs predictions switched on (409 otherwise). It never calls a paid provider for the series, including when Jev is selected.
    - The Go proxy allow-list accepts `GET /predictions/series` only.
    - The instrument page fetches the series for the live window and fetches again when a new candle closes. The tooltip shows one line under the OHLC values for the card's chosen cell, e.g. "Prediction (12 candles · price better): Neutral · Long 46% · Short 47% · spread 0.12 of stop". An in-sample candle adds "(model trained on this period)". A pair without a shipped cell shows "Prediction: no calibrated estimate". The card's cell choice is shared through `platform/web/lib/prediction.ts`, and the chart follows a change without a reload.
-6. Parity.
+6. Shield states (operator decision: the card is a shield against clearly wrong decisions, not trading advice).
+   - `shieldState` in `scripts/local-predict.mjs` gives each side of the chosen cell its own state from that side's P decile (artifact lookup):
+     - red "Don't trade now": a measured no-trade reason fires (spread above 0.2 of stop, thin hour; this applies to both sides), or the decile is 1
+     - orange "Costly now": decile 2 or 3
+     - grey "Normal": decile 4 to 8
+     - green "Good moment": decile 9 or 10, and no reason fires
+     - no calibrated estimate: both sides red when a reason fires, else grey "Normal · no calibrated estimate"
+   - The why text is the reason ("spread wide (0.27 of stop)", "thin trading hour (04:00 UTC)") or the decile band for the pair ("bottom 10% of conditions for WTI M5", "usual conditions …", "top 20% of conditions …"). avg R is the decile's mean net R; "avg R n/a" for an empty decile or no estimate.
+   - Every run stores both side states with decile, avg R and code, per cell (`detail.pprofit.cells[].shield`) and for the default cell (`detail.shield`, plus `long_state` and `short_state` in the inputs). The series route recomputes the state from the stored deciles, so runs from before this change get it too.
+   - Card: two lines replace the headline, "Long ● <State> · <why> · avg <R> R" and the same for Short, with dots coloured by the CSS tokens `--bad`, `--warn`, `--muted` and `--good`. When a reason fires it is shown once above both lines, and both lines read "Don't trade now" without repeating it.
+   - Details now opens with the strict rule result ("Trade: Neutral · no side clears costs", still computed and stored), then the Long/Short bars and the side-difference note.
+   - A TODO in `PredictionPanel.tsx` marks where a "Lean" line goes once `data/research/engine/audit/lean22/out/lean_track_record.json` exists.
+   - Tooltip: "Long ● <State> (avg R) · Short ● <State> (avg R)", the reason when one fires, then the long/short P and spread, muted.
+7. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
    - P(profit) fixtures are four A4 parity exports, one per timeframe and both targets: WTICO/USD M5 H12 up, EUR/USD M5 H48 plan, WTICO/USD M15 H48 plan and WTICO/USD M1 H12 up. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to 42 rows and the bars they need (150 to 245 KB each). `data/research/localpred/pp-check.mjs` shows the trimmed windows are safe: identical results on the last 2400 bars (M5, M15) and 2000 bars (M1) as on the full export; drift starts only at 2200 M5 bars and 1800 M1 bars (latr warm-up). All four cells are shipped, so the test loads the artifacts from config.
-7. Running-app check.
+8. Running-app check.
    - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
    - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
    - The live engine and console were not touched.
@@ -179,9 +192,20 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - `docs/spikes/local-prediction-provider/tooltip-M15-in-sample-desktop.png` (M15 Oct 7 13:30, before the training cutoff: "Prediction (48 candles · trade plan): Neutral · Long 19% · Short 15% · spread 0.08 of stop (model trained on this period)"; WTI M15 ships only H48 plan, so the tooltip falls back to it)
   - The first series read on WTI M1 scored 500 candles in one request (the window was capped) and stored them; the next reads came from the cache.
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
+- **Shield states on the live window (WTI M5, H12 price better, the last 500 closed candles up to 14:35 local on 2026-10-08).**
+  - Long/short pairs: red/red 185, grey/grey 101, green/green 97, grey/green 83, green/grey 34. Orange did not occur. All 185 red candles came from a reason (spread or thin hour), none from decile 1.
+  - "Good moment" is relative, not profitable: the top deciles of this cell still average −0.13 R (long) and −0.15 R (short). The avg R stays on every line for that reason.
+  - Deciles 9 and 10 are common on WTI M5 now (the live spread is low against the 2019 to 2022 research population), so green shows on about a third of the candles.
+  - Screenshots (seventh round; same review setup):
+    - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (14:35: Long ● Good moment · top 20% of conditions for WTI M5 · avg −0.13 R; Short ● Good moment · avg −0.15 R)
+    - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details: "Trade: Neutral · no side clears costs", the bars, the side-difference note)
+    - `docs/spikes/local-prediction-provider/shield-tooltip-Donttradenow-Donttradenow-desktop.png` (08:45: both sides red, "Spread wide (0.21 of stop)")
+    - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Goodmoment-desktop.png` and `shield-tooltip-Normal-Goodmoment-mobile.png` (sides differ: Long Normal, Short Good moment)
+    - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Normal-mobile.png` (14:00: both grey)
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 22 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 23 tests pass. They cover:
+    - the shield rule table: decile boundaries 1 to 10, sides with different states, reason precedence on both sides, the no-artifact fallback, avg R n/a; the run stores both side states and deciles; the series route returns the stored state
     - the series: `localSeries` equals `localPredict` per candle; forming and unclosed candles excluded; cache hit without a bid/ask read; from/to window; in-sample flag; the route with a stored live run, computed and cached entries, 400 on bad input and 409 while predictions are off
     - big-day parity, and P(profit) parity for four A4 cells (M1, M5, M15; up and plan)
     - cell resolution: only shipped horizon x target cells, `ppAvailable` per pair
@@ -196,7 +220,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 808 tests pass, plus the console typecheck.
+  - `npm run verify`: 809 tests pass, plus the console typecheck.
   - `go test ./...` in `platform`: pass, including the allow-list test for `GET /predictions/series` (forwarded) and `POST /predictions/series` (refused).
 
 ## Recommendation
@@ -205,7 +229,8 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
-   - P(profit) per side with average R and the strict Neutral headline, per shipped horizon x target cell, with the "Over" select, and the side-difference line outside EUR/USD and SPX500
+   - the per-side shield state (red, orange, grey, green) with its reason and avg R, per shipped horizon x target cell, with the "Over" select
+   - in Details: the strict trade rule, P(profit) bars per side, and the side-difference line outside EUR/USD and SPX500
    - the same scores per closed candle in the chart tooltip, with the in-sample mark
    - the two study-backed no-trade reasons
    - the trend as context
@@ -221,6 +246,7 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 - Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
 - Should the strict rule also require a minimum P decile support, now that intervals exist?
 - The 18-feature P(profit) model barely beats a spread-only model in any A4 cell. Should the Go port ship the full model, or a spread-and-hour lookup with the same calibration and decile table?
+- Should "Good moment" stay purely relative (top deciles) while its avg R is negative in every shipped cell, or be renamed or gated on avg R above 0? Should the decile bands be fixed per artifact (shipped with it) rather than in code?
 - Should the side-difference list come from the artifact (a per-cell slope and interval) instead of a console constant? The A4 cells disagree with the M5 study in places (XAG M5 H12 up 0.89, SPX500 M1 0.33 to 0.49).
 - Should the series cache move into the Go store, and should the chart get an out-of-sample-only mode? With a final fit on all data, every candle before 2026-10-07 18:30 UTC is in-sample.
 - Which cell should be the default (stored action, `probabilities`, agent tool), and should the card hide cells for the pairs where the chosen one failed calibration instead of falling back to the first shipped cell?

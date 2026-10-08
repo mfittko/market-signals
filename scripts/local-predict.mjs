@@ -25,7 +25,7 @@ import { htfSupertrend } from './indicators.mjs';
 import { PP_HORIZONS, PP_TARGETS, ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
-export const LOCAL_MODEL = 'local-stats-v2 (big day abs11 A1_nostress; P(profit) pprofit20)';
+export const LOCAL_MODEL = 'local-stats-v3 (big day abs11 A1_nostress; P(profit) pprofit20; shield states)';
 // Default P(profit) cell order: the first shipped cell sets the stored action and probabilities.
 export const PP_CELL_ORDER = PP_HORIZONS.flatMap((h) => PP_TARGETS.map((t) => [h, t]));
 // Operator-approved headline rule: a side is named only when its expected R is at
@@ -160,11 +160,11 @@ export function newsInput(db, instrument, now) {
 export function noTradeReasons({ instrument, spreadR, closeMs }) {
   const out = [];
   if (spreadR != null && spreadR > SPREAD_MAX_R) {
-    out.push({ code: 'spread', text: `Spread wide (${spreadR.toFixed(2)} of the stop distance, limit ${SPREAD_MAX_R})` });
+    out.push({ code: 'spread', text: `Spread wide (${spreadR.toFixed(2)} of the stop distance, limit ${SPREAD_MAX_R})`, short: `spread wide (${spreadR.toFixed(2)} of stop)` });
   }
   const hour = new Date(closeMs).getUTCHours();
   if (THIN_HOURS_UTC[instrument]?.includes(hour)) {
-    out.push({ code: 'thin_hour', text: `Thin trading hour (${String(hour).padStart(2, '0')}:00 UTC)` });
+    out.push({ code: 'thin_hour', text: `Thin trading hour (${String(hour).padStart(2, '0')}:00 UTC)`, short: `thin trading hour (${String(hour).padStart(2, '0')}:00 UTC)` });
   }
   return out;
 }
@@ -193,11 +193,11 @@ function bigDay(instrument, m30, now) {
 const shippedCells = (instrument, granularity) => PP_CELL_ORDER.map(([h, t]) => [h, t, ppModel(instrument, granularity, h, t)]).filter(([, , m]) => m);
 
 // One cell's P(profit) per side for the feature row `f`, with its own headline under `reasons`.
-function scoreCell([horizon, target, model], f, reasons) {
+function scoreCell([horizon, target, model], f, reasons, instrument, granularity) {
   const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
   const c = { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
   const h = headline({ available: true, ...c }, reasons);
-  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason };
+  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }) };
 }
 
 // P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
@@ -210,7 +210,7 @@ function pprofit(instrument, granularity, ba, lastMs, reasons) {
   if (i < 0) return { available: false, text: 'no current bid/ask data' };
   const f = ppFeatures(ppSeries(ba.slice(0, i + 1), granularity), i);
   if (!f) return { available: false, text: 'not enough bid/ask history' };
-  const cells = shipped.map((c) => scoreCell(c, f, reasons));
+  const cells = shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity));
   return { available: true, ...cells[0], cells };
 }
 
@@ -244,11 +244,40 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
     else if (i == null) pp = { available: false, text: 'no bid/ask data for this candle' };
     else {
       const f = ppFeatures(S, i);
-      pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons)) } : { available: false, text: 'not enough bid/ask history' };
+      pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity)) } : { available: false, text: 'not enough bid/ask history' };
     }
     return { candleTime: t, spreadR, reasons, pprofit: pp, hasBidAsk: i != null };
   });
 }
+
+// The card's state: a shield against clearly wrong moments, not trading advice. Operator rule,
+// per closed candle, cell and side, from that side's P decile:
+//   red "Don't trade now": a measured no-trade reason fires (both sides), or the decile is 1
+//   orange "Costly now": decile 2-3
+//   grey "Normal": decile 4-8
+//   green "Good moment": decile 9-10 and no reason fires
+// Without a calibrated estimate: both sides red when a reason fires, else grey "Normal · no calibrated estimate".
+// avgR is the decile's mean net R (null for an empty decile). `cell` needs long/short {decile, expectedR}.
+// Returns { reason: {code, why} | null, long, short }; each side is { state, label, why, code, decile, avgR }.
+export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'Normal', green: 'Good moment' };
+const SHORT_NAME = { 'WTICO/USD': 'WTI', 'BCO/USD': 'Brent' };
+export function shieldState({ instrument, granularity, cell = null, reasons = [] }) {
+  const reason = reasons[0] ? { code: reasons[0].code, why: reasons[0].short ?? reasons[0].text.replace(/^./, (c) => c.toLowerCase()) } : null;
+  const where = `${SHORT_NAME[instrument] ?? instrument} ${granularity}`;
+  const sideState = (s) => {
+    const decile = s?.decile ?? null;
+    const base = { decile, avgR: s?.expectedR ?? null };
+    if (reason) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: reason.why, code: reason.code };
+    if (!s) return { ...base, state: 'grey', label: `${SHIELD_LABEL.grey} · no calibrated estimate`, why: null, code: 'no_estimate' };
+    if (decile <= 1) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: `bottom 10% of conditions for ${where}`, code: 'decile_1' };
+    if (decile <= 3) return { ...base, state: 'orange', label: SHIELD_LABEL.orange, why: `bottom ${decile * 10}% of conditions for ${where}`, code: `decile_${decile}` };
+    if (decile <= 8) return { ...base, state: 'grey', label: SHIELD_LABEL.grey, why: `usual conditions for ${where}`, code: `decile_${decile}` };
+    return { ...base, state: 'green', label: SHIELD_LABEL.green, why: `top ${(11 - decile) * 10}% of conditions for ${where}`, code: `decile_${decile}` };
+  };
+  return { reason, long: sideState(cell?.long), short: sideState(cell?.short) };
+}
+// "Don't trade now · spread wide (0.27 of stop) · avg −0.91 R"
+export const shieldText = (st) => [st.label, st.why, st.avgR == null ? 'avg R n/a' : `avg ${st.avgR >= 0 ? '+' : '−'}${Math.abs(st.avgR).toFixed(2)} R`].filter(Boolean).join(' · ');
 
 // The operator-approved headline rule (strict): a side only when its expected R is at least
 // +0.05 R and its interval lies above 0, and no measured reason fires. The artifacts carry
@@ -293,11 +322,14 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   const pp = pprofit(instrument, granularity, ba, lastMs, reasons);
 
   const head = headline(pp, reasons);
+  const shield = pp.available ? pp.cells[0].shield : shieldState({ instrument, granularity, reasons });
   const action = head.action;
   const state = {
     big_day_today: big.text,
     long_now: pp.available ? avgR(pp.long) : pp.text,
     short_now: pp.available ? avgR(pp.short) : pp.text,
+    long_state: shieldText(shield.long),
+    short_state: shieldText(shield.short),
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
@@ -316,7 +348,8 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     probabilities: { long: pp.available ? pp.long.p : null, short: pp.available ? pp.short.p : null, no_trade: action === 'no_trade' ? 1 : 0 },
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
-      bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
+      // shield: per-side state of the default cell (each cell carries its own in pprofit.cells); headline: the strict trade rule
+      shield, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
       reasons, trend, spreadR,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },

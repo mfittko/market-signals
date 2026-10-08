@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
-import { cellLabel, loadCell, saveCell, SIDE_DIFF_CALIBRATED, SIDE_DIFF_NOTE } from '@/lib/prediction';
+import { cellLabel, loadCell, saveCell, SIDE_DIFF_CALIBRATED, SIDE_DIFF_NOTE, STATE_COLOR, stateText, type Shield, type SideState } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -16,8 +16,9 @@ type Prediction = {
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
 type SidePart = { p: number; expectedR: number | null; decile: number };
 // one shipped horizon x target cell; runs stored before cells existed have none
-type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null };
+type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null; shield?: Shield };
 type LocalDetail = {
+  shield?: Shield;
   bigDay?: BigDayPart;
   pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart; cells?: Cell[] };
   headline?: string; headlineReason?: string | null;
@@ -46,6 +47,16 @@ function ProfitBar({ name, s, tone, note }: { name: string; s: SidePart; tone: s
         </span>
         <span>{pctP(s.p)} chance of profit ({signedR(s.expectedR)})</span>
       </span>
+    </div>
+  );
+}
+// "Long  ● Don't trade now · bottom 10% of conditions for WTI M5 · avg −0.91 R"
+function StateLine({ name, s, withWhy }: { name: string; s: SideState; withWhy: boolean }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '44px 12px 1fr', alignItems: 'baseline', gap: 6 }}>
+      <span className="small muted">{name}</span>
+      <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: STATE_COLOR[s.state] }} />
+      <span><strong style={{ color: s.state === 'grey' ? undefined : STATE_COLOR[s.state] }}>{s.label}</strong><span className="small">{stateText(s, withWhy).slice(s.label.length)}</span></span>
     </div>
   );
 }
@@ -214,6 +225,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const side = cell ?? (pp?.available ? pp : null);
   const head = cell ? { label: cell.headline, action: cell.headlineAction, reason: cell.headlineReason } : d && { label: d.headline ?? LABEL[p.action], action: p.action, reason: d.headlineReason ?? null };
   const note = cellNote(cell);
+  // the per-side state for the chosen cell; runs stored before states existed show the strict rule instead
+  const shield = cell ? cell.shield : d?.shield;
   const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
   const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
@@ -228,10 +241,20 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
       {p && d && (
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
-          <p style={{ margin: '4px 0' }}>
-            <strong style={{ fontSize: 18, color: TONE[head!.action] }}>{head!.label}</strong>
-            {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
-          </p>
+          {shield ? (
+            <div style={{ display: 'grid', gap: 4, margin: '4px 0 8px' }}>
+              {/* a measured reason applies to both sides: shown once, and both lines read Don't trade now */}
+              {shield.reason && <p className="small" style={{ margin: 0, color: 'var(--warn)' }}>{shield.reason.why.replace(/^./, (c) => c.toUpperCase())}</p>}
+              <StateLine name="Long" s={shield.long} withWhy={!shield.reason} />
+              <StateLine name="Short" s={shield.short} withWhy={!shield.reason} />
+            </div>
+          ) : (
+            <p style={{ margin: '4px 0' }}>
+              <strong style={{ fontSize: 18, color: TONE[head!.action] }}>{head!.label}</strong>
+              {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
+            </p>
+          )}
+          {/* TODO(lean): add a "Lean" line here from data/research/engine/audit/lean22/out/lean_track_record.json once that track record exists */}
           {cells.length > 0 && (
             <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="muted">Over</span>
@@ -240,22 +263,22 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               </select>
             </label>
           )}
-          {side?.long && side.short
-            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
-              {!SIDE_DIFF_CALIBRATED.has(p.instrument) && <span className="small muted">{SIDE_DIFF_NOTE}</span>}</div>
-            : head!.reason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
+          {!shield && !(side?.long && side.short) && head!.reason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
-          {d.reasons.slice(d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
+          {d.reasons.slice(shield ? 1 : d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
           <details className="small">
             <summary className="muted">Details</summary>
+            {shield && <p style={{ margin: '6px 0' }}>Trade: {head!.label}{head!.reason ? ` · ${head!.reason}` : ''}</p>}
+            {side?.long && side.short && <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
+              {!SIDE_DIFF_CALIBRATED.has(p.instrument) && <span className="muted">{SIDE_DIFF_NOTE}</span>}</div>}
             <p className="muted" style={{ margin: '6px 0' }}>{note}</p>
             {side?.long && side.short && <p style={{ margin: '4px 0' }}>Long: P {pctP(side.long.p)}, {signedR(side.long.expectedR)} (decile {side.long.decile} of 10) · Short: P {pctP(side.short.p)}, {signedR(side.short.expectedR)} (decile {side.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now'))).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !(cells.length && (k === 'long_now' || k === 'short_now')) && k !== 'long_state' && k !== 'short_state').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
             <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · chance of profit over {cell ? cell.horizon : 72} candles, big day over the session · {age(p.askedAt, now)}</p>
             {history}

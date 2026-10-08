@@ -3,7 +3,7 @@
 // Advisory only: nothing here is read by the bot, the filter or the notifier.
 import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
 import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
-import { cutoffMs, LOCAL_MODEL, localPredict, localSeries, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
+import { cutoffMs, LOCAL_MODEL, localPredict, localSeries, LOCAL_PROVIDER, newsInput, shieldState } from './local-predict.mjs';
 import { baWindow, ppAvailable, ppModel, PP_WINDOW_BARS } from './pprofit.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
@@ -152,7 +152,7 @@ export function predictionForTool(p) {
     return {
       advisory: 'Advisory statistics only. probabilities.long/short are calibrated P(profit) after costs of the first cell in pProfit.cells (horizon in candles; target up = price better than the entry at the end, plan = stop 1.5 ATR, breakeven at +1R, target 3R, out at the horizon); they mostly reflect spread and hour and are not an edge. It never places or changes a trade; confirm with price action before any entry.',
       provider: p.provider, instrument: p.instrument, granularity: p.granularity, action: p.action, probabilities: p.probabilities,
-      headline: d.headline ?? null, headlineReason: d.headlineReason ?? null, pProfit: d.pprofit ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
+      shield: d.shield ?? null, headline: d.headline ?? null, headlineReason: d.headlineReason ?? null, pProfit: d.pprofit ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
       trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: `next ${p.horizonBars} candles (see pProfit.cells for each horizon and target)`,
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };
@@ -179,18 +179,22 @@ function seriesEntry(instrument, granularity, core, source, computedAt) {
     const model = ppModel(instrument, granularity, c.horizon, c.target);
     return {
       key: c.key, horizon: c.horizon, target: c.target, pLong: c.long.p, pShort: c.short.p, expectedRLong: c.long.expectedR, expectedRShort: c.short.expectedR,
-      headline: c.headline, reason: c.headlineReason ?? null, inSample: model ? ms < cutoffMs(model) : null,
+      decileLong: c.long.decile, decileShort: c.short.decile, headline: c.headline, reason: c.headlineReason ?? null, inSample: model ? ms < cutoffMs(model) : null,
+      // the per-side state, recomputed from the stored deciles so older runs get it too
+      shield: shieldState({ instrument, granularity, cell: c, reasons: core.reasons ?? [] }),
     };
   }) : [];
   return {
     candleTime: core.candleTime, source, computedAt, spreadR: core.spreadR ?? null,
     reasons: (core.reasons ?? []).map(({ code, text }) => ({ code, text })), available: pp.available, text: pp.available ? null : pp.text, cells,
+    // the state without a cell (reasons only), for pairs without a calibrated estimate
+    shield: shieldState({ instrument, granularity, reasons: core.reasons ?? [] }),
   };
 }
 // What a series row stores: the local scorer output without the per-side details the chart never reads.
 const seriesCore = ({ candleTime, spreadR, reasons, pprofit: pp }) => ({
   candleTime, spreadR, reasons,
-  pprofit: pp.available ? { available: true, cells: pp.cells.map(({ key, horizon, target, long, short, headline, headlineReason }) => ({ key, horizon, target, long: { p: long.p, expectedR: long.expectedR }, short: { p: short.p, expectedR: short.expectedR }, headline, headlineReason })) } : pp,
+  pprofit: pp.available ? { available: true, cells: pp.cells.map(({ key, horizon, target, long, short, headline, headlineReason }) => ({ key, horizon, target, long: { p: long.p, expectedR: long.expectedR, decile: long.decile }, short: { p: short.p, expectedR: short.expectedR, decile: short.decile }, headline, headlineReason })) } : pp,
 });
 
 // One entry per closed candle of the window [from, to] (ms, both optional), newest SERIES_MAX only.
