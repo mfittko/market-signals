@@ -98,6 +98,23 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// price proxies the engine's near-live bid/ask for one instrument. The console
+// polls it every 2 s while the instrument page is visible.
+func (s *Server) price(w http.ResponseWriter, r *http.Request) {
+	symbol, ok := s.lookupSymbol(r)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown instrument"})
+		return
+	}
+	var out json.RawMessage
+	if err := s.eng.GetCached(r.Context(), time.Second, "/api/price", url.Values{"instrument": {symbol}}, &out); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	_, _ = w.Write(out)
+}
+
 // news proxies the engine's cached headlines for one instrument.
 func (s *Server) news(w http.ResponseWriter, r *http.Request) {
 	symbol, ok := s.lookupSymbol(r)
