@@ -203,14 +203,15 @@ function pprofit(instrument, granularity, ba, lastMs) {
 // +0.05 R and its interval lies above 0, and no measured reason fires. The artifacts carry
 // no interval for the lookup, so no side can clear until one is added.
 export function headline(pp, reasons) {
-  const clears = (s) => s && s.expectedR >= MIN_EXPECTED_R && Array.isArray(s.ci) && s.ci[0] > 0;
+  const clears = (s) => s && s.expectedR != null && s.expectedR >= MIN_EXPECTED_R && Array.isArray(s.ci) && s.ci[0] > 0;
   const sides = pp.available ? [['long', pp.long], ['short', pp.short]].filter(([, s]) => clears(s)).sort((a, b) => b[1].expectedR - a[1].expectedR) : [];
   if (reasons.length) return { label: 'Neutral', action: 'no_trade', reason: reasons[0].text };
   if (!sides.length) return { label: 'Neutral', action: 'no_trade', reason: pp.available ? 'no side clears costs' : pp.text };
   return { label: sides[0][0] === 'long' ? 'Long' : 'Short', action: sides[0][0], reason: null };
 }
 
-const avgR = (s) => `${pct(s.p)} chance of profit (avg ${s.expectedR >= 0 ? '+' : ''}${s.expectedR.toFixed(2)} R)`;
+const pctP = (p) => (p < 0.005 ? '<1%' : pct(p)); // a calibrated P can be exactly 0
+const avgR = (s) => `${pctP(s.p)} chance of profit (${s.expectedR == null ? 'avg R: n/a' : `avg ${s.expectedR >= 0 ? '+' : ''}${s.expectedR.toFixed(2)} R`})`;
 
 // One local run for the newest CLOSED candle of the viewed timeframe.
 // `candles` are the viewed timeframe (a forming bar is dropped), `m30` the 30-min

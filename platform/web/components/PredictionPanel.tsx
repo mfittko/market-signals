@@ -13,7 +13,7 @@ type Prediction = {
 };
 // What the local provider stores in `detail` (scripts/local-predict.mjs)
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
-type SidePart = { p: number; expectedR: number; decile: number };
+type SidePart = { p: number; expectedR: number | null; decile: number };
 type LocalDetail = {
   bigDay?: BigDayPart;
   pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart };
@@ -24,7 +24,10 @@ type LocalDetail = {
 };
 const LOCAL = 'local';
 const PLAN_NOTE = 'Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 6 h. Mostly reflects spread and hour. Not an edge.';
-const signedR = (r: number) => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`;
+// expected R of the P decile; an empty decile has none
+const signedR = (r: number | null) => (r == null ? 'avg R: n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
+// a calibrated P can be exactly 0
+const pctP = (v: number | null | undefined) => (v != null && v < 0.005 ? '<1%' : pct(v));
 // "Long now: [bar] 24% chance of profit (avg −0.09 R)"
 function ProfitBar({ name, s, tone }: { name: string; s: SidePart; tone: string }) {
   return (
@@ -34,7 +37,7 @@ function ProfitBar({ name, s, tone }: { name: string; s: SidePart; tone: string 
         <span style={{ height: 8, borderRadius: 4, background: 'var(--neutral-bg)', overflow: 'hidden' }} role="meter" aria-label={`${name} chance of profit`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.p * 100)}>
           <span style={{ display: 'block', height: '100%', width: pct(s.p), background: tone }} />
         </span>
-        <span>{pct(s.p)} chance of profit (avg {signedR(s.expectedR)})</span>
+        <span>{pctP(s.p)} chance of profit ({signedR(s.expectedR)})</span>
       </span>
     </div>
   );
@@ -224,7 +227,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           <details className="small">
             <summary className="muted">Details</summary>
             <p className="muted" style={{ margin: '6px 0' }}>{PLAN_NOTE}</p>
-            {pp?.available && pp.long && pp.short && <p style={{ margin: '4px 0' }}>Long: P {pct(pp.long.p)}, avg {signedR(pp.long.expectedR)} (decile {pp.long.decile} of 10) · Short: P {pct(pp.short.p)}, avg {signedR(pp.short.expectedR)} (decile {pp.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
+            {pp?.available && pp.long && pp.short && <p style={{ margin: '4px 0' }}>Long: P {pctP(pp.long.p)}, {signedR(pp.long.expectedR)} (decile {pp.long.decile} of 10) · Short: P {pctP(pp.short.p)}, {signedR(pp.short.expectedR)} (decile {pp.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
@@ -287,7 +290,7 @@ function History({ runs, shownId, now, onShow }: { runs: Prediction[]; shownId?:
             <td className="num"><button className="linkish" onClick={() => onShow(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
             <td className="num">{hm(r.candleTime)}</td>
             <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
-              ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pct(r.probabilities.long)} / S ${pct(r.probabilities.short)}` : ''}</>
+              ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pctP(r.probabilities.long)} / S ${pctP(r.probabilities.short)}` : ''}</>
               : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
             <td className="num">{r.price}</td>
           </tr>

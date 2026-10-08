@@ -21,10 +21,14 @@ export function ppModel(instrument, granularity) {
   const key = `${instrument}|${granularity}`;
   if (!models.has(key)) {
     let m = null;
-    if (['M1', 'M5', 'M15'].includes(granularity)) {
+    const tag = instrument.replace('/', '_');
+    // M1 uses the isotonic-calibrated variant; M5 and M15 the Platt one
+    const names = { M1: [`${tag}_M1_iso`], M5: [tag], M15: [`${tag}_M15`] }[granularity] ?? [];
+    for (const n of names) {
       try {
-        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}${granularity === 'M5' ? '' : `_${granularity}`}_pprofit20.json`, import.meta.url), 'utf8'));
-      } catch { /* no artifact for this pair */ }
+        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${n}_pprofit20.json`, import.meta.url), 'utf8'));
+        break;
+      } catch { /* no artifact under this name */ }
     }
     models.set(key, m);
   }
@@ -118,17 +122,30 @@ export function ppRow(model, feat, side) {
   return model.features.order.map((k) => (k === 'lrng' ? feat.f.lrng - model.tod_norm[feat.slot] : SIGNED.includes(k) ? side * feat.f[k] : feat.f[k]));
 }
 
-// Raw score and calibrated P for one side, and the expected R of the P decile.
+// Raw score -> P: Platt (a, b), or isotonic knots with linear interpolation and
+// clipping to the end values outside the knots (numpy.interp semantics).
+export function calibrate(cal, raw) {
+  if (cal.type !== 'isotonic') return 1 / (1 + Math.exp(-(cal.a * raw + cal.b)));
+  const { x, y } = cal;
+  if (raw <= x[0]) return y[0];
+  if (raw >= x.at(-1)) return y.at(-1);
+  let lo = 0; let hi = x.length - 1; // x[lo] <= raw < x[hi]
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (x[mid] <= raw) lo = mid; else hi = mid; }
+  return y[lo] + ((y[hi] - y[lo]) / (x[hi] - x[lo])) * (raw - x[lo]);
+}
+
+// Raw score and calibrated P for one side, and the expected R of the P decile
+// (bisect-right on the decile edges). An empty decile has no expected R (null).
 export function ppScore(model, feat, side) {
   const x = ppRow(model, feat, side);
   const z = x.map((v, j) => (v - model.scaler.mean[j]) / model.scaler.std[j]);
   const design = [...z, side, ...z.map((v) => side * v)];
   let raw = model.intercept;
   for (let j = 0; j < design.length; j++) raw += model.coef[j] * design[j];
-  const p = 1 / (1 + Math.exp(-(model.calibrator.a * raw + model.calibrator.b)));
+  const p = calibrate(model.calibrator, raw);
   const lut = model.expected_R[side > 0 ? 'long' : 'short'];
   const decile = lut.p_edges.filter((e) => e <= p).length;
-  return { raw, p, decile: decile + 1, expectedR: lut.meanR[decile], ci: lut.meanR_ci?.[decile] ?? null, n: lut.n[decile] };
+  return { raw, p, decile: decile + 1, expectedR: lut.meanR[decile] ?? null, ci: lut.meanR_ci?.[decile] ?? null, n: lut.n[decile] };
 }
 
 // Bid/ask candles from the public feed, oldest first, complete bars only.

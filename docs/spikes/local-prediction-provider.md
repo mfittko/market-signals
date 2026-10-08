@@ -15,7 +15,7 @@ Branch `spike/local-prediction-provider`, run as a dev-loop local implementation
 - In the second round, drop the news no-trade reason.
 - In the second round, merge the notes into one short note.
 - After the preview, make the card compact and show only relevant news.
-- In the fourth round, replace the fixed near-50/50 direction with calibrated P(profit) per side from the pprofit20 artifacts, under a strict headline rule. A later amendment added XAU M1 and decile intervals.
+- In the fourth round, replace the fixed near-50/50 direction with calibrated P(profit) per side from the pprofit20 artifacts, under a strict headline rule. Later amendments added decile intervals and isotonic-calibrated M1 artifacts.
 
 The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13) is in commit 7f796cf. The second round removed it. The fixed direction constant (2023+ up share per instrument, `data/research/localpred/up_share.py`) is in commit 65feaa6. The fourth round removed it.
 
@@ -34,15 +34,15 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - exit at an opposite supertrend flip or after 72 bars
      
      It comes with the mean net R of its P decile.
-     - Source: `data/research/engine/audit/pprofit20` (`pp20.py`). The 9 artifacts whose calibration passed and that carry information are copied unchanged into `config/prediction-models/`. Since the M1 amendment every artifact carries `expected_R.<side>.meanR_ci`, a 95% day-block bootstrap interval per decile; coefficients are unchanged:
+     - Source: `data/research/engine/audit/pprofit20` (`pp20.py`). The 13 artifacts whose calibration passed and that carry information are copied unchanged into `config/prediction-models/`. Since the M1 amendment every artifact carries `expected_R.<side>.meanR_ci`, a 95% day-block bootstrap interval per decile; coefficients are unchanged:
        - M5: WTICO/USD, XAU/USD, SPX500/USD, EUR/USD
        - M15: WTICO/USD, XAG/USD, SPX500/USD, EUR/USD
-       - M1: XAU/USD. NATGAS M1 is not shipped: it passes calibration only because P is near 0 almost everywhere, so it carries no information. WTI and EUR/USD M1 failed calibration; the WTI M1 artifact is used only as the parity reference in `test/fixtures/`.
+       - M1 (amendment A3, isotonic calibration): WTICO/USD, XAU/USD, XAG/USD, SPX500/USD, EUR/USD. NATGAS M1 is not shipped (status "degenerate: not for display": median out-of-sample P below 1%). The earlier Platt M1 artifacts are not shipped: WTI and EUR/USD failed calibration, and XAU Platt is replaced by its isotonic version.
      - M1 specifics: tod_norm has 1440 entries (5-minute slot values stored per minute), 1R = 1.5 x ATR14 of mid M1, latr over 1440 M1 bars, the M1 supertrend for st_al and dst, H1 alignment unchanged; at least about 1450 M1 bars of history (the fixture uses 2000).
-     - Model: logistic regression on 18 features plus side and side interactions (37 coefficients), Platt calibration, and an expected-R lookup by P decile per side.
+     - Model: logistic regression on 18 features plus side and side interactions (37 coefficients), and an expected-R lookup by P decile per side (bisect-right on the edges). M5 and M15 use Platt calibration. M1 uses isotonic calibration: knots on the raw score, linear interpolation between them, clipped to the end values outside (numpy.interp semantics), so P can be exactly 0; the card shows "<1%" then. An empty decile carries no expected R or interval (XAG M1 has 3, EUR/USD M1 2, WTI M1 1 per side); the bar then shows its P with "avg R: n/a", and the side counts as not clearing costs.
      - `scripts/pprofit.mjs` ports the 18 features: spread / 1R, three time-of-day harmonics, Monday and Friday, realized volatility over 12 and 72 bars, ATR against its 1440-bar mean, the day range so far minus its time-of-day norm, and side-signed move from the day open, supertrend alignment, H1 alignment, distance to the supertrend line and a 3-bar burst.
      - Inputs are the bid/ask candles of the viewed timeframe, with mid = (bid + ask) / 2 per field, as in research. One full 5000-bar fetch per pair is cached in memory; later runs fetch the newest 10 bars.
-     - Every other pair (XAG and NATGAS on M5, XAU and NATGAS on M15, every M1 pair except XAU, other instruments, other timeframes) shows "no calibrated estimate". When a measured reason also fires, the headline names the reason and the card adds "Long/short: no calibrated estimate".
+     - Every other pair (XAG and NATGAS on M5, XAU and NATGAS on M15, NATGAS on M1, other instruments, other timeframes) shows "no calibrated estimate". When a measured reason also fires, the headline names the reason and the card adds "Long/short: no calibrated estimate".
    - **No-trade reasons.** Only the two the study measured as helpful:
      - The spread is wide: (ask close minus bid close) / (1.5 ATR) at the closed bar of the viewed timeframe is above 0.2. Bid and ask come from one small `price=BA` request to the existing candle feed.
      - Thin trading hour: the UTC hour of the bar close is in the fixed per-instrument list.
@@ -89,7 +89,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 5. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
-   - P(profit) fixtures are the pprofit20 parity exports (6000 bid/ask bars, 400 rows) for WTICO/USD M5, EUR/USD M5 and WTICO/USD M15. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to the last 3000 bars and 82 rows (about 250 KB each). The Node port gives identical results on the last 3000 bars as on all 6000, but drifts at 2000 bars (latr warm-up), so the trim is safe. The WTI M1 export (2000 bars, 80 rows) is kept whole (172 KB), with its parity-only artifact beside it.
+   - P(profit) fixtures are the pprofit20 parity exports (6000 bid/ask bars, 400 rows) for WTICO/USD M5, EUR/USD M5 and WTICO/USD M15. `data/research/localpred/trim_pp.mjs` (gitignored) compacts each to the last 3000 bars and 82 rows (about 250 KB each). The Node port gives identical results on the last 3000 bars as on all 6000, but drifts at 2000 bars (latr warm-up), so the trim is safe. The isotonic M1 exports for WTICO/USD and EUR/USD (2000 bars, 80 rows each) are kept whole (about 175 KB each); both artifacts are shipped, so the test loads them from config.
 6. Running-app check.
    - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
    - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
@@ -99,16 +99,17 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 
 - **Parity holds.**
   - Big day: Node features match the Python export to max |dx| 2.2e-16 (WTI) and 1.3e-15 (EUR/USD). p matches to max |dp| 1.5e-16 over 16 rows.
-  - P(profit): features match to max |dx| 1.8e-13 (WTI M5), 1.5e-12 (EUR/USD M5), 7.6e-14 (WTI M15) and 1.6e-13 (WTI M1). P matches to 3.2e-15 over 326 rows.
+  - P(profit): features match to max |dx| 1.8e-13 (WTI M5), 1.5e-12 (EUR/USD M5), 7.6e-14 (WTI M15) 1.6e-13 (WTI M1 isotonic) and 1.9e-12 (EUR/USD M1 isotonic). P matches to 3.2e-15 over 406 rows (exactly on the isotonic rows).
   - The test tolerance is 1e-9.
 - **P(profit) has no serving skew.** On the live OANDA bid/ask feed (the last 5000 bars, as production reads them), P at the fixture rows equals the research P to below 5e-6 for all three fixtures. Research and production read the same bid/ask source. Script: `data/research/localpred/pp-skew.mjs` (gitignored).
 - **No side clears costs anywhere.**
-  - The best decile's expected R per artifact is at most −0.04 R, with one exception: SPX500 M15 long, top decile, +0.011 R. XAU M1 is at most −0.17 R.
-  - The artifacts now carry a 95% interval per decile, so the strict rule evaluates fully. The lower bound is below 0 in every decile of every shipped artifact (highest: −0.031 R, SPX500 M15 long), and no mean reaches +0.05 R. A test runs the rule over all 9 artifacts, both sides and all deciles: every case reads "Neutral · no side clears costs". One upper bound reaches above +0.05 (SPX500 M15 long top decile, +0.055 R), but the rule needs the lower bound above 0.
+  - The best decile's expected R per artifact is at most −0.04 R, with one exception: SPX500 M15 long, top decile, +0.011 R. On M1 the best decile is at most −0.09 R (SPX500), and −0.15 to −0.29 R elsewhere.
+  - The artifacts now carry a 95% interval per decile, so the strict rule evaluates fully. The lower bound is below 0 in every decile of every shipped artifact (highest: −0.031 R, SPX500 M15 long), and no mean reaches +0.05 R. A test runs the rule over all 13 artifacts, both sides and all deciles: every case reads "Neutral · no side clears costs". One upper bound reaches above +0.05 (SPX500 M15 long top decile, +0.055 R), but the rule needs the lower bound above 0.
   - The headline is Neutral everywhere. The live check gave WTI M5 at 10:00 local: long 16% (−0.17 R), short 17% (−0.15 R).
   - Discrimination is weak: walk-forward 2023+ AUC is 0.57 to 0.65 per side.
   - The number mostly reflects spread and hour, as the card says.
 - **Research cadence.** On M5, research scored only the bars that close on a quarter hour. The card scores every closed bar, so the two M5 bars in between are not covered by research rows. M15 research scored every bar. M1 research scored every 5th bar (the M5 close), with a 360-bar (6 h) time exit.
+- **M1 live check (copy setup, 10:5x local).** Every M1 pair read Neutral. The spread reason fired on WTI (0.27), XAU (0.22), XAG (0.29), EUR/USD (0.61) and NATGAS (2.13). SPX500 read "no side clears costs". P(profit) on M1 ranged from 8% to 16% per side, with average R from −0.17 to −0.55 R.
 - **Dropping stress costs nothing measurable.** Walk-forward 2023+ AUC without and with stress:
   - WTI 0.900 / 0.900
   - XAU 0.838 / 0.839
@@ -149,19 +150,20 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 17 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 20 tests pass. They cover:
     - big-day and P(profit) parity (M5, M15 and M1)
     - short window
     - reasons, news relevance and news input
     - the headline rule (Neutral below the bar, the interval required, reason precedence, the higher side wins)
-    - the rule over all 9 shipped artifacts: every decile reads Neutral
+    - the rule over all 13 shipped artifacts: every decile reads Neutral
+    - isotonic calibration (interpolation and clipping), bisect-right deciles, empty deciles, and M1 coverage
     - P(profit) per side and news invariance
     - reached sessions
     - the no-artifact fallback
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 803 tests pass, plus the console typecheck.
+  - `npm run verify`: 806 tests pass, plus the console typecheck.
   - `go test ./internal/api ./internal/tools`: pass.
 
 ## Recommendation

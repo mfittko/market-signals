@@ -10,7 +10,7 @@ import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.m
 import {
   bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
-import { baWindow, clearBaWindows, fetchBaCandles, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
+import { baWindow, calibrate, clearBaWindows, fetchBaCandles, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
 const toBars = (rows) => rows.map(([t, open, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close }));
@@ -107,37 +107,63 @@ test('parity: bid/ask bars -> P(profit) features -> calibrated P match the Pytho
   assert.equal(ppModel('WTICO/USD', 'H1'), null);
 });
 
-test('parity: M1 bid/ask bars -> P(profit) match the research export within 1e-9 (parity-only WTI M1 artifact)', () => {
-  const fx = JSON.parse(readFileSync(new URL('./fixtures/pprofit-parity-WTICO_USD-M1.json', import.meta.url), 'utf8'));
-  const model = JSON.parse(readFileSync(new URL('./fixtures/pprofit-artifact-WTICO_USD-M1-parity-only.json', import.meta.url), 'utf8'));
-  assert.equal(model.tod_norm.length, 1440);
-  assert.equal(fx.bars.length, 2000);
-  const S = ppSeries(baBars(fx.bars), 'M1');
-  assert.equal(fx.rows.length, 80);
-  for (const r of fx.rows) {
-    const f = ppFeatures(S, r.index);
-    assert.ok(f, `M1 ${r.t} features`);
-    ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `M1 ${r.t} ${model.features.order[j]}`));
-    const s = ppScore(model, f, r.side);
-    assert.ok(Math.abs(s.raw - r.raw) <= 1e-9 && Math.abs(s.p - r.p) <= 1e-9, `M1 ${r.t} side ${r.side}: p ${s.p} vs ${r.p}`);
+test('parity: M1 bid/ask bars -> P(profit) with isotonic calibration match the research export within 1e-9', () => {
+  for (const name of ['WTICO_USD', 'EUR_USD']) {
+    const fx = JSON.parse(readFileSync(new URL(`./fixtures/pprofit-parity-${name}-M1-iso.json`, import.meta.url), 'utf8'));
+    const model = ppModel(fx.instrument, 'M1');
+    assert.equal(model.calibrator.type, 'isotonic');
+    assert.equal(model.tod_norm.length, 1440);
+    assert.deepEqual([fx.bars.length, fx.rows.length], [2000, 80]);
+    const S = ppSeries(baBars(fx.bars), 'M1');
+    for (const r of fx.rows) {
+      const f = ppFeatures(S, r.index);
+      assert.ok(f, `M1 ${r.t} features`);
+      ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `${name} M1 ${r.t} ${model.features.order[j]}`));
+      const s = ppScore(model, f, r.side);
+      assert.ok(Math.abs(s.raw - r.raw) <= 1e-9 && Math.abs(s.p - r.p) <= 1e-9, `${name} M1 ${r.t} side ${r.side}: p ${s.p} vs ${r.p}`);
+    }
   }
-  // shipped M1 coverage: XAU only (WTI and EUR/USD failed calibration; NATGAS carries no information)
-  assert.ok(ppModel('XAU/USD', 'M1'));
-  for (const inst of ['WTICO/USD', 'EUR/USD', 'NATGAS/USD', 'XAG/USD', 'SPX500/USD']) assert.equal(ppModel(inst, 'M1'), null, inst);
+});
+
+test('M1 coverage: isotonic artifacts for WTI, XAU, XAG, SPX500 and EUR/USD; none for NATGAS', () => {
+  for (const inst of ['WTICO/USD', 'XAU/USD', 'XAG/USD', 'SPX500/USD', 'EUR/USD']) assert.equal(ppModel(inst, 'M1')?.calibrator.type, 'isotonic', inst);
+  assert.equal(ppModel('NATGAS/USD', 'M1'), null);
+  assert.equal(ppModel('WTICO/USD', 'M5').calibrator.kind, 'platt');
+});
+
+test('isotonic calibration: linear between knots, clipped outside (numpy.interp)', () => {
+  const cal = { type: 'isotonic', x: [-1, 0, 2], y: [0, 0.2, 0.6], out_of_bounds: 'clip' };
+  assert.deepEqual([-5, -1, -0.5, 0, 1, 2, 9].map((v) => calibrate(cal, v)), [0, 0, 0.1, 0.2, 0.4, 0.6, 0.6]);
+  assert.equal(calibrate({ a: 1, b: 0 }, 0), 0.5, 'Platt stays the default');
+});
+
+test('expected R: bisect-right decile, an empty decile has no R and never clears', () => {
+  const model = ppModel('XAG/USD', 'M1');
+  const lut = model.expected_R.long;
+  const empty = lut.meanR.findIndex((v) => v == null);
+  assert.ok(empty >= 0, 'XAG M1 has empty deciles');
+  // P = 0 counts every edge equal to 0 (bisect right)
+  const zeros = lut.p_edges.filter((e) => e <= 0).length;
+  const s = ppScore({ ...model, calibrator: { type: 'isotonic', x: [0, 1], y: [0, 0] } }, { f: Object.fromEntries(model.features.order.map((k) => [k, 0])), slot: 0 }, 1);
+  assert.deepEqual([s.p, s.decile, s.expectedR], [0, zeros + 1, lut.meanR[zeros] ?? null]);
+  const nullSide = { p: 0, expectedR: null, ci: null };
+  assert.equal(headline({ available: true, long: nullSide, short: nullSide }, []).reason, 'no side clears costs');
 });
 
 test('headline with the shipped artifacts: every decile, both sides, reads Neutral (no side clears costs)', () => {
-  const pairs = [['WTICO/USD', 'M5'], ['XAU/USD', 'M5'], ['SPX500/USD', 'M5'], ['EUR/USD', 'M5'], ['WTICO/USD', 'M15'], ['XAG/USD', 'M15'], ['SPX500/USD', 'M15'], ['EUR/USD', 'M15'], ['XAU/USD', 'M1']];
+  const pairs = [['WTICO/USD', 'M5'], ['XAU/USD', 'M5'], ['SPX500/USD', 'M5'], ['EUR/USD', 'M5'], ['WTICO/USD', 'M15'], ['XAG/USD', 'M15'], ['SPX500/USD', 'M15'], ['EUR/USD', 'M15'],
+    ['WTICO/USD', 'M1'], ['XAU/USD', 'M1'], ['XAG/USD', 'M1'], ['SPX500/USD', 'M1'], ['EUR/USD', 'M1']];
   for (const [inst, gran] of pairs) {
     const lut = ppModel(inst, gran).expected_R;
-    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} ${s} has a CI per decile`);
+    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} ${s} has a CI slot per decile`);
     for (let d = 0; d < 10; d++) {
-      const side = (s) => ({ p: 0.2, expectedR: lut[s].meanR[d], ci: lut[s].meanR_ci[d] });
-      assert.ok(lut.long.meanR_ci[d][0] < 0 && lut.short.meanR_ci[d][0] < 0, `${inst} ${gran} decile ${d + 1}: lower bound below 0`);
+      const side = (s) => ({ p: 0.2, expectedR: lut[s].meanR[d] ?? null, ci: lut[s].meanR_ci[d] ?? null });
+      for (const s of ['long', 'short']) if (lut[s].meanR_ci[d]) assert.ok(lut[s].meanR_ci[d][0] < 0, `${inst} ${gran} ${s} decile ${d + 1}: lower bound below 0`);
       assert.deepEqual(headline({ available: true, long: side('long'), short: side('short') }, []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' }, `${inst} ${gran} decile ${d + 1}`);
     }
   }
 });
+
 
 test('headline: strict rule, Neutral unless a side clears +0.05 R with its interval above 0, reasons first', () => {
   const side = (expectedR, ci = null) => ({ p: 0.3, expectedR, ci });
