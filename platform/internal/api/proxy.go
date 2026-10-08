@@ -49,7 +49,7 @@ var consoleSettingsKeys = map[string]bool{
 	"impulseCooldownBars": true, "filterMaxCompletionTokens": true, "keepFresh": true,
 	"sentinelSourceFootnotes": true, "NEWSAPI_AI_MODE": true, "GNEWS_MODE": true,
 	// Live prediction
-	"TYPESAFE_API_KEY": true, "predictionEnabled": true,
+	"TYPESAFE_API_KEY": true, "predictionEnabled": true, "predictionProvider": true,
 }
 
 // refusedSettingsKeys lists, sorted, the patch keys the console may not write.

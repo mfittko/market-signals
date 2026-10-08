@@ -9,7 +9,7 @@ export type MoreSettingsData = {
   llmFallbackProvider?: string; impulseVolMult?: number; impulseVolWindow?: number; impulseCooldownBars?: number;
   NEWSAPI_AI_MODE?: string; GNEWS_MODE?: string; sentinelSourceFootnotes?: string | boolean;
   PUSHOVER_ENABLED?: string | boolean; PUSHOVER_USER?: string; PUSHOVER_TOKEN?: string; notifierBin?: string;
-  TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean;
+  TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean; predictionProvider?: string;
 };
 type Base = { current: Record<string, unknown> };
 type Run = (patch: object, text: string | undefined, base: Base) => Promise<boolean>;
@@ -126,18 +126,24 @@ export function FilterCard({ s, run, busy }: { s: MoreSettingsData; run: Run; bu
   );
 }
 
-// Live prediction: the instrument page shows its card only when a provider key is stored and this is on.
-// The engine applies the same rule, so a toggle saved without a key still makes no call.
+// Live prediction: the instrument page shows its card while this is on. The local provider is the
+// default and needs no key; TypeSafe Jev also needs its key. The engine applies the same rule.
 export function PredictionCard({ s, run, busy }: { s: MoreSettingsData; run: Run; busy: boolean }) {
   const [key, setKey] = useState('');
   const stored = s.TYPESAFE_API_KEY === MASK;
-  const bl = useRef<Record<string, unknown>>({ predictionEnabled: on(s.predictionEnabled) ? '1' : '0', TYPESAFE_API_KEY: s.TYPESAFE_API_KEY });
+  const provider = s.predictionProvider === 'typesafe-jev' ? 'typesafe-jev' : 'local';
+  const ready = provider === 'local' || stored;
+  const bl = useRef<Record<string, unknown>>({ predictionEnabled: on(s.predictionEnabled) ? '1' : '0', TYPESAFE_API_KEY: s.TYPESAFE_API_KEY, predictionProvider: s.predictionProvider });
   return (
     <Card title="Prediction model">
       <div className="form">
-        <p className="small muted">Adds a Prediction card to each instrument page. It predicts whether to enter long, short or not at all over the next 3 candles, and keeps every run. Advisory only: it never places a trade.</p>
-        <label><span><input type="checkbox" checked={stored && on(s.predictionEnabled)} disabled={busy || !stored} onChange={(e) => void run({ predictionEnabled: e.target.checked ? '1' : '0' }, undefined, bl)} /> Show predictions on instrument pages</span></label>
-        {!stored && <p className="small muted">Store a TypeSafe API key first.</p>}
+        <p className="small muted">Adds a Prediction card to each instrument page and keeps every run. Advisory only: it never places a trade.</p>
+        <label>Provider<select value={provider} disabled={busy} onChange={(e) => void run({ predictionProvider: e.target.value }, undefined, bl)}>
+          <option value="local">Local statistics (free, updates on each closed candle)</option>
+          <option value="typesafe-jev">TypeSafe Jev (paid, on request)</option>
+        </select></label>
+        <label><span><input type="checkbox" checked={ready && on(s.predictionEnabled)} disabled={busy || !ready} onChange={(e) => void run({ predictionEnabled: e.target.checked ? '1' : '0' }, undefined, bl)} /> Show predictions on instrument pages</span></label>
+        {!ready && <p className="small muted">Store a TypeSafe API key first.</p>}
         <label>TypeSafe API key {stored && <span className="muted small">(stored, leave blank to keep)</span>}
           <input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder={stored ? MASK : ''} /></label>
         <div><button type="button" disabled={busy || !key.trim()} onClick={() => void run({ TYPESAFE_API_KEY: key.trim() }, undefined, bl).then(() => setKey(''))}>Save key</button></div>

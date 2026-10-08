@@ -8,8 +8,19 @@ type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
   id: number; instrument: string; granularity: string; candleTime: string; forming: boolean; price: number; horizonBars: number; askedAt: string; expiresAt: string;
   action: Action; probabilities: Record<Action, number>; confidence: number | null;
-  quality: number; trendConfirmed: number; latencyMs: number; state: Record<string, string>;
+  quality: number | null; trendConfirmed: number | null; latencyMs: number; state: Record<string, string>;
+  provider?: string; detail?: LocalDetail | null;
 };
+// What the local provider stores beside the three bars (scripts/local-predict.mjs)
+type LocalDetail = {
+  move: { available: boolean; p?: number; base?: number; kxAtr?: number; text: string };
+  direction: { up: number; interval: [number, number] | null };
+  reasons: { code: string; text: string; untested?: boolean }[];
+  trend: { text: string };
+  news: { latest: { title: string; escalation: string; publishedAt: string } | null } | null;
+};
+const LOCAL = 'local';
+const NEWS_SHOWN_MS = 6 * 3600000;
 
 const MASK = '•••';
 const AUTO_KEY = 'predictionAutoUpdate:';
@@ -45,12 +56,16 @@ function notifyFlip(p: Prediction, was: Action) {
   n.onclick = () => { window.focus(); n.close(); };
 }
 
-// Shown only while a provider key is stored and predictions are on (the engine refuses otherwise).
-// Each run is one paid call and is stored, so the latest run comes back on reload. The answer never
-// reaches the bot, the filter or the engine alerts; only this tab notifies on a long/short flip. `liveCandleTime` is the newest candle of the page's live
-// feed; with auto-update ticked, a new candle there triggers one run.
+// Shown only while predictions are on (and, for TypeSafe Jev, its key is stored; the engine refuses otherwise).
+// Every run is stored, so the latest run comes back on reload. The answer never reaches the bot, the
+// filter or the engine alerts; only this tab notifies on a long/short flip. `liveCandleTime` is the newest
+// candle of the page's live feed. The local provider is free, so each new candle there fetches the run for
+// the candle that just closed, without a click. A Jev run is one paid call: "Predict now", or one run per
+// new candle with auto-update ticked.
 export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbol: string; granularity: string; liveCandleTime?: string }) {
   const [enabled, setEnabled] = useState(false);
+  const [provider, setProvider] = useState(LOCAL);
+  const local = provider === LOCAL;
   const [runs, setRuns] = useState<Prediction[]>([]);
   const [shownId, setShownId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,7 +73,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   // both carry the timeframe they belong to, so a render during a timeframe switch never acts on the old one's state
   const [autoState, setAutoState] = useState({ gran: '', on: false });
   const [loadedFor, setLoadedFor] = useState<string | null>(null);
-  const auto = autoState.gran === granularity && autoState.on;
+  const auto = local || (autoState.gran === granularity && autoState.on);
   const loaded = loadedFor === granularity;
   const [now, setNow] = useState(() => Date.now());
   const current = useRef(granularity);
@@ -77,8 +92,12 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
 
   useEffect(() => { setAutoState({ gran: granularity, on: loadAuto(symbol, granularity) }); }, [symbol, granularity]);
   useEffect(() => {
-    api<{ TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean }>('/engine/settings')
-      .then((s) => setEnabled(s.TYPESAFE_API_KEY === MASK && (s.predictionEnabled === '1' || s.predictionEnabled === true)))
+    api<{ TYPESAFE_API_KEY?: string; predictionEnabled?: string | boolean; predictionProvider?: string }>('/engine/settings')
+      .then((s) => {
+        const prov = s.predictionProvider === 'typesafe-jev' ? 'typesafe-jev' : LOCAL;
+        setProvider(prov);
+        setEnabled((prov === LOCAL || s.TYPESAFE_API_KEY === MASK) && (s.predictionEnabled === '1' || s.predictionEnabled === true));
+      })
       .catch(() => setEnabled(false));
   }, [symbol]);
 
@@ -106,7 +125,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
     const asked = granularity;
     setBusy(true); setErr(null);
     try {
-      const r = await api<{ prediction: Prediction }>('/engine/predict', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity: asked }) });
+      const r = await api<{ prediction: Prediction }>('/engine/predict', { method: 'POST', body: JSON.stringify({ instrument: symbol, granularity: asked, ...(local ? { reuse: true } : {}) }) });
       if (current.current !== asked) return;
       // a flip between long and short, judged against the last directional run, alerts while auto-update is on
       const prev = lastDir.current;
@@ -115,7 +134,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
       setRuns((rs) => [r.prediction, ...rs.filter((x) => x.id !== r.prediction.id)].slice(0, HISTORY)); setShownId(null); setNow(Date.now());
     } catch (e) { if (current.current === asked) setErr(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
-  }, [symbol, granularity]);
+  }, [symbol, granularity, local]);
 
   // auto-update: one run per new candle while ticked and the tab is visible; a candle that arrived while
   // hidden is picked up when the tab becomes visible again
@@ -138,20 +157,31 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const p = runs.find((r) => r.id === shownId) ?? runs[0];
   const isLatest = p && p.id === runs[0]?.id;
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
+  const d = p?.provider === LOCAL ? p.detail ?? null : null;
+  const iv = d?.direction.interval;
+  const news = d?.news?.latest && now - timeMs(d.news.latest.publishedAt) <= NEWS_SHOWN_MS ? d.news.latest : null;
 
   return (
-    <Card title="Prediction" aside={<button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
-      <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>
+    <Card title="Prediction" aside={local ? undefined : <button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
+      {local
+        ? <p className="small muted" style={{ margin: 0 }}>Updates on each closed {granularity} candle for {symbol}. Free, computed on this machine.</p>
+        : <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>}
       {err && <p className="msg err" role="alert">{err}</p>}
-      {!p && !err && <p className="small muted">Predicts whether to enter long, short or not at all on the current {granularity} candle, judged over the next 3 candles. Advisory only.</p>}
+      {!p && !err && <p className="small muted">{local ? `Waiting for the next closed ${granularity} candle.` : `Predicts whether to enter long, short or not at all on the current ${granularity} candle, judged over the next 3 candles.`} Advisory only.</p>}
       {p && (
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
             <strong style={{ fontSize: 22, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
-            <span className="muted small">{pct(p.probabilities[p.action])} · confidence {pct(p.confidence)}</span>
+            <span className="muted small">{pct(p.probabilities[p.action])} · {d ? <>long {pct(d.direction.up)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''}, no measurable direction edge</> : <>confidence {pct(p.confidence)}</>}</span>
             {expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>}
           </div>
+          {d && d.reasons.length > 0 && (
+            <ul className="small" style={{ margin: '6px 0', paddingLeft: 18 }}>
+              {d.reasons.map((r) => <li key={r.code}>{r.text}</li>)}
+            </ul>
+          )}
+          {d && <p className="small muted" style={{ margin: '4px 0' }}>Even when no reason fires, signals in this system still average about −0.1 R after costs. A clean check is not a buy recommendation.</p>}
           <div style={{ display: 'grid', gap: 4, margin: '10px 0' }}>
             {(['long', 'short', 'no_trade'] as Action[]).map((a) => (
               <div key={a} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 40px', alignItems: 'center', gap: 8 }} className="small">
@@ -163,18 +193,23 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               </div>
             ))}
           </div>
-          <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>
-          {/* a historic backtest found no directional edge beyond chance; keep this until a calibrated version shows one */}
-          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.</p>
+          {d
+            ? <p className="small" style={{ margin: '4px 0' }}>Move size next hours: {d.move.available ? <strong>{pct(d.move.p)}</strong> : 'n/a'}{d.move.available ? ` chance of a ${d.move.kxAtr} ATR move within 6h (usual ${pct(d.move.base)})` : ` (${d.move.text})`} · trend: {d.trend.text}</p>
+            : <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>}
+          {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {news.title.length > 90 ? `${news.title.slice(0, 89)}…` : news.title}</p>}
+          {/* research found no direction edge (local) and a historic backtest found Jev no better than chance; keep until a calibrated version shows one */}
+          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{d
+            ? 'No measurable direction edge: research found none on any instrument, so long and short show a fixed share near 50%. Move size and the no-trade reasons are research results that are not yet confirmed live. News never sets the side.'
+            : 'No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.'}</p>
           <p className="small muted" style={{ margin: '4px 0' }}>
-            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : ''} at {p.price} · over the next {p.horizonBars} candles · {age(p.askedAt, now)}
+            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : d ? ' (closed)' : ''} at {p.price} · {d ? 'over the next 6 hours' : `over the next ${p.horizonBars} candles`} · {age(p.askedAt, now)}
           </p>
           <details className="small">
             <summary className="muted">Inputs</summary>
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
               {Object.entries(p.state).filter(([k]) => k !== 'instrument').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            <span className="muted">{p.latencyMs} ms</span>
+            {!d && <span className="muted">{p.latencyMs} ms</span>}
           </details>
         </div>
       )}

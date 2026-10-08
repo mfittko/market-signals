@@ -573,7 +573,7 @@ func TestEngineProxyAllowlist(t *testing.T) {
 		`{"watchers":"WTICO/USD|M5"}`,
 		`{"provider":"openai","models":{"openai":"m"},"OPENAI_BASE_URL":"u","OPENAI_API_KEY":"k","ANTHROPIC_API_KEY":"k","maxCompletionTokens":100}`,
 		`{"PUSHOVER_ENABLED":"1","PUSHOVER_USER":"u","PUSHOVER_TOKEN":"t"}`,
-		`{"TYPESAFE_API_KEY":"k","predictionEnabled":"1"}`,
+		`{"TYPESAFE_API_KEY":"k","predictionEnabled":"1","predictionProvider":"local"}`,
 		`{"ind":"ema","freshBars":3,"impulseVolMult":2,"impulseVolWindow":20,"impulseCooldownBars":5,"filterMaxCompletionTokens":200,"keepFresh":"1","sentinelSourceFootnotes":"0","NEWSAPI_AI_MODE":"auto","GNEWS_MODE":"off"}`,
 	} {
 		if code := post(body); code != 200 {
