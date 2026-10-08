@@ -8,7 +8,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, leanFor, leanText, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -191,6 +191,8 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.deepEqual(base.detail.shield, pp.cells[0].shield, 'the run stores the per-side state of the default cell');
   assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
   assert.equal(base.state.long_state, shieldText(base.detail.shield.long));
+  assert.deepEqual(base.detail.lean, pp.cells[0].lean, 'the run stores the lean of the default cell');
+  assert.ok(pp.cells.every((c) => c.lean === null || (typeof c.lean.gapPp === 'number' && typeof c.lean.greyed === 'boolean' && ['long', 'short'].includes(c.lean.side))));
   assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
   assert.ok(pp.long.expectedR < 0.05 && pp.short.expectedR < 0.05);
   assert.deepEqual([base.action, base.detail.headline], ['no_trade', 'Neutral']);
@@ -376,6 +378,29 @@ test('shieldState: each side from its own decile, a reason makes both red, no-ar
   assert.deepEqual([none.long.state, none.short.state, shieldText(none.long)], ['grey', 'grey', 'Normal · no calibrated estimate · avg R n/a']);
   const thin = noTradeReasons({ instrument: 'WTICO/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) });
   assert.deepEqual([st(null, thin).long.state, st(null, thin).short.state, st(null, thin).long.why], ['red', 'red', 'thin trading hour (04:00 UTC)']);
+});
+
+test('leanFor: gap 0 hides, a small gap or a cell without a grey rule greys, the label is the A1 one', () => {
+  const rec = JSON.parse(readFileSync(new URL('../config/prediction-models/lean_track_record.json', import.meta.url), 'utf8')).cells;
+  const cell = (horizon, target, pl, ps) => ({ horizon, target, long: { p: pl }, short: { p: ps } });
+  const lean = (inst, gran, c) => leanFor({ instrument: inst, granularity: gran, cell: c });
+  // WTI M5 H12 up: the cell greys below 5 pp
+  assert.equal(lean('WTICO/USD', 'M5', cell(12, 'up', 0.45, 0.45)), null, 'gap 0: no lean');
+  const small = lean('WTICO/USD', 'M5', cell(12, 'up', 0.47, 0.45));
+  assert.deepEqual([small.side, small.greyed, Math.round(small.gapPp)], ['long', true, 2]);
+  assert.equal(small.label, rec.WTICO_USD_M5_H12_up.amendment_A1.label);
+  assert.notEqual(small.label, rec.WTICO_USD_M5_H12_up.label, 'not the registered label');
+  assert.equal(leanText(small), `Lean: LONG (47% vs 45%) · ${rec.WTICO_USD_M5_H12_up.amendment_A1.label}`);
+  assert.equal(lean('WTICO/USD', 'M5', cell(12, 'up', 0.42, 0.46)).greyed, true, '4 pp is still below this cell\'s 5 pp');
+  assert.deepEqual([lean('WTICO/USD', 'M5', cell(12, 'up', 0.40, 0.46)).side, lean('WTICO/USD', 'M5', cell(12, 'up', 0.40, 0.46)).greyed], ['short', false]);
+  // EUR/USD M5 H12 up greys below 1 pp in research; the card still greys below 3 pp
+  assert.equal(lean('EUR/USD', 'M5', cell(12, 'up', 0.48, 0.46)).greyed, true);
+  assert.equal(lean('EUR/USD', 'M5', cell(12, 'up', 0.50, 0.46)).greyed, false);
+  // no grey rule for the cell: always greyed
+  assert.equal(rec.WTICO_USD_M5_H48_plan.amendment_A1.grey_below_gap_pp, null);
+  assert.equal(lean('WTICO/USD', 'M5', cell(48, 'plan', 0.30, 0.10)).greyed, true);
+  // a cell missing from the track record: no lean
+  assert.equal(lean('BCO/USD', 'M5', cell(12, 'up', 0.5, 0.4)), null);
 });
 
 // ---- per-candle series for the chart tooltip

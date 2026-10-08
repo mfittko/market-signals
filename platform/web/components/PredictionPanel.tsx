@@ -16,7 +16,9 @@ type Prediction = {
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
 type SidePart = { p: number; expectedR: number | null; decile: number };
 // one shipped horizon x target cell; runs stored before cells existed have none
-type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null; shield?: Shield };
+type Cell = { key: string; horizon: number; target: 'up' | 'plan'; long: SidePart; short: SidePart; headline: string; headlineAction: Action; headlineReason: string | null; shield?: Shield; lean?: Lean | null };
+// the side with the higher P and its lean22 track record (scripts/local-predict.mjs leanFor); Details only
+type Lean = { side: 'long' | 'short'; gapPp: number; greyed: boolean; label: string; pLean: number; pOther: number };
 type LocalDetail = {
   shield?: Shield;
   bigDay?: BigDayPart;
@@ -254,7 +256,6 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
             </p>
           )}
-          {/* TODO(lean): add a "Lean" line here from data/research/engine/audit/lean22/out/lean_track_record.json once that track record exists */}
           {cells.length > 0 && (
             <label className="small" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
               <span className="muted">Over</span>
@@ -271,6 +272,8 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           <details className="small">
             <summary className="muted">Details</summary>
             {shield && <p style={{ margin: '6px 0' }}>Trade: {head!.label}{head!.reason ? ` · ${head!.reason}` : ''}</p>}
+            {/* the lean never appears in the headline or the state lines; a small gap or a cell without a grey rule shows greyed */}
+            {cell?.lean && <p className={cell.lean.greyed ? 'muted' : undefined} style={{ margin: '4px 0', opacity: cell.lean.greyed ? 0.7 : 1 }} title={cell.lean.greyed ? `gap ${cell.lean.gapPp.toFixed(1)} pp: too small to read` : undefined}>Lean: {cell.lean.side.toUpperCase()} ({pct(cell.lean.pLean)} vs {pct(cell.lean.pOther)}) · {cell.lean.label}</p>}
             {side?.long && side.short && <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={side.long} tone={TONE.long} note={note} /><ProfitBar name="Short" s={side.short} tone={TONE.short} note={note} />
               {!SIDE_DIFF_CALIBRATED.has(p.instrument) && <span className="muted">{SIDE_DIFF_NOTE}</span>}</div>}
             <p className="muted" style={{ margin: '6px 0' }}>{note}</p>

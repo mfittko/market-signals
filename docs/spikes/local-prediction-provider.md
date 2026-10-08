@@ -123,7 +123,11 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - Every run stores both side states with decile, avg R and code, per cell (`detail.pprofit.cells[].shield`) and for the default cell (`detail.shield`, plus `long_state` and `short_state` in the inputs). The series route recomputes the state from the stored deciles, so runs from before this change get it too.
    - Card: two lines replace the headline, "Long ● <State> · <why> · avg <R> R" and the same for Short, with dots coloured by the CSS tokens `--bad`, `--warn`, `--muted` and `--good`. When a reason fires it is shown once above both lines, and both lines read "Don't trade now" without repeating it.
    - Details now opens with the strict rule result ("Trade: Neutral · no side clears costs", still computed and stored), then the Long/Short bars and the side-difference note.
-   - A TODO in `PredictionPanel.tsx` marks where a "Lean" line goes once `data/research/engine/audit/lean22/out/lean_track_record.json` exists.
+   - Lean (Details only, never in the headline or the state lines). `config/prediction-models/lean_track_record.json` is an unchanged copy of the lean22 track record, keyed `<INST>_<TF>_H<H>_<target>`. `leanFor` in `scripts/local-predict.mjs` picks the side with the higher P of the chosen cell:
+     - gap 0 (equal P, common on isotonic M1): no lean line
+     - greyed when the gap is below 3 pp, below the cell's own `amendment_A1.grey_below_gap_pp` when that is higher (5 pp for WTI M5 H12 up and XAU M5 plan cells), or always when that value is null
+     - text: "Lean: LONG (47% vs 45%) · <amendment_A1.label>", e.g. "right 51% of the time (50-51%) when the two sides end differently; both sides end the same 1% of the time, 2023+"
+     - every run stores side, gap in pp, greyed flag and label per cell (`pprofit.cells[].lean`) and for the default cell (`detail.lean`)
    - Tooltip: "Long ● <State> (avg R) · Short ● <State> (avg R)", the reason when one fires, then the long/short P and spread, muted.
 7. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
@@ -197,14 +201,16 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - "Good moment" is relative, not profitable: the top deciles of this cell still average −0.13 R (long) and −0.15 R (short). The avg R stays on every line for that reason.
   - Deciles 9 and 10 are common on WTI M5 now (the live spread is low against the 2019 to 2022 research population), so green shows on about a third of the candles.
   - Screenshots (seventh round; same review setup):
-    - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (14:35: Long ● Good moment · top 20% of conditions for WTI M5 · avg −0.13 R; Short ● Good moment · avg −0.15 R)
-    - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details: "Trade: Neutral · no side clears costs", the bars, the side-difference note)
+    - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (14:40: Long ● Normal · usual conditions for WTI M5 · avg −0.13 R; Short ● Good moment · top 20% of conditions for WTI M5 · avg −0.15 R)
+    - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details: "Trade: Neutral · no side clears costs", the greyed line "Lean: LONG (47% vs 47%) · right 51% of the time …", the bars, the side-difference note)
     - `docs/spikes/local-prediction-provider/shield-tooltip-Donttradenow-Donttradenow-desktop.png` (08:45: both sides red, "Spread wide (0.21 of stop)")
     - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Goodmoment-desktop.png` and `shield-tooltip-Normal-Goodmoment-mobile.png` (sides differ: Long Normal, Short Good moment)
     - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Normal-mobile.png` (14:00: both grey)
+- **The lean and the state can point different ways.** At 14:40 the lean was LONG (P 47% vs 47%, greyed), while Short was the greener side (decile 9 against long decile 8), because each side has its own decile edges. The lean is always greyed or hidden on most cells: the A1 decisive hit rates are 50% to 53%.
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 23 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 24 tests pass. They cover:
+    - the lean: gap 0 hides, gaps below 3 pp (or the cell's higher threshold) grey, cells without a grey rule always grey, the label is the A1 one, and the run stores it
     - the shield rule table: decile boundaries 1 to 10, sides with different states, reason precedence on both sides, the no-artifact fallback, avg R n/a; the run stores both side states and deciles; the series route returns the stored state
     - the series: `localSeries` equals `localPredict` per candle; forming and unclosed candles excluded; cache hit without a bid/ask read; from/to window; in-sample flag; the route with a stored live run, computed and cached entries, 400 on bad input and 409 while predictions are off
     - big-day parity, and P(profit) parity for four A4 cells (M1, M5, M15; up and plan)
@@ -220,7 +226,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 809 tests pass, plus the console typecheck.
+  - `npm run verify`: 810 tests pass, plus the console typecheck.
   - `go test ./...` in `platform`: pass, including the allow-list test for `GET /predictions/series` (forwarded) and `POST /predictions/series` (refused).
 
 ## Recommendation

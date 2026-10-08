@@ -197,7 +197,7 @@ function scoreCell([horizon, target, model], f, reasons, instrument, granularity
   const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
   const c = { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
   const h = headline({ available: true, ...c }, reasons);
-  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }) };
+  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }), lean: leanFor({ instrument, granularity, cell: c }) };
 }
 
 // P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
@@ -276,6 +276,31 @@ export function shieldState({ instrument, granularity, cell = null, reasons = []
   };
   return { reason, long: sideState(cell?.long), short: sideState(cell?.short) };
 }
+// Lean: the side with the higher P for a cell, with its track record from lean22
+// (config/prediction-models/lean_track_record.json, keyed <INST>_<TF>_H<H>_<target>). Details only,
+// never in the headline or the shield lines. Gap 0 (equal P, common on isotonic M1): no lean.
+// Greyed when the gap is below LEAN_GREY_PP, below the cell's own amendment_A1.grey_below_gap_pp
+// when that is higher, or always when the cell has none. The label is the A1 one (decisive hit rate, tie share).
+export const LEAN_GREY_PP = 3;
+let leanRecord;
+const leanCells = () => {
+  if (leanRecord === undefined) {
+    try { leanRecord = JSON.parse(readFileSync(new URL('../config/prediction-models/lean_track_record.json', import.meta.url), 'utf8')).cells; } catch { leanRecord = null; }
+  }
+  return leanRecord;
+};
+export function leanFor({ instrument, granularity, cell }) {
+  const rec = leanCells()?.[`${instrument.replace('/', '_')}_${granularity}_H${cell.horizon}_${cell.target}`]?.amendment_A1;
+  const gap = Math.abs(cell.long.p - cell.short.p) * 100;
+  if (!rec || gap < 1e-9) return null;
+  const side = cell.long.p >= cell.short.p ? 'long' : 'short';
+  const greyBelow = rec.grey_below_gap_pp;
+  const greyed = greyBelow == null || gap < Math.max(LEAN_GREY_PP, greyBelow);
+  return { side, gapPp: gap, greyed, label: rec.label, pLean: cell[side].p, pOther: cell[side === 'long' ? 'short' : 'long'].p };
+}
+// "Lean: LONG (47% vs 45%) · right 51% of the time …"
+export const leanText = (l) => `Lean: ${l.side.toUpperCase()} (${pct(l.pLean)} vs ${pct(l.pOther)}) · ${l.label}`;
+
 // "Don't trade now · spread wide (0.27 of stop) · avg −0.91 R"
 export const shieldText = (st) => [st.label, st.why, st.avgR == null ? 'avg R n/a' : `avg ${st.avgR >= 0 ? '+' : '−'}${Math.abs(st.avgR).toFixed(2)} R`].filter(Boolean).join(' · ');
 
@@ -349,7 +374,8 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
       // shield: per-side state of the default cell (each cell carries its own in pprofit.cells); headline: the strict trade rule
-      shield, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
+      // lean: side with the higher P of the default cell, its gap and greyed flag (Details only)
+      shield, lean: pp.available ? pp.cells[0].lean : null, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
       reasons, trend, spreadR,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
