@@ -11,17 +11,34 @@ type Prediction = {
   quality: number | null; trendConfirmed: number | null; latencyMs: number; state: Record<string, string>;
   provider?: string; detail?: LocalDetail | null;
 };
-// What the local provider stores beside the three bars (scripts/local-predict.mjs)
+// What the local provider stores in `detail` (scripts/local-predict.mjs)
 type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
+type SidePart = { p: number; expectedR: number; decile: number };
 type LocalDetail = {
   bigDay?: BigDayPart;
-  direction: { up: number; interval: [number, number] | null };
+  pprofit?: { available: boolean; text?: string; long?: SidePart; short?: SidePart };
+  headline?: string; headlineReason?: string | null;
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
-const DIRECTION_NOTE = 'Research found no measurable direction edge on any instrument (direction AUC 0.53 or less), so long and short show the measured up share of the next 6 hours, near 50%.';
+const PLAN_NOTE = 'Fixed plan: stop 1.5 ATR, breakeven at +1R, target 3R, out after 6 h. Mostly reflects spread and hour. Not an edge.';
+const signedR = (r: number) => `${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`;
+// "Long now: [bar] 24% chance of profit (avg −0.09 R)"
+function ProfitBar({ name, s, tone }: { name: string; s: SidePart; tone: string }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '78px 1fr', alignItems: 'center', gap: 8 }} className="small" title={PLAN_NOTE}>
+      <span>{name} now</span>
+      <span style={{ display: 'grid', gap: 2 }}>
+        <span style={{ height: 8, borderRadius: 4, background: 'var(--neutral-bg)', overflow: 'hidden' }} role="meter" aria-label={`${name} chance of profit`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(s.p * 100)}>
+          <span style={{ display: 'block', height: '100%', width: pct(s.p), background: tone }} />
+        </span>
+        <span>{pct(s.p)} chance of profit (avg {signedR(s.expectedR)})</span>
+      </span>
+    </div>
+  );
+}
 // "26% for ≥ 5.4% (usual 5%) · 2.8% so far"; a session past the threshold is a fact, not a chance
 function BigDay({ b }: { b?: BigDayPart }) {
   if (!b?.available || b.thresholdPct == null) return <>n/a ({b?.text ?? 'not computed'})</>;
@@ -178,7 +195,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const isLatest = p && p.id === runs[0]?.id;
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
   const d = p?.provider === LOCAL ? p.detail ?? null : null;
-  const iv = d?.direction.interval;
+  const pp = d?.pprofit;
   const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
   const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
@@ -193,22 +210,26 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <p style={{ margin: '4px 0' }}>
-            <strong style={{ fontSize: 18, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
-            <span className="muted small"> · <abbr title={DIRECTION_NOTE} style={{ cursor: 'help' }}>no direction edge</abbr> ({pct(d.direction.up)}/{pct(1 - d.direction.up)})</span>
+            <strong style={{ fontSize: 18, color: TONE[p.action] }}>{d.headline ?? LABEL[p.action]}</strong>
+            {d.headlineReason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {d.headlineReason}</span>}
           </p>
+          {pp?.available && pp.long && pp.short
+            ? <div style={{ display: 'grid', gap: 6, margin: '8px 0' }}><ProfitBar name="Long" s={pp.long} tone={TONE.long} /><ProfitBar name="Short" s={pp.short} tone={TONE.short} /></div>
+            : d.headlineReason !== (pp?.text ?? 'no calibrated estimate') && <p className="small muted" style={{ margin: '4px 0' }}>Long/short: {pp?.text ?? 'no calibrated estimate'}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
-          {d.reasons.map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
+          {d.reasons.slice(d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
           <details className="small">
             <summary className="muted">Details</summary>
-            <p style={{ margin: '6px 0' }}>Long {pct(p.probabilities.long)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''} · Short {pct(p.probabilities.short)} · No trade {pct(p.probabilities.no_trade)}</p>
+            <p className="muted" style={{ margin: '6px 0' }}>{PLAN_NOTE}</p>
+            {pp?.available && pp.long && pp.short && <p style={{ margin: '4px 0' }}>Long: P {pct(pp.long.p)}, avg {signedR(pp.long.expectedR)} (decile {pp.long.decile} of 10) · Short: P {pct(pp.short.p)}, avg {signedR(pp.short.expectedR)} (decile {pp.short.decile} of 10). A side is named only at +0.05 R or more with its interval above 0.</p>}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
               {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · direction over the next 6 hours, big day over the session · {age(p.askedAt, now)}</p>
+            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · trade plan up to 72 candles, big day over the session · {age(p.askedAt, now)}</p>
           </details>
         </div>
       )}
@@ -255,7 +276,9 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               <tr key={r.id} aria-selected={r.id === p?.id} style={r.id === p?.id ? { background: 'var(--neutral-bg)' } : undefined}>
                 <td className="num"><button className="linkish" onClick={() => setShownId(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
                 <td className="num">{hm(r.candleTime)}</td>
-                <td style={{ color: TONE[r.action] }}>{LABEL[r.action]} {pct(r.probabilities[r.action])}{expired(r) && <span className="muted"> · expired</span>}</td>
+                <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
+                  ? <>{r.detail?.headline ?? LABEL[r.action]}{r.detail?.pprofit?.available ? ` · L ${pct(r.probabilities.long)} / S ${pct(r.probabilities.short)}` : ''}</>
+                  : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
                 <td className="num">{r.price}</td>
               </tr>
             ))}</tbody>

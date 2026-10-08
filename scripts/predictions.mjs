@@ -3,7 +3,8 @@
 // Advisory only: nothing here is read by the bot, the filter or the notifier.
 import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
 import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
-import { fetchBidAsk, localPredict, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
+import { localPredict, LOCAL_PROVIDER, newsInput } from './local-predict.mjs';
+import { baWindow, ppModel, PP_WINDOW_BARS } from './pprofit.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +96,8 @@ async function freshPrediction(dbPath, settings, { instrument, granularity, load
   const input = { instrument, granularity, candles };
   if (predictionProvider(settings) === LOCAL_PROVIDER) {
     input.m30 = loadM30 ? await loadM30() : (granularity === 'M30' ? candles : []);
-    input.bidAsk = await fetchBidAsk(instrument, granularity, { fetchFn: opts.fetchFn });
+    // bid/ask bars of the viewed timeframe: a long window where a P(profit) artifact exists, else the spread only
+    input.ba = await baWindow(instrument, granularity, ppModel(instrument, granularity) ? PP_WINDOW_BARS : 3, { fetchFn: opts.fetchFn }).catch(() => []);
   }
   return { reused: false, ...(await runPrediction(dbPath, settings, input, { now, ...opts })) };
 }
@@ -139,10 +141,10 @@ export function predictionForTool(p) {
   if (p.provider === LOCAL_PROVIDER) {
     const d = p.detail ?? {};
     return {
-      advisory: 'Advisory statistics only. There is no measurable direction edge; the long/short split is a constant near 50/50. It never places or changes a trade; confirm with price action before any entry.',
+      advisory: 'Advisory statistics only. probabilities.long/short are calibrated P(profit) of a fixed trade plan (stop 1.5 ATR, breakeven at +1R, target 3R, out after 72 bars) after costs; they mostly reflect spread and hour and are not an edge. It never places or changes a trade; confirm with price action before any entry.',
       provider: p.provider, instrument: p.instrument, granularity: p.granularity, action: p.action, probabilities: p.probabilities,
-      directionInterval: d.direction?.interval ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
-      trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: 'next 6 hours (72 M5 bars)',
+      headline: d.headline ?? null, headlineReason: d.headlineReason ?? null, pProfit: d.pprofit ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
+      trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: 'fixed plan, out after 72 bars at the latest',
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };
   }

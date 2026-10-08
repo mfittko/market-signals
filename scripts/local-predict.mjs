@@ -9,22 +9,26 @@
 //    on 30-min mid bars); test/fixtures holds a bars -> features -> probability
 //    parity export. abs11 A1 failed its preregistered operating rule, so this is
 //    a display-only research preview.
-// 2. Direction: a constant with an interval. Research found no direction edge
-//    (direction AUC <= 0.53 on every instrument), so the estimate is the
-//    measured 2023+ up share of the eventual 6h direction. There is no model.
+// 2. P(profit) for a long and a short entered now under a fixed trade plan,
+//    with the expected R of its P decile (pprofit20, scripts/pprofit.mjs), on
+//    the pairs whose calibration passed. It mostly reflects spread and hour.
 // 3. No-trade reasons: only rules a no-trade study measured as helpful
 //    (wide spread, thin trading hour).
 // 4. Trend: supertrend side and H1 agreement, a description, not a prediction.
 // News is shown and stored for later study, but never sets the side, a
-// reason or the big-day number.
+// reason or a number.
 import { readFileSync } from 'node:fs';
 import { computeSupertrend, granularityMs } from './supertrend.mjs';
 import { htfSupertrend } from './indicators.mjs';
+import { ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
-export const LOCAL_MODEL = 'local-stats-v1 (big day abs11 A1_nostress; direction constant)';
-// The direction estimate looks 72 M5 bars (6 hours) ahead.
+export const LOCAL_MODEL = 'local-stats-v2 (big day abs11 A1_nostress; P(profit) pprofit20)';
+// The P(profit) trade plan ends after 72 bars at the latest.
 export const LOCAL_HORIZON_BARS = 72;
+// Operator-approved headline rule: a side is named only when its expected R is at
+// least +0.05 R and its interval lies above 0; otherwise the headline is Neutral.
+export const MIN_EXPECTED_R = 0.05;
 // 30-min bars the big-day features need: 60 valid sessions for the slot norm plus margin.
 export const A1_WINDOW_BARS = 3600;
 const A1_STEP_MIN = 30;
@@ -32,25 +36,9 @@ const NORM_N = 60;
 const NORM_MIN = 20;
 const MIN_SESSION_BARS = 8;
 const EPS = 1e-4;
-// A side clears the margin only when its share is at least 0.5 + MARGIN and its
-// interval lies wholly above one half. Declared before any live run.
-export const DIRECTION_MARGIN = 0.05;
 export const SPREAD_MAX_R = 0.2; // spread / (1.5 ATR) at the bar
 const STOP_ATR = 1.5;
 export const NEWS_WINDOW_MS = 6 * 3600000;
-
-// 2023-01-01 to 2026-10 up share of the eventual 6h direction (rule: the larger
-// of the up and down excursions over the next 72 M5 bars), 30-minute cadence.
-// The interval is a 95% Wilson interval on n/12, because rows 30 minutes apart
-// share most of their 6h window. Source: data/research/localpred/up_share.py.
-export const DIRECTION_ESTIMATE = {
-  'WTICO/USD': { up: 0.4994, lo: 0.483, hi: 0.516, n: 44447 },
-  'XAU/USD': { up: 0.5151, lo: 0.499, hi: 0.531, n: 44524 },
-  'XAG/USD': { up: 0.4979, lo: 0.482, hi: 0.514, n: 44497 },
-  'NATGAS/USD': { up: 0.4993, lo: 0.482, hi: 0.516, n: 40406 },
-  'SPX500/USD': { up: 0.5113, lo: 0.495, hi: 0.527, n: 44392 },
-  'EUR/USD': { up: 0.5031, lo: 0.487, hi: 0.519, n: 46880 },
-};
 
 // UTC hours whose median M5 spread/ATR was highest in 2018-2022 (no-trade study, 4 hours each).
 export const THIN_HOURS_UTC = {
@@ -130,24 +118,6 @@ export function score(model, x) {
   return { z, p: 1 / (1 + Math.exp(-z)) };
 }
 
-// Bid/ask close of the newest complete bars, from the same public feed as the
-// chart. Returns a Map time -> { bid, ask }, or null on any failure.
-export async function fetchBidAsk(instrument, granularity, { fetchFn = fetch } = {}) {
-  try {
-    const url = new URL('https://p.fxempire.com/oanda/candles/latest');
-    for (const [k, v] of Object.entries({ instrument, granularity, count: '3', price: 'BA', alignmentTimezone: 'UTC' })) url.searchParams.set(k, v);
-    const res = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return null;
-    const rows = (await res.json())?.candles ?? [];
-    const out = new Map();
-    for (const r of rows) {
-      const bid = Number(r?.bid?.c); const ask = Number(r?.ask?.c);
-      if (r?.complete && Number.isFinite(bid) && Number.isFinite(ask)) out.set(Date.parse(r.time), { bid, ask });
-    }
-    return out;
-  } catch { return null; }
-}
-
 // Headline keywords per instrument. The news store has no relevance tagging and its
 // per-instrument feeds carry off-topic items, so a headline counts only when it names one of these.
 // ponytail: fixed keyword lists; replace with store-side tagging if the feeds get one.
@@ -217,10 +187,36 @@ function bigDay(instrument, m30, now) {
   return { ...base, available: true, reached: false, p, z, x: f.x, text: `${pct(p)} for a move of ${T1.toFixed(1)}% or more today (usual ${pct(model.training_base_rate)}; ${f.exc.toFixed(1)}% so far)` };
 }
 
+// P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`.
+function pprofit(instrument, granularity, ba, lastMs) {
+  const model = ppModel(instrument, granularity);
+  if (!model) return { available: false, text: 'no calibrated estimate' };
+  const i = ba.findIndex((b) => Date.parse(b.time) === lastMs);
+  if (i < 0) return { available: false, text: 'no current bid/ask data' };
+  const f = ppFeatures(ppSeries(ba.slice(0, i + 1), granularity), i);
+  if (!f) return { available: false, text: 'not enough bid/ask history' };
+  const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
+  return { available: true, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
+}
+
+// The operator-approved headline rule (strict): a side only when its expected R is at least
+// +0.05 R and its interval lies above 0, and no measured reason fires. The artifacts carry
+// no interval for the lookup, so no side can clear until one is added.
+export function headline(pp, reasons) {
+  const clears = (s) => s && s.expectedR >= MIN_EXPECTED_R && Array.isArray(s.ci) && s.ci[0] > 0;
+  const sides = pp.available ? [['long', pp.long], ['short', pp.short]].filter(([, s]) => clears(s)).sort((a, b) => b[1].expectedR - a[1].expectedR) : [];
+  if (reasons.length) return { label: 'Neutral', action: 'no_trade', reason: reasons[0].text };
+  if (!sides.length) return { label: 'Neutral', action: 'no_trade', reason: pp.available ? 'no side clears costs' : pp.text };
+  return { label: sides[0][0] === 'long' ? 'Long' : 'Short', action: sides[0][0], reason: null };
+}
+
+const avgR = (s) => `${pct(s.p)} chance of profit (avg ${s.expectedR >= 0 ? '+' : ''}${s.expectedR.toFixed(2)} R)`;
+
 // One local run for the newest CLOSED candle of the viewed timeframe.
 // `candles` are the viewed timeframe (a forming bar is dropped), `m30` the 30-min
-// window for the big-day model, `bidAsk` the fetchBidAsk map, `news` newsInput.
-export function localPredict({ instrument, granularity, candles, m30 = [], bidAsk = null, news = null }, { now = Date.now() } = {}) {
+// window for the big-day model, `ba` closed bid/ask bars of the viewed timeframe
+// (P(profit) and the spread reason), `news` newsInput.
+export function localPredict({ instrument, granularity, candles, m30 = [], ba = [], news = null }, { now = Date.now() } = {}) {
   const bars = candles.filter((c) => c.partial !== true && c.complete !== false).map(({ partial, complete, ...c }) => c);
   if (bars.length < 12) throw new Error('not enough candle history for a prediction');
   const gMs = granularityMs(granularity);
@@ -237,25 +233,21 @@ export function localPredict({ instrument, granularity, candles, m30 = [], bidAs
   // 1. big-day chance (30-min, side-free)
   const big = bigDay(instrument, m30, now);
 
-  // 2. direction (constant with interval)
-  const d = DIRECTION_ESTIMATE[instrument];
-  const up = d?.up ?? 0.5;
-  const interval = d ? [d.lo, d.hi] : null;
-  const clears = (s, lo) => s >= 0.5 + DIRECTION_MARGIN && lo > 0.5;
-  const lean = d && clears(d.up, d.lo) ? 'long' : d && clears(1 - d.up, 1 - d.hi) ? 'short' : null;
+  // 2. P(profit) per side (bid/ask bars of the viewed timeframe)
+  const pp = pprofit(instrument, granularity, ba, lastMs);
 
-  // 3. reasons
-  const ba = bidAsk?.get(lastMs);
+  // 3. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
+  const bar = ba.find((b) => Date.parse(b.time) === lastMs);
   const atr = st.at(-1).atr;
-  const spreadR = ba && atr > 0 ? (ba.ask - ba.bid) / (STOP_ATR * atr) : null;
+  const spreadR = bar && atr > 0 ? (bar.ask_c - bar.bid_c) / (STOP_ATR * atr) : null;
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
-  const action = reasons.length || !lean ? 'no_trade' : lean;
-  // no_trade share: 1 when a reason fires, else the part of the margin the stronger side has not cleared
-  const noTrade = reasons.length ? 1 : Math.max(0, 1 - Math.abs(up - 0.5) / DIRECTION_MARGIN);
+  const head = headline(pp, reasons);
+  const action = head.action;
   const state = {
     big_day_today: big.text,
-    direction: d ? `long ${pct(up)} (${pct(d.lo)}-${pct(d.hi)}), no measurable direction edge` : 'not measured for this instrument, shown as 50/50',
+    long_now: pp.available ? avgR(pp.long) : pp.text,
+    short_now: pp.available ? avgR(pp.short) : pp.text,
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
@@ -270,10 +262,11 @@ export function localPredict({ instrument, granularity, candles, m30 = [], bidAs
   return {
     instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: LOCAL_HORIZON_BARS,
     askedAt: new Date(now).toISOString(), model: LOCAL_MODEL, action,
-    probabilities: { long: up, short: Number((1 - up).toFixed(4)), no_trade: Number(noTrade.toFixed(4)) },
+    // long/short: P(profit) of each side (null without an artifact); no_trade: 1 for a Neutral headline
+    probabilities: { long: pp.available ? pp.long.p : null, short: pp.available ? pp.short.p : null, no_trade: action === 'no_trade' ? 1 : 0 },
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
-      bigDay: big, direction: { up, interval, margin: DIRECTION_MARGIN, lean, note: 'no measurable direction edge', source: d ? '2023+ up share, Wilson 95% on n/12' : 'not measured' },
+      bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
       reasons, trend, spreadR,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
