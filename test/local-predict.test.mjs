@@ -8,7 +8,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, leanFor, leanText, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, cutoffMs, shieldState, shieldText, SHIELD_LABEL, SHARED_NOTE, SIDE_DIFF_CALIBRATED, leanFor, leanText, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -190,7 +190,8 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.deepEqual([pp.key, pp.long, pp.short, base.horizonBars], ['H12_up', pp.cells[0].long, pp.cells[0].short, 12]);
   assert.deepEqual(base.detail.shield, pp.cells[0].shield, 'the run stores the per-side state of the default cell');
   assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
-  assert.equal(base.state.long_state, shieldText(base.detail.shield.long));
+  assert.equal(base.state.state_both_sides, `${shieldText(base.detail.shield.both)} (${SHARED_NOTE})`, 'WTI: one shared state');
+  assert.equal(base.state.long_state, undefined);
   assert.deepEqual(base.detail.lean, pp.cells[0].lean, 'the run stores the lean of the default cell');
   assert.ok(pp.cells.every((c) => c.lean === null || (typeof c.lean.gapPp === 'number' && typeof c.lean.greyed === 'boolean' && ['long', 'short'].includes(c.lean.side))));
   assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
@@ -352,32 +353,58 @@ test('a predictions table from before the detail column is migrated in place', (
 });
 
 // ---- shield states
-test('shieldState: each side from its own decile, a reason makes both red, no-artifact fallback', () => {
+test('shieldState, EUR/USD (side difference calibrated): each side from its own decile, a reason makes both red, no-artifact fallback', () => {
   const cell = (dl, ds, rl = -0.1, rs = -0.2) => ({ long: { p: 0.3, decile: dl, expectedR: rl }, short: { p: 0.2, decile: ds, expectedR: rs } });
-  const st = (c, reasons = []) => shieldState({ instrument: 'WTICO/USD', granularity: 'M5', cell: c, reasons });
+  const st = (c, reasons = []) => shieldState({ instrument: 'EUR/USD', granularity: 'M5', cell: c, reasons });
   // decile boundaries, same for both sides
   const want = ['red', 'red', 'orange', 'orange', 'grey', 'grey', 'grey', 'grey', 'grey', 'green', 'green'];
   for (let d = 1; d <= 10; d++) {
     const s = st(cell(d, d));
-    assert.deepEqual([s.long.state, s.short.state, s.long.decile], [want[d], want[d], d], `decile ${d}`);
+    assert.deepEqual([s.shared, s.long.state, s.short.state, s.long.decile, s.both], [false, want[d], want[d], d, undefined], `decile ${d}`);
   }
   // sides differ: each reads its own decile and avg R
   const mixed = st(cell(10, 1, -0.02, -0.91));
-  assert.equal(shieldText(mixed.long), 'Good moment · top 10% of conditions for WTI M5 · avg −0.02 R');
-  assert.equal(shieldText(mixed.short), "Don't trade now · bottom 10% of conditions for WTI M5 · avg −0.91 R");
+  assert.equal(shieldText(mixed.long), 'Low-cost moment · top 10% of conditions for EUR/USD M5 · avg −0.02 R');
+  assert.equal(shieldText(mixed.short), "Don't trade now · bottom 10% of conditions for EUR/USD M5 · avg −0.91 R");
   assert.equal(mixed.reason, null);
-  assert.deepEqual([st(cell(9, 2)).long.why, st(cell(9, 2)).short.why], ['top 20% of conditions for WTI M5', 'bottom 20% of conditions for WTI M5']);
-  assert.equal(shieldText(st(cell(5, 5, null)).long), 'Normal · usual conditions for WTI M5 · avg R n/a');
+  assert.deepEqual([st(cell(9, 2)).long.why, st(cell(9, 2)).short.why], ['top 20% of conditions for EUR/USD M5', 'bottom 20% of conditions for EUR/USD M5']);
+  assert.equal(shieldText(st(cell(5, 5, null)).long), 'Normal · usual conditions for EUR/USD M5 · avg R n/a');
   // a measured reason comes first and applies to both sides, even at decile 10
-  const spread = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
+  const spread = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
   const r = st(cell(10, 10), spread);
   assert.deepEqual([r.long.state, r.short.state, r.reason], ['red', 'red', { code: 'spread', why: 'spread wide (0.27 of stop)' }]);
   assert.equal(shieldText(r.short), "Don't trade now · spread wide (0.27 of stop) · avg −0.20 R");
   // no calibrated estimate: reasons only
   const none = st(null);
   assert.deepEqual([none.long.state, none.short.state, shieldText(none.long)], ['grey', 'grey', 'Normal · no calibrated estimate · avg R n/a']);
-  const thin = noTradeReasons({ instrument: 'WTICO/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) });
+  const thin = noTradeReasons({ instrument: 'EUR/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) });
   assert.deepEqual([st(null, thin).long.state, st(null, thin).short.state, st(null, thin).long.why], ['red', 'red', 'thin trading hour (04:00 UTC)']);
+  assert.equal(SHIELD_LABEL.green, 'Low-cost moment');
+  assert.ok(!Object.values(SHIELD_LABEL).includes('Good moment'));
+});
+
+test('shieldState, WTI (side difference not meaningful): one shared state from floor(mean decile) and the mean avg R', () => {
+  const cell = (dl, ds, rl = -0.1, rs = -0.2) => ({ long: { p: 0.47, decile: dl, expectedR: rl }, short: { p: 0.45, decile: ds, expectedR: rs } });
+  const st = (c, reasons = []) => shieldState({ instrument: 'WTICO/USD', granularity: 'M5', cell: c, reasons });
+  // the operator's case: long decile 8 (Normal), short decile 9 (would be Low-cost) -> one shared Normal
+  const s = st(cell(8, 9, -0.13, -0.15));
+  assert.equal(s.shared, true);
+  assert.deepEqual([s.both.state, s.both.decile], ['grey', 8]);
+  assert.ok(Math.abs(s.both.avgR - -0.14) < 1e-12);
+  assert.equal(shieldText(s.both), 'Normal · usual conditions for WTI M5 · avg −0.14 R');
+  assert.deepEqual([s.long.state, s.short.state], ['grey', 'green'], 'per-side states stay stored for the record');
+  assert.equal(st(cell(10, 9)).both.state, 'green');
+  assert.equal(shieldText(st(cell(10, 9)).both).split(' · ')[0], 'Low-cost moment');
+  assert.deepEqual([st(cell(1, 4)).both.state, st(cell(1, 4)).both.decile], ['orange', 2]);
+  assert.deepEqual([st(cell(1, 2)).both.state, st(cell(1, 2)).both.decile], ['red', 1]);
+  assert.equal(st(cell(5, 6, null)).both.avgR, null);
+  // a reason makes the shared state red
+  const spread = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
+  assert.deepEqual([st(cell(10, 10), spread).both.state, st(cell(10, 10), spread).both.why], ['red', 'spread wide (0.27 of stop)']);
+  // no estimate: shared, from reasons only
+  assert.deepEqual([st(null).shared, st(null).both.state, st(null).both.label], [true, 'grey', 'Normal · no calibrated estimate']);
+  assert.ok(SIDE_DIFF_CALIBRATED.has('SPX500/USD') && !SIDE_DIFF_CALIBRATED.has('XAU/USD'));
+  assert.equal(SHARED_NOTE, 'applies to both sides; direction not measurable for this instrument');
 });
 
 test('leanFor: gap 0 hides, a small gap or a cell without a grey rule greys, the label is the A1 one', () => {

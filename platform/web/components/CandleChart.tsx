@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
-import { avgRText, SIDE_DIFF_CALIBRATED, SIDE_DIFF_NOTE, STATE_COLOR, targetLabel, type SeriesEntry, type SideState } from '@/lib/prediction';
+import { avgRText, SHARED_NOTE, SIDE_DIFF_NOTE, STATE_COLOR, targetLabel, type SeriesEntry, type SideState } from '@/lib/prediction';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -307,7 +307,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
 
 const pct = (v: number) => (v < 0.005 ? '<1%' : `${Math.round(v * 100)}%`);
 const Dot = ({ s }: { s: SideState }) => <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[s.state], marginRight: 4 }} />;
-const side = (name: string, s: SideState) => <span>{name} <Dot s={s} /><strong>{s.label}</strong> ({avgRText(s.avgR)})</span>;
+const side = (name: string, s: SideState) => <span>{name && `${name} `}<Dot s={s} /><strong>{s.label}</strong> ({avgRText(s.avgR)})</span>;
 // "Long ● Normal (avg −0.13 R) · Short ● Costly now (avg −0.31 R)", then the long/short numbers, muted
 function PredictionLine({ e, cellKey, instrument }: { e: SeriesEntry; cellKey: string | null; instrument: string }) {
   const c = e.cells.find((x) => x.key === cellKey) ?? e.cells[0];
@@ -315,13 +315,15 @@ function PredictionLine({ e, cellKey, instrument }: { e: SeriesEntry; cellKey: s
   const spread = e.spreadR == null ? '' : `spread ${e.spreadR.toFixed(2)} of stop`;
   return (
     <div className="tip-sec small">
-      {sh && <div>{side('Long', sh.long)} · {side('Short', sh.short)}</div>}
+      {sh && (sh.shared && sh.both
+        ? <div>{side('', sh.both)} <span className="muted">· {SHARED_NOTE}</span></div>
+        : <div>{side('Long', sh.long)} · {side('Short', sh.short)}</div>)}
       {sh?.reason && <div style={{ color: 'var(--warn)' }}>{sh.reason.why.replace(/^./, (x) => x.toUpperCase())}</div>}
       <div className="muted">
         {c ? <>{c.horizon} candles · {targetLabel(c.target)}: Long {pct(c.pLong)} · Short {pct(c.pShort)}{spread && ` · ${spread}`}</> : <>{e.text ?? 'no calibrated estimate'}{spread && ` · ${spread}`}</>}
         {c?.inSample && ' (model trained on this period)'}
       </div>
-      {c && !SIDE_DIFF_CALIBRATED.has(instrument) && <div className="muted">{SIDE_DIFF_NOTE}</div>}
+      {c && sh?.shared && <div className="muted">{SIDE_DIFF_NOTE}</div>}
     </div>
   );
 }

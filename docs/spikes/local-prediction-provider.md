@@ -100,7 +100,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - History of the last 10 runs, collapsed, as the last item. Every run stays stored as forward evaluation data.
    - The three Jev bars, the subtitle, Predict now and the auto-update checkbox show only for Jev. Flip notifications are kept. Local history rows read "Neutral · L 16% / S 17%"; Jev keeps History below the card.
    - The settings card has a provider select. The Go allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
-   - Long-short difference. pprofit20 (M5, 2023+) regressed the observed long-minus-short outcome on the predicted P(long) − P(short). The 95% interval of the slope contains 1 only for EUR/USD (0.91 [0.54, 1.26]) and SPX500 (0.63 [0.20, 1.10]). WTI is 0.04 [−0.45, 0.52], NATGAS −0.08, XAU 0.40 [0.06, 0.75] and XAG 0.36 [0.05, 0.70]. For every other instrument the card and the tooltip keep both numbers and add the muted line "Difference between sides not meaningful for this instrument." The list is one constant, `SIDE_DIFF_CALIBRATED` in `platform/web/lib/prediction.ts`.
+   - Long-short difference. pprofit20 (M5, 2023+) regressed the observed long-minus-short outcome on the predicted P(long) − P(short). The 95% interval of the slope contains 1 only for EUR/USD (0.91 [0.54, 1.26]) and SPX500 (0.63 [0.20, 1.10]). WTI is 0.04 [−0.45, 0.52], NATGAS −0.08, XAU 0.40 [0.06, 0.75] and XAG 0.36 [0.05, 0.70]. For every other instrument the card and the tooltip keep both numbers and add the muted line "Difference between sides not meaningful for this instrument." The list is one constant, `SIDE_DIFF_CALIBRATED` in `scripts/local-predict.mjs`; the engine sends the result to the console as `shield.shared`.
    - The A4 cells give the same picture with more spread: EUR/USD M5 and M15 slopes are 0.63 to 0.98, but XAG M5 H12 up is 0.89 [0.66, 1.13], and SPX500 is 0.33 to 0.63. The constant follows the M5 study for now.
 5. Per-candle prediction in the chart tooltip.
    - `GET /api/predictions/series?instrument=&granularity=&from=&to=` (`predictionSeries` in `scripts/predictions.mjs`) returns one entry per closed candle of the window. Each entry has the candle time, the source, `computedAt`, the spread in R, the reasons (code and text) and, per shipped cell, P long, P short, expected R per side, the headline, its reason and `inSample`.
@@ -113,22 +113,25 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - The Go proxy allow-list accepts `GET /predictions/series` only.
    - The instrument page fetches the series for the live window and fetches again when a new candle closes. The tooltip shows one line under the OHLC values for the card's chosen cell, e.g. "Prediction (12 candles · price better): Neutral · Long 46% · Short 47% · spread 0.12 of stop". An in-sample candle adds "(model trained on this period)". A pair without a shipped cell shows "Prediction: no calibrated estimate". The card's cell choice is shared through `platform/web/lib/prediction.ts`, and the chart follows a change without a reload.
 6. Shield states (operator decision: the card is a shield against clearly wrong decisions, not trading advice).
-   - `shieldState` in `scripts/local-predict.mjs` gives each side of the chosen cell its own state from that side's P decile (artifact lookup):
+   - `shieldState` in `scripts/local-predict.mjs` maps a P decile (artifact lookup) to a state:
      - red "Don't trade now": a measured no-trade reason fires (spread above 0.2 of stop, thin hour; this applies to both sides), or the decile is 1
      - orange "Costly now": decile 2 or 3
      - grey "Normal": decile 4 to 8
-     - green "Good moment": decile 9 or 10, and no reason fires
-     - no calibrated estimate: both sides red when a reason fires, else grey "Normal · no calibrated estimate"
+     - green "Low-cost moment" (renamed from "Good moment" after operator feedback): decile 9 or 10, and no reason fires
+     - no calibrated estimate: red when a reason fires, else grey "Normal · no calibrated estimate"
+   - EUR/USD and SPX500 (`SIDE_DIFF_CALIBRATED`): each side gets its own state from its own decile.
+   - Every other instrument: one shared state for both sides (`shield.both`, `shield.shared = true`). Its decile is the mean of the two side deciles, rounded down (not the decile of the mean P; the two sides have different decile edges, so the mean P has no clean decile). Its avg R is the mean of the two decile avg R ("n/a" when either is empty). The note "applies to both sides; direction not measurable for this instrument" goes with it. The per-side states are still stored for the record.
+   - Operator case that led to this: WTI M5 at 12:25 on 2026-10-08, a strong up bar, showed Long Normal and Short Good moment from a 2 pp P gap (Long 46%, Short 48%). That read as a short call. The shared state for that bar is now "Normal (avg −0.16 R)".
    - The why text is the reason ("spread wide (0.27 of stop)", "thin trading hour (04:00 UTC)") or the decile band for the pair ("bottom 10% of conditions for WTI M5", "usual conditions …", "top 20% of conditions …"). avg R is the decile's mean net R; "avg R n/a" for an empty decile or no estimate.
-   - Every run stores both side states with decile, avg R and code, per cell (`detail.pprofit.cells[].shield`) and for the default cell (`detail.shield`, plus `long_state` and `short_state` in the inputs). The series route recomputes the state from the stored deciles, so runs from before this change get it too.
-   - Card: two lines replace the headline, "Long ● <State> · <why> · avg <R> R" and the same for Short, with dots coloured by the CSS tokens `--bad`, `--warn`, `--muted` and `--good`. When a reason fires it is shown once above both lines, and both lines read "Don't trade now" without repeating it.
+   - Every run stores both side states with decile, avg R and code, per cell (`detail.pprofit.cells[].shield`) and for the default cell (`detail.shield`, plus `long_state` and `short_state` in the inputs, or `state_both_sides` for a shared state). The series route recomputes the state from the stored deciles, so runs from before this change get it too.
+   - Card, EUR/USD and SPX500: two lines replace the headline, "Long ● <State> · <why> · avg <R> R" and the same for Short. Every other instrument: one line "● <State> · <why> · avg <R> R" with the shared note below it, and no Long/Short lines. Dots use the CSS tokens `--bad`, `--warn`, `--muted` and `--good`. When a reason fires it is shown once above the state lines, which read "Don't trade now" without repeating it.
    - Details now opens with the strict rule result ("Trade: Neutral · no side clears costs", still computed and stored), then the Long/Short bars and the side-difference note.
    - Lean (Details only, never in the headline or the state lines). `config/prediction-models/lean_track_record.json` is an unchanged copy of the lean22 track record, keyed `<INST>_<TF>_H<H>_<target>`. `leanFor` in `scripts/local-predict.mjs` picks the side with the higher P of the chosen cell:
      - gap 0 (equal P, common on isotonic M1): no lean line
      - greyed when the gap is below 3 pp, below the cell's own `amendment_A1.grey_below_gap_pp` when that is higher (5 pp for WTI M5 H12 up and XAU M5 plan cells), or always when that value is null
      - text: "Lean: LONG (47% vs 45%) · <amendment_A1.label>", e.g. "right 51% of the time (50-51%) when the two sides end differently; both sides end the same 1% of the time, 2023+"
      - every run stores side, gap in pp, greyed flag and label per cell (`pprofit.cells[].lean`) and for the default cell (`detail.lean`)
-   - Tooltip: "Long ● <State> (avg R) · Short ● <State> (avg R)", the reason when one fires, then the long/short P and spread, muted.
+   - Tooltip: the same rule. EUR/USD and SPX500 show "Long ● <State> (avg R) · Short ● <State> (avg R)"; every other instrument shows "● <State> (avg R) · applies to both sides; direction not measurable for this instrument". Then the reason when one fires, then the long/short P and spread, muted.
 7. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
    - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
@@ -196,20 +199,22 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - `docs/spikes/local-prediction-provider/tooltip-M15-in-sample-desktop.png` (M15 Oct 7 13:30, before the training cutoff: "Prediction (48 candles · trade plan): Neutral · Long 19% · Short 15% · spread 0.08 of stop (model trained on this period)"; WTI M15 ships only H48 plan, so the tooltip falls back to it)
   - The first series read on WTI M1 scored 500 candles in one request (the window was capped) and stored them; the next reads came from the cache.
   - In the compact layout the spread reason showed as a warning line, e.g. NATGAS M5 "Spread wide (1.15 of the stop distance, limit 0.2)". It now appears as the Neutral reason.
-- **Shield states on the live window (WTI M5, H12 price better, the last 500 closed candles up to 14:35 local on 2026-10-08).**
+- **Shield states on the live window (WTI M5, H12 price better, the last 500 closed candles up to 14:35 local on 2026-10-08; per side, before the shared state).**
   - Long/short pairs: red/red 185, grey/grey 101, green/green 97, grey/green 83, green/grey 34. Orange did not occur. All 185 red candles came from a reason (spread or thin hour), none from decile 1.
-  - "Good moment" is relative, not profitable: the top deciles of this cell still average −0.13 R (long) and −0.15 R (short). The avg R stays on every line for that reason.
+  - In 117 of the 500 candles the two sides differed (grey/green or green/grey). For WTI that difference is not measurable (slope 0.04), so these were the misleading cases; the shared state removes them.
+  - "Low-cost moment" is relative, not profitable: the top deciles of this cell still average −0.13 R (long) and −0.15 R (short). That is why the label no longer says "good", and the avg R stays on every line.
   - Deciles 9 and 10 are common on WTI M5 now (the live spread is low against the 2019 to 2022 research population), so green shows on about a third of the candles.
-  - Screenshots (seventh round; same review setup):
-    - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (14:40: Long ● Normal · usual conditions for WTI M5 · avg −0.13 R; Short ● Good moment · top 20% of conditions for WTI M5 · avg −0.15 R)
-    - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details: "Trade: Neutral · no side clears costs", the greyed line "Lean: LONG (47% vs 47%) · right 51% of the time …", the bars, the side-difference note)
-    - `docs/spikes/local-prediction-provider/shield-tooltip-Donttradenow-Donttradenow-desktop.png` (08:45: both sides red, "Spread wide (0.21 of stop)")
-    - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Goodmoment-desktop.png` and `shield-tooltip-Normal-Goodmoment-mobile.png` (sides differ: Long Normal, Short Good moment)
-    - `docs/spikes/local-prediction-provider/shield-tooltip-Normal-Normal-mobile.png` (14:00: both grey)
+  - Screenshots (eighth round; same review setup):
+    - `docs/spikes/local-prediction-provider/shared-card-wti-desktop.png` and `shared-card-wti-mobile.png` (WTI M5 15:00: one line "● Low-cost moment · top 20% of conditions for WTI M5 · avg −0.14 R", then "Applies to both sides; direction not measurable for this instrument.")
+    - `docs/spikes/local-prediction-provider/shared-tooltip-wti-1225-desktop.png` and `shared-tooltip-wti-1225-mobile.png` (the operator's strong up bar at 12:25: "● Normal (avg −0.16 R) · applies to both sides; direction not measurable for this instrument", then Long 46% · Short 48% muted)
+    - `docs/spikes/local-prediction-provider/per-side-card-eurusd-desktop.png` (EUR/USD M5 keeps per-side lines; here "Spread wide (0.25 of stop)" above Long and Short "Don't trade now")
+    - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (seventh round, per-side WTI before the shared state; Details: "Trade: Neutral · no side clears costs", the greyed Lean line, the bars, the side-difference note)
+    - `docs/spikes/local-prediction-provider/shield-tooltip-Donttradenow-Donttradenow-desktop.png` (seventh round, per-side WTI at 08:45, both red from "Spread wide (0.21 of stop)")
 - **The lean and the state can point different ways.** At 14:40 the lean was LONG (P 47% vs 47%, greyed), while Short was the greener side (decile 9 against long decile 8), because each side has its own decile edges. The lean is always greyed or hidden on most cells: the A1 decisive hit rates are 50% to 53%.
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 24 tests pass. They cover:
+  - `node --test test/local-predict.test.mjs`: 25 tests pass. They cover:
+    - the shared state: WTI with different side deciles gives one state from floor(mean decile) and the mean avg R; EUR/USD keeps per-side states; the rename to "Low-cost moment"
     - the lean: gap 0 hides, gaps below 3 pp (or the cell's higher threshold) grey, cells without a grey rule always grey, the label is the A1 one, and the run stores it
     - the shield rule table: decile boundaries 1 to 10, sides with different states, reason precedence on both sides, the no-artifact fallback, avg R n/a; the run stores both side states and deciles; the series route returns the stored state
     - the series: `localSeries` equals `localPredict` per candle; forming and unclosed candles excluded; cache hit without a bid/ask read; from/to window; in-sample flag; the route with a stored live run, computed and cached entries, 400 on bad input and 409 while predictions are off
@@ -226,7 +231,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
     - the bid/ask window cache
     - route provider selection with reuse and dedup
     - the engine-cycle hook and the table migration
-  - `npm run verify`: 810 tests pass, plus the console typecheck.
+  - `npm run verify`: 811 tests pass, plus the console typecheck.
   - `go test ./...` in `platform`: pass, including the allow-list test for `GET /predictions/series` (forwarded) and `POST /predictions/series` (refused).
 
 ## Recommendation
@@ -235,7 +240,7 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
-   - the per-side shield state (red, orange, grey, green) with its reason and avg R, per shipped horizon x target cell, with the "Over" select
+   - the shield state (red, orange, grey, green) with its reason and avg R, per side for EUR/USD and SPX500 and shared for every other instrument, per shipped horizon x target cell, with the "Over" select
    - in Details: the strict trade rule, P(profit) bars per side, and the side-difference line outside EUR/USD and SPX500
    - the same scores per closed candle in the chart tooltip, with the in-sample mark
    - the two study-backed no-trade reasons
@@ -252,7 +257,7 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 - Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
 - Should the strict rule also require a minimum P decile support, now that intervals exist?
 - The 18-feature P(profit) model barely beats a spread-only model in any A4 cell. Should the Go port ship the full model, or a spread-and-hour lookup with the same calibration and decile table?
-- Should "Good moment" stay purely relative (top deciles) while its avg R is negative in every shipped cell, or be renamed or gated on avg R above 0? Should the decile bands be fixed per artifact (shipped with it) rather than in code?
+- "Low-cost moment" stays purely relative (top deciles) while its avg R is negative in every shipped cell. Should it be gated on avg R above 0? Should the decile bands be fixed per artifact (shipped with it) rather than in code?
 - Should the side-difference list come from the artifact (a per-cell slope and interval) instead of a console constant? The A4 cells disagree with the M5 study in places (XAG M5 H12 up 0.89, SPX500 M1 0.33 to 0.49).
 - Should the series cache move into the Go store, and should the chart get an out-of-sample-only mode? With a final fit on all data, every candle before 2026-10-07 18:30 UTC is in-sample.
 - Which cell should be the default (stored action, `probabilities`, agent tool), and should the card hide cells for the pairs where the chosen one failed calibration instead of falling back to the first shipped cell?

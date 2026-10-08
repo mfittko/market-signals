@@ -250,16 +250,27 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
   });
 }
 
+// Instruments whose long-minus-short P difference is meaningful. pprofit20 (M5, 2023+) regressed
+// the observed long-minus-short outcome on the predicted P(long) - P(short); the 95% interval of the
+// slope contains 1 only for EUR/USD (0.91) and SPX500 (0.63). WTI is 0.04, NATGAS -0.08, XAU 0.40 and
+// XAG 0.36. Elsewhere each side's P is calibrated on its own, but their difference carries no
+// reliable information, so the shield shows one shared state there.
+export const SIDE_DIFF_CALIBRATED = new Set(['EUR/USD', 'SPX500/USD']);
+
 // The card's state: a shield against clearly wrong moments, not trading advice. Operator rule,
-// per closed candle, cell and side, from that side's P decile:
+// per closed candle and cell, from a P decile:
 //   red "Don't trade now": a measured no-trade reason fires (both sides), or the decile is 1
 //   orange "Costly now": decile 2-3
 //   grey "Normal": decile 4-8
-//   green "Good moment": decile 9-10 and no reason fires
-// Without a calibrated estimate: both sides red when a reason fires, else grey "Normal · no calibrated estimate".
+//   green "Low-cost moment": decile 9-10 and no reason fires
+// EUR/USD and SPX500 (SIDE_DIFF_CALIBRATED): one state per side from that side's decile.
+// Every other instrument: one shared state (`both`) from floor(mean of the two side deciles), with
+// avgR the mean of the two decile avg R; `long`/`short` are still stored for the record.
+// Without a calibrated estimate: red when a reason fires, else grey "Normal · no calibrated estimate".
 // avgR is the decile's mean net R (null for an empty decile). `cell` needs long/short {decile, expectedR}.
-// Returns { reason: {code, why} | null, long, short }; each side is { state, label, why, code, decile, avgR }.
-export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'Normal', green: 'Good moment' };
+// Returns { reason: {code, why} | null, shared, long, short, both? }; a state is { state, label, why, code, decile, avgR }.
+export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'Normal', green: 'Low-cost moment' };
+export const SHARED_NOTE = 'applies to both sides; direction not measurable for this instrument';
 const SHORT_NAME = { 'WTICO/USD': 'WTI', 'BCO/USD': 'Brent' };
 export function shieldState({ instrument, granularity, cell = null, reasons = [] }) {
   const reason = reasons[0] ? { code: reasons[0].code, why: reasons[0].short ?? reasons[0].text.replace(/^./, (c) => c.toLowerCase()) } : null;
@@ -274,7 +285,13 @@ export function shieldState({ instrument, granularity, cell = null, reasons = []
     if (decile <= 8) return { ...base, state: 'grey', label: SHIELD_LABEL.grey, why: `usual conditions for ${where}`, code: `decile_${decile}` };
     return { ...base, state: 'green', label: SHIELD_LABEL.green, why: `top ${(11 - decile) * 10}% of conditions for ${where}`, code: `decile_${decile}` };
   };
-  return { reason, long: sideState(cell?.long), short: sideState(cell?.short) };
+  const out = { reason, shared: !SIDE_DIFF_CALIBRATED.has(instrument), long: sideState(cell?.long), short: sideState(cell?.short) };
+  if (out.shared) {
+    const rs = [cell?.long?.expectedR, cell?.short?.expectedR];
+    const mean = cell && { decile: Math.floor((cell.long.decile + cell.short.decile) / 2), expectedR: rs.includes(null) || rs.includes(undefined) ? null : (rs[0] + rs[1]) / 2 };
+    out.both = sideState(mean);
+  }
+  return out;
 }
 // Lean: the side with the higher P for a cell, with its track record from lean22
 // (config/prediction-models/lean_track_record.json, keyed <INST>_<TF>_H<H>_<target>). Details only,
@@ -353,8 +370,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
     big_day_today: big.text,
     long_now: pp.available ? avgR(pp.long) : pp.text,
     short_now: pp.available ? avgR(pp.short) : pp.text,
-    long_state: shieldText(shield.long),
-    short_state: shieldText(shield.short),
+    ...(shield.shared ? { state_both_sides: `${shieldText(shield.both)} (${SHARED_NOTE})` } : { long_state: shieldText(shield.long), short_state: shieldText(shield.short) }),
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
