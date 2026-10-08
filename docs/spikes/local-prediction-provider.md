@@ -6,50 +6,130 @@ Spike: replace the Jev provider in the console Prediction card with the local st
 
 ## Approach
 
-Branch `spike/local-prediction-provider`, run as a dev-loop local implementation under the relaxed `gates.spike` profile. Operator corrections received during the spike are folded in: keep the existing card, add news under the rule that news never sets direction, and use only the no-trade reasons that the no-trade study (`data/research/engine/audit/notrade12/out/report.txt`) measured as helpful.
+Branch `spike/local-prediction-provider`, run as a dev-loop local implementation under the relaxed `gates.spike` profile. Operator corrections received during the spike are folded in:
+
+- Keep the existing card.
+- Show news, but news never sets direction.
+- Use only the no-trade reasons the no-trade study (`data/research/engine/audit/notrade12/out/report.txt`) measured as helpful.
+- In the second round, replace the ATR-relative 6h gauge with the absolute big-day model from abs11 (https://github.com/mfittko/market-signals/issues/310#issuecomment-6053999202).
+- In the second round, drop the news no-trade reason.
+- In the second round, merge the notes into one short note.
+
+The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13) is in commit 7f796cf. The second round removed it.
 
 1. Provider. `scripts/local-predict.mjs` is the provider `local`. It produces four parts for the newest closed candle of the viewed instrument and timeframe:
-   - Move size (side-free). This is the probability that price reaches plus or minus kx ATR within the next 72 M5 bars, from the alert7 `_ns` logistic artifacts. The six artifacts are committed unchanged under `config/prediction-models/`. The 12 features port `bench1.eng_bars` on the `de_v2` M5 bars: session time of day and weekday, session bar count, three realized-volatility ratios, ATR level, ATR versus its 2880-bar median, and bar range. The ATR comes from the production supertrend (`computeSupertrend`, Wilder ATR(10)).
-   - Direction. A constant with an interval, with no model. The value is the 2023+ up share of the eventual 6h direction (alert7 `path_stats` rule) on the 30-minute cadence. The interval is a Wilson 95% interval on n/12, because rows 30 minutes apart share most of their 6h window. Values: WTI 49.9% (48.3 to 51.6), XAU 51.5% (49.9 to 53.1), XAG 49.8% (48.2 to 51.4), NATGAS 49.9% (48.2 to 51.6), SPX500 51.1% (49.5 to 52.7), EUR/USD 50.3% (48.7 to 51.9). Other instruments show 50/50 marked "not measured". Source: `data/research/localpred/up_share.py` (gitignored).
-   - No-trade reasons. (a) "the spread is wide": (ask close minus bid close) / (1.5 ATR) at the closed bar of the viewed timeframe is above 0.2. Bid and ask come from one small `price=BA` request to the same public candle feed. (b) "thin trading hour": the UTC hour of the bar close is in the fixed per-instrument list from the no-trade study. (c) "fresh high-escalation news (untested rule)": an escalated headline for the instrument became available in the last 30 minutes. Available-at is the later of the publish time and the time the engine stored the headline. The chase or stretched-move reason was removed because the study measured it as harmful. H1 counter-trend is not a reason, because the study found no effect.
-   - Trend. The supertrend side on the viewed timeframe and whether the H1 supertrend agrees. The card labels it as context.
-2. Headline rule (declared before any live run). A side clears the margin only when its share is at least 0.5 + 0.05 and its interval lies wholly above 0.5. The headline is Long or Short only when one side clears the margin and no reason fires. Otherwise it is No trade. The three bars are long = up share, short = 1 minus up share, and no_trade = 1 when a reason fires, else 1 minus |up minus 0.5| / 0.05, the part of the margin the stronger side has not cleared. With the measured shares, the headline is always No trade, at about 70% to 100%.
-3. Storage and updates. `scripts/predictions.mjs` selects the provider through the new setting `predictionProvider` (`local` default, `typesafe-jev` optional). `predictionActive` needs the toggle in both cases and a TypeSafe key only for Jev. Local runs use the existing `predictions` table with provider `local`. A new nullable `detail` column holds the structured parts: move size, direction and interval, reasons, trend, news id, escalation, published-at and available-at, and the raw feature vector. The column is added in place on existing databases. A local run is valid until the next candle of its timeframe closes. Reuse only returns runs of the selected provider. A second local run for the same candle returns the stored row instead of a duplicate. Updates come from two paths. The engine cycle (`runWatcherCycle`, after the alert path and the caches) calls `refreshLocalPredictions` for every watched pair. The card posts `reuse: true` whenever the live feed shows a new candle, which covers pairs that are not watched. Both paths are free and need no click.
-4. Card and settings. `PredictionPanel.tsx` keeps its structure, styling, history and flip notifications. For a local run, the confidence text is replaced by "long X% (lo to hi), no measurable direction edge". The reasons are listed under the headline, followed by the honest line about about -0.1 R. The quality line becomes "Move size next hours: ... · trend: ...", followed by "News: <escalation> · <age>: <headline>" for a headline from the last 6 hours. The edge note is reworded. The Predict now button and the auto-update checkbox show only for Jev. The settings card has a provider select. The Go console allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
-5. Parity. `data/research/localpred/export_fixture.py` (gitignored) rebuilds the research bars with the alert7 pipeline and exports a 3300-bar tail and 8 scored rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-parity.json` (282 KB). Each row carries the features, z, p, bid/ask and spr. The same script confirmed that its features equal the artifact's own 40 parity rows exactly (max |dx| 0.0) for both instruments.
-6. Running-app check. A copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100 were driven with Playwright WebKit (desktop 1440x1000 and mobile 390x844, dark). The live engine and console were not touched.
+   - **Big-day chance today (side-free).** This is the probability that today's session (22:00 UTC roll) moves T1 % or more from its open, from the abs11 A1 model ("is today becoming a big day").
+     - T1 is preregistered per instrument: WTI 5.38%, XAU 1.82%, XAG 3.53%, NATGAS 7.19%, SPX500 2.48%, EUR/USD 0.94%.
+     - `data/research/localpred/export_a1.py` (gitignored) exports the latest quarterly fit, cutoff 2026-09-26. It uses the abs11 code (`build`, `walk`, `de.e2_lr_fit`) unchanged.
+     - The six artifacts are in `config/prediction-models/artifact_<INST>_A1_nostress.json`. Each holds the feature order, scaler, coefficients, intercept, identity calibrator, T1, cutoff and code hashes.
+     - The export drops the cross-instrument `stress` feature. Serving it would need the five other instruments' 252-session history on every run. The variant is named `A1_nostress`.
+     - The 16 features are ported to Node from 30-min mid bars: previous-session realized volatility (1, 5, 22 sessions), realized volatility so far and over the last 6h, excursion and move so far, share of T1, range so far against the same-slot median of 60 sessions, time of day, weekday, and opening gap.
+     - Once the session has already moved T1 %, the card shows "reached" instead of a probability.
+   - **Direction.** A constant with an interval, with no model. The value is the 2023+ up share of the eventual 6h direction on the 30-minute cadence. The interval is a Wilson 95% interval on n/12, because rows 30 minutes apart overlap.
+     - WTI 49.9% (48.3 to 51.6), XAU 51.5% (49.9 to 53.1), XAG 49.8% (48.2 to 51.4), NATGAS 49.9% (48.2 to 51.6), SPX500 51.1% (49.5 to 52.7), EUR/USD 50.3% (48.7 to 51.9).
+     - Source: `data/research/localpred/up_share.py` (gitignored).
+   - **No-trade reasons.** Only the two the study measured as helpful:
+     - The spread is wide: (ask close minus bid close) / (1.5 ATR) at the closed bar of the viewed timeframe is above 0.2. Bid and ask come from one small `price=BA` request to the existing candle feed.
+     - Thin trading hour: the UTC hour of the bar close is in the fixed per-instrument list.
+     - Chase and stretched-move filters (measured as harmful), H1 counter-trend (no effect) and the news caution (unvalidated) are not reasons.
+   - **Trend.** The supertrend side on the viewed timeframe and whether H1 agrees. It is shown as context.
+   - **News.** The newest headline for the instrument from the engine news cache, within 6 hours. The card shows it, and every run stores its id, escalation, published-at and available-at for a later study. It never sets the side, a reason or a number.
+2. Headline rule (declared before any live run).
+   - A side clears the margin only when its share is at least 0.5 + 0.05 and its interval lies wholly above 0.5.
+   - The headline is Long or Short only when one side clears the margin and no reason fires. Otherwise it is No trade.
+   - The bars show long = up share and short = 1 minus up share.
+   - The no_trade bar is 1 when a reason fires. Otherwise it is 1 minus |up minus 0.5| / 0.05, the part of the margin the stronger side has not cleared.
+   - With the measured shares the headline is always No trade, at about 70% to 100%.
+3. Storage and updates.
+   - `scripts/predictions.mjs` selects the provider with the new setting `predictionProvider`: `local` is the default, `typesafe-jev` is optional. `predictionActive` needs the toggle for both providers, and a TypeSafe key only for Jev.
+   - Local runs use the `predictions` table with provider `local`. A new nullable `detail` column holds the structured parts. The column is added in place on existing databases.
+   - A local run is valid until the next candle of its timeframe closes. Reuse returns only runs of the selected provider, and the same candle never gets a second local row.
+   - The 30-min window (3600 bars, about 75 sessions) is backfilled once through `acquireWindow`. Later runs fetch only the tail.
+   - Updates come from two places. The engine cycle (`runWatcherCycle`, after the alert path) refreshes every watched pair. The card asks again whenever the live feed shows a candle newer than its run covers. It retries every 15 s until the engine has the closed bar.
+4. Card and settings.
+   - `PredictionPanel.tsx` keeps its structure, styling, the three bars, history and flip notifications.
+   - Under the headline there is one note: "Direction: no measurable edge (research). Signals in this system average about −0.1 R after costs; reasons below are measured filters, not buy signals." The reasons follow it.
+   - The quality line reads "Big-day chance today: 20% for a move of 5.4% or more (usual 5%) · trend: supertrend up, H1 agrees". "Usual" is the training base rate.
+   - A "News: <escalation> · <age>: <headline>" line follows.
+   - Predict now and the auto-update checkbox show only for Jev.
+   - The settings card has a provider select. The Go allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
+5. Parity.
+   - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
+   - The export also refits the full abs11 model (with stress) walk-forward, so the cost of dropping stress is on record.
+6. Running-app check.
+   - Setup: a copy of the live engine database, the worktree engine on port 8797, a read-only review proxy and `next dev` on port 3100.
+   - Driven with Playwright WebKit at desktop 1440x1000 and mobile 390x844, dark theme.
+   - The live engine and console were not touched.
 
 ## Findings
 
-- Parity holds. Node features match the Python export to max |dx| 1.0e-13 (WTI) and 3.5e-12 (EUR/USD), and p matches to max |dp| 1.8e-13 over 16 rows. The test tolerance is 1e-9. The spread ratio uses the same ATR and matches `spr` to 1e-9. Pandas rolling std (online) and the two-pass std in Node agree far inside the tolerance.
-- Training and serving inputs differ. Research bars are M1 bid/ask resampled to M5, with mid = (bid + ask) / 2 per field. Production reads OANDA mid M5 candles from the same feed. On the stored engine candles for the same bar times, p differs by at most 0.0004 for WTI. For EUR/USD it differs by up to 0.029 at the 22:00 UTC rollover and settles below 0.001 within about 3 hours. The stored WTI window also has 10 intraday gaps in 3300 bars, which shift the rolling windows. Script: `data/research/localpred/skew.mjs` (gitignored). The parity fixture proves the arithmetic, not the inputs. A production scorer (https://github.com/mfittko/market-signals/issues/312) needs the bid/ask M1 path, or a shadow check of mid-candle drift.
-- The model scores every M5 bar, while research scored only bars that close on :00 and :30. Time-of-day features are smooth, so the in-between values are interpolations. They were never evaluated.
-- Move size needs 3300 M5 bars per run. The engine database already holds about 15,000 M5 bars for the main instruments, so a run reads storage plus one 60-bar live tail and one 3-bar bid/ask request. On H1 and H4 views the move-size number still describes the last closed M5 bar. It updates only when the viewed candle closes.
-- Direction carries no edge. All six up shares sit within 1.5 points of 50%, and four of six intervals include 50%. XAU (51.5%) and SPX500 (51.1%) lean up, but neither clears the 5-point margin. The headline is therefore always No trade, which is the honest result.
-- The spread reason fires often. The study blocked 55% to 61% of signals with it. In the live check, WTI M5 at 06:50 UTC showed 0.21 of the stop distance. That is a real "no trade now" most of the time on M5, and the card says so.
-- The news reason fires most of the time and is not selective. Over the last 30 days, an escalated headline became available in 68% of all 30-minute windows for WTI, 44% for XAU, XAG and SPX500, and 8% for NATGAS. The escalation flag is binary, and a third of WTI headlines carry it. News history starts in 2026-07 (2026-10-01 for NATGAS), so the rule has no evaluation behind it. The card and the stored run label it "untested". Every run stores the headline id, escalation, published-at and available-at, so a later study can measure the rule prospectively. News never changes the side, the bars or the move-size number. A test covers this.
-- Running app. The card filled itself on load and moved from the 08:50 to the 08:55 local candle 110 s later without a click. There is no Predict now button or checkbox under local. Screenshots:
-  - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: spread and news reasons, move size 90%, usual 62%, Inputs open)
-  - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px; the sticky top nav overlaps the element capture)
-  - `docs/spikes/local-prediction-provider/prediction-card-after-candle-desktop.png` (the next candle, updated automatically)
-  - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD: no artifact, move size n/a, 50/50 "not measured")
-  - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
-- Behavior change for existing users. A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again. Tests that assume Jev now set the provider explicitly.
-- Verification. `node --test test/local-predict.test.mjs` passes 11 tests: parity, short window, reasons, news input, the four parts, unavailable move size, bid/ask fetch, route provider selection, reuse and dedup, the engine-cycle hook, and the table migration. `npm run verify` passes 797 tests plus the console typecheck. `go test ./internal/api ./internal/tools` passes.
+- **Parity holds.** Node features match the Python export to max |dx| 2.2e-16 (WTI) and 1.3e-15 (EUR/USD), and p matches to max |dp| 1.5e-16 over 16 rows. The test tolerance is 1e-9.
+- **Dropping stress costs nothing measurable.** Walk-forward 2023+ AUC without and with stress:
+  - WTI 0.900 / 0.900
+  - XAU 0.838 / 0.839
+  - XAG 0.829 / 0.830
+  - NATGAS 0.787 / 0.783
+  - SPX500 0.831 / 0.830
+  - EUR/USD 0.792 / 0.792
+- **The model is a research preview, not qualified.**
+  - abs11 marked A1 FAIL on its preregistered operating rule for every instrument. At 2 alerts per month, recall or precision fell short in the 2023+ window, and SPX500 also failed its AUC bar.
+  - Its AUC beats the volatility baseline (WTI 0.900 against 0.845 in 2023+).
+  - Calibration-in-the-large by year runs mostly between 0 and +0.05 (WTI -0.03 to +0.05), so the shown chance leans slightly high.
+  - The artifact status field says "display only".
+- **Training and serving inputs agree closely.** On the live OANDA mid M30 feed at the fixture bar times:
+  - p differs by at most 0.001 (WTI) and 0.002 (EUR/USD), except on the newest bar.
+  - On the newest bar, the research data ended mid-bar: WTI 0.001, EUR/USD 0.017.
+  - The largest feature gap is `rng_norm` (max 0.03). This is much tighter than the first round's 6h gauge (up to 0.029 on EUR/USD).
+  - Script: `data/research/localpred/skew-a1.mjs` (gitignored).
+- **The live values are plausible.** WTI at 07:15 UTC had moved 2.3% from the session open, and the model gave a 20% chance of reaching 5.4% (training base rate 5%). The fixture rows on 2026-10-07 afternoon gave 1% to 2%.
+- **The window needs history storage lacks.**
+  - The model needs 75 sessions of 30-min bars. The engine database held about 2600 M30 bars (57 sessions) per instrument.
+  - The first run backfills 3600 bars in one feed request (the feed allows 5000), and later runs read the tail.
+  - On H1 and H4 views, big day still refreshes only when the viewed candle closes.
+- **The newest session counts as valid while it forms.** Research only kept sessions with at least 8 bars. Scores in the first 4 hours after 22:00 UTC therefore have no research rows behind them.
+- **Direction carries no edge.**
+  - All six up shares sit within 1.5 points of 50%.
+  - XAU (51.5%) and SPX500 (51.1%) lean up but do not clear the 5-point margin.
+  - The headline is always No trade.
+- **The spread reason fires often on M5.** The study blocked 55% to 61% of signals with it. Live WTI M5 showed 0.15 to 0.21 of the stop distance.
+- **News is display and storage only.**
+  - In the first round, escalated headlines were available in 68% of 30-minute windows for WTI, so the caution reason was not selective. It is removed.
+  - News history starts in 2026-07 (2026-10-01 for NATGAS) and is unvalidated.
+  - The stored id, escalation, published-at and available-at allow a later prospective study.
+  - A test covers that news changes neither the side, the bars nor the big-day number.
+- **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
+  - In the running-app check, the card moved from the 09:20 to the 09:25 local candle 85 s after the script started, without a click.
+  - Screenshots:
+    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: big-day chance 20%, usual 5%, news line, Inputs open)
+    - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px)
+    - `docs/spikes/local-prediction-provider/prediction-card-after-candle-desktop.png` (the next candle, updated automatically, 26%)
+    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD: no artifact, big day n/a, 50/50 "not measured")
+    - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
+- **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
+- **Verification.**
+  - `node --test test/local-predict.test.mjs`: 12 tests pass. They cover parity, short window, reasons, news input, the four parts, news invariance, reached sessions, unavailable model, bid/ask fetch, route provider selection with reuse and dedup, the engine-cycle hook, and the table migration.
+  - `npm run verify`: 798 tests pass, plus the console typecheck.
+  - `go test ./internal/api ./internal/tools`: pass.
 
 ## Recommendation
 
-Graduate, with a narrowed scope. Make the local provider the default in production, but treat it as a description layer and not as a predictor:
+Graduate with a narrowed scope. Make the local provider the default as a description layer, not a predictor:
 
-1. Keep the card as built: move size, the measured near-50/50 direction with its interval, the two study-backed no-trade reasons, and trend context.
-2. Before the move-size number counts as more than a research preview, the scorer in https://github.com/mfittko/market-signals/issues/312 must close the input gap. Either feed it bid/ask M1 bars, or measure the mid-candle drift in shadow under https://github.com/mfittko/market-signals/issues/313. Port the feature code to Go against the same fixture. The fixture format already carries bars, features, z, p and spr.
-3. Replace the binary escalation flag before the news reason can mean anything. As built, it fires in most windows. Keep collecting the stored news inputs and evaluate them once enough history exists.
-4. Retire the Jev provider, or keep it hidden behind the setting, since the local card shows the same lack of direction edge for free.
+1. Keep the card as built:
+   - the big-day chance (absolute %, side-free, marked as a research preview)
+   - the measured near-50/50 direction with its interval
+   - the two study-backed no-trade reasons
+   - the trend as context
+   - the news line, as display only
+2. Treat the big-day number as unqualified until the silent shadow in https://github.com/mfittko/market-signals/issues/313 shows calibration and usefulness live. abs11 A1 failed its preregistered operating rule.
+3. Port the A1 features to Go in https://github.com/mfittko/market-signals/issues/312 against the same fixture format: bars, features, z and p. Keep the `A1_nostress` variant unless shadow shows that stress matters.
+4. Evaluate the stored news inputs once enough history exists, before news can become a reason.
+5. Retire Jev or keep it hidden behind the setting.
 
 Open questions for https://github.com/mfittko/market-signals/issues/312:
 
-- Should the production scorer read bid/ask M1 bars, so that it reproduces the research inputs exactly, or OANDA mid M5 with a measured drift budget?
-- Should move size be scored on every M5 bar or only on the research cadence (:00 and :30 closes)?
-- What gap policy applies to the 3300-bar window (refuse, repair or ignore), given 10 intraday gaps in the stored WTI window?
-- Should the thin-hour lists and the direction constants live in the artifact format from https://github.com/mfittko/market-signals/issues/310, so that they carry a version and an evidence reference?
-- Does a no-trade reason from this advisory card feed EntryGuard as a REJECTED reason code, or does it stay display-only until it is qualified?
+- Should the scorer read bid/ask M1 resampled to 30 minutes (exact research inputs), or OANDA mid M30? The measured drift is at most 0.002.
+- Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
+- Should the thin-hour lists, the direction constants and T1 move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?
+- Does a no-trade reason feed EntryGuard as a REJECTED reason code, or does it stay display-only until it is qualified?
+- Should the card show the big-day chance only above its usual rate, or always?

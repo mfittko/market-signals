@@ -2,37 +2,42 @@
 // candle feed. Recomputed for each closed candle; storage lives in predictions.mjs.
 //
 // Four parts, each kept honest about what it is:
-// 1. Move size (side-free): P(price reaches +/- kx ATR within the next 72 M5
-//    bars), from the research logistic model in config/prediction-models
-//    (lr_todvol, alert7 "_ns" artifacts). Features are a port of the research
-//    pipeline (bench1 eng_bars on de_v2 M5 bars); test/fixtures holds a
-//    bars -> features -> probability parity export.
+// 1. Big-day chance (side-free): P(today's session moves T1 % or more from its
+//    22:00 UTC open), from the research logistic model in config/prediction-models
+//    (abs11 A1 "is today becoming a big day", variant without the cross-instrument
+//    stress feature). Features are a port of the research pipeline (abs11 build()
+//    on 30-min mid bars); test/fixtures holds a bars -> features -> probability
+//    parity export. abs11 A1 failed its preregistered operating rule, so this is
+//    a display-only research preview.
 // 2. Direction: a constant with an interval. Research found no direction edge
 //    (direction AUC <= 0.53 on every instrument), so the estimate is the
 //    measured 2023+ up share of the eventual 6h direction. There is no model.
 // 3. No-trade reasons: only rules a no-trade study measured as helpful
-//    (wide spread, thin trading hour), plus one untested news caution.
+//    (wide spread, thin trading hour).
 // 4. Trend: supertrend side and H1 agreement, a description, not a prediction.
-// News never sets or changes the direction or the move-size number.
+// News is shown and stored for later study, but never sets the side, a
+// reason or the big-day number.
 import { readFileSync } from 'node:fs';
 import { computeSupertrend, granularityMs } from './supertrend.mjs';
 import { htfSupertrend } from './indicators.mjs';
 
 export const LOCAL_PROVIDER = 'local';
-export const LOCAL_MODEL = 'local-stats-v0 (vol lr_todvol alert7_ns; direction constant)';
-// The move-size label and the direction estimate both look 72 M5 bars ahead.
+export const LOCAL_MODEL = 'local-stats-v1 (big day abs11 A1_nostress; direction constant)';
+// The direction estimate looks 72 M5 bars (6 hours) ahead.
 export const LOCAL_HORIZON_BARS = 72;
-// Bars the move-size features need: 2880 for the ATR median plus a warm ATR.
-export const VOL_WINDOW_BARS = 3300;
-const ATR_MEDIAN_BARS = 2880;
-const ATR_MEDIAN_MIN = 576;
+// 30-min bars the big-day features need: 60 valid sessions for the slot norm plus margin.
+export const A1_WINDOW_BARS = 3600;
+const A1_STEP_MIN = 30;
+const NORM_N = 60;
+const NORM_MIN = 20;
+const MIN_SESSION_BARS = 8;
+const EPS = 1e-4;
 // A side clears the margin only when its share is at least 0.5 + MARGIN and its
 // interval lies wholly above one half. Declared before any live run.
 export const DIRECTION_MARGIN = 0.05;
 export const SPREAD_MAX_R = 0.2; // spread / (1.5 ATR) at the bar
 const STOP_ATR = 1.5;
 export const NEWS_WINDOW_MS = 6 * 3600000;
-export const NEWS_FRESH_MS = 30 * 60000;
 
 // 2023-01-01 to 2026-10 up share of the eventual 6h direction (rule: the larger
 // of the up and down excursions over the next 72 M5 bars), 30-minute cadence.
@@ -55,68 +60,71 @@ export const THIN_HOURS_UTC = {
 
 const models = new Map();
 // The research artifact for an instrument, or null when none was exported.
-export function volModel(instrument) {
+export function bigDayModel(instrument) {
   if (!models.has(instrument)) {
     let m = null;
     try {
-      m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}_ns.json`, import.meta.url), 'utf8'));
+      m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}_A1_nostress.json`, import.meta.url), 'utf8'));
     } catch { /* no artifact for this instrument */ }
     models.set(instrument, m);
   }
   return models.get(instrument);
 }
 
-const std = (a, from, to) => { // sample std (ddof 1) of a[from..to]
-  const n = to - from + 1;
-  let s = 0;
-  for (let k = from; k <= to; k++) s += a[k];
-  const mean = s / n;
-  let q = 0;
-  for (let k = from; k <= to; k++) q += (a[k] - mean) ** 2;
-  return Math.sqrt(q / (n - 1));
-};
 const median = (v) => {
   const s = [...v].sort((a, b) => a - b);
   const m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
+const mean = (v) => v.reduce((a, b) => a + b, 0) / v.length;
 
-// The 12 lr_todvol features for the newest bar of `bars` (closed mid M5 bars,
-// oldest first, with time, high, low, close). Null while the window is too short.
-// Times: minutes since the epoch of the bar open; the session day rolls at 22:00 UTC.
-export function volFeatures(bars) {
+// The 16 A1_nostress features for the newest bar of `bars` (closed 30-min mid
+// bars, oldest first, with time, open, high, low, close), in artifact order.
+// Sessions roll at 22:00 UTC. The newest session counts as valid while it is
+// still forming; older sessions need 8 bars, as in the research. Null while
+// the window is too short. Also returns the session excursion so far (%).
+export function bigDayFeatures(bars, T1) {
   const n = bars.length;
-  if (n < 290) return null;
-  const st = computeSupertrend(bars, { period: 10, multiplier: 3 });
-  const atr = st.map((s) => (s ? s.atr : NaN));
+  if (n < 2) return null;
+  const t = bars.map((b) => Math.round(Date.parse(b.time) / 60000));
+  const day = t.map((v) => Math.floor((v + 120) / 1440));
+  const r2 = bars.map((b, k) => (k === 0 || day[k] !== day[k - 1] ? Math.log(b.close / b.open) : Math.log(b.close / bars[k - 1].close)) ** 2);
+  // sessions in order: first index, bar count, open, close, RV, and the range so far per slot
+  const S = [];
+  for (let k = 0; k < n; k++) {
+    if (!k || day[k] !== day[k - 1]) S.push({ day: day[k], first: k, n: 0, O: bars[k].open, H: -Infinity, L: Infinity, r2: 0, slots: new Map() });
+    const s = S.at(-1);
+    s.n++; s.H = Math.max(s.H, bars[k].high); s.L = Math.min(s.L, bars[k].low); s.r2 += r2[k]; s.C = bars[k].close;
+    s.slots.set(Math.floor(((t[k] + 120) % 1440) / A1_STEP_MIN), (100 * (s.H - s.L)) / s.O);
+  }
+  const cur = S.at(-1);
+  const valid = S.filter((s, k) => s.n >= MIN_SESSION_BARS || k === S.length - 1);
+  const prev = valid.slice(0, -1); // valid sessions before the current one
+  if (prev.length < 22) return null;
+  const RV = (s) => 100 * Math.sqrt(s.r2);
   const i = n - 1;
-  const a = atr[i];
-  const c = bars.map((b) => b.close);
-  const tmin = Math.round(Date.parse(bars[i].time) / 60000);
-  const tod = (((tmin + 120) % 1440) + 1440) % 1440;
-  const day = Math.floor((tmin + 120) / 1440);
-  let nday = 0;
-  for (let k = i - 1; k >= 0 && Math.floor((Math.round(Date.parse(bars[k].time) / 60000) + 120) / 1440) === day; k--) nday++;
-  const lr = c.map((v, k) => (k ? v - c[k - 1] : NaN));
-  const rv = (w) => std(lr, i - w + 1, i);
-  const e = 0.01 * a;
-  const rv288 = rv(288);
-  const win = atr.slice(Math.max(0, i - ATR_MEDIAN_BARS + 1), i + 1).filter(Number.isFinite);
-  if (win.length < ATR_MEDIAN_MIN || !Number.isFinite(a)) return null;
-  const rng = (k) => (bars[k].high - bars[k].low) / atr[k];
-  const ang = (2 * Math.PI * (tod + 5)) / 1440;
-  const wd = (2 * Math.PI * (((day + 3) % 7 + 7) % 7)) / 7;
+  const slot = Math.floor(((t[i] + 120) % 1440) / A1_STEP_MIN);
+  const past = prev.slice(-NORM_N).map((s) => s.slots.get(slot)).filter((v) => v !== undefined);
+  if (past.length < NORM_MIN) return null;
+  let r6 = 0;
+  for (let k = i; k >= 0 && t[k] > t[i] - 360; k--) r6 += r2[k];
+  const O = cur.O;
+  const exc = (100 * Math.max(cur.H - O, O - cur.L)) / O;
+  const fr = (slot + 1) / (1440 / A1_STEP_MIN);
+  const dw = ((cur.day + 3) % 7) / 7;
+  const pc = prev.at(-1).C;
   const x = [
-    Math.sin(ang), Math.cos(ang), Math.sin(wd), Math.cos(wd), Math.log1p(nday),
-    Math.log((rv(12) + e) / (rv288 + e)), Math.log((rv(48) + e) / (rv288 + e)), Math.log((rv288 + e) / a),
-    Math.log(a) - Math.log(Math.max(Math.abs(c[i]), 1)), a / median(win),
-    rng(i), (rng(i) + rng(i - 1) + rng(i - 2)) / 3,
+    Math.log(RV(prev.at(-1)) + EPS), Math.log(mean(prev.slice(-5).map(RV)) + EPS), Math.log(mean(prev.slice(-22).map(RV)) + EPS),
+    Math.log(RV(cur) + EPS), Math.log(100 * Math.sqrt(r6) + EPS), exc, exc / T1, (100 * Math.abs(bars[i].close - O)) / O,
+    Math.log((cur.slots.get(slot) + EPS) / (median(past) + EPS)),
+    Math.sin(2 * Math.PI * fr), Math.cos(2 * Math.PI * fr), Math.sin(4 * Math.PI * fr), Math.cos(4 * Math.PI * fr),
+    Math.sin(2 * Math.PI * dw), Math.cos(2 * Math.PI * dw), (100 * Math.abs(O - pc)) / pc,
   ];
-  return x.every(Number.isFinite) ? { x, atr: a, nday } : null;
+  return x.every(Number.isFinite) ? { x, exc, sessionOpen: new Date((cur.day * 1440 - 120) * 60000).toISOString() } : null;
 }
 
 // z and p of the artifact's formula: z = b + sum coef (x - mean) / scale.
-export function volScore(model, x) {
+export function score(model, x) {
   let z = model.intercept;
   for (let j = 0; j < x.length; j++) z += (model.coefficients[j] * (x[j] - model.scaler.mean[j])) / model.scaler.scale[j];
   return { z, p: 1 / (1 + Math.exp(-z)) };
@@ -140,25 +148,23 @@ export async function fetchBidAsk(instrument, granularity, { fetchFn = fetch } =
   } catch { return null; }
 }
 
-// Newest headline for the instrument from the engine news cache within 6 hours,
-// and whether an escalated one became available in the last 30 minutes.
+// Newest headline for the instrument from the engine news cache within 6 hours.
 // Available-at is the later of the publish time and the time the engine stored it.
+// Stored with each run for a later study; it never feeds a reason or a number.
 export function newsInput(db, instrument, now) {
-  let rows;
+  let r;
   try {
-    rows = db.prepare(`SELECT rowid AS id, title, time, fetched_at, escalation FROM news
-      WHERE instrument = ? AND time IS NOT NULL AND time >= ? AND time <= ? ORDER BY time DESC LIMIT 50`)
-      .all(instrument, new Date(now - NEWS_WINDOW_MS).toISOString(), new Date(now).toISOString());
+    r = db.prepare(`SELECT rowid AS id, title, time, fetched_at, escalation FROM news
+      WHERE instrument = ? AND time IS NOT NULL AND time >= ? AND time <= ? ORDER BY time DESC LIMIT 1`)
+      .get(instrument, new Date(now - NEWS_WINDOW_MS).toISOString(), new Date(now).toISOString());
   } catch { return null; } // no news table yet
-  if (!rows.length) return null;
-  const avail = (r) => Math.max(Date.parse(r.time), Date.parse(r.fetched_at) || 0);
-  const pick = (r) => r && { id: r.id, title: r.title, escalation: r.escalation === 1 ? 'escalation' : 'routine', publishedAt: r.time, availableAt: new Date(avail(r)).toISOString() };
-  const fresh = rows.find((r) => r.escalation === 1 && avail(r) <= now && now - avail(r) <= NEWS_FRESH_MS);
-  return { latest: pick(rows[0]), freshEscalation: pick(fresh) };
+  if (!r) return null;
+  const avail = Math.max(Date.parse(r.time), Date.parse(r.fetched_at) || 0);
+  return { latest: { id: r.id, title: r.title, escalation: r.escalation === 1 ? 'escalation' : 'routine', publishedAt: r.time, availableAt: new Date(avail).toISOString() } };
 }
 
 // The evidenced no-trade reasons at the bar that just closed. `closeMs` is that bar's close time.
-export function noTradeReasons({ instrument, spreadR, closeMs, news }) {
+export function noTradeReasons({ instrument, spreadR, closeMs }) {
   const out = [];
   if (spreadR != null && spreadR > SPREAD_MAX_R) {
     out.push({ code: 'spread', text: `No trade now: the spread is wide (${spreadR.toFixed(2)} of the stop distance, limit ${SPREAD_MAX_R}).` });
@@ -167,19 +173,33 @@ export function noTradeReasons({ instrument, spreadR, closeMs, news }) {
   if (THIN_HOURS_UTC[instrument]?.includes(hour)) {
     out.push({ code: 'thin_hour', text: `No trade now: thin trading hour (${String(hour).padStart(2, '0')}:00 UTC), spreads are usually wide relative to movement.` });
   }
-  if (news?.freshEscalation) {
-    out.push({ code: 'news_untested', untested: true, text: 'No trade now: fresh high-escalation news (untested rule).' });
-  }
   return out;
 }
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 const word = (v, edges, labels) => { for (let k = 0; k < edges.length; k++) if (v < edges[k]) return labels[k]; return labels.at(-1); };
 
+// The big-day part from the newest closed 30-min bars. Once today has already
+// moved T1 % the answer is a fact, not a probability.
+function bigDay(instrument, m30, now) {
+  const model = bigDayModel(instrument);
+  if (!model) return { available: false, text: 'not available for this instrument' };
+  const bars = m30.filter((c) => c.partial !== true && c.complete !== false);
+  const last = bars.at(-1);
+  if (!last || !(Date.parse(last.time) > now - 3 * 1800000)) return { available: false, text: 'no current 30-minute data' };
+  const f = bigDayFeatures(bars.slice(-A1_WINDOW_BARS), model.T1_pct);
+  if (!f) return { available: false, text: 'not enough 30-minute history' };
+  const T1 = model.T1_pct;
+  const base = { thresholdPct: T1, usual: model.training_base_rate, movedPct: f.exc, sessionOpen: f.sessionOpen, barTime: last.time, model: `${model.variant}, cutoff ${model.training_cutoff}` };
+  if (f.exc >= T1) return { ...base, available: true, reached: true, p: 1, text: `today is already a big day: ${f.exc.toFixed(1)}% from the session open (threshold ${T1.toFixed(1)}%)` };
+  const { z, p } = score(model, f.x);
+  return { ...base, available: true, reached: false, p, z, x: f.x, text: `${pct(p)} for a move of ${T1.toFixed(1)}% or more today (usual ${pct(model.training_base_rate)}; ${f.exc.toFixed(1)}% so far)` };
+}
+
 // One local run for the newest CLOSED candle of the viewed timeframe.
-// `candles` are the viewed timeframe (a forming bar is dropped), `m5` the M5
-// window for the move-size model, `bidAsk` the fetchBidAsk map, `news` newsInput.
-export function localPredict({ instrument, granularity, candles, m5 = [], bidAsk = null, news = null }, { now = Date.now() } = {}) {
+// `candles` are the viewed timeframe (a forming bar is dropped), `m30` the 30-min
+// window for the big-day model, `bidAsk` the fetchBidAsk map, `news` newsInput.
+export function localPredict({ instrument, granularity, candles, m30 = [], bidAsk = null, news = null }, { now = Date.now() } = {}) {
   const bars = candles.filter((c) => c.partial !== true && c.complete !== false).map(({ partial, complete, ...c }) => c);
   if (bars.length < 12) throw new Error('not enough candle history for a prediction');
   const gMs = granularityMs(granularity);
@@ -193,23 +213,8 @@ export function localPredict({ instrument, granularity, candles, m5 = [], bidAsk
   const h1 = gMs < 3600000 ? htfSupertrend(candles, granularity, 'H1')?.trend ?? null : null;
   const trend = { side, h1, text: `supertrend ${side === 'up' ? 'up' : 'down'}, ${h1 == null ? (gMs >= 3600000 ? 'H1 not compared' : 'H1 not enough history') : h1 === side ? 'H1 agrees' : 'H1 disagrees'}` };
 
-  // 1. move size (M5, side-free)
-  const model = volModel(instrument);
-  let move = { available: false, text: 'not available for this instrument' };
-  const m5bars = m5.filter((c) => c.partial !== true && c.complete !== false);
-  const m5last = m5bars.at(-1);
-  let feat = null;
-  if (model && m5last && Date.parse(m5last.time) > now - 4 * 300000) {
-    feat = volFeatures(m5bars.slice(-VOL_WINDOW_BARS));
-    if (feat) {
-      const { z, p } = volScore(model, feat.x);
-      move = {
-        available: true, p, z, base: model.training_base_rate, kxAtr: model.target.kx_atr, horizonBars: model.target.horizon_bars,
-        barTime: m5last.time, model: `${model.model}, cutoff ${model.training_cutoff}`,
-        text: `${pct(p)} chance of a ${model.target.kx_atr} ATR move within 6h (usual ${pct(model.training_base_rate)})`,
-      };
-    } else move.text = 'not enough M5 history';
-  } else if (model) move.text = 'no current M5 data';
+  // 1. big-day chance (30-min, side-free)
+  const big = bigDay(instrument, m30, now);
 
   // 2. direction (constant with interval)
   const d = DIRECTION_ESTIMATE[instrument];
@@ -222,27 +227,24 @@ export function localPredict({ instrument, granularity, candles, m5 = [], bidAsk
   const ba = bidAsk?.get(lastMs);
   const atr = st.at(-1).atr;
   const spreadR = ba && atr > 0 ? (ba.ask - ba.bid) / (STOP_ATR * atr) : null;
-  const reasons = noTradeReasons({ instrument, spreadR, closeMs, news });
+  const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
   const action = reasons.length || !lean ? 'no_trade' : lean;
   // no_trade share: 1 when a reason fires, else the part of the margin the stronger side has not cleared
   const noTrade = reasons.length ? 1 : Math.max(0, 1 - Math.abs(up - 0.5) / DIRECTION_MARGIN);
   const state = {
-    move_size_next_6h: move.text,
+    big_day_today: big.text,
     direction: d ? `long ${pct(up)} (${pct(d.lo)}-${pct(d.hi)}), no measurable direction edge` : 'not measured for this instrument, shown as 50/50',
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
     trading_hour: `${String(new Date(closeMs).getUTCHours()).padStart(2, '0')}:00 UTC${THIN_HOURS_UTC[instrument]?.includes(new Date(closeMs).getUTCHours()) ? ', a thin hour' : ''}`,
   };
-  if (feat) {
-    const [, , , , , rv12, , rv288, , atrRatio, range] = feat.x;
-    state.recent_volatility = `${word(rv12, [-0.3, 0.3], ['calmer', 'about the same', 'busier'])} in the last hour than over the day`;
-    state.day_volatility = `${word(rv288, [-1.6, -1.2], ['quiet', 'normal', 'active'])} relative to ATR`;
-    state.atr_vs_10_days = `${atrRatio.toFixed(2)}x the 10-day median`;
-    state.last_m5_bar = `${range.toFixed(1)} ATR high-to-low`;
-    state.session_bar = `bar ${feat.nday + 1} of the session (22:00 UTC roll)`;
+  if (big.x) {
+    const [rv1, , rv22, , , , , , rngNorm] = big.x;
+    state.yesterday_volatility = `${word(rv1 - rv22, [-0.3, 0.3], ['calmer than', 'about the same as', 'busier than'])} the last month`;
+    state.range_so_far = `${word(rngNorm, [-0.3, 0.3], ['narrower than', 'about the same as', 'wider than'])} usual for this time of day`;
   }
-  if (news?.latest) state.news = `${news.latest.escalation}: ${news.latest.title} (not used for direction)`;
+  if (news?.latest) state.news = `${news.latest.escalation}: ${news.latest.title} (not used for direction or reasons)`;
 
   return {
     instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: LOCAL_HORIZON_BARS,
@@ -250,10 +252,9 @@ export function localPredict({ instrument, granularity, candles, m5 = [], bidAsk
     probabilities: { long: up, short: Number((1 - up).toFixed(4)), no_trade: Number(noTrade.toFixed(4)) },
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
-      move, direction: { up, interval, margin: DIRECTION_MARGIN, lean, note: 'no measurable direction edge', source: d ? '2023+ up share, Wilson 95% on n/12' : 'not measured' },
+      bigDay: big, direction: { up, interval, margin: DIRECTION_MARGIN, lean, note: 'no measurable direction edge', source: d ? '2023+ up share, Wilson 95% on n/12' : 'not measured' },
       reasons, trend, spreadR,
-      news: news && { latest: news.latest, freshEscalation: news.freshEscalation, rule: 'untested; news never sets direction' },
-      features: feat && { x: feat.x, atr: feat.atr },
+      news: news && { latest: news.latest, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
   };
 }

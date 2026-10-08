@@ -8,51 +8,49 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  volFeatures, volScore, volModel, noTradeReasons, localPredict, newsInput, fetchBidAsk, DIRECTION_ESTIMATE, VOL_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, newsInput, fetchBidAsk, DIRECTION_ESTIMATE, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 
-const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-parity.json', import.meta.url), 'utf8'));
-const toBars = (rows) => rows.map(([t, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open: close, high, low, close }));
+const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
+const toBars = (rows) => rows.map(([t, open, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close }));
 
-test('parity: bars -> features -> probability match the Python research export within 1e-9', () => {
+test('parity: 30-min bars -> big-day features -> probability match the Python research export within 1e-9', () => {
   for (const inst of FIX.instruments) {
     const bars = toBars(inst.bars);
-    const model = volModel(inst.instrument);
+    const model = bigDayModel(inst.instrument);
     assert.ok(model, `artifact for ${inst.instrument}`);
     assert.deepEqual(model.features, inst.features);
+    assert.equal(model.T1_pct, inst.T1_pct);
     assert.ok(inst.cases.length >= 8);
     for (const c of inst.cases) {
-      const f = volFeatures(bars.slice(0, c.index + 1).slice(-VOL_WINDOW_BARS));
+      const f = bigDayFeatures(bars.slice(0, c.index + 1).slice(-A1_WINDOW_BARS), model.T1_pct);
       assert.ok(f, `${inst.instrument} ${c.bar_open_utc} features`);
       assert.equal(bars[c.index].time.slice(0, 16), c.bar_open_utc);
       for (let j = 0; j < c.x.length; j++) assert.ok(Math.abs(f.x[j] - c.x[j]) <= 1e-9, `${inst.instrument} ${c.bar_open_utc} ${inst.features[j]}: ${f.x[j]} vs ${c.x[j]}`);
-      assert.ok(Math.abs(f.atr - c.atr) <= 1e-9 * c.atr, 'ATR');
-      const { z, p } = volScore(model, f.x);
+      assert.ok(Math.abs(f.exc - c.exc_so) <= 1e-9);
+      const { z, p } = score(model, f.x);
       assert.ok(Math.abs(z - c.z) <= 1e-9 && Math.abs(p - c.p) <= 1e-9, `${inst.instrument} ${c.bar_open_utc} p ${p} vs ${c.p}`);
-      // the spread rule reads the same spr the research computed
-      assert.ok(Math.abs((c.ask_c - c.bid_c) / (1.5 * f.atr) - c.spr) <= 1e-9);
     }
   }
 });
 
-test('volFeatures refuses a window too short for the ATR median', () => {
-  assert.equal(volFeatures(toBars(FIX.instruments[0].bars.slice(0, 500))), null);
+test('bigDayFeatures refuses a window too short for the 22-session and slot norms', () => {
+  assert.equal(bigDayFeatures(toBars(FIX.instruments[0].bars.slice(-500)), 5), null);
 });
 
-test('no-trade reasons: spread over 0.2 R, thin UTC hour, fresh escalated news (untested)', () => {
+test('no-trade reasons: spread over 0.2 R and thin UTC hour only', () => {
   const at = (h) => Date.UTC(2026, 9, 7, h, 0);
   assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.2, closeMs: at(12) }), []);
   assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.21, closeMs: at(12) }).map((r) => r.code), ['spread']);
   assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: null, closeMs: at(22) }).map((r) => r.code), ['thin_hour']);
   assert.deepEqual(noTradeReasons({ instrument: 'SPX500/USD', spreadR: null, closeMs: at(22) }), []);
   assert.deepEqual(noTradeReasons({ instrument: 'BCO/USD', spreadR: null, closeMs: at(22) }), [], 'no thin-hour list');
-  const r = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.5, closeMs: at(4), news: { freshEscalation: { id: 1 } } });
-  assert.deepEqual(r.map((x) => x.code), ['spread', 'thin_hour', 'news_untested']);
-  assert.match(r[2].text, /untested/);
+  const r = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.5, closeMs: at(4) });
+  assert.deepEqual(r.map((x) => x.code), ['spread', 'thin_hour']);
   for (const x of r) assert.match(x.text, /^No trade now: /);
 });
 
-test('newsInput: latest headline within 6h, fresh escalation within 30 min of availability', () => {
+test('newsInput: the latest headline within 6h with its escalation and available-at time', () => {
   const db = new DatabaseSync(':memory:');
   const now = Date.UTC(2026, 9, 7, 12, 0);
   assert.equal(newsInput(db, 'WTICO/USD', now), null, 'no news table');
@@ -61,56 +59,66 @@ test('newsInput: latest headline within 6h, fresh escalation within 30 min of av
     .run('WTICO/USD', `h${min}`, new Date(now - min * 60000).toISOString(), new Date(now - fetchedMin * 60000).toISOString(), esc);
   add(400, 1);
   assert.equal(newsInput(db, 'WTICO/USD', now), null, 'older than 6h');
-  add(90, 1, 20); // published 90 min ago, stored 20 min ago: available 20 min ago
-  add(10, 0);
+  add(10, 1, 2); // published 10 min ago, stored 2 min ago
   const n = newsInput(db, 'WTICO/USD', now);
-  assert.equal(n.latest.title, 'h10');
-  assert.equal(n.latest.escalation, 'routine');
-  assert.equal(n.freshEscalation.title, 'h90');
-  assert.equal(n.freshEscalation.availableAt, new Date(now - 20 * 60000).toISOString());
-  assert.equal(newsInput(db, 'WTICO/USD', now + 15 * 60000).freshEscalation, undefined, 'more than 30 min after it became available');
+  assert.deepEqual([n.latest.title, n.latest.escalation, n.latest.availableAt], ['h10', 'escalation', new Date(now - 2 * 60000).toISOString()]);
 });
 
-// a recent window of the fixture bars, re-timed to end at the bar that just closed
-function liveBars(now, rows = FIX.instruments[0].bars) {
-  const lastOpen = Math.floor(now / 300000) * 300000 - 300000;
-  return rows.map(([, high, low, close], k) => ({ time: new Date(lastOpen - (rows.length - 1 - k) * 300000).toISOString(), open: close, high, low, close, volume: 1 }));
+// the fixture's 30-min bars re-timed back to back so the newest one has just closed
+function liveBars(now, stepMs = 1800000, rows = FIX.instruments[0].bars) {
+  const lastOpen = Math.floor(now / stepMs) * stepMs - stepMs;
+  return rows.map(([, open, high, low, close], k) => ({ time: new Date(lastOpen - (rows.length - 1 - k) * stepMs).toISOString(), open, high, low, close, volume: 1 }));
 }
 
-test('localPredict: four parts, no trade when no side clears the margin, news never moves direction', () => {
+test('localPredict: four parts, no trade when no side clears the margin, news never moves anything', () => {
   const now = Date.UTC(2026, 9, 7, 14, 2);
-  const m5 = liveBars(now);
-  const candles = [...m5.slice(-400), { ...m5.at(-1), time: new Date(Date.parse(m5.at(-1).time) + 300000).toISOString(), partial: true }];
-  const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m5 }, { now });
-  assert.equal(base.candleTime, m5.at(-1).time, 'the newest closed candle, not the forming one');
+  const m30 = liveBars(now);
+  const candles = [...m30.slice(-400), { ...m30.at(-1), time: new Date(Date.parse(m30.at(-1).time) + 1800000).toISOString(), partial: true }];
+  const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles, m30 }, { now });
+  assert.equal(base.candleTime, m30.at(-1).time, 'the newest closed candle, not the forming one');
   assert.equal(base.forming, false);
   assert.equal(base.action, 'no_trade');
   assert.equal(base.probabilities.long, DIRECTION_ESTIMATE['WTICO/USD'].up);
   assert.ok(base.probabilities.no_trade > 0.9);
-  assert.equal(base.detail.move.available, true);
-  assert.ok(base.detail.move.p > 0 && base.detail.move.p < 1);
+  const b = base.detail.bigDay;
+  assert.equal(b.available, true);
+  assert.ok(b.reached || (b.p > 0 && b.p < 1));
+  assert.match(b.text, /5\.4%/);
   assert.match(base.detail.trend.text, /^supertrend (up|down), H1 (agrees|disagrees)$/);
   assert.deepEqual(base.detail.reasons, []);
   assert.match(base.state.direction, /no measurable direction edge/);
-  // a wide spread and fresh escalated news switch to no trade with reasons, but never touch direction or move size
-  const news = { latest: { id: 7, title: 'Tanker hit', escalation: 'escalation' }, freshEscalation: { id: 7 } };
-  const ba = new Map([[Date.parse(m5.at(-1).time), { bid: 100, ask: 100 + base.detail.features.atr }]]);
-  const r = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m5, news, bidAsk: ba }, { now });
-  assert.deepEqual(r.detail.reasons.map((x) => x.code), ['spread', 'news_untested']);
+  // a wide spread switches to no trade with a reason; escalated news is shown and stored but changes nothing
+  const news = { latest: { id: 7, title: 'Tanker hit', escalation: 'escalation', publishedAt: new Date(now - 60000).toISOString() } };
+  const ba = new Map([[Date.parse(m30.at(-1).time), { bid: 100, ask: 101 }]]);
+  const r = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles, m30, news, bidAsk: ba }, { now });
+  assert.deepEqual(r.detail.reasons.map((x) => x.code), ['spread']);
   assert.equal(r.probabilities.no_trade, 1);
-  assert.deepEqual([r.probabilities.long, r.probabilities.short, r.detail.move.p], [base.probabilities.long, base.probabilities.short, base.detail.move.p]);
-  assert.match(r.state.news, /not used for direction/);
+  assert.deepEqual([r.probabilities.long, r.probabilities.short, r.detail.bigDay.p], [base.probabilities.long, base.probabilities.short, b.p]);
+  assert.equal(r.detail.news.latest.id, 7);
+  const n = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles, m30, news }, { now });
+  assert.deepEqual([n.action, n.detail.reasons, n.probabilities], [base.action, [], base.probabilities]);
+  assert.match(n.state.news, /not used for direction or reasons/);
 });
 
-test('localPredict: no artifact or stale M5 makes move size unavailable, not an error', () => {
+test('localPredict: a session past T1 reads as reached, not as a probability', () => {
   const now = Date.UTC(2026, 9, 7, 14, 2);
-  const m5 = liveBars(now);
-  const other = localPredict({ instrument: 'BCO/USD', granularity: 'M5', candles: m5.slice(-200), m5 }, { now });
-  assert.equal(other.detail.move.available, false);
+  const m30 = liveBars(now);
+  const last = m30.at(-1);
+  m30[m30.length - 1] = { ...last, high: last.open * 1.2 };
+  const r = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles: m30.slice(-400), m30 }, { now });
+  assert.deepEqual([r.detail.bigDay.reached, r.detail.bigDay.p], [true, 1]);
+  assert.match(r.detail.bigDay.text, /already a big day/);
+});
+
+test('localPredict: no artifact or stale 30-min data makes big day unavailable, not an error', () => {
+  const now = Date.UTC(2026, 9, 7, 14, 2);
+  const m30 = liveBars(now);
+  const other = localPredict({ instrument: 'BCO/USD', granularity: 'M30', candles: m30.slice(-200), m30 }, { now });
+  assert.equal(other.detail.bigDay.available, false);
   assert.equal(other.probabilities.long, 0.5);
   assert.equal(other.action, 'no_trade');
-  const stale = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles: m5.slice(-200), m5: m5.slice(0, -10) }, { now });
-  assert.equal(stale.detail.move.text, 'no current M5 data');
+  const stale = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles: m30.slice(-200), m30: m30.slice(0, -10) }, { now });
+  assert.equal(stale.detail.bigDay.text, 'no current 30-minute data');
 });
 
 test('fetchBidAsk reads complete bid/ask closes and fails soft', async () => {
@@ -128,8 +136,10 @@ async function withLocalServer(settings, fn) {
   const dir = mkdtempSync(join(tmpdir(), 'local-pred-'));
   const dbPath = join(dir, 'db.sqlite');
   const settingsPath = join(dir, 'settings.json');
-  const m5 = liveBars(Date.now());
+  const now = Date.now();
+  const m5 = liveBars(now, 300000).slice(-400);
   storeCandles(dbPath, 'WTICO/USD', 'M5', m5);
+  storeCandles(dbPath, 'WTICO/USD', 'M30', liveBars(now));
   writeFileSync(settingsPath, JSON.stringify(settings));
   const calls = [];
   const providerFetch = async (url) => {
@@ -152,7 +162,7 @@ test('POST /api/predict: local is the default, needs no key, stores one run per 
     const { prediction: p } = await r.json();
     assert.equal(p.provider, 'local');
     assert.equal(p.candleTime, m5.at(-1).time);
-    assert.equal(p.detail.move.available, true);
+    assert.equal(p.detail.bigDay.available, true);
     assert.equal(p.action, 'no_trade');
     assert.equal(p.valid, true);
     assert.equal(Date.parse(p.expiresAt), Date.parse(m5.at(-1).time) + 600000, 'valid until the next candle closes');
@@ -163,7 +173,7 @@ test('POST /api/predict: local is the default, needs no key, stores one run per 
     assert.equal(typesafeCalls(calls), 0);
     const list = (await (await fetch(`${base}/api/predictions?instrument=WTICO/USD&granularity=M5`)).json()).predictions;
     assert.equal(list.length, 1);
-    assert.equal(list[0].detail.features.x.length, 12);
+    assert.equal(list[0].detail.bigDay.thresholdPct, bigDayModel('WTICO/USD').T1_pct);
   });
 });
 

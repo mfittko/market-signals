@@ -12,14 +12,21 @@ type Prediction = {
   provider?: string; detail?: LocalDetail | null;
 };
 // What the local provider stores beside the three bars (scripts/local-predict.mjs)
+type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
 type LocalDetail = {
-  move: { available: boolean; p?: number; base?: number; kxAtr?: number; text: string };
+  bigDay?: BigDayPart;
   direction: { up: number; interval: [number, number] | null };
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { latest: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
+// "41% for a move of 5.4% or more (usual 7%)"; a session past the threshold is a fact, not a chance
+function BigDay({ b }: { b?: BigDayPart }) {
+  if (!b?.available || b.thresholdPct == null) return <>n/a ({b?.text ?? 'not computed'})</>;
+  if (b.reached) return <><strong>reached</strong>, {b.movedPct?.toFixed(1)}% from the session open (big day is {b.thresholdPct.toFixed(1)}% or more)</>;
+  return <><strong>{pct(b.p)}</strong> for a move of {b.thresholdPct.toFixed(1)}% or more (usual {pct(b.usual)})</>;
+}
 const NEWS_SHOWN_MS = 6 * 3600000;
 
 const MASK = '•••';
@@ -45,6 +52,7 @@ const loadAuto = (symbol: string, gran: string) => { try { return localStorage.g
 const saveAuto = (symbol: string, gran: string, on: boolean) => { try { localStorage.setItem(`${AUTO_KEY}${symbol}|${gran}`, on ? '1' : '0'); } catch { /* private window */ } };
 // the timeframes the engine predicts on; mirrors isPredictionGranularity in scripts/predictions.mjs
 const SUPPORTED = new Set(['M1', 'M5', 'M15', 'M30', 'H1', 'H4']);
+const granMs = (g: string) => Number(g.slice(1)) * (g[0] === 'H' ? 3600000 : 60000);
 const opposite = (a: Action, b: Action) => (a === 'long' && b === 'short') || (a === 'short' && b === 'long');
 
 // Desktop notification for a long/short flip; it fires only while this console tab is open.
@@ -78,6 +86,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const [now, setNow] = useState(() => Date.now());
   const current = useRef(granularity);
   const autoCandle = useRef<string | null>(null);
+  const lastTry = useRef(0);
   // the newest long or short run, kept apart from the ten-row history so no_trade runs never erase the flip baseline
   const lastDir = useRef<{ id: number; action: Action } | null>(null);
   const autoRef = useRef(false);
@@ -140,12 +149,21 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   // hidden is picked up when the tab becomes visible again
   useEffect(() => {
     if (!enabled || !loaded || !auto || busy || !liveCandleTime || !visible || document.visibilityState !== 'visible') return;
+    if (local) {
+      // a local run covers the closed candle before the forming one; right after a close the engine may
+      // not have the closed bar yet, so ask again every 15 s until the run catches up with the live feed
+      const covered = (timeMs(runs[0]?.candleTime ?? '') || 0) + granMs(granularity);
+      if (!(timeMs(liveCandleTime) > covered) || now - lastTry.current < 15000) return;
+      lastTry.current = now;
+      void predict();
+      return;
+    }
     // strictly newer only: the live feed can step back to the last closed bar when an upstream fetch fails
     const seen = Math.max(timeMs(runs[0]?.candleTime ?? '') || 0, timeMs(autoCandle.current ?? '') || 0);
     if (!(timeMs(liveCandleTime) > seen)) return;
     autoCandle.current = liveCandleTime;
     void predict();
-  }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict, visible]);
+  }, [enabled, loaded, auto, busy, liveCandleTime, runs, predict, visible, local, granularity, now]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -173,15 +191,18 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
             <strong style={{ fontSize: 22, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
-            <span className="muted small">{pct(p.probabilities[p.action])} · {d ? <>long {pct(d.direction.up)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''}, no measurable direction edge</> : <>confidence {pct(p.confidence)}</>}</span>
+            <span className="muted small">{pct(p.probabilities[p.action])} · {d ? <>long {pct(d.direction.up)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''}</> : <>confidence {pct(p.confidence)}</>}</span>
             {expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>}
           </div>
+          {/* local: research found no direction edge; Jev: a historic backtest found it no better than chance. Keep until a calibrated version shows one. */}
+          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{d
+            ? 'Direction: no measurable edge (research). Signals in this system average about −0.1 R after costs; reasons below are measured filters, not buy signals.'
+            : 'No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.'}</p>
           {d && d.reasons.length > 0 && (
             <ul className="small" style={{ margin: '6px 0', paddingLeft: 18 }}>
               {d.reasons.map((r) => <li key={r.code}>{r.text}</li>)}
             </ul>
           )}
-          {d && <p className="small muted" style={{ margin: '4px 0' }}>Even when no reason fires, signals in this system still average about −0.1 R after costs. A clean check is not a buy recommendation.</p>}
           <div style={{ display: 'grid', gap: 4, margin: '10px 0' }}>
             {(['long', 'short', 'no_trade'] as Action[]).map((a) => (
               <div key={a} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 40px', alignItems: 'center', gap: 8 }} className="small">
@@ -194,15 +215,11 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
             ))}
           </div>
           {d
-            ? <p className="small" style={{ margin: '4px 0' }}>Move size next hours: {d.move.available ? <strong>{pct(d.move.p)}</strong> : 'n/a'}{d.move.available ? ` chance of a ${d.move.kxAtr} ATR move within 6h (usual ${pct(d.move.base)})` : ` (${d.move.text})`} · trend: {d.trend.text}</p>
+            ? <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /> · trend: {d.trend.text}</p>
             : <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {news.title.length > 90 ? `${news.title.slice(0, 89)}…` : news.title}</p>}
-          {/* research found no direction edge (local) and a historic backtest found Jev no better than chance; keep until a calibrated version shows one */}
-          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{d
-            ? 'No measurable direction edge: research found none on any instrument, so long and short show a fixed share near 50%. Move size and the no-trade reasons are research results that are not yet confirmed live. News never sets the side.'
-            : 'No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.'}</p>
           <p className="small muted" style={{ margin: '4px 0' }}>
-            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : d ? ' (closed)' : ''} at {p.price} · {d ? 'over the next 6 hours' : `over the next ${p.horizonBars} candles`} · {age(p.askedAt, now)}
+            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : d ? ' (closed)' : ''} at {p.price} · {d ? 'direction over the next 6 hours, big day over the session' : `over the next ${p.horizonBars} candles`} · {age(p.askedAt, now)}
           </p>
           <details className="small">
             <summary className="muted">Inputs</summary>

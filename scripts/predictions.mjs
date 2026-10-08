@@ -65,7 +65,7 @@ const toRow = (r, now = Date.now()) => {
 // The prediction for the pair right now. With `reuse`, the latest stored run of
 // the selected provider is returned while it is still valid (no provider call);
 // otherwise `loadCandles` supplies the current window and a new run is made and
-// stored. The local provider also reads `loadM5` (the M5 window for move size).
+// stored. The local provider also reads `loadM30` (the 30-min window for the big-day model).
 // Concurrent reuse callers for one pair share a single in-flight run, so they make one paid call.
 const inflight = new Map();
 
@@ -83,7 +83,7 @@ export async function currentPrediction(dbPath, settings, input, { reuse = false
   return run;
 }
 
-async function freshPrediction(dbPath, settings, { instrument, granularity, loadCandles, loadM5 }, now, opts) {
+async function freshPrediction(dbPath, settings, { instrument, granularity, loadCandles, loadM30 }, now, opts) {
   const candles = await loadCandles();
   if (!candles.length) throw Object.assign(new Error(`no candles for ${instrument} ${granularity}`), { status: 404 });
   // The chart serves stored candles when the live fetch fails. A window whose newest bar started more
@@ -94,7 +94,7 @@ async function freshPrediction(dbPath, settings, { instrument, granularity, load
   }
   const input = { instrument, granularity, candles };
   if (predictionProvider(settings) === LOCAL_PROVIDER) {
-    input.m5 = loadM5 ? await loadM5() : (granularity === 'M5' ? candles : []);
+    input.m30 = loadM30 ? await loadM30() : (granularity === 'M30' ? candles : []);
     input.bidAsk = await fetchBidAsk(instrument, granularity, { fetchFn: opts.fetchFn });
   }
   return { reused: false, ...(await runPrediction(dbPath, settings, input, { now, ...opts })) };
@@ -141,7 +141,7 @@ export function predictionForTool(p) {
     return {
       advisory: 'Advisory statistics only. There is no measurable direction edge; the long/short split is a constant near 50/50. It never places or changes a trade; confirm with price action before any entry.',
       provider: p.provider, instrument: p.instrument, granularity: p.granularity, action: p.action, probabilities: p.probabilities,
-      directionInterval: d.direction?.interval ?? null, moveSizeNext6h: d.move ?? null, noTradeReasons: d.reasons ?? [],
+      directionInterval: d.direction?.interval ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
       trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: 'next 6 hours (72 M5 bars)',
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };
