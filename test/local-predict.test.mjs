@@ -8,7 +8,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, newsInput, fetchBidAsk, DIRECTION_ESTIMATE, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, newsInput, newsRelevant, fetchBidAsk, DIRECTION_ESTIMATE, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
@@ -46,22 +46,32 @@ test('no-trade reasons: spread over 0.2 R and thin UTC hour only', () => {
   assert.deepEqual(noTradeReasons({ instrument: 'SPX500/USD', spreadR: null, closeMs: at(22) }), []);
   assert.deepEqual(noTradeReasons({ instrument: 'BCO/USD', spreadR: null, closeMs: at(22) }), [], 'no thin-hour list');
   const r = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.5, closeMs: at(4) });
-  assert.deepEqual(r.map((x) => x.code), ['spread', 'thin_hour']);
-  for (const x of r) assert.match(x.text, /^No trade now: /);
+  assert.deepEqual(r.map((x) => x.text), ['Spread wide (0.50 of the stop distance, limit 0.2)', 'Thin trading hour (04:00 UTC)']);
 });
 
-test('newsInput: the latest headline within 6h with its escalation and available-at time', () => {
+test('newsRelevant: per-instrument keywords on whole words, nothing for unlisted instruments', () => {
+  assert.equal(newsRelevant('WTICO/USD', 'Oil prices climb as OPEC+ holds output'), true);
+  assert.equal(newsRelevant('WTICO/USD', 'Cristiano Ronaldo pays tribute to Lionel Messi'), false);
+  assert.equal(newsRelevant('WTICO/USD', 'Turmoil in the boardroom'), false, 'no match inside a word');
+  assert.equal(newsRelevant('SPX500/USD', 'S&P 500 hits a record as earnings beat'), true);
+  assert.equal(newsRelevant('EUR/USD', 'ECB holds rates'), true);
+  assert.equal(newsRelevant('JP225/USD', 'Oil and gold rally'), false);
+});
+
+test('newsInput: newest headline stored unchanged, newest relevant one picked for display', () => {
   const db = new DatabaseSync(':memory:');
   const now = Date.UTC(2026, 9, 7, 12, 0);
   assert.equal(newsInput(db, 'WTICO/USD', now), null, 'no news table');
   db.exec('CREATE TABLE news (instrument TEXT, title TEXT, time TEXT, fetched_at TEXT, escalation INTEGER)');
-  const add = (min, esc, fetchedMin = min) => db.prepare('INSERT INTO news VALUES (?,?,?,?,?)')
-    .run('WTICO/USD', `h${min}`, new Date(now - min * 60000).toISOString(), new Date(now - fetchedMin * 60000).toISOString(), esc);
-  add(400, 1);
+  const add = (min, title, esc, fetchedMin = min) => db.prepare('INSERT INTO news VALUES (?,?,?,?,?)')
+    .run('WTICO/USD', title, new Date(now - min * 60000).toISOString(), new Date(now - fetchedMin * 60000).toISOString(), esc);
+  add(400, 'Crude falls', 1);
   assert.equal(newsInput(db, 'WTICO/USD', now), null, 'older than 6h');
-  add(10, 1, 2); // published 10 min ago, stored 2 min ago
+  add(30, 'Crude jumps on Hormuz threat', 1, 2); // published 30 min ago, stored 2 min ago
+  add(10, 'Cristiano Ronaldo pays tribute to Lionel Messi', 0);
   const n = newsInput(db, 'WTICO/USD', now);
-  assert.deepEqual([n.latest.title, n.latest.escalation, n.latest.availableAt], ['h10', 'escalation', new Date(now - 2 * 60000).toISOString()]);
+  assert.deepEqual([n.latest.title, n.latest.relevant, n.latest.escalation], ['Cristiano Ronaldo pays tribute to Lionel Messi', false, 'routine']);
+  assert.deepEqual([n.relevant.title, n.relevant.escalation, n.relevant.availableAt], ['Crude jumps on Hormuz threat', 'escalation', new Date(now - 2 * 60000).toISOString()]);
 });
 
 // the fixture's 30-min bars re-timed back to back so the newest one has just closed
@@ -88,7 +98,8 @@ test('localPredict: four parts, no trade when no side clears the margin, news ne
   assert.deepEqual(base.detail.reasons, []);
   assert.match(base.state.direction, /no measurable direction edge/);
   // a wide spread switches to no trade with a reason; escalated news is shown and stored but changes nothing
-  const news = { latest: { id: 7, title: 'Tanker hit', escalation: 'escalation', publishedAt: new Date(now - 60000).toISOString() } };
+  const hit = { id: 7, title: 'Tanker hit near Hormuz', escalation: 'escalation', relevant: true, publishedAt: new Date(now - 60000).toISOString() };
+  const news = { latest: hit, relevant: hit };
   const ba = new Map([[Date.parse(m30.at(-1).time), { bid: 100, ask: 101 }]]);
   const r = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles, m30, news, bidAsk: ba }, { now });
   assert.deepEqual(r.detail.reasons.map((x) => x.code), ['spread']);

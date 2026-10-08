@@ -33,12 +33,16 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - Thin trading hour: the UTC hour of the bar close is in the fixed per-instrument list.
      - Chase and stretched-move filters (measured as harmful), H1 counter-trend (no effect) and the news caution (unvalidated) are not reasons.
    - **Trend.** The supertrend side on the viewed timeframe and whether H1 agrees. It is shown as context.
-   - **News.** The newest headline for the instrument from the engine news cache, within 6 hours. The card shows it, and every run stores its id, escalation, published-at and available-at for a later study. It never sets the side, a reason or a number.
+   - **News.** Headlines for the instrument from the engine news cache, within 6 hours.
+     - The store has no relevance tagging, and its per-instrument feeds carry off-topic items. The preview showed "Cristiano Ronaldo pays tribute to Lionel Messi" on WTI.
+     - A headline therefore counts as relevant only when it names a keyword from a fixed per-instrument list (`NEWS_KEYWORDS`: oil, crude, OPEC, Hormuz, EIA … for WTI and BCO; gold, bullion, Fed … for metals; LNG, Henry Hub … for NATGAS; S&P, Nasdaq, earnings … for indices; euro, ECB, dollar, Fed for EUR/USD). Matching is on whole words. Other instruments get no news line.
+     - Every run stores the newest headline unchanged, with a `relevant` flag, and the newest relevant headline. Each carries id, escalation, published-at and available-at.
+     - News never sets the side, a reason or a number.
 2. Headline rule (declared before any live run).
    - A side clears the margin only when its share is at least 0.5 + 0.05 and its interval lies wholly above 0.5.
    - The headline is Long or Short only when one side clears the margin and no reason fires. Otherwise it is No trade.
-   - The bars show long = up share and short = 1 minus up share.
-   - The no_trade bar is 1 when a reason fires. Otherwise it is 1 minus |up minus 0.5| / 0.05, the part of the margin the stronger side has not cleared.
+   - The numbers (shown in Details for local runs) are long = up share and short = 1 minus up share.
+   - The no_trade number is 1 when a reason fires. Otherwise it is 1 minus |up minus 0.5| / 0.05, the part of the margin the stronger side has not cleared.
    - With the measured shares the headline is always No trade, at about 70% to 100%.
 3. Storage and updates.
    - `scripts/predictions.mjs` selects the provider with the new setting `predictionProvider`: `local` is the default, `typesafe-jev` is optional. `predictionActive` needs the toggle for both providers, and a TypeSafe key only for Jev.
@@ -47,11 +51,20 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - The 30-min window (3600 bars, about 75 sessions) is backfilled once through `acquireWindow`. Later runs fetch only the tail.
    - Updates come from two places. The engine cycle (`runWatcherCycle`, after the alert path) refreshes every watched pair. The card asks again whenever the live feed shows a candle newer than its run covers. It retries every 15 s until the engine has the closed bar.
 4. Card and settings.
-   - `PredictionPanel.tsx` keeps its structure, styling, the three bars, history and flip notifications.
-   - Under the headline there is one note: "Direction: no measurable edge (research). Signals in this system average about −0.1 R after costs; reasons below are measured filters, not buy signals." The reasons follow it.
-   - The quality line reads "Big-day chance today: 20% for a move of 5.4% or more (usual 5%) · trend: supertrend up, H1 agrees". "Usual" is the training base rate.
-   - A "News: <escalation> · <age>: <headline>" line follows.
-   - Predict now and the auto-update checkbox show only for Jev.
+   - After the operator preview, a local run has a compact layout in the same component. The Jev layout is unchanged.
+   - The validity chip sits in the card header.
+   - The first line is "No trade · no direction edge (50%/50%)". "no direction edge" has a tooltip with the research note.
+   - Next comes "Big-day chance today: 26% for ≥ 5.4% (usual 5%) · 2.8% so far". "Usual" is the training base rate.
+   - Then "Trend: up, H1 agrees".
+   - A warning line appears only when a reason fires, for example "Spread wide (1.15 of the stop distance, limit 0.2)" or "Thin trading hour (04:00 UTC)".
+   - A "News: <escalation> · <age>: <headline>" line appears only for a relevant headline that is not routine.
+   - "Details", collapsed by default, holds:
+     - the long, short and no-trade numbers with the interval
+     - the −0.1 R note as one muted line
+     - the latest relevant headline, even when routine
+     - all inputs in plain words
+     - the candle and horizon footer
+   - The three probability bars, the subtitle, Predict now and the auto-update checkbox show only for Jev. History and flip notifications are kept.
    - The settings card has a provider select. The Go allow-list accepts `predictionProvider`, and the `get_prediction` tool text describes both providers.
 5. Parity.
    - `export_a1.py` writes a 30-min bar tail covering 75 valid sessions and the last 8 population rows for WTICO/USD and EUR/USD into `test/fixtures/local-predict-a1-parity.json` (371 KB). Each row has x, z, p and the excursion so far.
@@ -98,17 +111,19 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - The stored id, escalation, published-at and available-at allow a later prospective study.
   - A test covers that news changes neither the side, the bars nor the big-day number.
 - **Live-feed race.** Right after a candle closes, the engine can still lack the closed bar. The first run then returns the previous candle. The card now asks again every 15 s until its run covers the candle before the forming one.
-  - In the running-app check, the card moved from the 09:20 to the 09:25 local candle 85 s after the script started, without a click.
+  - In the running-app check of the compact card, the card moved from the 09:35 to the 09:40 local candle 65 s after the script started, without a click.
   - Screenshots:
-    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5: big-day chance 20%, usual 5%, news line, Inputs open)
+    - `docs/spikes/local-prediction-provider/prediction-card-desktop.png` (WTI M5, compact: big-day chance 26%, usual 5%, 2.8% so far, relevant escalated news)
     - `docs/spikes/local-prediction-provider/prediction-card-mobile.png` (the same at 390 px)
-    - `docs/spikes/local-prediction-provider/prediction-card-after-candle-desktop.png` (the next candle, updated automatically, 26%)
-    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD: no artifact, big day n/a, 50/50 "not measured")
+    - `docs/spikes/local-prediction-provider/prediction-card-details-desktop.png` and `prediction-card-details-mobile.png` (Details open)
+    - `docs/spikes/local-prediction-provider/prediction-card-reason-desktop.png` (NATGAS M5: "Spread wide (1.15 of the stop distance, limit 0.2)"; no relevant news, so no news line)
+    - `docs/spikes/local-prediction-provider/prediction-card-after-candle-desktop.png` (the next candle, updated automatically)
+    - `docs/spikes/local-prediction-provider/prediction-card-no-artifact-desktop.png` (BCO/USD with Details open: big day n/a, 50/50 "not measured")
     - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 12 tests pass. They cover parity, short window, reasons, news input, the four parts, news invariance, reached sessions, unavailable model, bid/ask fetch, route provider selection with reuse and dedup, the engine-cycle hook, and the table migration.
-  - `npm run verify`: 798 tests pass, plus the console typecheck.
+  - `node --test test/local-predict.test.mjs`: 13 tests pass. They cover parity, short window, reasons, news relevance, news input, the four parts, news invariance, reached sessions, unavailable model, bid/ask fetch, route provider selection with reuse and dedup, the engine-cycle hook, and the table migration.
+  - `npm run verify`: 799 tests pass, plus the console typecheck.
   - `go test ./internal/api ./internal/tools`: pass.
 
 ## Recommendation
@@ -120,7 +135,7 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
    - the measured near-50/50 direction with its interval
    - the two study-backed no-trade reasons
    - the trend as context
-   - the news line, as display only
+   - the news line, as display only, for relevant headlines that are not routine
 2. Treat the big-day number as unqualified until the silent shadow in https://github.com/mfittko/market-signals/issues/313 shows calibration and usefulness live. abs11 A1 failed its preregistered operating rule.
 3. Port the A1 features to Go in https://github.com/mfittko/market-signals/issues/312 against the same fixture format: bars, features, z and p. Keep the `A1_nostress` variant unless shadow shows that stress matters.
 4. Evaluate the stored news inputs once enough history exists, before news can become a reason.
@@ -133,3 +148,4 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 - Should the thin-hour lists, the direction constants and T1 move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?
 - Does a no-trade reason feed EntryGuard as a REJECTED reason code, or does it stay display-only until it is qualified?
 - Should the card show the big-day chance only above its usual rate, or always?
+- Should the news store tag relevance per instrument at ingest (replacing the fixed keyword lists), and should escalation get more than two levels?

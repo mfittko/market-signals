@@ -148,30 +148,51 @@ export async function fetchBidAsk(instrument, granularity, { fetchFn = fetch } =
   } catch { return null; }
 }
 
-// Newest headline for the instrument from the engine news cache within 6 hours.
+// Headline keywords per instrument. The news store has no relevance tagging and its
+// per-instrument feeds carry off-topic items, so a headline counts only when it names one of these.
+// ponytail: fixed keyword lists; replace with store-side tagging if the feeds get one.
+const OIL = ['oil', 'crude', 'OPEC', 'OPEC+', 'Brent', 'WTI', 'refinery', 'refineries', 'pipeline', 'Hormuz', 'Iran sanctions', 'EIA', 'inventories'];
+const METALS = ['gold', 'silver', 'bullion', 'precious metals', 'Fed', 'rates', 'inflation'];
+const STOCKS = ['S&P', 'Nasdaq', 'stocks', 'equities', 'Fed', 'earnings'];
+export const NEWS_KEYWORDS = {
+  'WTICO/USD': OIL, 'BCO/USD': OIL, 'XAU/USD': METALS, 'XAG/USD': METALS,
+  'NATGAS/USD': ['natural gas', 'LNG', 'Henry Hub', 'storage'],
+  'SPX500/USD': STOCKS, 'NAS100/USD': STOCKS, 'EUR/USD': ['euro', 'ECB', 'dollar', 'Fed'],
+};
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export const newsRelevant = (instrument, title) => {
+  const words = NEWS_KEYWORDS[instrument];
+  return Boolean(words && new RegExp(`(^|[^A-Za-z])(${words.map(esc).join('|')})(?![A-Za-z])`, 'i').test(title ?? ''));
+};
+
+// Headlines for the instrument from the engine news cache within 6 hours: the newest one
+// (stored unchanged for a later study) and the newest relevant one (what the card shows).
 // Available-at is the later of the publish time and the time the engine stored it.
-// Stored with each run for a later study; it never feeds a reason or a number.
+// News never feeds a reason or a number.
 export function newsInput(db, instrument, now) {
-  let r;
+  let rows;
   try {
-    r = db.prepare(`SELECT rowid AS id, title, time, fetched_at, escalation FROM news
-      WHERE instrument = ? AND time IS NOT NULL AND time >= ? AND time <= ? ORDER BY time DESC LIMIT 1`)
-      .get(instrument, new Date(now - NEWS_WINDOW_MS).toISOString(), new Date(now).toISOString());
+    rows = db.prepare(`SELECT rowid AS id, title, time, fetched_at, escalation FROM news
+      WHERE instrument = ? AND time IS NOT NULL AND time >= ? AND time <= ? ORDER BY time DESC LIMIT 100`)
+      .all(instrument, new Date(now - NEWS_WINDOW_MS).toISOString(), new Date(now).toISOString());
   } catch { return null; } // no news table yet
-  if (!r) return null;
-  const avail = Math.max(Date.parse(r.time), Date.parse(r.fetched_at) || 0);
-  return { latest: { id: r.id, title: r.title, escalation: r.escalation === 1 ? 'escalation' : 'routine', publishedAt: r.time, availableAt: new Date(avail).toISOString() } };
+  if (!rows.length) return null;
+  const item = (r) => r && {
+    id: r.id, title: r.title, escalation: r.escalation === 1 ? 'escalation' : 'routine', relevant: newsRelevant(instrument, r.title),
+    publishedAt: r.time, availableAt: new Date(Math.max(Date.parse(r.time), Date.parse(r.fetched_at) || 0)).toISOString(),
+  };
+  return { latest: item(rows[0]), relevant: item(rows.find((r) => newsRelevant(instrument, r.title))) ?? null };
 }
 
 // The evidenced no-trade reasons at the bar that just closed. `closeMs` is that bar's close time.
 export function noTradeReasons({ instrument, spreadR, closeMs }) {
   const out = [];
   if (spreadR != null && spreadR > SPREAD_MAX_R) {
-    out.push({ code: 'spread', text: `No trade now: the spread is wide (${spreadR.toFixed(2)} of the stop distance, limit ${SPREAD_MAX_R}).` });
+    out.push({ code: 'spread', text: `Spread wide (${spreadR.toFixed(2)} of the stop distance, limit ${SPREAD_MAX_R})` });
   }
   const hour = new Date(closeMs).getUTCHours();
   if (THIN_HOURS_UTC[instrument]?.includes(hour)) {
-    out.push({ code: 'thin_hour', text: `No trade now: thin trading hour (${String(hour).padStart(2, '0')}:00 UTC), spreads are usually wide relative to movement.` });
+    out.push({ code: 'thin_hour', text: `Thin trading hour (${String(hour).padStart(2, '0')}:00 UTC)` });
   }
   return out;
 }
@@ -244,7 +265,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], bidAs
     state.yesterday_volatility = `${word(rv1 - rv22, [-0.3, 0.3], ['calmer than', 'about the same as', 'busier than'])} the last month`;
     state.range_so_far = `${word(rngNorm, [-0.3, 0.3], ['narrower than', 'about the same as', 'wider than'])} usual for this time of day`;
   }
-  if (news?.latest) state.news = `${news.latest.escalation}: ${news.latest.title} (not used for direction or reasons)`;
+  if (news?.relevant) state.news = `${news.relevant.escalation}: ${news.relevant.title} (not used for direction or reasons)`;
 
   return {
     instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: LOCAL_HORIZON_BARS,
@@ -254,7 +275,7 @@ export function localPredict({ instrument, granularity, candles, m30 = [], bidAs
     detail: {
       bigDay: big, direction: { up, interval, margin: DIRECTION_MARGIN, lean, note: 'no measurable direction edge', source: d ? '2023+ up share, Wilson 95% on n/12' : 'not measured' },
       reasons, trend, spreadR,
-      news: news && { latest: news.latest, rule: 'shown and stored only; never sets direction, a reason or a number' },
+      news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
   };
 }

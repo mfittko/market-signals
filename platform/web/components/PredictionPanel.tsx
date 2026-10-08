@@ -18,14 +18,16 @@ type LocalDetail = {
   direction: { up: number; interval: [number, number] | null };
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
-  news: { latest: { title: string; escalation: string; publishedAt: string } | null } | null;
+  news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
-// "41% for a move of 5.4% or more (usual 7%)"; a session past the threshold is a fact, not a chance
+const DIRECTION_NOTE = 'Research found no measurable direction edge on any instrument (direction AUC 0.53 or less), so long and short show the measured up share of the next 6 hours, near 50%.';
+// "26% for ≥ 5.4% (usual 5%) · 2.8% so far"; a session past the threshold is a fact, not a chance
 function BigDay({ b }: { b?: BigDayPart }) {
   if (!b?.available || b.thresholdPct == null) return <>n/a ({b?.text ?? 'not computed'})</>;
-  if (b.reached) return <><strong>reached</strong>, {b.movedPct?.toFixed(1)}% from the session open (big day is {b.thresholdPct.toFixed(1)}% or more)</>;
-  return <><strong>{pct(b.p)}</strong> for a move of {b.thresholdPct.toFixed(1)}% or more (usual {pct(b.usual)})</>;
+  const sofar = b.movedPct == null ? '' : ` · ${b.movedPct.toFixed(1)}% so far`;
+  if (b.reached) return <><strong>reached</strong> (≥ {b.thresholdPct.toFixed(1)}%){sofar}</>;
+  return <><strong>{pct(b.p)}</strong> for ≥ {b.thresholdPct.toFixed(1)}% (usual {pct(b.usual)}){sofar}</>;
 }
 const NEWS_SHOWN_MS = 6 * 3600000;
 
@@ -177,32 +179,47 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
   const d = p?.provider === LOCAL ? p.detail ?? null : null;
   const iv = d?.direction.interval;
-  const news = d?.news?.latest && now - timeMs(d.news.latest.publishedAt) <= NEWS_SHOWN_MS ? d.news.latest : null;
+  const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
+  const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
+  const chip = p && (expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>);
+  const clip = (s: string) => (s.length > 90 ? `${s.slice(0, 89)}…` : s);
 
   return (
-    <Card title="Prediction" aside={local ? undefined : <button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
-      {local
-        ? <p className="small muted" style={{ margin: 0 }}>Updates on each closed {granularity} candle for {symbol}. Free, computed on this machine.</p>
-        : <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>}
+    <Card title="Prediction" aside={local ? chip ?? undefined : <button type="button" onClick={() => void predict()} disabled={busy}>{busy ? 'Predicting…' : 'Predict now'}</button>}>
+      {!local && <label className="small"><span><input type="checkbox" checked={auto} onChange={(e) => { setAutoState({ gran: granularity, on: e.target.checked }); saveAuto(symbol, granularity, e.target.checked); }} /> Auto-update on each new {granularity} candle for {symbol}</span></label>}
       {err && <p className="msg err" role="alert">{err}</p>}
       {!p && !err && <p className="small muted">{local ? `Waiting for the next closed ${granularity} candle.` : `Predicts whether to enter long, short or not at all on the current ${granularity} candle, judged over the next 3 candles.`} Advisory only.</p>}
-      {p && (
+      {p && d && (
+        <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
+          {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
+          <p style={{ margin: '4px 0' }}>
+            <strong style={{ fontSize: 18, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
+            <span className="muted small"> · <abbr title={DIRECTION_NOTE} style={{ cursor: 'help' }}>no direction edge</abbr> ({pct(d.direction.up)}/{pct(1 - d.direction.up)})</span>
+          </p>
+          <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
+          <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
+          {d.reasons.map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
+          {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
+          <details className="small">
+            <summary className="muted">Details</summary>
+            <p style={{ margin: '6px 0' }}>Long {pct(p.probabilities.long)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''} · Short {pct(p.probabilities.short)} · No trade {pct(p.probabilities.no_trade)}</p>
+            <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
+            {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
+            <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+            </ul>
+            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · direction over the next 6 hours, big day over the session · {age(p.askedAt, now)}</p>
+          </details>
+        </div>
+      )}
+      {p && !d && (
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
             <strong style={{ fontSize: 22, color: TONE[p.action] }}>{LABEL[p.action]}</strong>
-            <span className="muted small">{pct(p.probabilities[p.action])} · {d ? <>long {pct(d.direction.up)}{iv ? ` (${pct(iv[0])}–${pct(iv[1])})` : ''}</> : <>confidence {pct(p.confidence)}</>}</span>
-            {expired(p) ? <span className="chip bad">expired</span> : <span className="chip ok">valid for {left(p.expiresAt, now)}</span>}
+            <span className="muted small">{pct(p.probabilities[p.action])} · confidence {pct(p.confidence)}</span>
+            {chip}
           </div>
-          {/* local: research found no direction edge; Jev: a historic backtest found it no better than chance. Keep until a calibrated version shows one. */}
-          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{d
-            ? 'Direction: no measurable edge (research). Signals in this system average about −0.1 R after costs; reasons below are measured filters, not buy signals.'
-            : 'No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.'}</p>
-          {d && d.reasons.length > 0 && (
-            <ul className="small" style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {d.reasons.map((r) => <li key={r.code}>{r.text}</li>)}
-            </ul>
-          )}
           <div style={{ display: 'grid', gap: 4, margin: '10px 0' }}>
             {(['long', 'short', 'no_trade'] as Action[]).map((a) => (
               <div key={a} style={{ display: 'grid', gridTemplateColumns: '72px 1fr 40px', alignItems: 'center', gap: 8 }} className="small">
@@ -214,19 +231,18 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
               </div>
             ))}
           </div>
-          {d
-            ? <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /> · trend: {d.trend.text}</p>
-            : <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>}
-          {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {news.title.length > 90 ? `${news.title.slice(0, 89)}…` : news.title}</p>}
+          <p className="small" style={{ margin: '4px 0' }}>Setup quality {p.quality == null ? '–' : p.quality.toFixed(1)} of 4 · trend confirmed {pct(p.trendConfirmed)}</p>
+          {/* a historic backtest found no directional edge beyond chance; keep this until a calibrated version shows one */}
+          <p className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>No demonstrated edge yet: in a historic backtest these predictions were not more accurate than chance. Treat this as one input, not a signal.</p>
           <p className="small muted" style={{ margin: '4px 0' }}>
-            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : d ? ' (closed)' : ''} at {p.price} · {d ? 'direction over the next 6 hours, big day over the session' : `over the next ${p.horizonBars} candles`} · {age(p.askedAt, now)}
+            {p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)}{p.forming ? ' (forming)' : ''} at {p.price} · over the next {p.horizonBars} candles · {age(p.askedAt, now)}
           </p>
           <details className="small">
             <summary className="muted">Inputs</summary>
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
               {Object.entries(p.state).filter(([k]) => k !== 'instrument').map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            {!d && <span className="muted">{p.latencyMs} ms</span>}
+            <span className="muted">{p.latencyMs} ms</span>
           </details>
         </div>
       )}
