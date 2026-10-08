@@ -107,6 +107,38 @@ test('parity: bid/ask bars -> P(profit) features -> calibrated P match the Pytho
   assert.equal(ppModel('WTICO/USD', 'H1'), null);
 });
 
+test('parity: M1 bid/ask bars -> P(profit) match the research export within 1e-9 (parity-only WTI M1 artifact)', () => {
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/pprofit-parity-WTICO_USD-M1.json', import.meta.url), 'utf8'));
+  const model = JSON.parse(readFileSync(new URL('./fixtures/pprofit-artifact-WTICO_USD-M1-parity-only.json', import.meta.url), 'utf8'));
+  assert.equal(model.tod_norm.length, 1440);
+  assert.equal(fx.bars.length, 2000);
+  const S = ppSeries(baBars(fx.bars), 'M1');
+  assert.equal(fx.rows.length, 80);
+  for (const r of fx.rows) {
+    const f = ppFeatures(S, r.index);
+    assert.ok(f, `M1 ${r.t} features`);
+    ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `M1 ${r.t} ${model.features.order[j]}`));
+    const s = ppScore(model, f, r.side);
+    assert.ok(Math.abs(s.raw - r.raw) <= 1e-9 && Math.abs(s.p - r.p) <= 1e-9, `M1 ${r.t} side ${r.side}: p ${s.p} vs ${r.p}`);
+  }
+  // shipped M1 coverage: XAU only (WTI and EUR/USD failed calibration; NATGAS carries no information)
+  assert.ok(ppModel('XAU/USD', 'M1'));
+  for (const inst of ['WTICO/USD', 'EUR/USD', 'NATGAS/USD', 'XAG/USD', 'SPX500/USD']) assert.equal(ppModel(inst, 'M1'), null, inst);
+});
+
+test('headline with the shipped artifacts: every decile, both sides, reads Neutral (no side clears costs)', () => {
+  const pairs = [['WTICO/USD', 'M5'], ['XAU/USD', 'M5'], ['SPX500/USD', 'M5'], ['EUR/USD', 'M5'], ['WTICO/USD', 'M15'], ['XAG/USD', 'M15'], ['SPX500/USD', 'M15'], ['EUR/USD', 'M15'], ['XAU/USD', 'M1']];
+  for (const [inst, gran] of pairs) {
+    const lut = ppModel(inst, gran).expected_R;
+    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} ${s} has a CI per decile`);
+    for (let d = 0; d < 10; d++) {
+      const side = (s) => ({ p: 0.2, expectedR: lut[s].meanR[d], ci: lut[s].meanR_ci[d] });
+      assert.ok(lut.long.meanR_ci[d][0] < 0 && lut.short.meanR_ci[d][0] < 0, `${inst} ${gran} decile ${d + 1}: lower bound below 0`);
+      assert.deepEqual(headline({ available: true, long: side('long'), short: side('short') }, []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' }, `${inst} ${gran} decile ${d + 1}`);
+    }
+  }
+});
+
 test('headline: strict rule, Neutral unless a side clears +0.05 R with its interval above 0, reasons first', () => {
   const side = (expectedR, ci = null) => ({ p: 0.3, expectedR, ci });
   const pp = (l, s) => ({ available: true, long: l, short: s });

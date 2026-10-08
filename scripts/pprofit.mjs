@@ -21,9 +21,9 @@ export function ppModel(instrument, granularity) {
   const key = `${instrument}|${granularity}`;
   if (!models.has(key)) {
     let m = null;
-    if (granularity === 'M5' || granularity === 'M15') {
+    if (['M1', 'M5', 'M15'].includes(granularity)) {
       try {
-        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}${granularity === 'M5' ? '' : '_M15'}_pprofit20.json`, import.meta.url), 'utf8'));
+        m = JSON.parse(readFileSync(new URL(`../config/prediction-models/artifact_${instrument.replace('/', '_')}${granularity === 'M5' ? '' : `_${granularity}`}_pprofit20.json`, import.meta.url), 'utf8'));
       } catch { /* no artifact for this pair */ }
     }
     models.set(key, m);
