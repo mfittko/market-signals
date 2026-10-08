@@ -16,6 +16,8 @@ func (s *Server) lookupSymbol(r *http.Request) (string, bool) {
 	return s.symbolForSlug(r.Context(), r.PathValue("slug"))
 }
 
+const liveWindow = 480 // candles in the live chart window
+
 type liveCandle struct {
 	Time     string  `json:"time"`
 	Open     float64 `json:"open"`
@@ -62,7 +64,8 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 		Signals []liveSignal   `json:"signals"`
 		Quote   map[string]any `json:"quote"`
 	}
-	q := url.Values{"instrument": {symbol}, "granularity": {gran}}
+	// liveWindow candles leave the chart room to zoom out beyond the ~120 that fit a laptop width
+	q := url.Values{"instrument": {symbol}, "granularity": {gran}, "count": {strconv.Itoa(liveWindow)}}
 	if err := s.eng.GetCached(r.Context(), 5*time.Second, "/api/chart", q, &raw); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable; showing imported history only"})
 		return
@@ -72,8 +75,8 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 		c.liveCandle.Complete = c.CompleteP == nil || *c.CompleteP // complete unless the engine says otherwise
 		candles = append(candles, c.liveCandle)
 	}
-	if len(candles) > 150 {
-		candles = candles[len(candles)-150:]
+	if len(candles) > liveWindow {
+		candles = candles[len(candles)-liveWindow:]
 	}
 	first := ""
 	if len(candles) > 0 {

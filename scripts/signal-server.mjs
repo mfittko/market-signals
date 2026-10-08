@@ -1221,7 +1221,10 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const indParam = parseInd(url.searchParams.get('ind'));
         // no URL selection → the globally-stored selection applies (#49)
         const effectiveInd = indParam.length ? indParam : parseInd(cfg.ind);
-        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, indicators: effectiveInd.length ? effectiveInd : null, impulse: impulseSettings(cfg) });
+        // optional window size for the console's zoom; absent keeps chartData's default
+        const countParam = Number(url.searchParams.get('count'));
+        const count = Number.isInteger(countParam) && countParam > 0 ? Math.min(countParam, 1000) : undefined;
+        const data = await chartData(dbPath, instrument, { t, kind: kindParam, granularity, fetcher, count, indicators: effectiveInd.length ? effectiveInd : null, impulse: impulseSettings(cfg) });
         data.activeInd = effectiveInd;
         // #163: the one tz pipeline — the trader tz, so the client can format
         // every timestamp (signals, audit, candles) with `timeZone: tz`.
