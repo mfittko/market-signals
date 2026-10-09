@@ -9,9 +9,9 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, shieldState, shieldText, nowMotion, volumeRatio, SHIELD_LABEL, newsInput, newsRelevant, A1_WINDOW_BARS,
+  baWindow, clearBaWindows, fetchBaCandles,
 } from '../scripts/local-predict.mjs';
-import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
 const toBars = (rows) => rows.map(([t, open, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close }));
@@ -82,136 +82,54 @@ function liveBars(now, stepMs = 1800000, rows = FIX.instruments[0].bars) {
   return rows.map(([, open, high, low, close], k) => ({ time: new Date(lastOpen - (rows.length - 1 - k) * stepMs).toISOString(), open, high, low, close, volume: 1 }));
 }
 
-// ---- P(profit)
-// one parity export per timeframe and target; the cell is named in the fixture's artifact field
-const PP = ['WTICO_USD-M5-H12-up', 'EUR_USD-M5-H48-plan', 'WTICO_USD-M15-H48-plan', 'WTICO_USD-M1-H12-up'].map((n) => {
-  const fx = JSON.parse(readFileSync(new URL(`./fixtures/pprofit-parity-${n}.json`, import.meta.url), 'utf8'));
-  const [, gran, h, target] = fx.artifact.match(/_(M\d+)_H(\d+)_(up|plan)_pprofit20/);
-  return { ...fx, gran, horizon: Number(h), target };
-});
+// ---- synthetic M5 bid/ask bars (a seeded random walk; spread far below the 0.2-of-stop limit)
+// rows: [t minutes UTC, bid o, h, l, c, ask o, h, l, c]; the newest bar starts at 2026-10-07 12:00 UTC.
+const BA_ROWS = (() => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const n = 600, end = Date.UTC(2026, 9, 7, 12) / 60000, half = 0.002;
+  let mid = 90;
+  return Array.from({ length: n }, (_, i) => {
+    const o = mid;
+    const c = o + (rnd() - 0.5) * 0.12;
+    const h = Math.max(o, c) + rnd() * 0.04, l = Math.min(o, c) - rnd() * 0.04;
+    mid = c;
+    return [end - (n - 1 - i) * 5, o - half, h - half, l - half, c - half, o + half, h + half, l + half, c + half];
+  });
+})();
 const baBars = (rows, shiftMin = 0) => rows.map(([t, bo, bh, bl, bc, ao, ah, al, ac]) => ({ time: new Date((t + shiftMin) * 60000).toISOString(), bid_o: bo, bid_h: bh, bid_l: bl, bid_c: bc, ask_o: ao, ask_h: ah, ask_l: al, ask_c: ac }));
-const midBars = (ba) => ba.map((b) => ({ time: b.time, open: (b.bid_o + b.ask_o) / 2, high: (b.bid_h + b.ask_h) / 2, low: (b.bid_l + b.ask_l) / 2, close: (b.bid_c + b.ask_c) / 2, volume: 1 }));
+// mid bars with a varying tick volume
+const midBars = (ba) => ba.map((b, i) => ({ time: b.time, open: (b.bid_o + b.ask_o) / 2, high: (b.bid_h + b.ask_h) / 2, low: (b.bid_l + b.ask_l) / 2, close: (b.bid_c + b.ask_c) / 2, volume: 100 + (i * 37) % 90 }));
 
-test('parity: bid/ask bars -> P(profit) features -> calibrated P match the Python research export within 1e-9', () => {
-  for (const fx of PP) {
-    const cell = `${fx.instrument} ${fx.gran} H${fx.horizon} ${fx.target}`;
-    const model = ppModel(fx.instrument, fx.gran, fx.horizon, fx.target);
-    assert.ok(model, `artifact for ${cell}`);
-    assert.deepEqual([model.coef.length, model.horizon_bars, model.target], [37, fx.horizon, fx.target]);
-    assert.equal(model.calibrator.type ?? model.calibrator.kind, fx.gran === 'M1' ? 'isotonic' : 'platt');
-    const S = ppSeries(baBars(fx.bars), fx.gran);
-    assert.ok(fx.rows.length >= 40);
-    for (const r of fx.rows) {
-      const f = ppFeatures(S, r.index);
-      assert.ok(f, `${cell} ${r.t} features`);
-      ppRow(model, f, r.side).forEach((v, j) => assert.ok(Math.abs(v - r.features[model.features.order[j]]) <= 1e-9, `${cell} ${r.t} ${model.features.order[j]}`));
-      const sc = ppScore(model, f, r.side);
-      assert.ok(Math.abs(sc.raw - r.raw) <= 1e-9 && Math.abs(sc.p - r.p) <= 1e-9, `${cell} ${r.t} side ${r.side}: p ${sc.p} vs ${r.p}`);
-      const lut = model.expected_R[r.side > 0 ? 'long' : 'short'];
-      assert.equal(sc.expectedR, lut.meanR[lut.p_edges.filter((e) => e <= sc.p).length] ?? null);
-    }
-  }
-});
-
-test('cells: only shipped horizon x target cells resolve; ppAvailable per pair', () => {
-  assert.ok(ppModel('WTICO/USD', 'M5', 12, 'up'));
-  assert.equal(ppModel('XAG/USD', 'M5', 48, 'plan'), null, 'calibration failed: not shipped');
-  assert.equal(ppModel('NATGAS/USD', 'M1', 48, 'plan'), null);
-  assert.equal(ppModel('WTICO/USD', 'M5', 72, 'plan'), null, 'only 12 and 48 bars');
-  assert.equal(ppModel('WTICO/USD', 'M5', 12, 'down'), null);
-  assert.equal(ppModel('WTICO/USD', 'H1', 12, 'up'), null);
-  assert.deepEqual([ppAvailable('WTICO/USD', 'M15'), ppAvailable('NATGAS/USD', 'M15'), ppAvailable('BCO/USD', 'M5')], [true, false, false]);
-});
-
-test('isotonic calibration: linear between knots, clipped outside (numpy.interp)', () => {
-  const cal = { type: 'isotonic', x: [-1, 0, 2], y: [0, 0.2, 0.6], out_of_bounds: 'clip' };
-  assert.deepEqual([-5, -1, -0.5, 0, 1, 2, 9].map((v) => calibrate(cal, v)), [0, 0, 0.1, 0.2, 0.4, 0.6, 0.6]);
-  assert.equal(calibrate({ a: 1, b: 0 }, 0), 0.5, 'Platt stays the default');
-});
-
-test('expected R: bisect-right decile, an empty decile has no R and never clears', () => {
-  const model = ppModel('XAG/USD', 'M1', 12, 'plan');
-  const lut = model.expected_R.long;
-  // P = 0 counts every edge equal to 0 (bisect right)
-  const zeros = lut.p_edges.filter((e) => e <= 0).length;
-  const s = ppScore({ ...model, calibrator: { type: 'isotonic', x: [0, 1], y: [0, 0] } }, { f: Object.fromEntries(model.features.order.map((k) => [k, 0])), slot: 0 }, 1);
-  assert.deepEqual([s.p, s.decile, s.expectedR], [0, zeros + 1, lut.meanR[zeros] ?? null]);
-  const nullSide = { p: 0, expectedR: null, ci: null };
-  assert.equal(headline({ available: true, long: nullSide, short: nullSide }, []).reason, 'no side clears costs');
-});
-
-test('headline with the shipped artifacts: every decile of every cell, both sides, reads Neutral (no side clears costs)', () => {
-  let n = 0;
-  for (const inst of ['WTICO/USD', 'XAU/USD', 'XAG/USD', 'NATGAS/USD', 'SPX500/USD', 'EUR/USD']) for (const gran of ['M1', 'M5', 'M15']) for (const h of PP_HORIZONS) for (const t of PP_TARGETS) {
-    const m = ppModel(inst, gran, h, t);
-    if (!m) continue;
-    n++;
-    const lut = m.expected_R;
-    for (const s of ['long', 'short']) assert.equal(lut[s].meanR_ci.length, 10, `${inst} ${gran} H${h} ${t} ${s} has a CI slot per decile`);
-    for (let d = 0; d < 10; d++) {
-      const side = (s) => ({ p: 0.2, expectedR: lut[s].meanR[d] ?? null, ci: lut[s].meanR_ci[d] ?? null });
-      assert.deepEqual(headline({ available: true, long: side('long'), short: side('short') }, []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' }, `${inst} ${gran} H${h} ${t} decile ${d + 1}`);
-    }
-  }
-  assert.equal(n, 32, 'shipped cells');
-});
-
-test('headline: strict rule, Neutral unless a side clears +0.05 R with its interval above 0, reasons first', () => {
-  const side = (expectedR, ci = null) => ({ p: 0.3, expectedR, ci });
-  const pp = (l, s) => ({ available: true, long: l, short: s });
-  assert.deepEqual(headline(pp(side(-0.09), side(-0.1)), []), { label: 'Neutral', action: 'no_trade', reason: 'no side clears costs' });
-  assert.equal(headline(pp(side(0.2), side(-0.1)), []).label, 'Neutral', 'no interval in the artifact: cannot clear');
-  assert.equal(headline(pp(side(0.2, [-0.01, 0.4]), side(-0.1)), []).label, 'Neutral', 'interval touches 0');
-  assert.equal(headline(pp(side(0.04, [0.01, 0.07]), side(-0.1)), []).label, 'Neutral', 'below +0.05 R');
-  assert.deepEqual(headline(pp(side(0.06, [0.01, 0.1]), side(-0.1)), []), { label: 'Long', action: 'long', reason: null });
-  assert.equal(headline(pp(side(0.06, [0.01, 0.1]), side(0.09, [0.02, 0.15])), []).label, 'Short', 'the higher expected R wins');
-  const thin = [{ code: 'thin_hour', text: 'Thin trading hour (04:00 UTC)' }];
-  assert.deepEqual(headline(pp(side(0.06, [0.01, 0.1]), side(-0.1)), thin), { label: 'Neutral', action: 'no_trade', reason: 'Thin trading hour (04:00 UTC)' }, 'a measured reason comes first');
-  assert.equal(headline({ available: false, text: 'no calibrated estimate' }, []).reason, 'no calibrated estimate');
-});
-
-test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral headline, news never moves anything', () => {
-  const fx = PP[0];
-  const ba = baBars(fx.bars);
+test('localPredict: cost shield from the measured reasons, Now line, no side named, news never moves anything', () => {
+  const ba = baBars(BA_ROWS);
   const lastMs = Date.parse(ba.at(-1).time);
   const now = lastMs + 300000 + 1000;
   const m30 = liveBars(now);
   const candles = midBars(ba).slice(-400);
   const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba }, { now });
   assert.equal(base.candleTime, ba.at(-1).time);
-  const pp = base.detail.pprofit;
-  assert.equal(pp.available, true);
-  const feat = ppFeatures(ppSeries(ba, 'M5'), ba.length - 1);
-  // WTI M5 ships H12 up, H12 plan and H48 plan; the first is the default
-  assert.deepEqual(pp.cells.map((c) => c.key), ['H12_up', 'H12_plan', 'H48_plan']);
-  for (const c of pp.cells) {
-    assert.equal(c.long.p, ppScore(ppModel('WTICO/USD', 'M5', c.horizon, c.target), feat, 1).p, c.key);
-    assert.deepEqual([c.headline, c.headlineAction], ['Neutral', 'no_trade'], c.key);
-  }
-  assert.deepEqual([pp.key, pp.long, pp.short, base.horizonBars], ['H12_up', pp.cells[0].long, pp.cells[0].short, 12]);
-  assert.deepEqual(base.detail.shield, pp.cells[0].shield, 'the run stores the per-side state of the default cell');
-  assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
-  assert.equal(base.state.state_both_sides, shieldText(base.detail.shield.both), 'WTI: one shared state');
-  assert.equal(base.state.long_state, undefined);
-  assert.equal(base.detail.updown, undefined, 'no direction lean is stored');
-  assert.ok(!Object.keys(base.state).some((k) => k.startsWith('updown_')));
-  assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
-  assert.ok(pp.long.expectedR < 0.05 && pp.short.expectedR < 0.05);
-  assert.deepEqual([base.action, base.detail.headline], ['no_trade', 'Neutral']);
-  assert.match(base.state.long_now, /^\d+% chance of profit \(avg [-+]\d\.\d\d R\)$/);
+  assert.ok(base.detail.spreadR > 0 && base.detail.spreadR < 0.2);
+  assert.deepEqual(base.detail.reasons, []);
+  assert.deepEqual(base.detail.shield, { state: 'grey', label: 'No warning', why: null, reason: null });
+  assert.equal(base.state.shield, 'No warning');
+  assert.deepEqual([base.action, base.probabilities], ['no_trade', { long: null, short: null, no_trade: null }], 'the local provider names no side');
+  assert.equal(base.detail.pprofit, undefined);
+  assert.match(base.detail.now.text, /^Now: /);
   assert.equal(base.detail.bigDay.available, true);
   assert.match(base.detail.trend.text, /^supertrend (up|down), H1 (agrees|disagrees|not enough history)$/);
   // escalated relevant news is shown and stored but changes nothing
   const hit = { id: 7, title: 'Tanker hit near Hormuz', escalation: 'escalation', relevant: true, publishedAt: new Date(now - 60000).toISOString() };
   const n = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba, news: { latest: hit, relevant: hit } }, { now });
-  assert.deepEqual([n.action, n.detail.reasons, n.probabilities, n.detail.headlineReason], [base.action, base.detail.reasons, base.probabilities, base.detail.headlineReason]);
+  assert.deepEqual([n.action, n.detail.reasons, n.detail.shield], [base.action, base.detail.reasons, base.detail.shield]);
   assert.equal(n.detail.news.latest.id, 7);
   assert.match(n.state.news, /not used for direction or reasons/);
-  // a wide spread on the closed bar names the reason
+  // a wide spread on the closed bar turns the shield red with the reason
   const wide = [...ba.slice(0, -1), { ...ba.at(-1), ask_c: ba.at(-1).bid_c + 5 }];
   const w = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba: wide }, { now });
-  assert.equal(w.detail.headlineReason, w.detail.reasons[0].text);
-  assert.match(w.detail.headlineReason, /^Spread wide/);
+  assert.equal(w.detail.shield.state, 'red');
+  assert.match(w.detail.shield.why, /^spread wide \(\d+\.\d\d of stop\)$/);
+  assert.match(w.state.shield, /^Don't trade now · spread wide/);
 });
 
 test('localPredict: a session past T1 reads as reached, not as a probability', () => {
@@ -224,23 +142,22 @@ test('localPredict: a session past T1 reads as reached, not as a probability', (
   assert.match(r.detail.bigDay.text, /already a big day/);
 });
 
-test('localPredict: no artifact means no calibrated estimate and no big day, not an error', () => {
+test('localPredict: no big-day artifact or no bid/ask is not an error', () => {
   const now = Date.UTC(2026, 9, 7, 14, 2);
   const m30 = liveBars(now);
   const other = localPredict({ instrument: 'BCO/USD', granularity: 'M30', candles: m30.slice(-200), m30 }, { now });
   assert.equal(other.detail.bigDay.available, false);
-  assert.deepEqual([other.detail.pprofit.available, other.detail.pprofit.text], [false, 'no calibrated estimate']);
-  assert.deepEqual([other.probabilities.long, other.probabilities.short], [null, null]);
-  assert.deepEqual([other.action, other.detail.headline, other.detail.headlineReason], ['no_trade', 'Neutral', 'no calibrated estimate']);
+  assert.equal(other.detail.shield.state, 'grey');
   const noBa = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles: m30.slice(-200), m30 }, { now });
-  assert.equal(noBa.detail.pprofit.text, 'no current bid/ask data');
+  assert.equal(noBa.detail.spreadR, null);
+  assert.equal(noBa.state.spread, 'unknown (no bid/ask for this bar)');
   const stale = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles: m30.slice(-200), m30: m30.slice(0, -10) }, { now });
   assert.equal(stale.detail.bigDay.text, 'no current 30-minute data');
 });
 
 test('baWindow: one full bid/ask fetch, then only the newest bars', async () => {
   clearBaWindows();
-  const ba = baBars(PP[0].bars).slice(-100);
+  const ba = baBars(BA_ROWS).slice(-100);
   const feed = (rows) => ({ candles: rows.map((b) => ({ complete: true, time: b.time, bid: { o: b.bid_o, h: b.bid_h, l: b.bid_l, c: b.bid_c }, ask: { o: b.ask_o, h: b.ask_h, l: b.ask_l, c: b.ask_c } })) });
   const asked = [];
   let upto = 98;
@@ -259,8 +176,8 @@ async function withLocalServer(settings, fn) {
   const dbPath = join(dir, 'db.sqlite');
   const settingsPath = join(dir, 'settings.json');
   const now = Date.now();
-  // the WTI M5 bid/ask fixture, shifted so its newest bar is the one that just closed
-  const rows = PP[0].bars;
+  // the synthetic M5 bid/ask bars, shifted so the newest bar is the one that just closed
+  const rows = BA_ROWS;
   const ba = baBars(rows, (Math.floor(now / 300000) - 1) * 5 - rows.at(-1)[0]);
   const m5 = midBars(ba).slice(-400);
   storeCandles(dbPath, 'WTICO/USD', 'M5', m5);
@@ -292,7 +209,7 @@ test('POST /api/predict: local is the default, needs no key, stores one run per 
     assert.equal(p.provider, 'local');
     assert.equal(p.candleTime, m5.at(-1).time);
     assert.equal(p.detail.bigDay.available, true);
-    assert.deepEqual([p.detail.pprofit.available, p.detail.headline, p.detail.headlineReason === null], [true, 'Neutral', false]);
+    assert.ok(['red', 'grey'].includes(p.detail.shield.state));
     assert.equal(p.action, 'no_trade');
     assert.equal(p.valid, true);
     assert.equal(Date.parse(p.expiresAt), Date.parse(m5.at(-1).time) + 600000, 'valid until the next candle closes');
@@ -353,57 +270,18 @@ test('a predictions table from before the detail column is migrated in place', (
   assert.equal(row.provider, 'typesafe-jev');
 });
 
-// ---- shield states
-test('shieldState, EUR/USD (side difference calibrated): per side red/orange/grey, no green, a reason makes both red', () => {
-  const cell = (dl, ds, rl = -0.1, rs = -0.2) => ({ long: { p: 0.3, decile: dl, expectedR: rl }, short: { p: 0.2, decile: ds, expectedR: rs } });
-  const st = (c, reasons = []) => shieldState({ instrument: 'EUR/USD', granularity: 'M5', cell: c, reasons });
-  // decile boundaries, same for both sides; no green at any decile
-  const want = [null, 'red', 'orange', 'orange', 'grey', 'grey', 'grey', 'grey', 'grey', 'grey', 'grey'];
-  for (let d = 1; d <= 10; d++) {
-    const x = st(cell(d, d));
-    assert.deepEqual([x.shared, x.long.state, x.short.state, x.long.decile, x.both], [false, want[d], want[d], d, undefined], `decile ${d}`);
-  }
-  assert.deepEqual(Object.keys(SHIELD_LABEL).sort(), ['grey', 'orange', 'red']);
-  assert.equal(SHIELD_LABEL.grey, 'No warning');
-  // sides differ; the headline carries no avg R and no "top X%" text, Details does
-  const mixed = st(cell(10, 1, -0.02, -0.91));
-  assert.equal(shieldText(mixed.long), 'No warning');
-  assert.equal(conditionsText(mixed.long), 'decile 10 of 10, top 10% of conditions for EUR/USD M5 · avg −0.02 R');
-  assert.equal(shieldText(mixed.short), "Don't trade now · bottom 10% of conditions for EUR/USD M5");
-  assert.equal(conditionsText(mixed.short), 'decile 1 of 10, bottom 10% of conditions for EUR/USD M5 · avg −0.91 R');
-  assert.equal(shieldText(st(cell(3, 3)).long), 'Costly now · bottom 30% of conditions for EUR/USD M5');
-  assert.equal(conditionsText(st(cell(5, 5, null)).long), 'decile 5 of 10, usual conditions for EUR/USD M5 · avg R n/a');
-  // a measured reason comes first and applies to both sides, even at decile 10
-  const spread = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
-  const r = st(cell(10, 10), spread);
-  assert.deepEqual([r.long.state, r.short.state, r.reason], ['red', 'red', { code: 'spread', why: 'spread wide (0.27 of stop)' }]);
-  assert.equal(shieldText(r.short), "Don't trade now · spread wide (0.27 of stop)");
-  // no calibrated estimate: reasons only
-  const none = st(null);
-  assert.deepEqual([none.long.state, none.short.state, shieldText(none.long), conditionsText(none.long)], ['grey', 'grey', 'No warning · no calibrated estimate', 'no calibrated estimate · avg R n/a']);
-  const thin = noTradeReasons({ instrument: 'EUR/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) });
-  assert.deepEqual([st(null, thin).long.state, st(null, thin).short.state, st(null, thin).long.why], ['red', 'red', 'thin trading hour (04:00 UTC)']);
-});
-
-test('shieldState, WTI (side difference not meaningful): one shared state from floor(mean decile) and the mean avg R, no green', () => {
-  const cell = (dl, ds, rl = -0.1, rs = -0.2) => ({ long: { p: 0.47, decile: dl, expectedR: rl }, short: { p: 0.45, decile: ds, expectedR: rs } });
-  const st = (c, reasons = []) => shieldState({ instrument: 'WTICO/USD', granularity: 'M5', cell: c, reasons });
-  const x = st(cell(8, 9, -0.13, -0.15));
-  assert.equal(x.shared, true);
-  assert.deepEqual([x.both.state, x.both.decile, shieldText(x.both)], ['grey', 8, 'No warning']);
-  assert.ok(Math.abs(x.both.avgR - -0.14) < 1e-12);
-  assert.equal(conditionsText(x.both), 'decile 8 of 10, usual conditions for WTI M5 · avg −0.14 R');
-  // the operator's 15:15 case: top deciles on both sides read No warning, never green
-  assert.deepEqual([st(cell(10, 9)).both.state, shieldText(st(cell(10, 9)).both)], ['grey', 'No warning']);
-  for (let dl = 1; dl <= 10; dl++) for (let ds = 1; ds <= 10; ds++) assert.notEqual(st(cell(dl, ds)).both.state, 'green');
-  assert.deepEqual([st(cell(1, 4)).both.state, st(cell(1, 4)).both.decile], ['orange', 2]);
-  assert.deepEqual([st(cell(3, 4)).both.state, st(cell(4, 4)).both.state], ['orange', 'grey']);
-  assert.deepEqual([st(cell(1, 2)).both.state, st(cell(1, 2)).both.decile], ['red', 1]);
-  assert.equal(st(cell(5, 6, null)).both.avgR, null);
+// ---- shield
+test('shieldState: red with the first measured reason, else grey "No warning"; one state for both sides', () => {
+  assert.deepEqual(shieldState({ reasons: [] }), { state: 'grey', label: 'No warning', why: null, reason: null });
   const spread = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
-  assert.deepEqual([st(cell(10, 10), spread).both.state, st(cell(10, 10), spread).both.why], ['red', 'spread wide (0.27 of stop)']);
-  assert.deepEqual([st(null).shared, st(null).both.state, st(null).both.label], [true, 'grey', 'No warning · no calibrated estimate']);
-  assert.ok(SIDE_DIFF_CALIBRATED.has('SPX500/USD') && !SIDE_DIFF_CALIBRATED.has('XAU/USD'));
+  assert.deepEqual(shieldState({ reasons: spread }), { state: 'red', label: "Don't trade now", why: 'spread wide (0.27 of stop)', reason: { code: 'spread', why: 'spread wide (0.27 of stop)' } });
+  assert.equal(shieldText(shieldState({ reasons: spread })), "Don't trade now · spread wide (0.27 of stop)");
+  // the limit is exclusive: 0.2 of stop is no warning
+  assert.equal(shieldState({ reasons: noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.2, closeMs: Date.UTC(2026, 9, 7, 12) }) }).state, 'grey');
+  const thin = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.3, closeMs: Date.UTC(2026, 9, 7, 4) });
+  assert.deepEqual([thin.map((r) => r.code), shieldState({ reasons: thin }).why], [['spread', 'thin_hour'], 'spread wide (0.30 of stop)'], 'the first reason is named');
+  assert.equal(shieldState({ reasons: noTradeReasons({ instrument: 'EUR/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) }) }).why, 'thin trading hour (04:00 UTC)');
+  assert.deepEqual(Object.keys(SHIELD_LABEL).sort(), ['grey', 'red']);
 });
 
 test('nowMotion: run length, pace in ATR, direction, volume against the slot or the recent median', () => {
@@ -448,7 +326,7 @@ test('nowMotion: run length, pace in ATR, direction, volume against the slot or 
 
 // ---- per-candle series for the chart tooltip
 test('localSeries: one pass over the window gives each candle what localPredict gave when it closed', () => {
-  const ba = baBars(PP[0].bars);
+  const ba = baBars(BA_ROWS);
   const candles = midBars(ba).slice(-400);
   for (const k of [150, 399]) {
     const t = candles[k].time;
@@ -458,16 +336,14 @@ test('localSeries: one pass over the window gives each candle what localPredict 
     assert.equal(e.spreadR, p.detail.spreadR, `spread at ${t}`);
     assert.deepEqual(e.now, p.detail.now, `Now line at ${t}`);
     assert.deepEqual(e.reasons, p.detail.reasons);
-    assert.deepEqual(e.pprofit.cells.map((c) => [c.key, c.long.p, c.short.p, c.long.expectedR, c.headline, c.headlineReason]),
-      p.detail.pprofit.cells.map((c) => [c.key, c.long.p, c.short.p, c.long.expectedR, c.headline, c.headlineReason]), `cells at ${t}`);
   }
   const [none] = localSeries({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba: [] }, [candles[10].time]);
-  assert.deepEqual([none.pprofit.text, none.spreadR, none.hasBidAsk], ['no bid/ask data for this candle', null, false]);
+  assert.deepEqual([none.spreadR, none.hasBidAsk], [null, false]);
 });
 
-test('predictionSeries: forming and unclosed candles are never scored, results are cached, in-sample is flagged', async () => {
+test('predictionSeries: forming and unclosed candles are never scored, results are cached', async () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-series-')), 'db.sqlite');
-  const ba = baBars(PP[0].bars);
+  const ba = baBars(BA_ROWS);
   const closed = midBars(ba).slice(-60);
   const lastMs = Date.parse(closed.at(-1).time);
   const now = lastMs + 300000 + 1000;
@@ -481,16 +357,9 @@ test('predictionSeries: forming and unclosed candles are never scored, results a
   assert.ok(first.entries.every((e) => e.source === 'computed' && e.computedAt === new Date(now).toISOString()));
   assert.equal(baReads, 1);
   const e = first.entries.at(-1);
-  assert.deepEqual(e.cells.map((c) => c.key), ['H12_up', 'H12_plan', 'H48_plan']);
-  assert.ok(e.cells.every((c) => c.headline === 'Neutral' && c.pLong > 0 && c.pShort > 0 && typeof c.spreadR === 'undefined'));
   assert.ok(typeof e.spreadR === 'number');
-  // the fixture bars are from before the artifact's training cutoff
-  const cutoff = cutoffMs(ppModel('WTICO/USD', 'M5', 12, 'up'));
-  assert.ok(lastMs < cutoff);
-  assert.ok(e.cells.every((c) => c.inSample === true));
-  const STATES = ['red', 'orange', 'grey', 'green'];
-  assert.ok(e.cells.every((c) => STATES.includes(c.shield.long.state) && STATES.includes(c.shield.short.state) && c.shield.long.decile === c.decileLong));
-  assert.ok(STATES.includes(e.shield.long.state), 'a reasons-only state for every entry');
+  assert.deepEqual(Object.keys(e).sort(), ['candleTime', 'computedAt', 'now', 'reasons', 'shield', 'source', 'spreadR']);
+  assert.ok(first.entries.every((x) => ['red', 'grey'].includes(x.shield.state)));
   // a second read is served from the cache: no bid/ask read, same computed_at
   const again = await predictionSeries(dbPath, input, now + 60000);
   assert.equal(baReads, 1);
@@ -504,7 +373,7 @@ test('predictionSeries: forming and unclosed candles are never scored, results a
   db.close();
   const pin = { model: row.model, shape: createHash('sha256').update(shape(JSON.parse(row.entry))).digest('hex').slice(0, 16) };
   // never update only the shape hash: a new hash needs a new model string
-  assert.deepEqual(pin, { model: 'local-stats-v6 (big day abs11 A1_nostress; P(profit) pprofit20 shield; no direction lean)', shape: '9100e59e7a7d4fdf' }, 'stored series shape changed: bump LOCAL_MODEL');
+  assert.deepEqual(pin, { model: 'local-stats-v7 (big day abs11 A1_nostress; cost shield from no-trade reasons; Now line)', shape: '85e2ed413b08a2ad' }, 'stored series shape changed: bump LOCAL_MODEL');
   assert.equal(row.model, LOCAL_MODEL);
   // a window: from/to in ms, and the cap
   const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);
@@ -525,9 +394,8 @@ test('GET /api/predictions/series: stored live run for its candle, computed and 
     assert.deepEqual([body.max, body.capped, body.entries.length], [500, false, m5.length]);
     const last = body.entries.at(-1);
     assert.deepEqual([last.candleTime, last.source, last.computedAt], [live.candleTime, 'live', live.askedAt]);
-    assert.equal(last.cells[0].pLong, live.detail.pprofit.cells[0].long.p);
-    assert.ok(last.cells.every((c) => c.inSample === false), 'the shifted fixture is after the training cutoff');
-    assert.deepEqual(last.cells[0].shield, live.detail.pprofit.cells[0].shield, 'the series returns the stored per-side state');
+    assert.deepEqual(last.shield, live.detail.shield, 'the series returns the stored shield');
+    assert.deepEqual(last.now, live.detail.now);
     assert.ok(body.entries.slice(0, -1).every((e) => e.source === 'computed'));
     const baCalls = calls.filter((u) => u.includes('price=BA')).length;
     const again = await (await series()).json();

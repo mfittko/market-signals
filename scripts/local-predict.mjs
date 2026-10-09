@@ -1,7 +1,7 @@
 // Prediction provider: local statistics. Free, no key, no network beyond the
 // candle feed. Recomputed for each closed candle; storage lives in predictions.mjs.
 //
-// Four parts, each kept honest about what it is:
+// Parts, each kept honest about what it is:
 // 1. Big-day chance (side-free): P(today's session moves T1 % or more from its
 //    22:00 UTC open), from the research logistic model in config/prediction-models
 //    (abs11 A1 "is today becoming a big day", variant without the cross-instrument
@@ -9,31 +9,22 @@
 //    on 30-min mid bars); test/fixtures holds a bars -> features -> probability
 //    parity export. abs11 A1 failed its preregistered operating rule, so this is
 //    a display-only research preview.
-// 2. P(profit) for a long and a short entered now, per horizon (12 or 48 candles)
-//    and target ("up": price better after costs at the end; "plan": the fixed
-//    trade plan ends net positive), with the expected R of its P decile
-//    (pprofit20, scripts/pprofit.mjs), for the cells whose calibration passed.
-//    It mostly reflects spread and hour.
-// 3. No-trade reasons: only rules a no-trade study measured as helpful
-//    (wide spread, thin trading hour).
+// 2. No-trade reasons: only rules a no-trade study measured as helpful
+//    (wide spread, thin trading hour). They set the cost shield: red "Don't trade now"
+//    with the reason, else grey "No warning".
+// 3. Now: a description of the closed bars (run, size in ATR, volume), not a forecast.
 // 4. Trend: supertrend side and H1 agreement, a description, not a prediction.
 // News is shown and stored for later study, but never sets the side, a
 // reason or a number.
 import { readFileSync } from 'node:fs';
 import { computeSupertrend, granularityMs } from './supertrend.mjs';
 import { htfSupertrend } from './indicators.mjs';
-import { PP_HORIZONS, PP_TARGETS, ppFeatures, ppModel, ppScore, ppSeries } from './pprofit.mjs';
 
 export const LOCAL_PROVIDER = 'local';
 // Also the cache key of prediction_series rows (scripts/predictions.mjs): any change to the stored series
 // shape (seriesCore, localSeries output) must bump this version, or old cached rows are served in the old
 // shape. A test pins the shape hash to this string.
-export const LOCAL_MODEL = 'local-stats-v6 (big day abs11 A1_nostress; P(profit) pprofit20 shield; no direction lean)';
-// Default P(profit) cell order: the first shipped cell sets the stored action and probabilities.
-export const PP_CELL_ORDER = PP_HORIZONS.flatMap((h) => PP_TARGETS.map((t) => [h, t]));
-// Operator-approved headline rule: a side is named only when its expected R is at
-// least +0.05 R and its interval lies above 0; otherwise the headline is Neutral.
-export const MIN_EXPECTED_R = 0.05;
+export const LOCAL_MODEL = 'local-stats-v7 (big day abs11 A1_nostress; cost shield from no-trade reasons; Now line)';
 // 30-min bars the big-day features need: 60 valid sessions for the slot norm plus margin.
 export const A1_WINDOW_BARS = 3600;
 const A1_STEP_MIN = 30;
@@ -192,48 +183,17 @@ function bigDay(instrument, m30, now) {
   return { ...base, available: true, reached: false, p, z, x: f.x, text: `${pct(p)} for a move of ${T1.toFixed(1)}% or more today (usual ${pct(model.training_base_rate)}; ${f.exc.toFixed(1)}% so far)` };
 }
 
-// The shipped cells (horizon x target) of a pair, in PP_CELL_ORDER, each with its artifact.
-const shippedCells = (instrument, granularity) => PP_CELL_ORDER.map(([h, t]) => [h, t, ppModel(instrument, granularity, h, t)]).filter(([, , m]) => m);
-
-// One cell's P(profit) per side for the feature row `f`, with its own headline under `reasons`.
-function scoreCell([horizon, target, model], f, reasons, instrument, granularity) {
-  const side = (s) => { const r = ppScore(model, f, s); return { p: r.p, raw: r.raw, expectedR: r.expectedR, ci: r.ci, decile: r.decile, n: r.n }; };
-  const c = { key: `H${horizon}_${target}`, horizon, target, long: side(1), short: side(-1), model: `${model.name}, cutoff ${model.training_cutoff}`, validity: model.validity.statement };
-  const h = headline({ available: true, ...c }, reasons);
-  return { ...c, headline: h.label, headlineAction: h.action, headlineReason: h.reason, shield: shieldState({ instrument, granularity, cell: c, reasons }) };
-}
-
-// P(profit) for both sides at the bid/ask bar of the closed candle `lastMs`, for every
-// shipped cell. The features are the same for all cells. The top-level long/short are
-// the first cell in PP_CELL_ORDER; `cells` holds all of them.
-function pprofit(instrument, granularity, ba, lastMs, reasons) {
-  const shipped = shippedCells(instrument, granularity);
-  if (!shipped.length) return { available: false, text: 'no calibrated estimate' };
-  const i = ba.findIndex((b) => Date.parse(b.time) === lastMs);
-  if (i < 0) return { available: false, text: 'no current bid/ask data' };
-  const f = ppFeatures(ppSeries(ba.slice(0, i + 1), granularity), i);
-  if (!f) return { available: false, text: 'not enough bid/ask history' };
-  const cells = shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity));
-  return { available: true, ...cells[0], cells };
-}
-
 // Spread at a bar as a share of the stop distance (1.5 x the supertrend ATR), as in the no-trade study.
 const spreadOf = (bar, atr) => (bar && atr > 0 ? (bar.ask_c - bar.bid_c) / (STOP_ATR * atr) : null);
 
-// Training cutoff of an artifact in ms; the artifacts write it without a zone, in UTC.
-export const cutoffMs = (model) => Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(model.training_cutoff) ? model.training_cutoff : `${model.training_cutoff}Z`);
-
-// The local scorer for many closed candles at once, for the chart: per candle the P(profit)
-// cells with their headlines, the measured reasons and the spread, exactly as localPredict
-// computes them for that candle. Supertrend and the bid/ask features are causal, so one pass
-// over the window gives each candle the values it had when it closed (a test checks this).
-// `times` are candle start times of closed bars in `candles`. No big day, trend or news here.
+// The local scorer for many closed candles at once, for the chart: per candle the measured reasons,
+// the spread and the Now line, exactly as localPredict computes them for that candle. Supertrend is
+// causal, so one pass over the window gives each candle the values it had when it closed (a test
+// checks this). `times` are candle start times of closed bars in `candles`. No big day, trend or news here.
 export function localSeries({ instrument, granularity, candles, ba = [] }, times) {
   const bars = candles.filter((c) => c.partial !== true && c.complete !== false);
   const st = bars.length ? computeSupertrend(bars, {}) : [];
   const gMs = granularityMs(granularity);
-  const shipped = shippedCells(instrument, granularity);
-  const S = shipped.length && ba.length ? ppSeries(ba, granularity) : null;
   const baAt = new Map(ba.map((b, i) => [Date.parse(b.time), i]));
   const barAt = new Map(bars.map((b, k) => [Date.parse(b.time), k]));
   return times.map((t) => {
@@ -242,65 +202,21 @@ export function localSeries({ instrument, granularity, candles, ba = [] }, times
     const k = barAt.get(ms);
     const spreadR = spreadOf(i == null ? null : ba[i], k == null ? null : st[k]?.atr);
     const reasons = noTradeReasons({ instrument, spreadR, closeMs: ms + gMs });
-    let pp;
-    if (!shipped.length) pp = { available: false, text: 'no calibrated estimate' };
-    else if (i == null) pp = { available: false, text: 'no bid/ask data for this candle' };
-    else {
-      const f = ppFeatures(S, i);
-      pp = f ? { available: true, cells: shipped.map((c) => scoreCell(c, f, reasons, instrument, granularity)) } : { available: false, text: 'not enough bid/ask history' };
-    }
-    return { candleTime: t, spreadR, reasons, pprofit: pp, now: k == null ? null : nowMotion(bars, k, st[k]?.atr), hasBidAsk: i != null };
+    return { candleTime: t, spreadR, reasons, now: k == null ? null : nowMotion(bars, k, st[k]?.atr), hasBidAsk: i != null };
   });
 }
 
-// Instruments whose long-minus-short P difference is meaningful. pprofit20 (M5, 2023+) regressed
-// the observed long-minus-short outcome on the predicted P(long) - P(short); the 95% interval of the
-// slope contains 1 only for EUR/USD (0.91) and SPX500 (0.63). WTI is 0.04, NATGAS -0.08, XAU 0.40 and
-// XAG 0.36. Elsewhere each side's P is calibrated on its own, but their difference carries no
-// reliable information, so the shield shows one shared state there.
-export const SIDE_DIFF_CALIBRATED = new Set(['EUR/USD', 'SPX500/USD']);
-
-// The card's state: a shield against clearly wrong moments, not trading advice. Operator rule,
-// per closed candle and cell, from a P decile:
-//   red "Don't trade now": a measured no-trade reason fires (both sides), or the decile is 1
-//   orange "Costly now": decile 2-3
-//   grey "No warning": otherwise (deciles 4-10)
-// There is no green state: pprofit20 has no decile with avg R above 0, so a "good" state cannot be earned.
-// EUR/USD and SPX500 (SIDE_DIFF_CALIBRATED): one state per side from that side's decile.
-// Every other instrument: one shared state (`both`) from floor(mean of the two side deciles), with
-// avgR the mean of the two decile avg R; `long`/`short` are still stored for the record.
-// Without a calibrated estimate: red when a reason fires, else grey "No warning · no calibrated estimate".
-// avgR is the decile's mean net R (null for an empty decile). `cell` needs long/short {decile, expectedR}.
-// Returns { reason: {code, why} | null, shared, long, short, both? }; a state is
-// { state, label, why, conditions, code, decile, avgR }: `why` goes in the headline (red and orange only),
-// `conditions` (the decile band) and avgR go in Details.
-export const SHIELD_LABEL = { red: "Don't trade now", orange: 'Costly now', grey: 'No warning' };
-const SHORT_NAME = { 'WTICO/USD': 'WTI', 'BCO/USD': 'Brent' };
-export function shieldState({ instrument, granularity, cell = null, reasons = [] }) {
-  const reason = reasons[0] ? { code: reasons[0].code, why: reasons[0].short ?? reasons[0].text.replace(/^./, (c) => c.toLowerCase()) } : null;
-  const where = `${SHORT_NAME[instrument] ?? instrument} ${granularity}`;
-  const band = (d) => (d <= 3 ? `bottom ${d * 10}% of conditions for ${where}` : d <= 8 ? `usual conditions for ${where}` : `top ${(11 - d) * 10}% of conditions for ${where}`);
-  const sideState = (s) => {
-    const decile = s?.decile ?? null;
-    const base = { decile, avgR: s?.expectedR ?? null, conditions: s ? band(decile) : null };
-    if (reason) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: reason.why, code: reason.code };
-    if (!s) return { ...base, state: 'grey', label: `${SHIELD_LABEL.grey} · no calibrated estimate`, why: null, code: 'no_estimate' };
-    if (decile <= 1) return { ...base, state: 'red', label: SHIELD_LABEL.red, why: band(decile), code: 'decile_1' };
-    if (decile <= 3) return { ...base, state: 'orange', label: SHIELD_LABEL.orange, why: band(decile), code: `decile_${decile}` };
-    return { ...base, state: 'grey', label: SHIELD_LABEL.grey, why: null, code: `decile_${decile}` };
-  };
-  const out = { reason, shared: !SIDE_DIFF_CALIBRATED.has(instrument), long: sideState(cell?.long), short: sideState(cell?.short) };
-  if (out.shared) {
-    const rs = [cell?.long?.expectedR, cell?.short?.expectedR];
-    const mean = cell && { decile: Math.floor((cell.long.decile + cell.short.decile) / 2), expectedR: rs.includes(null) || rs.includes(undefined) ? null : (rs[0] + rs[1]) / 2 };
-    out.both = sideState(mean);
-  }
-  return out;
+// The card's state: a shield against clearly wrong moments, not trading advice. Red "Don't trade now"
+// with the first measured no-trade reason (spread above SPREAD_MAX_R of the stop distance, thin hour),
+// otherwise grey "No warning". One state for both sides.
+export const SHIELD_LABEL = { red: "Don't trade now", grey: 'No warning' };
+export function shieldState({ reasons = [] }) {
+  const r = reasons[0];
+  if (!r) return { state: 'grey', label: SHIELD_LABEL.grey, why: null, reason: null };
+  const why = r.short ?? r.text.replace(/^./, (c) => c.toLowerCase());
+  return { state: 'red', label: SHIELD_LABEL.red, why, reason: { code: r.code, why } };
 }
 export const shieldText = (st) => [st.label, st.why].filter(Boolean).join(' · ');
-const avgRText = (r) => (r == null ? 'avg R n/a' : `avg ${r >= 0 ? '+' : '−'}${Math.abs(r).toFixed(2)} R`);
-// Details: "decile 9 of 10, top 20% of conditions for WTI M5 · avg −0.14 R"
-export const conditionsText = (st) => `${st.decile == null ? 'no calibrated estimate' : `decile ${st.decile} of 10, ${st.conditions}`} · ${avgRText(st.avgR)}`;
 
 // "Now": a description of the closed bars, not a forecast. N = the current run of closed bars
 // moving the same way as the last one (close vs open), capped at NOW_MAX_BARS (at least 1).
@@ -334,24 +250,10 @@ export function nowMotion(bars, k, atr) {
   return { bars: n, moveAtr, pace, direction, volumeRatio: vol?.ratio ?? null, volumeBase: vol?.base ?? null, continuationRate: null, text: `Now: ${parts.filter(Boolean).join(' · ')}` };
 }
 
-// The operator-approved headline rule (strict): a side only when its expected R is at least
-// +0.05 R and its interval lies above 0, and no measured reason fires. The artifacts carry
-// no interval for the lookup, so no side can clear until one is added.
-export function headline(pp, reasons) {
-  const clears = (s) => s && s.expectedR != null && s.expectedR >= MIN_EXPECTED_R && Array.isArray(s.ci) && s.ci[0] > 0;
-  const sides = pp.available ? [['long', pp.long], ['short', pp.short]].filter(([, s]) => clears(s)).sort((a, b) => b[1].expectedR - a[1].expectedR) : [];
-  if (reasons.length) return { label: 'Neutral', action: 'no_trade', reason: reasons[0].text };
-  if (!sides.length) return { label: 'Neutral', action: 'no_trade', reason: pp.available ? 'no side clears costs' : pp.text };
-  return { label: sides[0][0] === 'long' ? 'Long' : 'Short', action: sides[0][0], reason: null };
-}
-
-const pctP = (p) => (p < 0.005 ? '<1%' : pct(p)); // a calibrated P can be exactly 0
-const avgR = (s) => `${pctP(s.p)} chance of profit (${s.expectedR == null ? 'avg R: n/a' : `avg ${s.expectedR >= 0 ? '+' : ''}${s.expectedR.toFixed(2)} R`})`;
-
 // One local run for the newest CLOSED candle of the viewed timeframe.
 // `candles` are the viewed timeframe (a forming bar is dropped), `m30` the 30-min
 // window for the big-day model, `ba` closed bid/ask bars of the viewed timeframe
-// (P(profit) and the spread reason), `news` newsInput.
+// (the spread reason), `news` newsInput.
 export function localPredict({ instrument, granularity, candles, m30 = [], ba = [], news = null }, { now = Date.now() } = {}) {
   const bars = candles.filter((c) => c.partial !== true && c.complete !== false).map(({ partial, complete, ...c }) => c);
   if (bars.length < 12) throw new Error('not enough candle history for a prediction');
@@ -369,24 +271,15 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   // 1. big-day chance (30-min, side-free)
   const big = bigDay(instrument, m30, now);
 
-  // 3. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
+  // 2. reasons (spread at the closed bar against the supertrend ATR, as in the no-trade study)
   const spreadR = spreadOf(ba.find((b) => Date.parse(b.time) === lastMs), st.at(-1).atr);
   const now_ = nowMotion(bars, bars.length - 1, st.at(-1).atr);
   const reasons = noTradeReasons({ instrument, spreadR, closeMs });
 
-  // 2. P(profit) per side and cell (bid/ask bars of the viewed timeframe); each cell has its own headline
-  const pp = pprofit(instrument, granularity, ba, lastMs, reasons);
-
-  const head = headline(pp, reasons);
-  const shield = pp.available ? pp.cells[0].shield : shieldState({ instrument, granularity, reasons });
-  const action = head.action;
+  const shield = shieldState({ reasons });
   const state = {
     big_day_today: big.text,
-    long_now: pp.available ? avgR(pp.long) : pp.text,
-    short_now: pp.available ? avgR(pp.short) : pp.text,
-    ...(shield.shared
-      ? { state_both_sides: shieldText(shield.both), conditions_both_sides: conditionsText(shield.both) }
-      : { long_state: shieldText(shield.long), short_state: shieldText(shield.short), long_conditions: conditionsText(shield.long), short_conditions: conditionsText(shield.short) }),
+    shield: shieldText(shield),
     ...(now_ ? { now: now_.text.replace(/^Now: /, '') } : {}),
     trend: trend.text,
     spread: spreadR == null ? 'unknown (no bid/ask for this bar)' : `${spreadR.toFixed(2)} of the stop distance (1.5 ATR)`,
@@ -400,16 +293,53 @@ export function localPredict({ instrument, granularity, candles, m30 = [], ba = 
   if (news?.relevant) state.news = `${news.relevant.escalation}: ${news.relevant.title} (not used for direction or reasons)`;
 
   return {
-    instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: pp.available ? pp.horizon : PP_HORIZONS[0],
-    askedAt: new Date(now).toISOString(), model: LOCAL_MODEL, action,
-    // long/short: P(profit) of each side (null without an artifact); no_trade: 1 for a Neutral headline
-    probabilities: { long: pp.available ? pp.long.p : null, short: pp.available ? pp.short.p : null, no_trade: action === 'no_trade' ? 1 : 0 },
+    instrument, granularity, candleTime: last.time, forming: false, price: last.close, horizonBars: 1,
+    // the local provider names no side: the run describes costs and the closed bars only
+    askedAt: new Date(now).toISOString(), model: LOCAL_MODEL, action: 'no_trade',
+    probabilities: { long: null, short: null, no_trade: null },
     confidence: null, quality: null, trendConfirmed: null, latencyMs: 0, state,
     detail: {
-      // shield: per-side state of the default cell (each cell carries its own in pprofit.cells); headline: the strict trade rule
-      shield, bigDay: big, pprofit: pp, headline: head.label, headlineReason: head.reason, minExpectedR: MIN_EXPECTED_R,
+      shield, bigDay: big,
       reasons, trend, spreadR, now: now_,
       news: news && { latest: news.latest, relevant: news.relevant ?? null, rule: 'shown and stored only; never sets direction, a reason or a number' },
     },
   };
 }
+
+// Bid/ask candles from the public feed, oldest first, complete bars only.
+export async function fetchBaCandles(instrument, granularity, count, { fetchFn = fetch } = {}) {
+  const url = new URL('https://p.fxempire.com/oanda/candles/latest');
+  for (const [k, v] of Object.entries({ instrument, granularity, count: String(count), price: 'BA', alignmentTimezone: 'UTC' })) url.searchParams.set(k, v);
+  const res = await fetchFn(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(25000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for bid/ask candles`);
+  const out = [];
+  for (const r of (await res.json())?.candles ?? []) {
+    const b = { time: r?.time };
+    for (const s of ['bid', 'ask']) for (const x of 'ohlc') b[`${s}_${x}`] = Number(r?.[s]?.[x]);
+    if (r?.complete && b.time && Object.values(b).slice(1).every(Number.isFinite)) out.push(b);
+  }
+  return out.sort((x, y) => Date.parse(x.time) - Date.parse(y.time));
+}
+
+// Bid/ask window per pair, kept in memory: one full fetch, then the newest few bars per call.
+// ponytail: in-process cache, lost on restart (one full fetch again); persist if restarts get frequent.
+const windows = new Map();
+export async function baWindow(instrument, granularity, count, opts = {}) {
+  const key = `${instrument}|${granularity}|${count}`;
+  const have = windows.get(key);
+  const gMs = granularityMs(granularity);
+  let bars;
+  if (have?.length && count > 10) {
+    const tail = await fetchBaCandles(instrument, granularity, 10, opts);
+    if (tail.length && Date.parse(tail[0].time) - Date.parse(have.at(-1).time) > 1.5 * gMs) bars = await fetchBaCandles(instrument, granularity, count, opts);
+    else {
+      const byTime = new Map(have.map((b) => [b.time, b]));
+      for (const b of tail) byTime.set(b.time, b);
+      bars = [...byTime.values()].sort((x, y) => Date.parse(x.time) - Date.parse(y.time)).slice(-count);
+    }
+  } else bars = await fetchBaCandles(instrument, granularity, count, opts);
+  windows.set(key, bars);
+  return bars;
+}
+// Tests only: forget the cached windows.
+export const clearBaWindows = () => windows.clear();

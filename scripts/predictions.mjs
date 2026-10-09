@@ -3,8 +3,7 @@
 // Advisory only: nothing here is read by the bot, the filter or the notifier.
 import { granularityMs, isGranularity, withDb } from './supertrend.mjs';
 import { GRAN_WORDS, jevPredict, JEV_PROVIDER } from './jev.mjs';
-import { cutoffMs, LOCAL_MODEL, localPredict, localSeries, LOCAL_PROVIDER, newsInput, shieldState } from './local-predict.mjs';
-import { baWindow, ppAvailable, ppModel, PP_WINDOW_BARS } from './pprofit.mjs';
+import { baWindow, LOCAL_MODEL, localPredict, localSeries, LOCAL_PROVIDER, newsInput, shieldState } from './local-predict.mjs';
 
 const DDL = `CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,8 +104,8 @@ async function freshPrediction(dbPath, settings, { instrument, granularity, load
   const input = { instrument, granularity, candles };
   if (predictionProvider(settings) === LOCAL_PROVIDER) {
     input.m30 = loadM30 ? await loadM30() : (granularity === 'M30' ? candles : []);
-    // bid/ask bars of the viewed timeframe: a long window where a P(profit) artifact exists, else the spread only
-    input.ba = await baWindow(instrument, granularity, ppAvailable(instrument, granularity) ? PP_WINDOW_BARS : 3, { fetchFn: opts.fetchFn }).catch(() => []);
+    // the newest bid/ask bars of the viewed timeframe, for the spread reason
+    input.ba = await baWindow(instrument, granularity, 3, { fetchFn: opts.fetchFn }).catch(() => []);
   }
   return { reused: false, ...(await runPrediction(dbPath, settings, input, { now, ...opts })) };
 }
@@ -150,10 +149,10 @@ export function predictionForTool(p) {
   if (p.provider === LOCAL_PROVIDER) {
     const d = p.detail ?? {};
     return {
-      advisory: 'Advisory statistics only. probabilities.long/short are calibrated P(profit) after costs of the first cell in pProfit.cells (horizon in candles; target up = price better than the entry at the end, plan = stop 1.5 ATR, breakeven at +1R, target 3R, out at the horizon); they mostly reflect spread and hour and are not an edge. It never places or changes a trade; confirm with price action before any entry.',
-      provider: p.provider, instrument: p.instrument, granularity: p.granularity, action: p.action, probabilities: p.probabilities,
-      shield: d.shield ?? null, headline: d.headline ?? null, headlineReason: d.headlineReason ?? null, pProfit: d.pprofit ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
-      trendContext: d.trend?.text ?? null, news: d.news ?? null, horizon: `next ${p.horizonBars} candles (see pProfit.cells for each horizon and target)`,
+      advisory: 'Advisory description only, no side and no forecast: the cost shield (red when a measured no-trade reason fires: wide spread or a thin hour), a description of the closed bars (now), the big-day chance and the trend. It never places or changes a trade; confirm with price action before any entry.',
+      provider: p.provider, instrument: p.instrument, granularity: p.granularity,
+      shield: d.shield ?? null, now: d.now?.text ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
+      trendContext: d.trend?.text ?? null, news: d.news ?? null,
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };
   }
@@ -171,31 +170,15 @@ export function predictionForTool(p) {
 export const SERIES_MAX = 500;
 
 // The compact chart entry for one candle from a local run's detail or a computed series row.
-// `inSample` marks a candle before the cell artifact's training cutoff.
-function seriesEntry(instrument, granularity, core, source, computedAt) {
-  const ms = Date.parse(core.candleTime);
-  const pp = core.pprofit ?? { available: false, text: 'no calibrated estimate' };
-  const cells = pp.available ? pp.cells.map((c) => {
-    const model = ppModel(instrument, granularity, c.horizon, c.target);
-    return {
-      key: c.key, horizon: c.horizon, target: c.target, pLong: c.long.p, pShort: c.short.p, expectedRLong: c.long.expectedR, expectedRShort: c.short.expectedR,
-      decileLong: c.long.decile, decileShort: c.short.decile, headline: c.headline, reason: c.headlineReason ?? null, inSample: model ? ms < cutoffMs(model) : null,
-      // the per-side state, recomputed from the stored deciles so older runs get it too
-      shield: shieldState({ instrument, granularity, cell: c, reasons: core.reasons ?? [] }),
-    };
-  }) : [];
+// The shield is recomputed from the stored reasons, so older runs get the current rule.
+function seriesEntry(core, source, computedAt) {
   return {
     candleTime: core.candleTime, source, computedAt, spreadR: core.spreadR ?? null, now: core.now ?? null,
-    reasons: (core.reasons ?? []).map(({ code, text }) => ({ code, text })), available: pp.available, text: pp.available ? null : pp.text, cells,
-    // the state without a cell (reasons only), for pairs without a calibrated estimate
-    shield: shieldState({ instrument, granularity, reasons: core.reasons ?? [] }),
+    reasons: (core.reasons ?? []).map(({ code, text }) => ({ code, text })), shield: shieldState({ reasons: core.reasons ?? [] }),
   };
 }
-// What a series row stores: the local scorer output without the per-side details the chart never reads.
-const seriesCore = ({ candleTime, spreadR, reasons, now, pprofit: pp }) => ({
-  candleTime, spreadR, reasons, now: now ?? null,
-  pprofit: pp.available ? { available: true, cells: pp.cells.map(({ key, horizon, target, long, short, headline, headlineReason }) => ({ key, horizon, target, long: { p: long.p, expectedR: long.expectedR, decile: long.decile }, short: { p: short.p, expectedR: short.expectedR, decile: short.decile }, headline, headlineReason })) } : pp,
-});
+// What a series row stores.
+const seriesCore = ({ candleTime, spreadR, reasons, now }) => ({ candleTime, spreadR, reasons, now: now ?? null });
 
 // One entry per closed candle of the window [from, to] (ms, both optional), newest SERIES_MAX only.
 // A stored local run for the candle is used as is ("live"). Otherwise the free local scorer runs
@@ -210,12 +193,12 @@ export async function predictionSeries(dbPath, { instrument, granularity, from =
   const [live, cached] = withDb(dbPath, (db) => {
     ensureTable(db);
     const runs = new Map();
-    // newest run per candle; runs stored before per-cell scores existed are recomputed instead
+    // newest run per candle
     for (const r of db.prepare("SELECT candle_time, asked_at, detail FROM predictions WHERE instrument = ? AND granularity = ? AND provider = ? AND detail IS NOT NULL ORDER BY id DESC LIMIT 5000").all(instrument, granularity, LOCAL_PROVIDER)) {
       const ms = Date.parse(r.candle_time);
       const d = JSON.parse(r.detail);
-      if (runs.has(ms) || !d.pprofit || (d.pprofit.available && !d.pprofit.cells)) continue;
-      runs.set(ms, { core: { candleTime: r.candle_time, spreadR: d.spreadR, reasons: d.reasons, now: d.now ?? null, pprofit: d.pprofit }, at: r.asked_at });
+      if (runs.has(ms)) continue;
+      runs.set(ms, { core: { candleTime: r.candle_time, spreadR: d.spreadR, reasons: d.reasons, now: d.now ?? null }, at: r.asked_at });
     }
     const rows = db.prepare('SELECT candle_ms, entry, computed_at FROM prediction_series WHERE instrument = ? AND granularity = ? AND model = ?').all(instrument, granularity, LOCAL_MODEL);
     return [runs, new Map(rows.map((r) => [r.candle_ms, { core: JSON.parse(r.entry), at: r.computed_at }]))];
@@ -239,9 +222,9 @@ export async function predictionSeries(dbPath, { instrument, granularity, from =
   const entries = win.map((c) => {
     const ms = Date.parse(c.time);
     const l = live.get(ms);
-    if (l) return seriesEntry(instrument, granularity, l.core, 'live', l.at);
+    if (l) return seriesEntry(l.core, 'live', l.at);
     const s = cached.get(ms);
-    return seriesEntry(instrument, granularity, { ...s.core, candleTime: c.time }, 'computed', s.at);
+    return seriesEntry({ ...s.core, candleTime: c.time }, 'computed', s.at);
   });
   return { entries, capped: all.length > win.length, max: SERIES_MAX };
 }

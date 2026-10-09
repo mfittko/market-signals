@@ -27,7 +27,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - The export drops the cross-instrument `stress` feature. Serving it would need the five other instruments' 252-session history on every run. The variant is named `A1_nostress`.
      - The 16 features are ported to Node from 30-min mid bars: previous-session realized volatility (1, 5, 22 sessions), realized volatility so far and over the last 6h, excursion and move so far, share of T1, range so far against the same-slot median of 60 sessions, time of day, weekday, and opening gap.
      - Once the session has already moved T1 %, the card shows "reached" instead of a probability.
-   - **P(profit) per side, per horizon and target.** This is the calibrated probability that a long and a short entered at the next bar open is profitable after bid/ask costs. Since amendment A4 (operator horizons) each artifact is one cell: horizon H = 12 or 48 candles of the viewed timeframe, and one of two targets:
+   - **P(profit) per side, per horizon and target. REMOVED on 2026-10-09 (see Findings, "P(profit) removed"); kept here as a record.** This is the calibrated probability that a long and a short entered at the next bar open is profitable after bid/ask costs. Since amendment A4 (operator horizons) each artifact is one cell: horizon H = 12 or 48 candles of the viewed timeframe, and one of two targets:
      - `up`: the price at the close of bar i + H is better than the entry after costs (long: bid close above the entry ask; short: ask close below the entry bid).
      - `plan`: a fixed plan ends net positive. Stop 1.5 x Wilder ATR14 = 1R, breakeven after +1R, target 3R, exit at an opposite supertrend flip or after H bars.
 
@@ -66,7 +66,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
      - A headline therefore counts as relevant only when it names a keyword from a fixed per-instrument list (`NEWS_KEYWORDS`: oil, crude, OPEC, Hormuz, EIA … for WTI and BCO; gold, bullion, Fed … for metals; LNG, Henry Hub … for NATGAS; S&P, Nasdaq, earnings … for indices; euro, ECB, dollar, Fed for EUR/USD). Matching is on whole words. Other instruments get no news line.
      - Every run stores the newest headline unchanged, with a `relevant` flag, and the newest relevant headline. Each carries id, escalation, published-at and available-at.
      - News never sets the side, a reason or a number.
-2. Headline rule (operator-approved, strict; `headline()` in `scripts/local-predict.mjs`).
+2. Headline rule (operator-approved, strict; `headline()` in `scripts/local-predict.mjs`). REMOVED with P(profit) on 2026-10-09; a local run now stores `action: no_trade` and null probabilities, and names no side.
    - A side clears only when its expected R is at least +0.05 R and its interval lies above 0. If both sides clear, the higher expected R wins.
    - The headline is "Long" or "Short" only when a side clears and no measured no-trade reason fires.
    - Otherwise it is "Neutral" with one reason: the first measured reason (spread wide, thin hour), else "no side clears costs", else "no calibrated estimate".
@@ -103,6 +103,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - Long-short difference. pprofit20 (M5, 2023+) regressed the observed long-minus-short outcome on the predicted P(long) − P(short). The 95% interval of the slope contains 1 only for EUR/USD (0.91 [0.54, 1.26]) and SPX500 (0.63 [0.20, 1.10]). WTI is 0.04 [−0.45, 0.52], NATGAS −0.08, XAU 0.40 [0.06, 0.75] and XAG 0.36 [0.05, 0.70]. For every other instrument the card and the tooltip keep both numbers and add the muted line "Difference between sides not meaningful for this instrument." The list is one constant, `SIDE_DIFF_CALIBRATED` in `scripts/local-predict.mjs`; the engine sends the result to the console as `shield.shared`.
    - The A4 cells give the same picture with more spread: EUR/USD M5 and M15 slopes are 0.63 to 0.98, but XAG M5 H12 up is 0.89 [0.66, 1.13], and SPX500 is 0.33 to 0.63. The constant follows the M5 study for now.
 5. Per-candle prediction in the chart tooltip.
+   - Since 2026-10-09 an entry holds the candle time, source, `computedAt`, the spread in R, the reasons, the shield and the Now line. The P(profit) cells, `inSample` and the cell text below are removed. The series reads the newest 700 bid/ask bars (500 + 200 warm-up) for the spread. The cache key is `local-stats-v7`.
    - `GET /api/predictions/series?instrument=&granularity=&from=&to=` (`predictionSeries` in `scripts/predictions.mjs`) returns one entry per closed candle of the window. Each entry has the candle time, the source, `computedAt`, the spread in R, the reasons (code and text) and, per shipped cell, P long, P short, expected R per side, the headline, its reason and `inSample`.
    - Source "live": a stored local run exists for the candle, and its detail is used unchanged. Runs stored before per-cell scores existed are recomputed instead.
    - Source "computed": `localSeries` in `scripts/local-predict.mjs` runs the same scorer as `localPredict`. It makes one pass over the chart window: supertrend ATR for the spread, `ppSeries` once for the bid/ask features, then `scoreCell` and `noTradeReasons` per candle. A test checks that this equals `localPredict` on the truncated window for two candles. The result goes into a new cache table `prediction_series`, keyed by instrument, timeframe, candle and model, with `computed_at` after the candle close. Later reads use the cache and fetch no bid/ask data. Computed rows stay out of the `predictions` table, so card history and reuse are unchanged.
@@ -113,6 +114,7 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
    - The Go proxy allow-list accepts `GET /predictions/series` only.
    - The instrument page fetches the series for the live window and fetches again when a new candle closes. The tooltip shows one line under the OHLC values for the card's chosen cell, e.g. "Prediction (12 candles · price better): Neutral · Long 46% · Short 47% · spread 0.12 of stop". An in-sample candle adds "(model trained on this period)". A pair without a shipped cell shows "Prediction: no calibrated estimate". The card's cell choice is shared through `platform/web/lib/prediction.ts`, and the chart follows a change without a reload.
 6. Shield states (operator decision: the card is a shield against clearly wrong decisions, not trading advice).
+   - Since 2026-10-09 (P(profit) removed) the shield has two states and no deciles: red "Don't trade now" with the first measured no-trade reason (spread above 0.2 of stop, thin hour), otherwise grey "No warning". It is one state for both sides. The card shows one line under the reason; Details has no "Costs" line. The decile states below (orange, per side, shared, decile bands, avg R) are a record of what was built.
    - `shieldState` in `scripts/local-predict.mjs` maps a P decile (artifact lookup) to a state:
      - red "Don't trade now": a measured no-trade reason fires (spread above 0.2 of stop, thin hour; this applies to both sides), or the decile is 1
      - orange "Costly now": decile 2 or 3
@@ -222,16 +224,22 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 - **Direction lean removed (operator decision, 2026-10-09).** The card and the chart tooltip no longer show a Long / Neutral / Short headline, the bars, the "Over" select, the basis line, the d / interval / raw P lines or the outcome definition. The lookup code (`udParts`, `udKeys`, `updown`, `udHeadline`, `percent100`), the run inputs `updown_*`, the `updown_<INST>_<TF>.json` tables, the parity fixtures and their tests are deleted; `data/research/localpred/updown.py` stays as research. The cache key moved to `local-stats-v6`.
   - Why: the table's lean is a built-in fade. After fast moves it leans against the move (largest WTI M5 N=6 leans: falling fast → Long, rising fast → Short). The fade31 study (research queue row 31) found that fades lose before spread in all 36 cells, because continuations are larger than reversals.
   - Live tally, WTI M1, 2026-10-09 12:21 to 13:18 UTC: 17 of 31 Long/Short headlines were right, but the wrong ones were the big moves, including four "Long" / "Long, clear" calls during the 12:56 to 13:00 UTC drop. Net −0.13 before spread. The operator saw "Short" through the rally and "Long" through the fall.
-  - What stays: the cost shield (red "Don't trade now", orange "Costly now", grey "No warning"; shared or per side), the Now line, the big-day chance, Trend, and Details with the cost conditions line.
-- **Screenshots (taken before the direction lean was removed, so they still show the Long/Short headline, the select, the bars and the tooltip lean line; WTI M5, review setup with a copy of the engine database):**
-  - `docs/spikes/local-prediction-provider/ud-card-live-desktop.png` and `ud-card-live-mobile.png` (live 16:05: No warning; Now: falling steady · −0.5 ATR in 1 bar · volume 1.5× normal; shot before the revised rule: Long; three bars 45% / 13% / 42% (now Long with two bars 52% / 48%; d = +3.0 pp is just above the 3 pp edge); after 48,052 similar moments (falling steady, normal volume, H1 disagrees))
-  - `docs/spikes/local-prediction-provider/ud-card-details-desktop.png` and `ud-card-details-mobile.png` (Details: Costs decile line, Long minus Short +3.0 pp [+2.2, +3.9], bucket level L0, the outcome definition)
-  - `docs/spikes/local-prediction-provider/ud-card-falling-fast-synth-desktop.png` and `ud-card-falling-fast-synth-mobile.png`: SYNTHESIZED. The latest stored run with `detail.now` and `detail.updown` replaced by the series values of the falling-fast 15:15 local bar: Now: falling fast · −3.5 ATR in 5 bars · volume 2.1× normal; Long; 46% / 13% / 41%; after 8,707 similar moments (falling fast, high volume, H1 disagrees). Shot before the revised rule and the two-bar layout: the card then showed three bars 46% / 13% / 41%; it now reads Long with 53% / 47%.
-  - `docs/spikes/local-prediction-provider/ud-tooltip-falling-fast-desktop.png` and `ud-tooltip-falling-fast-mobile.png` (the real 15:15 bar: No warning, the Now line, "Long over 6 candles · Long 46% · Neutral 13% · Short 41%") (Shot before the revised layout: the tooltip now reads "Long over 6 candles · Long 53% · Short 47%", without the shared note.)
+  - What stayed at that point: the cost shield (red "Don't trade now", orange "Costly now", grey "No warning"; shared or per side), the Now line, the big-day chance, Trend, and Details with the cost conditions line.
+- **P(profit) removed (operator decision, 2026-10-09).** The local provider no longer scores P(profit). `scripts/pprofit.mjs`, the 32 `artifact_*_pprofit20.json` cells, the four P(profit) parity fixtures and their tests are deleted. The bid/ask window (`fetchBaCandles`, `baWindow`) moved into `scripts/local-predict.mjs`; it is still needed for the spread reason. The cache key moved to `local-stats-v7`.
+  - Why it could go: no decile of any shipped cell had a positive avg R (see "No side clears costs"), so the decile states could only ever say "costly" or "no warning"; and P(profit) was close to a spread meter, which the spread reason already covers.
+  - What stays: the cost shield from the two measured reasons (red "Don't trade now" with the reason, else grey "No warning"), the Now line, the big-day chance, Trend and news. The run names no side: `action` is `no_trade` and the probabilities are null. The agent tool `get_prediction` and the chat tool say so.
+  - Stored runs from before still render: a run without a top-level shield state reads "No warning", and the series recomputes the shield from the stored reasons.
+- **Screenshots (current card, after P(profit) was removed; WTI M5, review setup with a copy of the engine database):**
+  - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (live, 2026-10-09 15:5x local: "No warning"; Now: rising steady · +0.6 ATR in 1 bar · volume 2.1× normal; Big-day chance today: 2% for ≥ 5.4% (usual 5%) · 1.4% so far; Trend: down, H1 agrees)
+  - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details open: the −0.1 R note, the run inputs with spread 0.06 of the stop distance, the candle footer, History)
+  - `docs/spikes/local-prediction-provider/shield-card-red-synth-desktop.png` and `shield-card-red-synth-mobile.png`: SYNTHESIZED. The latest stored run with a spread reason (0.27 of stop) injected into its detail, to show the red state: "Don't trade now · spread wide (0.27 of stop)".
+  - `docs/spikes/local-prediction-provider/shield-tooltip-desktop.png` (the real 14:55 local bar: "No warning", "Now: falling steady · −1.4 ATR in 1 bar · volume 2.0× normal")
+  - The up/down and lean screenshots of the previous rounds are removed from the repository with the UI they showed.
   - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
-  - `node --test test/local-predict.test.mjs`: 25 tests pass. They cover:
+  - Since P(profit) was removed: `node --test test/local-predict.test.mjs`: 18 tests pass; `npm run verify`: 804 tests pass, plus the console typecheck. The shield tests now cover red with the first reason, grey otherwise, and the exclusive 0.2 limit; the series shape pin is `local-stats-v7`. The P(profit), decile and per-side items below are removed.
+  - Before that, `node --test test/local-predict.test.mjs`: 25 tests passed. They covered:
     - no direction lean in the run: no `updown` detail and no `updown_*` inputs (the up/down parity, fallback and headline tests were removed with the lookup)
     - no green state at any decile pair; red, orange and grey mapping per side (EUR/USD) and shared (WTI); avg R and the band only in the Details text
     - the Now line on a synthetic falling run: fast (capped at 6 bars), steady, flat, the volume ratio against the recent median and the time-of-day slot, the volume clause left out, no ATR; and equal Now values from `localSeries` and `localPredict`
@@ -261,7 +269,7 @@ Graduate with a narrowed scope. Make the local provider the default as a descrip
 
 1. Keep the card as built:
    - the big-day chance (absolute %, side-free, marked as a research preview)
-   - the shield state (red, orange, or grey "No warning") with its reason, avg R in Details, per side for EUR/USD and SPX500 and shared for every other instrument, per shipped horizon x target cell, with the "Over" select
+   - the cost shield: red "Don't trade now" with the measured reason, otherwise grey "No warning"
    - the descriptive Now line
    - the same states and the Now line per closed candle in the chart tooltip
    - the two study-backed no-trade reasons
@@ -276,14 +284,9 @@ Open questions for https://github.com/mfittko/market-signals/issues/312:
 
 - Should the scorer read bid/ask M1 resampled to 30 minutes (exact research inputs), or OANDA mid M30? The measured drift is at most 0.002.
 - Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
-- Should the strict rule also require a minimum P decile support, now that intervals exist?
-- The 18-feature P(profit) model barely beats a spread-only model in any A4 cell. Should the Go port ship the full model, or a spread-and-hour lookup with the same calibration and decile table?
-- Should the decile bands be fixed per artifact (shipped with it) rather than in code?
-- Should the side-difference list come from the artifact (a per-cell slope and interval) instead of a console constant? The A4 cells disagree with the M5 study in places (XAG M5 H12 up 0.89, SPX500 M1 0.33 to 0.49).
-- Should the series cache move into the Go store, and should the chart get an out-of-sample-only mode? With a final fit on all data, every candle before 2026-10-07 18:30 UTC is in-sample.
-- Which cell should be the default (stored action, `probabilities`, agent tool), and should the card hide cells for the pairs where the chosen one failed calibration instead of falling back to the first shipped cell?
-- Should P(profit) on M5 be scored only at the research cadence (quarter-hour closes), or on every closed bar as now?
-- Should the bid/ask window be persisted, so that a restart does not refetch 5000 bars per pair?
+- Should P(profit) come back in Go at all? It was removed because no decile cleared costs and it tracked the spread. A spread-and-hour lookup would cover the same ground.
+- Should the series cache move into the Go store?
+- Should the bid/ask window be persisted, so that a restart does not refetch 700 bars per pair?
 - Should the thin-hour lists and T1 move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?
 - Does a no-trade reason feed EntryGuard as a REJECTED reason code, or does it stay display-only until it is qualified?
 - Should the card show the big-day chance only above its usual rate, or always?

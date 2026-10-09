@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui';
 import { loadPrefs, timeMs } from '@/lib/alerts';
-import { conditionsText, isWarning, STATE_COLOR, stateText, type NowMotion, type Shield, type SideState } from '@/lib/prediction';
+import { isWarning, STATE_COLOR, stateText, type NowMotion, type Shield } from '@/lib/prediction';
 
 type Action = 'long' | 'short' | 'no_trade';
 type Prediction = {
@@ -18,20 +18,19 @@ type LocalDetail = {
   shield?: Shield;
   now?: NowMotion | null;
   bigDay?: BigDayPart;
-  headline?: string; headlineReason?: string | null;
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
 };
 const LOCAL = 'local';
-// "Long  ● Don't trade now · bottom 10% of conditions for WTI M5 · avg −0.91 R"
-function StateLine({ name, s, withWhy }: { name: string; s: SideState; withWhy: boolean }) {
+// "● Don't trade now · spread wide (0.27 of stop)"; the reason is shown above when it fires
+function StateLine({ s }: { s: Partial<Shield> | null | undefined }) {
+  const color = isWarning(s) ? STATE_COLOR.red : undefined;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: name ? '44px 12px 1fr' : '12px 1fr', alignItems: 'baseline', gap: 6 }}>
-      {name && <span className="small muted">{name}</span>}
-      <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: isWarning(s) ? STATE_COLOR[s.state] : 'var(--muted)' }} />
-      <span><strong style={{ color: isWarning(s) ? STATE_COLOR[s.state] : undefined }}>{stateText(s, false)}</strong><span className="small">{stateText(s, withWhy).slice(stateText(s, false).length)}</span></span>
-    </div>
+    <p style={{ margin: '4px 0 8px', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: color ?? 'var(--muted)' }} />
+      <strong style={{ fontSize: 18, color }}>{stateText(s)}</strong>
+    </p>
   );
 }
 // "26% for ≥ 5.4% (usual 5%) · 2.8% so far"; a session past the threshold is a fact, not a chance
@@ -190,7 +189,6 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
   const isLatest = p && p.id === runs[0]?.id;
   const expired = (r: Prediction) => timeMs(r.expiresAt) <= now;
   const d = p?.provider === LOCAL ? p.detail ?? null : null;
-  const head = d && { label: d.headline ?? LABEL[p.action], action: p.action, reason: d.headlineReason ?? null };
   const shield = d?.shield;
   const rel = d?.news?.relevant ?? null; // only headlines that name the instrument's market
   const news = rel && rel.escalation !== 'routine' && now - timeMs(rel.publishedAt) <= NEWS_SHOWN_MS ? rel : null;
@@ -206,35 +204,19 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
       {p && d && (
         <div aria-live="polite" style={expired(p) ? { opacity: 0.6 } : undefined}>
           {!isLatest && <p className="small muted" style={{ margin: '6px 0' }}>Showing an earlier run. <button className="linkish" onClick={() => setShownId(null)}>Back to latest</button></p>}
-          {shield ? (
-            <div style={{ display: 'grid', gap: 4, margin: '4px 0 8px' }}>
-              {/* a measured reason applies to both sides: shown once, and both lines read Don't trade now */}
-              {shield.reason && <p className="small" style={{ margin: 0, color: 'var(--warn)' }}>{shield.reason.why.replace(/^./, (c) => c.toUpperCase())}</p>}
-              {shield.shared && shield.both
-                ? <StateLine name="" s={shield.both} withWhy={!shield.reason} />
-                : <><StateLine name="Long" s={shield.long} withWhy={!shield.reason} /><StateLine name="Short" s={shield.short} withWhy={!shield.reason} /></>}
-            </div>
-          ) : (
-            <p style={{ margin: '4px 0' }}>
-              <strong style={{ fontSize: 18, color: TONE[head!.action] }}>{head!.label}</strong>
-              {head!.reason && <span className="small" style={d.reasons.length ? { color: 'var(--warn)' } : { color: 'var(--muted)' }}> · {head!.reason}</span>}
-            </p>
-          )}
+          <StateLine s={shield} />
           {/* describes the closed bars only; no forecast */}
           {d.now && <p className="small" style={{ margin: '4px 0' }}>{d.now.text}</p>}
           <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
-          {d.reasons.slice(shield ? 1 : d.headlineReason === d.reasons[0]?.text ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
+          {d.reasons.slice(isWarning(shield) ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
           <details className="small">
             <summary className="muted">Details</summary>
-            {shield && (shield.shared && shield.both
-              ? <p style={{ margin: '6px 0' }}>Costs: {conditionsText(shield.both)}</p>
-              : <p style={{ margin: '6px 0' }}>Costs: Long {conditionsText(shield.long)} · Short {conditionsText(shield.short)}</p>)}
             <p className="muted" style={{ margin: '4px 0' }}>Signals in this system average about −0.1 R after costs; the reasons are measured filters, not buy signals.</p>
             {rel && <p style={{ margin: '4px 0' }}>Latest relevant news: {rel.escalation} · {age(rel.publishedAt, now)}: {clip(rel.title)}</p>}
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
-              {Object.entries(p.state).filter(([k]) => k !== 'instrument' && k !== 'news' && !/^long_now$|^short_now$/.test(k) && k !== 'long_state' && k !== 'short_state' && !['state_both_sides', 'conditions_both_sides', 'long_conditions', 'short_conditions', 'now'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
+              {Object.entries(p.state).filter(([k]) => !['instrument', 'news', 'now', 'shield'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
             <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · big day over the session · {age(p.askedAt, now)}</p>
             {history}
@@ -292,8 +274,8 @@ function History({ runs, shownId, now, onShow }: { runs: Prediction[]; shownId?:
           <tr key={r.id} aria-selected={r.id === shownId} style={r.id === shownId ? { background: 'var(--neutral-bg)' } : undefined}>
             <td className="num"><button className="linkish" onClick={() => onShow(r.id)} aria-label={`Show the run from ${day(r.askedAt)} ${hm(r.askedAt)}`}>{day(r.askedAt)} {hm(r.askedAt)}</button></td>
             <td className="num">{hm(r.candleTime)}</td>
-            <td style={{ color: TONE[r.action] }}>{r.provider === LOCAL
-              ? <>{r.detail?.shield?.both?.label ?? r.detail?.headline ?? LABEL[r.action]}</>
+            <td style={{ color: r.provider === LOCAL ? (isWarning(r.detail?.shield) ? STATE_COLOR.red : undefined) : TONE[r.action] }}>{r.provider === LOCAL
+              ? <>{stateText(r.detail?.shield)}</>
               : <>{LABEL[r.action]} {pct(r.probabilities[r.action])}</>}{expired(r) && <span className="muted"> · expired</span>}</td>
             <td className="num">{r.price}</td>
           </tr>

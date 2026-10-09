@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
-import { isWarning, STATE_COLOR, stateText, type SeriesEntry, type SideState } from '@/lib/prediction';
+import { isWarning, STATE_COLOR, type SeriesEntry } from '@/lib/prediction';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -305,18 +305,13 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   );
 }
 
-const Dot = ({ s }: { s: SideState }) => <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR[s.state], marginRight: 4 }} />;
-// a dot only for a warning (red or orange); "No warning" stays plain
-const side = (name: string, s: SideState) => <span>{name && `${name} `}{isWarning(s) && <Dot s={s} />}{isWarning(s) ? <strong>{stateText(s, false)}</strong> : stateText(s, false)}</span>;
-// "● Costly now" (one shared state) or "Long No warning · Short ● Don't trade now" (per side), the Now line
+// "● Don't trade now" with the reason, or a plain "No warning"; then the Now line
 function PredictionLine({ e }: { e: SeriesEntry }) {
-  const sh = e.cells[0]?.shield ?? e.shield;
+  const warn = isWarning(e.shield);
   return (
     <div className="tip-sec small">
-      {sh && (sh.shared && sh.both
-        ? <div>{side('', sh.both)}</div>
-        : <div>{side('Long', sh.long)} · {side('Short', sh.short)}</div>)}
-      {sh?.reason && <div style={{ color: 'var(--warn)' }}>{sh.reason.why.replace(/^./, (x) => x.toUpperCase())}</div>}
+      <div>{warn && <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR.red, marginRight: 4 }} />}{warn ? <strong>{e.shield.label}</strong> : 'No warning'}</div>
+      {warn && e.shield.why && <div style={{ color: 'var(--warn)' }}>{e.shield.why.replace(/^./, (x) => x.toUpperCase())}</div>}
       {e.now && <div>{e.now.text}</div>}
     </div>
   );

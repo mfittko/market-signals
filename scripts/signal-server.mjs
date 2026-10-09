@@ -36,8 +36,7 @@ import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
 import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionSeries, SERIES_MAX, predictionForTool, predictionProvider, PREDICTION_PROVIDERS } from './predictions.mjs';
-import { A1_WINDOW_BARS, LOCAL_PROVIDER } from './local-predict.mjs';
-import { baWindow, ppAvailable, PP_WINDOW_BARS } from './pprofit.mjs';
+import { A1_WINDOW_BARS, baWindow, LOCAL_PROVIDER } from './local-predict.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -773,7 +772,7 @@ export async function refreshLocalPredictions(dbPath, combos, cfg, { fetcher = f
 export const CHAT_TOOLS = [
   {
     name: 'market_prediction',
-    description: 'Advisory prediction for the current candle of a timeframe. The default local provider returns the chance that today becomes a big day (a session move of a fixed % or more, side-free), calibrated P(profit) and average R for a long and a short under a fixed trade plan (where calibrated; not an edge), evidenced no-trade reasons and the trend as context; TypeSafe Jev, when selected, returns long, short or no trade over the next 3 candles with setup quality and trend confirmation. Reuses the latest prediction while it is still valid, otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
+    description: 'Advisory prediction for the current candle of a timeframe. The default local provider returns the chance that today becomes a big day (a session move of a fixed % or more, side-free), a cost warning from evidenced no-trade reasons (wide spread, thin hour), a description of the closed bars and the trend as context, without naming a side; TypeSafe Jev, when selected, returns long, short or no trade over the next 3 candles with setup quality and trend confirmation. Reuses the latest prediction while it is still valid, otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
     input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, granularity: { type: 'string', description: 'timeframe, e.g. M5; defaults to the current view' } }, additionalProperties: false },
     run: async (a, ctx) => {
       // copilot only: the paper-trading bot never receives a prediction
@@ -1359,7 +1358,7 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
             instrument, granularity, from, to,
             // a supertrend warm-up ahead of the oldest scored candle, so its ATR has settled
             loadCandles: async () => (await chartData(dbPath, instrument, { granularity, fetcher, count: SERIES_MAX + 200 })).candles,
-            loadBa: () => baWindow(instrument, granularity, ppAvailable(instrument, granularity) ? PP_WINDOW_BARS : SERIES_MAX + 200, { fetchFn: providerFetch }),
+            loadBa: () => baWindow(instrument, granularity, SERIES_MAX + 200, { fetchFn: providerFetch }),
           });
           return json(res, 200, { ok: true, ...series });
         } catch (err) {
