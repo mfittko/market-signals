@@ -1,8 +1,8 @@
 # Local evidence
 
 This file lists the research evidence that stays on the operator machine. Run outputs, databases and raw downloads are data, so git does not hold them.
-It was generated on 2026-10-09T20:43:48+02:00 by `docs/research/registry/tools/local_evidence.py`. Re-run that script after a new campaign.
-It covers 47 campaign folders and 1,020 local files.
+It was generated on 2026-10-09T21:15:47+02:00 by `docs/research/registry/tools/local_evidence.py`. Re-run that script after a new campaign.
+It covers 48 campaign folders and 1,029 local files.
 
 Each campaign section gives the local folder, the interpreter, the inputs and the run window. Its table lists every local file that is not in the registry, with size, sha256 and modification time.
 The "Written by" column comes from the usage text in the campaign scripts. A file that no usage line names is marked "not documented in the script usage".
@@ -33,7 +33,7 @@ Local folder: `/Users/mfittko/github/market-signals/data/research/engine/` (repo
 
 | File | Bytes | sha256 | Modified |
 |---|---|---|---|
-| `QUEUE.md` | 38,435 | `337a5ff5c94e67076f58fc55e8e538bb6a189ecab456236ad749f3d6c1747ec9` | 2026-10-09T18:40:14+02:00 |
+| `QUEUE.md` | 41,451 | `03b16f496339ef7c36475ac52b0ad00b4ef747e08cca4b67aaf36235ebd567ab` | 2026-10-09T21:10:46+02:00 |
 | `de.py` | 53,930 | `5e0acdd5c4623639afafd8de5fcb937ba6635d15a164551a2535c3c311a73d13` | 2026-10-07T23:03:14+02:00 |
 | `diag.py` | 1,318 | `10c0047860c3f5cb6b411699425b7070ad1e4c9ef52fd76f06fd1b5caa0b958f` | 2026-10-07T19:25:26+02:00 |
 | `frozen.json` | 818 | `607302e20f34b989374875384fcf8c98af3b6d212a9c408691a74ca554ef9911` | 2026-10-07T20:01:59+02:00 |
@@ -44,7 +44,7 @@ Local folder: `/Users/mfittko/github/market-signals/data/research/engine/` (repo
 | `sens.py` | 1,091 | `a8746fa4de43d4811590368e49264e496407788bae661741421a156cc9058d1b` | 2026-10-07T19:26:05+02:00 |
 | `test_ledger.jsonl` | 345 | `69e0daebd74276964575311dc2cf0ff0b5aa3f62fe16ebb88957a5646cf95454` | 2026-10-07T22:49:30+02:00 |
 | `test_ledger_de.jsonl` | 1,384 | `7a149e2ffb87e97607a1b5b8b99208fdb02f81ce09a5f3a5cbcd1dae7c8700b5` | 2026-10-07T23:03:27+02:00 |
-| `trials.jsonl` | 18,587,768 | `6c4fe2fd41724cd99d44274fd32fdb650de1c96a7e88acdf0c8fbbec8419c368` | 2026-10-09T18:38:55+02:00 |
+| `trials.jsonl` | 18,743,777 | `3d6f63185fb391fcf66b82c4c5385ffc975c164f109844c99720c0595687302f` | 2026-10-09T21:09:47+02:00 |
 | `results/de_dev_WTICO_USD.json` | 15,619 | `310291bf7782e4d6490089af18f833dd652b4858549ebce5be62cbc57afa6335` | 2026-10-07T23:01:57+02:00 |
 | `results/de_dev_WTICO_USD.md` | 5,978 | `b71d71849875c58ab70bc5cfdd5a9bce7567c96e2f1da779db97accb60f1ae43` | 2026-10-07T23:01:57+02:00 |
 | `results/de_dev_XAU_USD.json` | 19,015 | `f6bb9b558316717ca60ada4b1c369c2104f103fbfc251159cba0985400f567c7` | 2026-10-07T23:02:14+02:00 |
@@ -1458,6 +1458,28 @@ Local folder: `/Users/mfittko/github/market-signals/data/research/engine/` (repo
 | `out/cache/WTICO_USD.npz` | 72,101,724 | `e0996b24b84f4f86bf12a3c772b1adf23815bd23227e7d7ae3b3a6a29453a6ae` | 2026-10-09T17:34:29+02:00 | not documented in the script usage |
 | `out/cache/XAG_USD.npz` | 67,817,724 | `2d33edd4d7dd0a15760d1059b6ab79bd5d7e8b83ae5826c638b3be2f2d4a4dcd` | 2026-10-09T17:34:55+02:00 | not documented in the script usage |
 | `out/cache/XAU_USD.npz` | 73,506,492 | `d964acdeb39fa8ee93e52d1fb44a2b265669258d9b08853bd3a828b7bcfc8ca4` | 2026-10-09T17:34:42+02:00 | not documented in the script usage |
+
+## trend49
+
+- Local folder: `/Users/mfittko/github/market-signals/data/research/engine/audit/trend49/` (repository path `data/research/engine/audit/trend49/`).
+- Interpreter: `data/research/engine/.venv/bin/python`. Working directory: the local folder. The scripts resolve their paths from their own location.
+- Inputs read by the scripts: data/research/engine/audit/tsmom36/daily.db, data/research/history.db.
+- Ran: 2026-10-09T21:04:03+02:00 to 2026-10-09T21:10:36+02:00 (file modification times).
+- Scripts in the registry: `trend49.py`, `trend49_amend.py`, `trend49_lev.py`.
+- Documented commands: `python trend49.py check`; `python trend49.py register`; `python trend49.py run`; `python trend49_amend.py`; `python trend49_lev.py check`; `python trend49_lev.py register`; `python trend49_lev.py run`.
+- Modes dispatched on the first argument: `check`, `register`, `run`.
+
+| File | Bytes | sha256 | Modified | Written by |
+|---|---|---|---|---|
+| `result_comment.md` | 10,810 | `87a9a134137ce7f401c399f3c4c36962ba00e83415888112360f151b298b3dd2` | 2026-10-09T21:06:15+02:00 | not documented in the script usage |
+| `result_comment_lev.md` | 16,274 | `625e52b6dd6b17694710429f288f5dd1088a1456dfc7794d3741a5492e27d6f6` | 2026-10-09T21:10:36+02:00 | not documented in the script usage |
+| `out/DTB3.csv` | 40,356 | `12fdb695fa7ad88e98c3ec82063d6743409ef15adb9f575c3a208c51dce7cb85` | 2026-10-09T21:08:47+02:00 | not documented in the script usage |
+| `out/episodes_amended.json` | 20,090 | `92a7c6e850be1f586f8cf4bac714f6ff0b603a7b727144dd416c9fdbb9d02978` | 2026-10-09T21:04:47+02:00 | `python trend49_amend.py` |
+| `out/episodes_amended.md` | 3,782 | `7977b1337f492b28d71906fbe906ae848a0afad1b92f5484a9457b2b26e096ed` | 2026-10-09T21:04:47+02:00 | `python trend49_amend.py` |
+| `out/lev.json` | 127,722 | `c6179242a556af3620902410cd69d945c9410545923dcb0edf12368484654524` | 2026-10-09T21:09:23+02:00 | `python trend49_lev.py run` |
+| `out/lev_tables.md` | 11,153 | `c4ca54863c7531c1f369ffa3894cfb50a35b9b90559f07e1f4e5f335acf1a496` | 2026-10-09T21:09:23+02:00 | `python trend49_lev.py run` |
+| `out/results.json` | 50,389 | `8990f0cfb79e7bd887ebfe20c57232c65077abaa0d9ded61a625c34712450507` | 2026-10-09T21:04:03+02:00 | `python trend49.py run` |
+| `out/tables.md` | 9,610 | `34d9c3842022cc1463d86eef813350cb37bee094515246bf50ff03fc324b9074` | 2026-10-09T21:04:03+02:00 | `python trend49.py run` |
 
 ## tsmom36
 

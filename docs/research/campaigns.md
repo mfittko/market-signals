@@ -1,6 +1,6 @@
 # Campaigns
 
-This table lists all 48 research campaigns from the pre-audit ladder to abs48 (2026-10-07 to 2026-10-09). The GitHub result comment is the primary record. The registry folder holds the protocol, amendments and scripts. Grades follow [README.md](README.md#evidence-grades): B for a preregistered result, D for a post-hoc or unregistered one.
+This table lists all 49 research campaigns from the pre-audit ladder to trend49 (2026-10-07 to 2026-10-09). The GitHub result comment is the primary record. The registry folder holds the protocol, amendments and scripts. Grades follow [README.md](README.md#evidence-grades): B for a preregistered result, D for a post-hoc or unregistered one.
 
 Key numbers are the headline figures of each result comment. "dev" is 2018-2022 (or the campaign's stated development years). "2023+" is the second development window.
 
@@ -54,6 +54,7 @@ Key numbers are the headline figures of each result comment. "dev" is 2018-2022 
 | scan46 | Does any classic chart strategy survive a Deflated Sharpe hurdle? | FAIL; 0 finalists; holdout not opened | 0 of 3,030 class cells | B | [scan46] | [scan46](registry/campaigns/scan46/) |
 | roll47 | Does a rolling 1-hour move threshold give a signal? | FAIL | WTI min Holm p 0.27 dev | B | [roll47] | [roll47](registry/campaigns/roll47/) |
 | abs48 | Does the A1 big-day alert catch the move still ahead? | FAIL (dev recall 0.454 < 0.5) | pooled AUC 0.856 dev, 0.864 2023+ | B | [abs48] | [abs48](registry/campaigns/abs48/) |
+| trend49 | What do fixed trend rules (TS12, TS6, SMA200) keep of the recent big rallies after CFD costs, and what does leverage do? | Descriptive (hindsight-selected episodes, not a test) | episodes: TS12 kept 2% of the NAS100 2023-26 rally net; full periods at 10x: 11 of 12 TS accounts below 0.5 in 2023+, all 12 at 0.06 or less in 2018-22 (descriptive) | D (episode capture); full-period leverage tables descriptive | [result][trend49], [leverage][trend49-lev] | [trend49](registry/campaigns/trend49/) |
 
 The ladder campaign has no registry folder. Its frozen files and results are listed in the engine section of [registry/LOCAL-EVIDENCE.md](registry/LOCAL-EVIDENCE.md#engine-folder).
 
@@ -97,6 +98,8 @@ The ladder campaign has no registry folder. Its frozen files and results are lis
 [swing43]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6082779550
 [swing44]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6082874730
 [swing45]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6084121700
+[trend49-lev]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087525298
+[trend49]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087457614
 [tsmom36]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6078272501
 [v1]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048120221
 [v2]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048905005

@@ -40,7 +40,7 @@ Evaluator v2 (digest 1b66053d) is the frozen harness for entry-policy campaigns.
 
 ## Trial accounting
 
-Every configuration, seed, lookback, threshold and secondary cell is one row in `trials.jsonl`, tagged by campaign. The snapshot has 42,350 rows through abs48; scan46 alone has 23,331. Counts per campaign are in [registry/trials-summary.csv](../registry/trials-summary.csv).
+Every configuration, seed, lookback, threshold and secondary cell is one row in `trials.jsonl`, tagged by campaign. The snapshot has 42,810 rows through trend49; scan46 alone has 23,331. Counts per campaign are in [registry/trials-summary.csv](../registry/trials-summary.csv).
 
 ## Lessons
 

@@ -43,6 +43,12 @@ A bulk Jev pass over 23.0M url-instrument pairs was estimated at about 32 hours 
 
 Benzinga news access was researched on 2026-09-07 and not bought. Published prices then: Massive Benzinga dataset $99 per month, Alpaca Algo Trader Plus $99 per month, Interactive Brokers Benzinga feed $35 (retail) or $250 (institutional) per month, direct Benzinga API by quote. See [sources.md](sources.md#data-vendors).
 
+## Interest rates
+
+| Source | Holds | Fetch | Cost | Local path |
+|---|---|---|---|---|
+| FRED series DTB3 (US 3-month T-bill) | daily rates; annual averages used as the OANDA financing basis in trend49 (2023 5.07%, 2024 4.97%, 2025 4.07%) | plain HTTP fetch of the public FRED CSV during trend49 amendment 2 | free | `data/research/engine/audit/trend49/out/DTB3.csv` |
+
 ## Calendars
 
 | Source | Holds | Local path |
@@ -54,7 +60,7 @@ Benzinga news access was researched on 2026-09-07 and not bought. Published pric
 
 | File | Holds | Local path |
 |---|---|---|
-| `trials.jsonl` | every trial configuration, 42,350 rows through abs48 (18.6 MB) | `data/research/engine/trials.jsonl` |
+| `trials.jsonl` | every trial configuration, 42,810 rows through trend49 (18.7 MB) | `data/research/engine/trials.jsonl` |
 | `QUEUE.md` | the research queue with every verdict and comment URL | `data/research/engine/QUEUE.md` |
 | `registry/trials-summary.csv` | trial counts per campaign (in git) | `docs/research/registry/trials-summary.csv` |
 

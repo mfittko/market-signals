@@ -82,7 +82,7 @@ The operator adopted the epic-level proposals on 2026-10-07: https://github.com/
 
 | Point | Status | Source |
 |---|---|---|
-| Uniform 0/3/6% financing is a sensitivity model. Use broker-specific, side-specific financing with commodity basis adjustments. | Open. The survey documents the OANDA terms ([topics/costs-and-vehicles.md](topics/costs-and-vehicles.md)); no campaign has used them yet. | [6053046878](https://github.com/mfittko/market-signals/issues/307#issuecomment-6053046878) |
+| Uniform 0/3/6% financing is a sensitivity model. Use broker-specific, side-specific financing with commodity basis adjustments. | Partly answered. trend49 models the OANDA long rate (basis + 2.5%) and short rate (2.5% - basis) with the FRED DTB3 T-bill as the basis ([trend49]). Commodity basis adjustments and account-specific rates are still open ([topics/costs-and-vehicles.md](topics/costs-and-vehicles.md)). | [6053046878](https://github.com/mfittko/market-signals/issues/307#issuecomment-6053046878) |
 | The multi-week result does not disprove medium-horizon trend effects. | Answered in wording ([mw6] power statement). | [6053046878](https://github.com/mfittko/market-signals/issues/307#issuecomment-6053046878) |
 
 ## Methodology
@@ -125,5 +125,6 @@ The review reads swing44 as a modest, uncertain candidate with crash losses near
 [risk8]: https://github.com/mfittko/market-signals/issues/311#issuecomment-6051369045
 [roll47]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6084812980
 [scan46]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6084524130
+[trend49]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087457614
 [v1]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048120221
 [v2]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048905005

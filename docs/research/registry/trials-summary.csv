@@ -44,6 +44,7 @@ swing45,swing45,2702,168,0,2026-10-09T17:31:37,2026-10-09T17:31:37,FAIL
 scan46,scan46,23331,0,0,2026-10-09T17:59:54,2026-10-09T17:59:54,FAIL; 0 finalists; locked holdout not opened
 roll47,roll47,720,80,0,2026-10-09T18:17:00,2026-10-09T18:17:00,FAIL
 abs48,abs48,56,0,56,2026-10-09T18:36:25,2026-10-09T18:38:55,FAIL (dev recall 0.454 < 0.5); AUC 0.86 both windows
+trend49,trend49,460,0,0,2026-10-09T21:04:03,2026-10-09T21:09:16,"Descriptive (hindsight-selected episodes, not a test)"
 v1,,0,0,0,,,Defects D1-D4 found; development diagnostics only
 v2,,0,0,0,,,V4 selected; evaluator v2 digest 1b66053d
 lean22,,0,0,0,,,Descriptive only; no pass rule

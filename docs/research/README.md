@@ -10,7 +10,7 @@ Use it as the grounding for new research. Before proposing a campaign, check [fi
 |---|---|
 | [findings.md](findings.md) | The canonical claims, each with a grade, key numbers, scope and sources. |
 | [topics/](topics/) | One page per theme, synthesised across campaigns and literature. |
-| [campaigns.md](campaigns.md) | All 48 campaigns with question, verdict, key number, grade and links. |
+| [campaigns.md](campaigns.md) | All 49 campaigns with question, verdict, key number, grade and links. |
 | [sources.md](sources.md) | External papers, repositories, broker documents and data vendors with takeaways and credibility notes. |
 | [external-review.md](external-review.md) | The external auditor's points by theme, each with its status. |
 | [open-questions.md](open-questions.md) | The ranked research backlog. |

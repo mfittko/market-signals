@@ -10,7 +10,7 @@ This folder is the reproducibility layer of the research. It holds what a rerun 
 | `campaigns/<id>/*amendment*.json` | Amendments (lean22, news24). vol33 keeps its amendments inside `prereg.json`. |
 | `campaigns/<id>/*.py`, `*.mjs` | Analysis, fetch and summary scripts, each under 60 KB. |
 | `evaluator/` | Evaluator v2 code, byte-identical to the frozen version, with `SHA256SUMS`. |
-| `trials-summary.csv` | Trial row counts per campaign (42,350 rows through abs48). |
+| `trials-summary.csv` | Trial row counts per campaign (42,810 rows through trend49). |
 | `manifests/databento-raw.sha256` | sha256 of the 26 Databento raw files of flow29, flow42 and cmd41. |
 | `LOCAL-EVIDENCE.md` | Every local output file with path, size, sha256, modification time and the documented command that writes it, plus the database manifest. |
 | `tools/local_evidence.py` | Regenerates `LOCAL-EVIDENCE.md`. It only reads. |

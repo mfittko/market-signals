@@ -31,7 +31,23 @@ Data caveat: OANDA candles aggregate bid and ask separately, so bid and ask high
 - In the multi-week policies financing is 70 to 95% of all costs for metals, SPX500 and EUR/USD ([mw6]).
 - tsmom36 runs about 2.3x gross notional. The survey estimates a 2.5% markup costs about 5.8% a year there, more than the gross return of about 3.4% a year ([tsmom36]; survey).
 - For the daily pullback (3.6 days held) the survey estimates about 9 bps of financing per trade at a full rate near 8.9%, about half of the +17 to +21 bps edge. The 8.9% figure is a third-party estimate for Plus500, not OANDA.
-- All campaigns so far used a flat 0/3/6% model on both sides. The external review calls this a sensitivity model and asks for broker-, account- and side-specific rates ([external-review.md](../external-review.md#costs-and-vehicles)). Open.
+- The campaigns before trend49 used a flat 0/3/6% model on both sides. The external review calls this a sensitivity model and asks for broker-, account- and side-specific rates ([external-review.md](../external-review.md#costs-and-vehicles)). trend49 is the first to model the OANDA long and short rates separately; commodity basis adjustments are still open.
+
+- trend49 modelled OANDA financing with US 3-month T-bill annual averages from the FRED series DTB3 as the basis (for example 5.07% in 2023, 4.97% in 2024, 4.07% in 2025). A long CFD held all the time then costs about 6 to 7% of notional a year in 2023-26. That alone cut buy-and-hold NAS100 from +181% to +116% and XAU from +127% to +74% over 2023-01-01 to 2026-10-08, and turned TS12 on NAS100 from +30% into +3%. A futures-style account without the financing markup keeps almost the whole gross result ([trend49], [trend49-lev]). The flat T-bill proxy is approximate for commodities, and index dividend adjustments were not modelled ([trend49]).
+
+## Leverage and survival
+
+trend49 amendment 2 simulated fixed 1x, 3x and 10x leverage and a volatility-targeted size (VT20: 20% divided by 20-day realized volatility, capped at the ESMA limit) with CFD costs, margin close-out at 50% of required margin, negative balance protection and re-entry on the next signal. It is descriptive ([trend49-lev]).
+
+- At 10x, all 12 TS12 and TS6 accounts (six instruments each) ended 2018-22 at 0.06 or less of the starting equity. In 2023+, 11 of 12 ended below 0.5 ([trend49-lev]).
+- On XAG, WTI and NATGAS the ESMA cap is 10x, so 10x uses the whole equity as margin and an adverse move of about 5% closes the position. The trend rules at 10x had up to 22 close-outs per window ([trend49-lev]).
+- The 10x accounts that grew in 2023+ were long-only on markets that rose without a deep fall (SMA200 NAS100 20.3x with a -60% drawdown; buy-and-hold NAS100 14.1x, XAU 9.4x, SPX500 7.3x). They paid financing of 285 to 890% of the starting equity because the notional grew with price ([trend49-lev]).
+- At 3x the trend rules had no close-out, but TS12 and TS6 drawdowns were 54 to 99% ([trend49-lev]).
+- Re-entry after a close-out made 10x results worse in most cells, because each entry restarted the same thin margin buffer ([trend49-lev]).
+- VT20 was never closed out. It ran at about 1x on gold and the indices and well below 1x on silver, oil and gas, with results close to 1x and lower drawdowns on the commodities ([trend49-lev]).
+- Above about 3x on these instruments, survival rather than capture decides the result ([trend49-lev]).
+
+Consequence for the product: size positions by volatility and warn about leverage in the bots and on the card ([open-questions.md](../open-questions.md)).
 
 ## Commodity carry sits in the financing line
 
@@ -69,5 +85,7 @@ Figures in this table are from the 2026-10-09 survey. EU caveat: PRIIPs blocks r
 [orb15]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6054798153
 [rescan26]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6061163925
 [swing45]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6084121700
+[trend49-lev]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087525298
+[trend49]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087457614
 [tsmom36]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6078272501
 [xvol9]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6053439954
