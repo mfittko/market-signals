@@ -1,0 +1,370 @@
+{
+ "instruments": {
+  "AU200_AUD": {
+   "cls": "index",
+   "first": "2004-03-18",
+   "last": "2026-10-08",
+   "bars": 5702,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 7
+  },
+  "AUD_JPY": {
+   "cls": "fx",
+   "first": "2004-06-01",
+   "last": "2026-10-08",
+   "bars": 5806,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "AUD_USD": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6342,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "BCO_USD": {
+   "cls": "commodity",
+   "first": "2003-08-19",
+   "last": "2026-10-08",
+   "bars": 5969,
+   "abs_ret_gt_20pct": 1,
+   "gaps_gt_5d": 3
+  },
+  "CORN_USD": {
+   "cls": "commodity",
+   "first": "2003-03-17",
+   "last": "2026-10-08",
+   "bars": 5948,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "DE10YB_EUR": {
+   "cls": "bond",
+   "first": "2003-03-07",
+   "last": "2026-10-08",
+   "bars": 6001,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 7
+  },
+  "DE30_EUR": {
+   "cls": "index",
+   "first": "2003-03-25",
+   "last": "2026-10-08",
+   "bars": 5990,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 6
+  },
+  "EUR_GBP": {
+   "cls": "fx",
+   "first": "2002-05-08",
+   "last": "2026-10-08",
+   "bars": 6342,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "EUR_JPY": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6344,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "EUR_USD": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6344,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "GBP_USD": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6345,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "HK33_HKD": {
+   "cls": "index",
+   "first": "2003-02-04",
+   "last": "2026-10-08",
+   "bars": 5848,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 11
+  },
+  "JP225_USD": {
+   "cls": "index",
+   "first": "2003-03-14",
+   "last": "2026-10-08",
+   "bars": 6078,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "NAS100_USD": {
+   "cls": "index",
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 6082,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "NATGAS_USD": {
+   "cls": "commodity",
+   "first": "2003-01-31",
+   "last": "2026-10-08",
+   "bars": 6097,
+   "abs_ret_gt_20pct": 3,
+   "gaps_gt_5d": 0
+  },
+  "NZD_USD": {
+   "cls": "fx",
+   "first": "2002-09-24",
+   "last": "2026-10-08",
+   "bars": 6245,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "SOYBN_USD": {
+   "cls": "commodity",
+   "first": "2003-03-17",
+   "last": "2026-10-08",
+   "bars": 5943,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "SPX500_USD": {
+   "cls": "index",
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 6082,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "SUGAR_USD": {
+   "cls": "commodity",
+   "first": "2003-03-04",
+   "last": "2026-10-08",
+   "bars": 5933,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "UK100_GBP": {
+   "cls": "index",
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 5956,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "UK10YB_GBP": {
+   "cls": "bond",
+   "first": "2003-06-27",
+   "last": "2026-10-08",
+   "bars": 5884,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "US30_USD": {
+   "cls": "index",
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 6057,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "USB10Y_USD": {
+   "cls": "bond",
+   "first": "2003-03-21",
+   "last": "2026-10-08",
+   "bars": 6048,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "USB30Y_USD": {
+   "cls": "bond",
+   "first": "2003-03-21",
+   "last": "2026-10-08",
+   "bars": 6049,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "USD_CAD": {
+   "cls": "fx",
+   "first": "2002-05-08",
+   "last": "2026-10-08",
+   "bars": 6341,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "USD_CHF": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6341,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "USD_JPY": {
+   "cls": "fx",
+   "first": "2002-05-07",
+   "last": "2026-10-08",
+   "bars": 6344,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "WHEAT_USD": {
+   "cls": "commodity",
+   "first": "2003-03-17",
+   "last": "2026-10-08",
+   "bars": 5946,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "WTICO_USD": {
+   "cls": "commodity",
+   "first": "2003-01-23",
+   "last": "2026-10-08",
+   "bars": 6106,
+   "abs_ret_gt_20pct": 2,
+   "gaps_gt_5d": 0
+  },
+  "XAG_USD": {
+   "cls": "commodity",
+   "first": "2006-03-20",
+   "last": "2026-10-08",
+   "bars": 5326,
+   "abs_ret_gt_20pct": 1,
+   "gaps_gt_5d": 0
+  },
+  "XAU_USD": {
+   "cls": "commodity",
+   "first": "2006-03-20",
+   "last": "2026-10-08",
+   "bars": 5325,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "XCU_USD": {
+   "cls": "commodity",
+   "first": "2003-03-31",
+   "last": "2026-10-08",
+   "bars": 6049,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 0
+  },
+  "XPT_USD": {
+   "cls": "commodity",
+   "first": "2005-01-04",
+   "last": "2026-10-08",
+   "bars": 5626,
+   "abs_ret_gt_20pct": 0,
+   "gaps_gt_5d": 1
+  }
+ },
+ "dev_start_year": 2005,
+ "eligible_per_year_min": {
+  "2002": 0,
+  "2003": 0,
+  "2004": 9,
+  "2005": 28,
+  "2006": 30,
+  "2007": 31,
+  "2008": 33,
+  "2009": 33,
+  "2010": 33,
+  "2011": 33,
+  "2012": 33,
+  "2013": 33,
+  "2014": 33,
+  "2015": 33,
+  "2016": 33,
+  "2017": 33,
+  "2018": 33,
+  "2019": 33,
+  "2020": 33,
+  "2021": 33,
+  "2022": 33,
+  "2023": 33,
+  "2024": 33,
+  "2025": 33,
+  "2026": 33
+ },
+ "spreads": {
+  "AU200_AUD": {
+   "median_spread_bps": 4.29219089518982,
+   "n": 2534526
+  },
+  "BCO_USD": {
+   "median_spread_bps": 4.506737572669179,
+   "n": 2855183
+  },
+  "BTC_USD": {
+   "median_spread_bps": 19.24814481851264,
+   "n": 3290337
+  },
+  "DE30_EUR": {
+   "median_spread_bps": 1.264515585154587,
+   "n": 2567413
+  },
+  "EU50_EUR": {
+   "median_spread_bps": 2.820363021012804,
+   "n": 1820825
+  },
+  "EUR_USD": {
+   "median_spread_bps": 1.3063844876176118,
+   "n": 3214926
+  },
+  "GBP_USD": {
+   "median_spread_bps": 1.425126479974441,
+   "n": 3185181
+  },
+  "JP225_USD": {
+   "median_spread_bps": 2.9821878181887893,
+   "n": 2882992
+  },
+  "NAS100_USD": {
+   "median_spread_bps": 1.1319462027681775,
+   "n": 3073078
+  },
+  "NATGAS_USD": {
+   "median_spread_bps": 22.475517739604022,
+   "n": 2064606
+  },
+  "SPX500_USD": {
+   "median_spread_bps": 0.948901646345651,
+   "n": 2940452
+  },
+  "UK100_GBP": {
+   "median_spread_bps": 2.1036577348870122,
+   "n": 2516281
+  },
+  "US30_USD": {
+   "median_spread_bps": 0.6786217192881259,
+   "n": 3058389
+  },
+  "USD_JPY": {
+   "median_spread_bps": 1.1867973360969184,
+   "n": 3223131
+  },
+  "WTICO_USD": {
+   "median_spread_bps": 4.619577770591943,
+   "n": 3004208
+  },
+  "XAG_USD": {
+   "median_spread_bps": 7.403142222588089,
+   "n": 2825708
+  },
+  "XAU_USD": {
+   "median_spread_bps": 1.7556375521668808,
+   "n": 3062740
+  },
+  "XPT_USD": {
+   "median_spread_bps": 20.24954530040867,
+   "n": 2869815
+  }
+ }
+}

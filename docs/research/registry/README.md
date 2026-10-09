@@ -1,12 +1,12 @@
 # Research registry
 
 This folder publishes the records of the research campaigns run on 2026-10-07 to 2026-10-09.
-It holds the evaluator v2 code, the registered protocols and amendments, the posted preregistration and result texts, the evaluator control outputs and a per-campaign trial count.
+It holds the evaluator v2 code, the registered protocols and amendments, the posted preregistration and result texts, the analysis scripts, the aggregate reports, the evaluator control outputs and a per-campaign trial count.
 It answers section 6 of the external audit: https://github.com/mfittko/market-signals/issues/307#issuecomment-6053046878.
 
 The working copy lives in `data/research/engine/` on the operator machine. That directory is gitignored.
-This folder is a snapshot of it, taken on 2026-10-09 after roll47.
-Raw market data, databases and intermediate outputs stay out of git. The manifests below identify them.
+This folder is a snapshot of it, taken on 2026-10-09 after abs48.
+Raw market data, databases and large outputs stay out of git. The manifests below identify them.
 
 ## Evidence rules
 
@@ -27,9 +27,11 @@ All campaigns in the index follow these rules.
 | `campaigns/<id>/prereg.json` | Registered protocol. pprofit20 also has the registered `prereg_m1.json`, `prereg_m15.json`, `prereg_m1_iso.json` and `prereg_horizons.json`. |
 | `campaigns/<id>/*amendment*.json` | Amendments (lean22, news24). vol33 keeps its amendments inside `prereg.json`. |
 | `campaigns/<id>/prereg_comment.md`, `result_comment.md` | The texts posted to GitHub. news24 keeps its original names (`prereg_comment.md`, `prereg_comment_edited.md`, `amendment1_comment.md`, `results_comment.md`). rescan26 has one `comment.md`. |
+| `campaigns/<id>/*.py`, `*.mjs` | Analysis, fetch and summary scripts, each under 60 KB. |
+| `campaigns/<id>/out/` | Aggregate reports: text (`.md`, `.txt`) and JSON, each under 200 KB. |
 | `campaigns/<id>/fetch_log.jsonl` | Databento quote and download log (flow29, flow42, cmd41). |
-| `campaigns/v1/` | Evaluator audit v1: `REPORT.md`, control and power outputs, fixtures, code hashes, library versions. |
-| `campaigns/v2/` | Evaluator v2: `prereg.json`, `selected.json`, corrections, fixtures, power outputs on the positive controls, code hashes. |
+| `campaigns/v1/` | Evaluator audit v1: `REPORT.md`, control scripts, control and power outputs, fixtures, code hashes, library versions. |
+| `campaigns/v2/` | Evaluator v2: `prereg.json`, `selected.json`, correction and control scripts, corrections, fixtures, power outputs on the positive controls, code hashes. |
 | `evaluator/` | Evaluator v2 code, byte-identical to the frozen version. |
 | `manifests/databento-raw.sha256` | sha256 of every Databento raw file used by flow29, flow42 and cmd41. |
 | `trials-summary.csv` | Trial rows per campaign. |
@@ -50,13 +52,13 @@ cd docs/research/registry/evaluator/engine
 shasum -a 256 -c ../SHA256SUMS
 ```
 
-Campaigns bench1 to legs27 (except lean21, wave23 and news24) log `evaluator: "v2"` and the digest in every trial row.
+Campaigns bench1 to legs27 (except lean21, wave23 and news24) and abs48 log `evaluator: "v2"` and the digest in every trial row.
 From news24 on, each campaign uses its own script with the shared `validate.py` (same hash as in v2). Its `prereg.json` records the script hashes.
 The library versions of the audit run are in `campaigns/v1/versions.txt`.
 
 ## Reproduce
 
-The campaign scripts are not in this folder. They are in `data/research/engine/audit/<id>/` on the operator machine, next to their full outputs.
+The campaign scripts are in `campaigns/<id>/`. The full outputs stay in `data/research/engine/audit/<id>/` on the operator machine.
 A rerun needs the databases below. Each campaign script opens them read-only.
 `history.db` is updated daily by the top-up job, so a rerun must cut the data at the campaign's run date. The protocols name the windows.
 
@@ -76,26 +78,29 @@ Steps for a rerun:
 
 1. Restore the databases above, or rebuild them with the named fetch scripts and check the sha256 values where given.
 2. Place `evaluator/engine/` and `evaluator/modellab/spike4/` as `data/research/engine/` and `data/research/modellab/spike4/`. Check `SHA256SUMS`.
-3. Place the campaign script in `data/research/engine/audit/<id>/` and compare its sha256 with the hash in `prereg.json`. Run it as `prereg.json` describes.
-4. Compare the output with `result_comment.md`.
+3. Copy the campaign scripts from `campaigns/<id>/` to `data/research/engine/audit/<id>/` and compare its sha256 with the hash in `prereg.json`. Run it as `prereg.json` describes.
+4. Compare the output with `out/` and `result_comment.md`.
 
 ## Trial accounting
 
 `trials.jsonl` is 18.6 MB and stays local. `trials-summary.csv` gives per campaign the exp tags, the row count, the rows marked `role: primary`, the rows that carry `evaluator: "v2"`, the first and last timestamps and the decision.
-The snapshot has 42,294 rows through roll47. Rows from abs48 are excluded (see below).
+The snapshot has 42,350 rows through abs48.
 Only flow29, flow42, swing43, swing44, swing45 and roll47 mark primary rows. In the other campaigns the primary is named in `prereg.json`.
 The `ladder (pre-audit)` rows come from the ladder campaign that the evaluator audit superseded. v1, v2 and lean22 wrote no trial rows.
 
 ## What is excluded
 
 - Raw downloads, databases, parquet, npz, pkl and cache files. The manifests above identify them.
-- Trade lists (csv) and per-row outputs.
+- Trade lists (csv), run logs and per-row outputs.
+- Output files of 200 KB or more (55 files, mostly per-cell `results.json`). No campaign script reaches the 60 KB limit.
+- The pre-audit ladder code in `data/research/engine/` (`de.py`, `labels.py`, `frozen*.json`). Evaluator v2 replaced it.
+- pprofit20 per-cell JSON outputs (`artifact_*`, `parity_*`, `results_*`, `diag*`, `explore*`; about 265,000 lines). Its text reports (`out/report*.txt`, `out/card_rule.txt`) carry the aggregates.
+- `bench1/ts2vec_src/`, a vendored copy of the upstream TS2Vec code, and the virtual environments of bench1 and fm2.
 - `trials.jsonl` (18.6 MB). `trials-summary.csv` replaces it.
 - `prereg_body.json`. It is the posted subset of `prereg.json` without `created` and the hashes, so it adds nothing.
 - `pprofit20/prereg_draft*.json`. These are drafts replaced by the registered files before any outcome.
-- Campaign analysis scripts and aggregate report JSON files. The full set is about 11,000 lines even without them, so the review limit of about 3,000 lines rules them out. They stay in `data/research/engine/audit/<id>/`.
-- news28 record files. The operator closed news28 without a protocol or a rerun. QUEUE.md holds its status.
-- abs48. It was running when the snapshot was taken.
+
+news28 has scripts and outputs but no protocol. The operator closed it without a rerun.
 
 ## Campaign index
 
@@ -129,7 +134,7 @@ Verdicts are the registered decisions. "prereg.json only" means the protocol was
 | sess25 | Session-level breakouts split by tick volume | FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6060988444) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6061199017) | [campaigns/sess25](campaigns/sess25/) |
 | rescan26 | Gross re-scoring of completed campaigns (POST-HOC) | 0 rows hold gross after Holm | none | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6061163925) | [campaigns/rescan26](campaigns/rescan26/) |
 | legs27 | Chop and counter-legs (two operator claims) | H1 FAIL, H2 FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6061778970) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6061919607) | [campaigns/legs27](campaigns/legs27/) |
-| news28 | Clean the news24 GDELT store with Jev labels | Closed by operator decision; no rerun | none | not posted | no record files |
+| news28 | Clean the news24 GDELT store with Jev labels | Closed by operator decision; no rerun | none | not posted | [campaigns/news28](campaigns/news28/) |
 | flow29 | Aggressor-side volume imbalance vs WTI direction | PASS REVERSAL (single year; did not replicate in flow42) | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6076320299) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6076402618) | [campaigns/flow29](campaigns/flow29/) |
 | flipday30 | Predict flips per day at 07:00 UTC | FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6077588331) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6077614604) | [campaigns/flipday30](campaigns/flipday30/) |
 | fade31 | Fade fast moves without a news burst | FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6077701852) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6077727397) | [campaigns/fade31](campaigns/fade31/) |
@@ -149,3 +154,4 @@ Verdicts are the registered decisions. "prereg.json only" means the protocol was
 | swing45 | swing43 rule on intraday bars (M1 to H4) | FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084026498) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084121700) | [campaigns/swing45](campaigns/swing45/) |
 | scan46 | Mass backtest of classic chart strategies with Deflated Sharpe | FAIL; 0 finalists; locked holdout not opened | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084497493) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084524130) | [campaigns/scan46](campaigns/scan46/) |
 | roll47 | Rolling 1-hour move checked every 15 minutes | FAIL | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084779140) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6084812980) | [campaigns/roll47](campaigns/roll47/) |
+| abs48 | abs11 A1 big-day model scored on the move left after the alert | FAIL (dev recall 0.454 < 0.5); AUC 0.86 both windows | [prereg](https://github.com/mfittko/market-signals/issues/310#issuecomment-6085081061) | [result](https://github.com/mfittko/market-signals/issues/310#issuecomment-6085151801) | [campaigns/abs48](campaigns/abs48/) |

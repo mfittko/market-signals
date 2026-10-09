@@ -1,0 +1,88 @@
+{
+ "inst": "WTICO/USD",
+ "note": "post-hoc diagnostic, nospread population, 2/week target",
+ "tod": {
+  "dev2020_22": {
+   "alerts": 319,
+   "per_week": 2.0374087591240873,
+   "precision": 0.8369905956112853,
+   "top_hours_utc": {
+    "7": 165,
+    "6": 154,
+    "23": 0,
+    "22": 0
+   },
+   "median_fwd_pct": 1.4424756675817216,
+   "median_fwd_pct_all": 1.287507469412723
+  },
+  "w2023": {
+   "alerts": 385,
+   "per_week": 1.9585755813953487,
+   "precision": 0.9688311688311688,
+   "top_hours_utc": {
+    "6": 303,
+    "5": 82,
+    "23": 0,
+    "22": 0
+   },
+   "median_fwd_pct": 1.0344967477585911,
+   "median_fwd_pct_all": 1.005424402169763
+  }
+ },
+ "vol": {
+  "dev2020_22": {
+   "alerts": 280,
+   "per_week": 1.7883211678832116,
+   "precision": 0.9428571428571428,
+   "top_hours_utc": {
+    "5": 75,
+    "0": 67,
+    "23": 54,
+    "6": 37
+   },
+   "median_fwd_pct": 0.9057138849888495,
+   "median_fwd_pct_all": 1.287507469412723
+  },
+  "w2023": {
+   "alerts": 394,
+   "per_week": 2.004360465116279,
+   "precision": 0.9644670050761421,
+   "top_hours_utc": {
+    "0": 123,
+    "5": 72,
+    "6": 62,
+    "23": 45
+   },
+   "median_fwd_pct": 0.6746136652911374,
+   "median_fwd_pct_all": 1.005424402169763
+  }
+ },
+ "todvol": {
+  "dev2020_22": {
+   "alerts": 254,
+   "per_week": 1.6222627737226276,
+   "precision": 0.9960629921259843,
+   "top_hours_utc": {
+    "5": 173,
+    "4": 52,
+    "11": 8,
+    "6": 7
+   },
+   "median_fwd_pct": 1.1554474148799754,
+   "median_fwd_pct_all": 1.287507469412723
+  },
+  "w2023": {
+   "alerts": 357,
+   "per_week": 1.8161337209302324,
+   "precision": 0.9915966386554622,
+   "top_hours_utc": {
+    "5": 253,
+    "4": 77,
+    "6": 14,
+    "7": 4
+   },
+   "median_fwd_pct": 0.9405700323007107,
+   "median_fwd_pct_all": 1.005424402169763
+  }
+ }
+}

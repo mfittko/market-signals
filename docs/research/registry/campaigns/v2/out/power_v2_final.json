@@ -1,0 +1,3009 @@
+{
+ "n": 760,
+ "fatal": 0,
+ "variants": {
+  "V1": {
+   "curve": [
+    {
+     "bin": [
+      -Infinity,
+      0.0
+     ],
+     "n": 132,
+     "lr": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 264,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.014342805598532862
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 121,
+       "qualification: rejected": 2,
+       "threshold: gate": 8,
+       "qualification: inconclusive": 1
+      },
+      "hgb": {
+       "calibration": 124,
+       "qualification: inconclusive": 1,
+       "threshold: gate": 4,
+       "qualification: < 2 trades": 1,
+       "qualification: rejected": 2
+      },
+      "oracle": {
+       "calibration": 105,
+       "qualification: inconclusive": 8,
+       "threshold: gate": 18,
+       "qualification: rejected": 1
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.0,
+      0.05
+     ],
+     "n": 60,
+     "lr": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "ci": [
+       -3.469446951953614e-18,
+       0.031020271055929513
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 4,
+       "qualification: inconclusive": 9,
+       "calibration": 44,
+       "threshold: gate": 3
+      },
+      "hgb": {
+       "calibration": 54,
+       "threshold: gate": 4,
+       "qualification: inconclusive": 1,
+       "qualification: rejected": 1
+      },
+      "oracle": {
+       "qualification: inconclusive": 11,
+       "calibration": 39,
+       "threshold: gate": 10
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.05,
+      0.1
+     ],
+     "n": 56,
+     "lr": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "oracle": {
+      "k": 2,
+      "n": 56,
+      "rate": 0.03571428571428571,
+      "ci": [
+       0.009849218502577639,
+       0.12119005852210082
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 112,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.03316252537948371
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 3
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 2
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 42,
+       "qualification: inconclusive": 9,
+       "threshold: gate": 3,
+       "qualification: rejected": 2
+      },
+      "hgb": {
+       "qualification: rejected": 1,
+       "qualification: inconclusive": 4,
+       "threshold: gate": 4,
+       "calibration": 47
+      },
+      "oracle": {
+       "calibration": 29,
+       "qualification: inconclusive": 17,
+       "threshold: gate": 8,
+       "qualified": 2
+      }
+     },
+     "learner_loss": {
+      "lr": 2,
+      "hgb": 2
+     }
+    },
+    {
+     "bin": [
+      0.1,
+      0.2
+     ],
+     "n": 93,
+     "lr": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "oracle": {
+      "k": 23,
+      "n": 93,
+      "rate": 0.24731182795698925,
+      "ci": [
+       0.17082099814063503,
+       0.3438503827535262
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 186,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.02023581765008302
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 1,
+      "oracle": 29
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 18
+     },
+     "oracle_policy_ceiling": {
+      "k": 20,
+      "n": 93,
+      "rate": 0.21505376344086022,
+      "ci": [
+       0.14374913397362912,
+       0.30896540192829725
+      ]
+     },
+     "stages": {
+      "lr": {
+       "threshold: gate": 10,
+       "calibration": 62,
+       "qualification: rejected": 7,
+       "qualification: inconclusive": 14
+      },
+      "hgb": {
+       "calibration": 83,
+       "qualification: rejected": 1,
+       "qualification: inconclusive": 5,
+       "threshold: gate": 4
+      },
+      "oracle": {
+       "qualification: inconclusive": 17,
+       "calibration": 40,
+       "qualified": 23,
+       "threshold: gate": 13
+      }
+     },
+     "learner_loss": {
+      "lr": 23,
+      "hgb": 23
+     }
+    },
+    {
+     "bin": [
+      0.2,
+      0.4
+     ],
+     "n": 152,
+     "lr": {
+      "k": 20,
+      "n": 152,
+      "rate": 0.13157894736842105,
+      "ci": [
+       0.08681644830640738,
+       0.19450509870029686
+      ]
+     },
+     "hgb": {
+      "k": 15,
+      "n": 152,
+      "rate": 0.09868421052631579,
+      "ci": [
+       0.06071842244015636,
+       0.15643540554928934
+      ]
+     },
+     "oracle": {
+      "k": 107,
+      "n": 152,
+      "rate": 0.7039473684210527,
+      "ci": [
+       0.6270686253277898,
+       0.7707712325792132
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 35,
+      "n": 304,
+      "rate": 0.11513157894736842,
+      "ci": [
+       0.08395668863575269,
+       0.1559121270148936
+      ]
+     },
+     "k1": {
+      "lr": 23,
+      "hgb": 22,
+      "oracle": 110
+     },
+     "k5": {
+      "lr": 20,
+      "hgb": 15,
+      "oracle": 105
+     },
+     "oracle_policy_ceiling": {
+      "k": 138,
+      "n": 152,
+      "rate": 0.9078947368421053,
+      "ci": [
+       0.8513378565779817,
+       0.9443418592360244
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 44,
+       "calibration": 77,
+       "qualified": 20,
+       "threshold: gate": 8,
+       "qualification: rejected": 3
+      },
+      "hgb": {
+       "calibration": 103,
+       "qualified": 15,
+       "qualification: inconclusive": 23,
+       "threshold: gate": 9,
+       "qualification: rejected": 2
+      },
+      "oracle": {
+       "qualified": 107,
+       "calibration": 32,
+       "threshold: gate": 9,
+       "qualification: rejected": 1,
+       "qualification: inconclusive": 3
+      }
+     },
+     "learner_loss": {
+      "lr": 87,
+      "hgb": 93
+     }
+    },
+    {
+     "bin": [
+      0.4,
+      Infinity
+     ],
+     "n": 187,
+     "lr": {
+      "k": 66,
+      "n": 187,
+      "rate": 0.35294117647058826,
+      "ci": [
+       0.28803483252833406,
+       0.42376804483173836
+      ]
+     },
+     "hgb": {
+      "k": 70,
+      "n": 187,
+      "rate": 0.37433155080213903,
+      "ci": [
+       0.3081521016294038,
+       0.4455703572055671
+      ]
+     },
+     "oracle": {
+      "k": 152,
+      "n": 187,
+      "rate": 0.8128342245989305,
+      "ci": [
+       0.7508404830478786,
+       0.8622333960225127
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 136,
+      "n": 374,
+      "rate": 0.36363636363636365,
+      "ci": [
+       0.31649788021058634,
+       0.41354772620225966
+      ]
+     },
+     "k1": {
+      "lr": 76,
+      "hgb": 75,
+      "oracle": 152
+     },
+     "k5": {
+      "lr": 62,
+      "hgb": 69,
+      "oracle": 152
+     },
+     "oracle_policy_ceiling": {
+      "k": 187,
+      "n": 187,
+      "rate": 1.0,
+      "ci": [
+       0.9798702169757536,
+       1.0
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualified": 66,
+       "qualification: inconclusive": 63,
+       "calibration": 54,
+       "threshold: gate": 4
+      },
+      "hgb": {
+       "qualified": 70,
+       "calibration": 78,
+       "qualification: inconclusive": 34,
+       "qualification: < 2 trades": 1,
+       "threshold: gate": 4
+      },
+      "oracle": {
+       "qualified": 152,
+       "calibration": 23,
+       "qualification: inconclusive": 7,
+       "threshold: gate": 4,
+       "qualification: rejected": 1
+      }
+     },
+     "learner_loss": {
+      "lr": 88,
+      "hgb": 83
+     }
+    }
+   ],
+   "nulls": {
+    "null": {
+     "lr": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     }
+    },
+    "null_hidden": {
+     "lr": {
+      "k3": {
+       "k": 1,
+       "n": 40,
+       "rate": 0.025,
+       "ci": [
+        0.0044267174077949195,
+        0.1288165948800778
+       ]
+      },
+      "k1": 3,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 38,
+       "n": 40,
+       "rate": 0.95,
+       "ci": [
+        0.834958291820748,
+        0.9861796228538989
+       ]
+      },
+      "k1": 38,
+      "k5": 38
+     }
+    }
+   },
+   "cells": {
+    "null 0.0": {
+     "n": 40,
+     "econ": -0.11969211419772177,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "null_hidden 0.16": {
+     "n": 40,
+     "econ": 0.04964710303623927,
+     "lr": 1,
+     "hgb": 0,
+     "oracle": 38
+    },
+    "linear 0.02": {
+     "n": 40,
+     "econ": -0.05727010406004621,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.04": {
+     "n": 40,
+     "econ": 0.01883753189648576,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.065": {
+     "n": 40,
+     "econ": 0.11514485844041773,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 7
+    },
+    "linear 0.1": {
+     "n": 40,
+     "econ": 0.24311820185377217,
+     "lr": 8,
+     "hgb": 5,
+     "oracle": 35
+    },
+    "linear 0.16": {
+     "n": 40,
+     "econ": 0.4199265481189274,
+     "lr": 30,
+     "hgb": 24,
+     "oracle": 39
+    },
+    "linear 0.25": {
+     "n": 40,
+     "econ": 0.6259653252012518,
+     "lr": 32,
+     "hgb": 35,
+     "oracle": 40
+    },
+    "interaction 0.02": {
+     "n": 40,
+     "econ": -0.06594421793982891,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.04": {
+     "n": 40,
+     "econ": -0.0042660488779803106,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.065": {
+     "n": 40,
+     "econ": 0.09626017875235664,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 1
+    },
+    "interaction 0.1": {
+     "n": 40,
+     "econ": 0.21219365729633544,
+     "lr": 0,
+     "hgb": 1,
+     "oracle": 30
+    },
+    "interaction 0.16": {
+     "n": 40,
+     "econ": 0.31125365482967204,
+     "lr": 1,
+     "hgb": 3,
+     "oracle": 39
+    },
+    "interaction 0.25": {
+     "n": 40,
+     "econ": 0.4553817203286193,
+     "lr": 10,
+     "hgb": 12,
+     "oracle": 40
+    },
+    "subset 0.04": {
+     "n": 40,
+     "econ": -0.00029192209234509616,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.065": {
+     "n": 40,
+     "econ": 0.11617375277859834,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.1": {
+     "n": 40,
+     "econ": 0.2787893488887542,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 4
+    },
+    "subset 0.16": {
+     "n": 40,
+     "econ": 0.5263002735006166,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 19
+    },
+    "subset 0.25": {
+     "n": 40,
+     "econ": 0.8950633393959329,
+     "lr": 5,
+     "hgb": 5,
+     "oracle": 30
+    }
+   }
+  },
+  "V2": {
+   "curve": [
+    {
+     "bin": [
+      -Infinity,
+      0.0
+     ],
+     "n": 132,
+     "lr": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 264,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.014342805598532862
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 121,
+       "qualification: rejected": 9,
+       "qualification: inconclusive": 2
+      },
+      "hgb": {
+       "calibration": 124,
+       "qualification: inconclusive": 2,
+       "qualification: rejected": 4,
+       "threshold: gate": 1,
+       "qualification: < 2 trades": 1
+      },
+      "oracle": {
+       "calibration": 105,
+       "qualification: inconclusive": 18,
+       "qualification: rejected": 6,
+       "threshold: gate": 3
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.0,
+      0.05
+     ],
+     "n": 60,
+     "lr": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "ci": [
+       -3.469446951953614e-18,
+       0.031020271055929513
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 5,
+       "qualification: inconclusive": 10,
+       "calibration": 44,
+       "threshold: gate": 1
+      },
+      "hgb": {
+       "calibration": 54,
+       "qualification: inconclusive": 2,
+       "qualification: rejected": 3,
+       "threshold: gate": 1
+      },
+      "oracle": {
+       "qualification: inconclusive": 19,
+       "calibration": 39,
+       "threshold: gate": 2
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.05,
+      0.1
+     ],
+     "n": 56,
+     "lr": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "oracle": {
+      "k": 2,
+      "n": 56,
+      "rate": 0.03571428571428571,
+      "ci": [
+       0.009849218502577639,
+       0.12119005852210082
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 112,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.03316252537948371
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 4
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 2
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 42,
+       "qualification: inconclusive": 11,
+       "qualification: rejected": 3
+      },
+      "hgb": {
+       "qualification: rejected": 1,
+       "qualification: inconclusive": 8,
+       "calibration": 47
+      },
+      "oracle": {
+       "calibration": 29,
+       "qualification: inconclusive": 25,
+       "qualified": 2
+      }
+     },
+     "learner_loss": {
+      "lr": 2,
+      "hgb": 2
+     }
+    },
+    {
+     "bin": [
+      0.1,
+      0.2
+     ],
+     "n": 93,
+     "lr": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "oracle": {
+      "k": 25,
+      "n": 93,
+      "rate": 0.26881720430107525,
+      "ci": [
+       0.1892118216186081,
+       0.36676412260370955
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 186,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.02023581765008302
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 1,
+      "oracle": 31
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 20
+     },
+     "oracle_policy_ceiling": {
+      "k": 20,
+      "n": 93,
+      "rate": 0.21505376344086022,
+      "ci": [
+       0.14374913397362912,
+       0.30896540192829725
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 21,
+       "calibration": 62,
+       "qualification: rejected": 10
+      },
+      "hgb": {
+       "calibration": 83,
+       "qualification: rejected": 4,
+       "qualification: inconclusive": 6
+      },
+      "oracle": {
+       "qualification: inconclusive": 26,
+       "calibration": 40,
+       "qualified": 25,
+       "threshold: gate": 2
+      }
+     },
+     "learner_loss": {
+      "lr": 25,
+      "hgb": 25
+     }
+    },
+    {
+     "bin": [
+      0.2,
+      0.4
+     ],
+     "n": 152,
+     "lr": {
+      "k": 20,
+      "n": 152,
+      "rate": 0.13157894736842105,
+      "ci": [
+       0.08681644830640738,
+       0.19450509870029686
+      ]
+     },
+     "hgb": {
+      "k": 15,
+      "n": 152,
+      "rate": 0.09868421052631579,
+      "ci": [
+       0.06071842244015636,
+       0.15643540554928934
+      ]
+     },
+     "oracle": {
+      "k": 112,
+      "n": 152,
+      "rate": 0.7368421052631579,
+      "ci": [
+       0.6616208335298267,
+       0.8003867433944348
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 35,
+      "n": 304,
+      "rate": 0.11513157894736842,
+      "ci": [
+       0.08395668863575269,
+       0.1559121270148936
+      ]
+     },
+     "k1": {
+      "lr": 23,
+      "hgb": 22,
+      "oracle": 116
+     },
+     "k5": {
+      "lr": 20,
+      "hgb": 15,
+      "oracle": 110
+     },
+     "oracle_policy_ceiling": {
+      "k": 138,
+      "n": 152,
+      "rate": 0.9078947368421053,
+      "ci": [
+       0.8513378565779817,
+       0.9443418592360244
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 51,
+       "calibration": 77,
+       "qualified": 20,
+       "qualification: rejected": 3,
+       "threshold: gate": 1
+      },
+      "hgb": {
+       "calibration": 103,
+       "qualified": 15,
+       "qualification: inconclusive": 29,
+       "threshold: gate": 2,
+       "qualification: rejected": 3
+      },
+      "oracle": {
+       "qualified": 112,
+       "calibration": 32,
+       "threshold: gate": 1,
+       "qualification: rejected": 2,
+       "qualification: inconclusive": 5
+      }
+     },
+     "learner_loss": {
+      "lr": 92,
+      "hgb": 97
+     }
+    },
+    {
+     "bin": [
+      0.4,
+      Infinity
+     ],
+     "n": 187,
+     "lr": {
+      "k": 66,
+      "n": 187,
+      "rate": 0.35294117647058826,
+      "ci": [
+       0.28803483252833406,
+       0.42376804483173836
+      ]
+     },
+     "hgb": {
+      "k": 69,
+      "n": 187,
+      "rate": 0.3689839572192513,
+      "ci": [
+       0.3031094622030822,
+       0.44013310126316396
+      ]
+     },
+     "oracle": {
+      "k": 154,
+      "n": 187,
+      "rate": 0.8235294117647058,
+      "ci": [
+       0.7625388645618929,
+       0.8714948052459477
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 135,
+      "n": 374,
+      "rate": 0.3609625668449198,
+      "ci": [
+       0.3139276882356987,
+       0.4108246947734776
+      ]
+     },
+     "k1": {
+      "lr": 76,
+      "hgb": 74,
+      "oracle": 154
+     },
+     "k5": {
+      "lr": 62,
+      "hgb": 69,
+      "oracle": 154
+     },
+     "oracle_policy_ceiling": {
+      "k": 187,
+      "n": 187,
+      "rate": 1.0,
+      "ci": [
+       0.9798702169757536,
+       1.0
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualified": 66,
+       "qualification: inconclusive": 63,
+       "calibration": 54,
+       "threshold: gate": 4
+      },
+      "hgb": {
+       "qualified": 69,
+       "calibration": 78,
+       "qualification: inconclusive": 32,
+       "threshold: gate": 7,
+       "qualification: < 2 trades": 1
+      },
+      "oracle": {
+       "qualified": 154,
+       "calibration": 23,
+       "threshold: gate": 2,
+       "qualification: inconclusive": 7,
+       "qualification: rejected": 1
+      }
+     },
+     "learner_loss": {
+      "lr": 90,
+      "hgb": 87
+     }
+    }
+   ],
+   "nulls": {
+    "null": {
+     "lr": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     }
+    },
+    "null_hidden": {
+     "lr": {
+      "k3": {
+       "k": 2,
+       "n": 40,
+       "rate": 0.05,
+       "ci": [
+        0.013820377146101098,
+        0.165041708179252
+       ]
+      },
+      "k1": 4,
+      "k5": 1
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 38,
+       "n": 40,
+       "rate": 0.95,
+       "ci": [
+        0.834958291820748,
+        0.9861796228538989
+       ]
+      },
+      "k1": 38,
+      "k5": 38
+     }
+    }
+   },
+   "cells": {
+    "null 0.0": {
+     "n": 40,
+     "econ": -0.11969211419772177,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "null_hidden 0.16": {
+     "n": 40,
+     "econ": 0.04964710303623927,
+     "lr": 2,
+     "hgb": 0,
+     "oracle": 38
+    },
+    "linear 0.02": {
+     "n": 40,
+     "econ": -0.05727010406004621,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.04": {
+     "n": 40,
+     "econ": 0.01883753189648576,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.065": {
+     "n": 40,
+     "econ": 0.11514485844041773,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 9
+    },
+    "linear 0.1": {
+     "n": 40,
+     "econ": 0.24311820185377217,
+     "lr": 8,
+     "hgb": 5,
+     "oracle": 35
+    },
+    "linear 0.16": {
+     "n": 40,
+     "econ": 0.4199265481189274,
+     "lr": 31,
+     "hgb": 24,
+     "oracle": 39
+    },
+    "linear 0.25": {
+     "n": 40,
+     "econ": 0.6259653252012518,
+     "lr": 31,
+     "hgb": 34,
+     "oracle": 40
+    },
+    "interaction 0.02": {
+     "n": 40,
+     "econ": -0.06594421793982891,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.04": {
+     "n": 40,
+     "econ": -0.0042660488779803106,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.065": {
+     "n": 40,
+     "econ": 0.09626017875235664,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 1
+    },
+    "interaction 0.1": {
+     "n": 40,
+     "econ": 0.21219365729633544,
+     "lr": 0,
+     "hgb": 1,
+     "oracle": 35
+    },
+    "interaction 0.16": {
+     "n": 40,
+     "econ": 0.31125365482967204,
+     "lr": 1,
+     "hgb": 3,
+     "oracle": 39
+    },
+    "interaction 0.25": {
+     "n": 40,
+     "econ": 0.4553817203286193,
+     "lr": 10,
+     "hgb": 11,
+     "oracle": 39
+    },
+    "subset 0.04": {
+     "n": 40,
+     "econ": -0.00029192209234509616,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.065": {
+     "n": 40,
+     "econ": 0.11617375277859834,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.1": {
+     "n": 40,
+     "econ": 0.2787893488887542,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 4
+    },
+    "subset 0.16": {
+     "n": 40,
+     "econ": 0.5263002735006166,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 21
+    },
+    "subset 0.25": {
+     "n": 40,
+     "econ": 0.8950633393959329,
+     "lr": 5,
+     "hgb": 6,
+     "oracle": 31
+    }
+   }
+  },
+  "V3": {
+   "curve": [
+    {
+     "bin": [
+      -Infinity,
+      0.0
+     ],
+     "n": 132,
+     "lr": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 264,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.014342805598532862
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 105,
+       "threshold: gate": 7,
+       "qualification: inconclusive": 20
+      },
+      "hgb": {
+       "qualification: rejected": 57,
+       "threshold: gate": 36,
+       "qualification: inconclusive": 37,
+       "qualification: < 2 trades": 2
+      },
+      "oracle": {
+       "qualification: rejected": 36,
+       "threshold: gate": 26,
+       "qualification: inconclusive": 67,
+       "calibration": 3
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.0,
+      0.05
+     ],
+     "n": 60,
+     "lr": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "oracle": {
+      "k": 1,
+      "n": 60,
+      "rate": 0.016666666666666666,
+      "ci": [
+       0.002948083860873682,
+       0.08855338226779477
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "ci": [
+       -3.469446951953614e-18,
+       0.031020271055929513
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 1
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 1
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 32,
+       "qualification: inconclusive": 23,
+       "threshold: gate": 5
+      },
+      "hgb": {
+       "qualification: rejected": 15,
+       "qualification: inconclusive": 24,
+       "threshold: gate": 20,
+       "qualification: < 2 trades": 1
+      },
+      "oracle": {
+       "qualification: inconclusive": 46,
+       "threshold: gate": 7,
+       "qualified": 1,
+       "qualification: rejected": 5,
+       "calibration": 1
+      }
+     },
+     "learner_loss": {
+      "lr": 1,
+      "hgb": 1
+     }
+    },
+    {
+     "bin": [
+      0.05,
+      0.1
+     ],
+     "n": 56,
+     "lr": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "oracle": {
+      "k": 5,
+      "n": 56,
+      "rate": 0.08928571428571429,
+      "ci": [
+       0.03874157726308829,
+       0.19256239856643498
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 112,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.03316252537948371
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 7
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 4
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 30,
+       "qualification: rejected": 25,
+       "threshold: gate": 1
+      },
+      "hgb": {
+       "qualification: rejected": 22,
+       "qualification: inconclusive": 25,
+       "threshold: gate": 7,
+       "qualification: < 2 trades": 2
+      },
+      "oracle": {
+       "threshold: gate": 7,
+       "qualification: inconclusive": 41,
+       "qualified": 5,
+       "qualification: rejected": 3
+      }
+     },
+     "learner_loss": {
+      "lr": 5,
+      "hgb": 5
+     }
+    },
+    {
+     "bin": [
+      0.1,
+      0.2
+     ],
+     "n": 93,
+     "lr": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "hgb": {
+      "k": 1,
+      "n": 93,
+      "rate": 0.010752688172043012,
+      "ci": [
+       0.001900593097955601,
+       0.05842059118648415
+      ]
+     },
+     "oracle": {
+      "k": 34,
+      "n": 93,
+      "rate": 0.3655913978494624,
+      "ci": [
+       0.27485550935138847,
+       0.46699096984763344
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 1,
+      "n": 186,
+      "rate": 0.005376344086021506,
+      "ci": [
+       0.0009496635866061438,
+       0.029821252798422224
+      ]
+     },
+     "k1": {
+      "lr": 1,
+      "hgb": 2,
+      "oracle": 43
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 29
+     },
+     "oracle_policy_ceiling": {
+      "k": 20,
+      "n": 93,
+      "rate": 0.21505376344086022,
+      "ci": [
+       0.14374913397362912,
+       0.30896540192829725
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 55,
+       "qualification: rejected": 31,
+       "threshold: gate": 7
+      },
+      "hgb": {
+       "qualification: inconclusive": 49,
+       "threshold: gate": 17,
+       "qualification: rejected": 25,
+       "qualified": 1,
+       "calibration": 1
+      },
+      "oracle": {
+       "qualification: inconclusive": 45,
+       "qualified": 34,
+       "threshold: gate": 8,
+       "qualification: rejected": 6
+      }
+     },
+     "learner_loss": {
+      "lr": 34,
+      "hgb": 33
+     }
+    },
+    {
+     "bin": [
+      0.2,
+      0.4
+     ],
+     "n": 152,
+     "lr": {
+      "k": 26,
+      "n": 152,
+      "rate": 0.17105263157894737,
+      "ci": [
+       0.11948678476560781,
+       0.23883602506180673
+      ]
+     },
+     "hgb": {
+      "k": 23,
+      "n": 152,
+      "rate": 0.1513157894736842,
+      "ci": [
+       0.10299446940668536,
+       0.21682770901037404
+      ]
+     },
+     "oracle": {
+      "k": 128,
+      "n": 152,
+      "rate": 0.8421052631578947,
+      "ci": [
+       0.7758035885161538,
+       0.8915406892633351
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 49,
+      "n": 304,
+      "rate": 0.1611842105263158,
+      "ci": [
+       0.12411941645085367,
+       0.2067052674125358
+      ]
+     },
+     "k1": {
+      "lr": 31,
+      "hgb": 35,
+      "oracle": 134
+     },
+     "k5": {
+      "lr": 25,
+      "hgb": 22,
+      "oracle": 125
+     },
+     "oracle_policy_ceiling": {
+      "k": 138,
+      "n": 152,
+      "rate": 0.9078947368421053,
+      "ci": [
+       0.8513378565779817,
+       0.9443418592360244
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 96,
+       "qualified": 26,
+       "qualification: rejected": 14,
+       "threshold: gate": 16
+      },
+      "hgb": {
+       "qualification: inconclusive": 99,
+       "qualified": 23,
+       "threshold: gate": 23,
+       "qualification: < 2 trades": 1,
+       "qualification: rejected": 6
+      },
+      "oracle": {
+       "qualified": 128,
+       "threshold: gate": 4,
+       "qualification: rejected": 11,
+       "qualification: inconclusive": 9
+      }
+     },
+     "learner_loss": {
+      "lr": 102,
+      "hgb": 105
+     }
+    },
+    {
+     "bin": [
+      0.4,
+      Infinity
+     ],
+     "n": 187,
+     "lr": {
+      "k": 68,
+      "n": 187,
+      "rate": 0.36363636363636365,
+      "ci": [
+       0.2980756500138181,
+       0.4346870180837036
+      ]
+     },
+     "hgb": {
+      "k": 89,
+      "n": 187,
+      "rate": 0.47593582887700536,
+      "ci": [
+       0.4055610541958577,
+       0.5472794166448813
+      ]
+     },
+     "oracle": {
+      "k": 168,
+      "n": 187,
+      "rate": 0.8983957219251337,
+      "ci": [
+       0.846766723039666,
+       0.9339854819303195
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 157,
+      "n": 374,
+      "rate": 0.4197860962566845,
+      "ci": [
+       0.37083165457289335,
+       0.4703716433170161
+      ]
+     },
+     "k1": {
+      "lr": 85,
+      "hgb": 97,
+      "oracle": 168
+     },
+     "k5": {
+      "lr": 64,
+      "hgb": 89,
+      "oracle": 168
+     },
+     "oracle_policy_ceiling": {
+      "k": 187,
+      "n": 187,
+      "rate": 1.0,
+      "ci": [
+       0.9798702169757536,
+       1.0
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualified": 68,
+       "qualification: inconclusive": 109,
+       "threshold: gate": 8,
+       "qualification: rejected": 2
+      },
+      "hgb": {
+       "qualified": 89,
+       "qualification: < 2 trades": 2,
+       "qualification: inconclusive": 74,
+       "threshold: gate": 22
+      },
+      "oracle": {
+       "qualified": 168,
+       "threshold: gate": 2,
+       "qualification: inconclusive": 12,
+       "qualification: rejected": 5
+      }
+     },
+     "learner_loss": {
+      "lr": 101,
+      "hgb": 83
+     }
+    }
+   ],
+   "nulls": {
+    "null": {
+     "lr": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     }
+    },
+    "null_hidden": {
+     "lr": {
+      "k3": {
+       "k": 4,
+       "n": 40,
+       "rate": 0.1,
+       "ci": [
+        0.03957888759557486,
+        0.23052074380473897
+       ]
+      },
+      "k1": 7,
+      "k5": 2
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 40,
+       "n": 40,
+       "rate": 1.0,
+       "ci": [
+        0.9123754607496077,
+        1.0
+       ]
+      },
+      "k1": 40,
+      "k5": 40
+     }
+    }
+   },
+   "cells": {
+    "null 0.0": {
+     "n": 40,
+     "econ": -0.11969211419772177,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "null_hidden 0.16": {
+     "n": 40,
+     "econ": 0.04964710303623927,
+     "lr": 4,
+     "hgb": 0,
+     "oracle": 40
+    },
+    "linear 0.02": {
+     "n": 40,
+     "econ": -0.05727010406004621,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.04": {
+     "n": 40,
+     "econ": 0.01883753189648576,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.065": {
+     "n": 40,
+     "econ": 0.11514485844041773,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 21
+    },
+    "linear 0.1": {
+     "n": 40,
+     "econ": 0.24311820185377217,
+     "lr": 10,
+     "hgb": 8,
+     "oracle": 40
+    },
+    "linear 0.16": {
+     "n": 40,
+     "econ": 0.4199265481189274,
+     "lr": 36,
+     "hgb": 32,
+     "oracle": 40
+    },
+    "linear 0.25": {
+     "n": 40,
+     "econ": 0.6259653252012518,
+     "lr": 31,
+     "hgb": 35,
+     "oracle": 40
+    },
+    "interaction 0.02": {
+     "n": 40,
+     "econ": -0.06594421793982891,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.04": {
+     "n": 40,
+     "econ": -0.0042660488779803106,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.065": {
+     "n": 40,
+     "econ": 0.09626017875235664,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 2
+    },
+    "interaction 0.1": {
+     "n": 40,
+     "econ": 0.21219365729633544,
+     "lr": 0,
+     "hgb": 1,
+     "oracle": 38
+    },
+    "interaction 0.16": {
+     "n": 40,
+     "econ": 0.31125365482967204,
+     "lr": 2,
+     "hgb": 5,
+     "oracle": 40
+    },
+    "interaction 0.25": {
+     "n": 40,
+     "econ": 0.4553817203286193,
+     "lr": 10,
+     "hgb": 11,
+     "oracle": 39
+    },
+    "subset 0.04": {
+     "n": 40,
+     "econ": -0.00029192209234509616,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.065": {
+     "n": 40,
+     "econ": 0.11617375277859834,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.1": {
+     "n": 40,
+     "econ": 0.2787893488887542,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 12
+    },
+    "subset 0.16": {
+     "n": 40,
+     "econ": 0.5263002735006166,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 31
+    },
+    "subset 0.25": {
+     "n": 40,
+     "econ": 0.8950633393959329,
+     "lr": 5,
+     "hgb": 21,
+     "oracle": 33
+    }
+   }
+  },
+  "V4": {
+   "curve": [
+    {
+     "bin": [
+      -Infinity,
+      0.0
+     ],
+     "n": 132,
+     "lr": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "oracle": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 264,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.014342805598532862
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 0
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 132,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.028279996702041194
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 18,
+       "calibration": 113,
+       "qualification: inconclusive": 1
+      },
+      "hgb": {
+       "calibration": 126,
+       "qualification: rejected": 5,
+       "qualification: inconclusive": 1
+      },
+      "oracle": {
+       "calibration": 112,
+       "qualification: inconclusive": 13,
+       "qualification: rejected": 4,
+       "threshold: gate": 3
+      }
+     },
+     "learner_loss": {
+      "lr": 0,
+      "hgb": 0
+     }
+    },
+    {
+     "bin": [
+      0.0,
+      0.05
+     ],
+     "n": 60,
+     "lr": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "oracle": {
+      "k": 1,
+      "n": 60,
+      "rate": 0.016666666666666666,
+      "ci": [
+       0.002948083860873682,
+       0.08855338226779477
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 120,
+      "rate": 0.0,
+      "ci": [
+       -3.469446951953614e-18,
+       0.031020271055929513
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 1
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 1
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 60,
+      "rate": 0.0,
+      "ci": [
+       -6.938893903907228e-18,
+       0.06017393047793289
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: rejected": 10,
+       "calibration": 47,
+       "qualification: inconclusive": 3
+      },
+      "hgb": {
+       "calibration": 51,
+       "qualification: rejected": 5,
+       "qualification: inconclusive": 2,
+       "threshold: gate": 2
+      },
+      "oracle": {
+       "calibration": 46,
+       "qualification: rejected": 1,
+       "qualification: inconclusive": 8,
+       "qualified": 1,
+       "threshold: gate": 4
+      }
+     },
+     "learner_loss": {
+      "lr": 1,
+      "hgb": 1
+     }
+    },
+    {
+     "bin": [
+      0.05,
+      0.1
+     ],
+     "n": 56,
+     "lr": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "oracle": {
+      "k": 1,
+      "n": 56,
+      "rate": 0.017857142857142856,
+      "ci": [
+       0.003159128964463985,
+       0.0944585817919329
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 112,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.03316252537948371
+      ]
+     },
+     "k1": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 3
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 1
+     },
+     "oracle_policy_ceiling": {
+      "k": 0,
+      "n": 56,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.06419614448811528
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 49,
+       "qualification: rejected": 5,
+       "qualification: inconclusive": 2
+      },
+      "hgb": {
+       "calibration": 52,
+       "qualification: rejected": 3,
+       "qualification: inconclusive": 1
+      },
+      "oracle": {
+       "calibration": 32,
+       "qualification: inconclusive": 21,
+       "qualified": 1,
+       "threshold: gate": 2
+      }
+     },
+     "learner_loss": {
+      "lr": 1,
+      "hgb": 1
+     }
+    },
+    {
+     "bin": [
+      0.1,
+      0.2
+     ],
+     "n": 93,
+     "lr": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "hgb": {
+      "k": 0,
+      "n": 93,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.0396689026203615
+      ]
+     },
+     "oracle": {
+      "k": 20,
+      "n": 93,
+      "rate": 0.21505376344086022,
+      "ci": [
+       0.14374913397362912,
+       0.30896540192829725
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 0,
+      "n": 186,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.02023581765008302
+      ]
+     },
+     "k1": {
+      "lr": 1,
+      "hgb": 0,
+      "oracle": 24
+     },
+     "k5": {
+      "lr": 0,
+      "hgb": 0,
+      "oracle": 15
+     },
+     "oracle_policy_ceiling": {
+      "k": 20,
+      "n": 93,
+      "rate": 0.21505376344086022,
+      "ci": [
+       0.14374913397362912,
+       0.30896540192829725
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualification: inconclusive": 19,
+       "calibration": 67,
+       "qualification: rejected": 7
+      },
+      "hgb": {
+       "calibration": 81,
+       "threshold: gate": 2,
+       "qualification: inconclusive": 5,
+       "qualification: rejected": 5
+      },
+      "oracle": {
+       "calibration": 53,
+       "qualified": 20,
+       "qualification: inconclusive": 14,
+       "threshold: gate": 6
+      }
+     },
+     "learner_loss": {
+      "lr": 20,
+      "hgb": 20
+     }
+    },
+    {
+     "bin": [
+      0.2,
+      0.4
+     ],
+     "n": 152,
+     "lr": {
+      "k": 8,
+      "n": 152,
+      "rate": 0.05263157894736842,
+      "ci": [
+       0.02690716919410706,
+       0.10041185217117664
+      ]
+     },
+     "hgb": {
+      "k": 9,
+      "n": 152,
+      "rate": 0.05921052631578947,
+      "ci": [
+       0.031459946573578916,
+       0.1086926185951565
+      ]
+     },
+     "oracle": {
+      "k": 96,
+      "n": 152,
+      "rate": 0.631578947368421,
+      "ci": [
+       0.5525303554655897,
+       0.7041405206034445
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 17,
+      "n": 304,
+      "rate": 0.05592105263157895,
+      "ci": [
+       0.03520381181100071,
+       0.08772174470897579
+      ]
+     },
+     "k1": {
+      "lr": 14,
+      "hgb": 9,
+      "oracle": 97
+     },
+     "k5": {
+      "lr": 8,
+      "hgb": 9,
+      "oracle": 94
+     },
+     "oracle_policy_ceiling": {
+      "k": 138,
+      "n": 152,
+      "rate": 0.9078947368421053,
+      "ci": [
+       0.8513378565779817,
+       0.9443418592360244
+      ]
+     },
+     "stages": {
+      "lr": {
+       "calibration": 90,
+       "qualification: inconclusive": 51,
+       "qualification: rejected": 2,
+       "qualified": 8,
+       "threshold: gate": 1
+      },
+      "hgb": {
+       "calibration": 118,
+       "qualification: inconclusive": 20,
+       "qualified": 9,
+       "threshold: gate": 2,
+       "qualification: rejected": 3
+      },
+      "oracle": {
+       "calibration": 45,
+       "qualified": 96,
+       "qualification: inconclusive": 1,
+       "threshold: gate": 10
+      }
+     },
+     "learner_loss": {
+      "lr": 88,
+      "hgb": 87
+     }
+    },
+    {
+     "bin": [
+      0.4,
+      Infinity
+     ],
+     "n": 187,
+     "lr": {
+      "k": 56,
+      "n": 187,
+      "rate": 0.2994652406417112,
+      "ci": [
+       0.23839253117779569,
+       0.3686113924950303
+      ]
+     },
+     "hgb": {
+      "k": 51,
+      "n": 187,
+      "rate": 0.2727272727272727,
+      "ci": [
+       0.2139491302777574,
+       0.3406553165514453
+      ]
+     },
+     "oracle": {
+      "k": 107,
+      "n": 187,
+      "rate": 0.5721925133689839,
+      "ci": [
+       0.5005278557406467,
+       0.6409507317371357
+      ]
+     },
+     "pooled_lr_hgb": {
+      "k": 107,
+      "n": 374,
+      "rate": 0.28609625668449196,
+      "ci": [
+       0.24264939936927943,
+       0.33389272833714567
+      ]
+     },
+     "k1": {
+      "lr": 72,
+      "hgb": 62,
+      "oracle": 107
+     },
+     "k5": {
+      "lr": 52,
+      "hgb": 50,
+      "oracle": 107
+     },
+     "oracle_policy_ceiling": {
+      "k": 187,
+      "n": 187,
+      "rate": 1.0,
+      "ci": [
+       0.9798702169757536,
+       1.0
+      ]
+     },
+     "stages": {
+      "lr": {
+       "qualified": 56,
+       "qualification: inconclusive": 68,
+       "calibration": 59,
+       "threshold: gate": 3,
+       "support": 1
+      },
+      "hgb": {
+       "qualified": 51,
+       "calibration": 88,
+       "qualification: inconclusive": 43,
+       "threshold: gate": 4,
+       "support": 1
+      },
+      "oracle": {
+       "qualified": 107,
+       "calibration": 39,
+       "threshold: gate": 40,
+       "support": 1
+      }
+     },
+     "learner_loss": {
+      "lr": 56,
+      "hgb": 67
+     }
+    }
+   ],
+   "nulls": {
+    "null": {
+     "lr": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     }
+    },
+    "null_hidden": {
+     "lr": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 0,
+      "k5": 0
+     },
+     "hgb": {
+      "k3": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci": [
+        -6.938893903907228e-18,
+        0.08762453925039232
+       ]
+      },
+      "k1": 1,
+      "k5": 0
+     },
+     "oracle": {
+      "k3": {
+       "k": 33,
+       "n": 40,
+       "rate": 0.825,
+       "ci": [
+        0.6804970794560755,
+        0.9125469700311694
+       ]
+      },
+      "k1": 33,
+      "k5": 33
+     }
+    }
+   },
+   "cells": {
+    "null 0.0": {
+     "n": 40,
+     "econ": -0.11969211419772177,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "null_hidden 0.16": {
+     "n": 40,
+     "econ": 0.04964710303623927,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 33
+    },
+    "linear 0.02": {
+     "n": 40,
+     "econ": -0.05727010406004621,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.04": {
+     "n": 40,
+     "econ": 0.01883753189648576,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "linear 0.065": {
+     "n": 40,
+     "econ": 0.11514485844041773,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 6
+    },
+    "linear 0.1": {
+     "n": 40,
+     "econ": 0.24311820185377217,
+     "lr": 0,
+     "hgb": 1,
+     "oracle": 26
+    },
+    "linear 0.16": {
+     "n": 40,
+     "econ": 0.4199265481189274,
+     "lr": 24,
+     "hgb": 19,
+     "oracle": 35
+    },
+    "linear 0.25": {
+     "n": 40,
+     "econ": 0.6259653252012518,
+     "lr": 27,
+     "hgb": 30,
+     "oracle": 33
+    },
+    "interaction 0.02": {
+     "n": 40,
+     "econ": -0.06594421793982891,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.04": {
+     "n": 40,
+     "econ": -0.0042660488779803106,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "interaction 0.065": {
+     "n": 40,
+     "econ": 0.09626017875235664,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 2
+    },
+    "interaction 0.1": {
+     "n": 40,
+     "econ": 0.21219365729633544,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 31
+    },
+    "interaction 0.16": {
+     "n": 40,
+     "econ": 0.31125365482967204,
+     "lr": 1,
+     "hgb": 2,
+     "oracle": 37
+    },
+    "interaction 0.25": {
+     "n": 40,
+     "econ": 0.4553817203286193,
+     "lr": 10,
+     "hgb": 3,
+     "oracle": 38
+    },
+    "subset 0.04": {
+     "n": 40,
+     "econ": -0.00029192209234509616,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.065": {
+     "n": 40,
+     "econ": 0.11617375277859834,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 0
+    },
+    "subset 0.1": {
+     "n": 40,
+     "econ": 0.2787893488887542,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 1
+    },
+    "subset 0.16": {
+     "n": 40,
+     "econ": 0.5263002735006166,
+     "lr": 0,
+     "hgb": 0,
+     "oracle": 5
+    },
+    "subset 0.25": {
+     "n": 40,
+     "econ": 0.8950633393959329,
+     "lr": 2,
+     "hgb": 5,
+     "oracle": 11
+    }
+   }
+  }
+ },
+ "selection": {
+  "null_upper_bound": 0.08762453925039232,
+  "ineligible": {
+   "V1": [
+    "null_hidden/lr"
+   ],
+   "V2": [
+    "null_hidden/lr"
+   ],
+   "V3": [
+    "null_hidden/lr"
+   ]
+  },
+  "keys": {
+   "V1": [
+    0.0,
+    0.24731182795698925,
+    0.11513157894736842,
+    0.36363636363636365,
+    0
+   ],
+   "V2": [
+    0.0,
+    0.26881720430107525,
+    0.11513157894736842,
+    0.3609625668449198,
+    -1
+   ],
+   "V3": [
+    0.005376344086021506,
+    0.3655913978494624,
+    0.1611842105263158,
+    0.4197860962566845,
+    -2
+   ],
+   "V4": [
+    0.0,
+    0.21505376344086022,
+    0.05592105263157895,
+    0.28609625668449196,
+    -3
+   ]
+  },
+  "selected": "V4"
+ }
+}

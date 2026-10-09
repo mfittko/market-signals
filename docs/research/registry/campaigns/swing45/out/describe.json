@@ -1,0 +1,481 @@
+{
+ "instruments": {
+  "AU200/AUD": {
+   "m1_rows": 2534526,
+   "first": "2018-01-01T22:50",
+   "last": "2026-10-09T04:19"
+  },
+  "DE30/EUR": {
+   "m1_rows": 2567413,
+   "first": "2018-01-02T07:00",
+   "last": "2026-10-09T04:19"
+  },
+  "EU50/EUR": {
+   "m1_rows": 1820825,
+   "first": "2018-01-02T07:00",
+   "last": "2026-10-09T04:18"
+  },
+  "EUR/USD": {
+   "m1_rows": 3214926,
+   "first": "2018-01-01T22:00",
+   "last": "2026-10-09T04:17"
+  },
+  "JP225/USD": {
+   "m1_rows": 2882992,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:18"
+  },
+  "NAS100/USD": {
+   "m1_rows": 3073078,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:18"
+  },
+  "NATGAS/USD": {
+   "m1_rows": 2064606,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:16"
+  },
+  "SPX500/USD": {
+   "m1_rows": 2940452,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:16"
+  },
+  "UK100/GBP": {
+   "m1_rows": 2516281,
+   "first": "2018-01-02T03:29",
+   "last": "2026-10-09T04:19"
+  },
+  "US30/USD": {
+   "m1_rows": 3058389,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:18"
+  },
+  "WTICO/USD": {
+   "m1_rows": 3004208,
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-09T04:16"
+  },
+  "XAG/USD": {
+   "m1_rows": 2825708,
+   "first": "2018-01-01T23:05",
+   "last": "2026-10-09T04:16"
+  },
+  "XAU/USD": {
+   "m1_rows": 3062740,
+   "first": "2018-01-01T23:05",
+   "last": "2026-10-09T04:16"
+  }
+ },
+ "counts": {
+  "M1_down2_bar_dev": 560294,
+  "M1_down2_bar_w2023": 413202,
+  "M1_down2_daily_dev": 704458,
+  "M1_down2_daily_w2023": 725796,
+  "M1_down3_bar_dev": 248492,
+  "M1_down3_bar_w2023": 175600,
+  "M1_down3_daily_dev": 344668,
+  "M1_down3_daily_w2023": 344516,
+  "M1_down4_bar_dev": 105625,
+  "M1_down4_bar_w2023": 72108,
+  "M1_down4_daily_dev": 162090,
+  "M1_down4_daily_w2023": 158803,
+  "M1_down5_bar_dev": 43268,
+  "M1_down5_bar_w2023": 28631,
+  "M1_down5_daily_dev": 73460,
+  "M1_down5_daily_w2023": 72139,
+  "M1_rsi5_bar_dev": 154629,
+  "M1_rsi5_bar_w2023": 120561,
+  "M1_rsi5_daily_dev": 246882,
+  "M1_rsi5_daily_w2023": 263403,
+  "M1_rsi10_bar_dev": 281072,
+  "M1_rsi10_bar_w2023": 218063,
+  "M1_rsi10_daily_dev": 404834,
+  "M1_rsi10_daily_w2023": 433522,
+  "M1_rsi25_bar_dev": 572213,
+  "M1_rsi25_bar_w2023": 446850,
+  "M1_rsi25_daily_dev": 738478,
+  "M1_rsi25_daily_w2023": 793852,
+  "M5_down2_bar_dev": 131909,
+  "M5_down2_bar_w2023": 97706,
+  "M5_down2_daily_dev": 162716,
+  "M5_down2_daily_w2023": 164634,
+  "M5_down3_bar_dev": 59497,
+  "M5_down3_bar_w2023": 43686,
+  "M5_down3_daily_dev": 80193,
+  "M5_down3_daily_w2023": 81586,
+  "M5_down4_bar_dev": 25625,
+  "M5_down4_bar_w2023": 18833,
+  "M5_down4_daily_dev": 38186,
+  "M5_down4_daily_w2023": 39188,
+  "M5_down5_bar_dev": 10573,
+  "M5_down5_bar_w2023": 7707,
+  "M5_down5_daily_dev": 17417,
+  "M5_down5_daily_w2023": 18255,
+  "M5_rsi5_bar_dev": 31976,
+  "M5_rsi5_bar_w2023": 25097,
+  "M5_rsi5_daily_dev": 50214,
+  "M5_rsi5_daily_w2023": 53130,
+  "M5_rsi10_bar_dev": 60147,
+  "M5_rsi10_bar_w2023": 46123,
+  "M5_rsi10_daily_dev": 85640,
+  "M5_rsi10_daily_w2023": 88977,
+  "M5_rsi25_bar_dev": 126310,
+  "M5_rsi25_bar_w2023": 96647,
+  "M5_rsi25_daily_dev": 160655,
+  "M5_rsi25_daily_w2023": 166529,
+  "M15_down2_bar_dev": 46316,
+  "M15_down2_bar_w2023": 35409,
+  "M15_down2_daily_dev": 56157,
+  "M15_down2_daily_w2023": 57113,
+  "M15_down3_bar_dev": 21018,
+  "M15_down3_bar_w2023": 16303,
+  "M15_down3_daily_dev": 27758,
+  "M15_down3_daily_w2023": 28940,
+  "M15_down4_bar_dev": 9225,
+  "M15_down4_bar_w2023": 7098,
+  "M15_down4_daily_dev": 13302,
+  "M15_down4_daily_w2023": 14010,
+  "M15_down5_bar_dev": 3871,
+  "M15_down5_bar_w2023": 2958,
+  "M15_down5_daily_dev": 6213,
+  "M15_down5_daily_w2023": 6744,
+  "M15_rsi5_bar_dev": 10906,
+  "M15_rsi5_bar_w2023": 8615,
+  "M15_rsi5_daily_dev": 16776,
+  "M15_rsi5_daily_w2023": 17617,
+  "M15_rsi10_bar_dev": 20558,
+  "M15_rsi10_bar_w2023": 16083,
+  "M15_rsi10_daily_dev": 28407,
+  "M15_rsi10_daily_w2023": 29702,
+  "M15_rsi25_bar_dev": 43015,
+  "M15_rsi25_bar_w2023": 33305,
+  "M15_rsi25_daily_dev": 53741,
+  "M15_rsi25_daily_w2023": 55317,
+  "M30_down2_bar_dev": 24167,
+  "M30_down2_bar_w2023": 18376,
+  "M30_down2_daily_dev": 28411,
+  "M30_down2_daily_w2023": 28960,
+  "M30_down3_bar_dev": 11170,
+  "M30_down3_bar_w2023": 8498,
+  "M30_down3_daily_dev": 14204,
+  "M30_down3_daily_w2023": 14675,
+  "M30_down4_bar_dev": 4783,
+  "M30_down4_bar_w2023": 3770,
+  "M30_down4_daily_dev": 6820,
+  "M30_down4_daily_w2023": 7249,
+  "M30_down5_bar_dev": 1960,
+  "M30_down5_bar_w2023": 1641,
+  "M30_down5_daily_dev": 3099,
+  "M30_down5_daily_w2023": 3578,
+  "M30_rsi5_bar_dev": 5608,
+  "M30_rsi5_bar_w2023": 4630,
+  "M30_rsi5_daily_dev": 8469,
+  "M30_rsi5_daily_w2023": 9059,
+  "M30_rsi10_bar_dev": 10621,
+  "M30_rsi10_bar_w2023": 8348,
+  "M30_rsi10_daily_dev": 14349,
+  "M30_rsi10_daily_w2023": 14927,
+  "M30_rsi25_bar_dev": 22090,
+  "M30_rsi25_bar_w2023": 16892,
+  "M30_rsi25_daily_dev": 26790,
+  "M30_rsi25_daily_w2023": 27482,
+  "H1_down2_bar_dev": 12485,
+  "H1_down2_bar_w2023": 9549,
+  "H1_down2_daily_dev": 14427,
+  "H1_down2_daily_w2023": 14555,
+  "H1_down3_bar_dev": 5652,
+  "H1_down3_bar_w2023": 4557,
+  "H1_down3_daily_dev": 7074,
+  "H1_down3_daily_w2023": 7508,
+  "H1_down4_bar_dev": 2393,
+  "H1_down4_bar_w2023": 2030,
+  "H1_down4_daily_dev": 3259,
+  "H1_down4_daily_w2023": 3674,
+  "H1_down5_bar_dev": 1006,
+  "H1_down5_bar_w2023": 844,
+  "H1_down5_daily_dev": 1526,
+  "H1_down5_daily_w2023": 1714,
+  "H1_rsi5_bar_dev": 2851,
+  "H1_rsi5_bar_w2023": 2413,
+  "H1_rsi5_daily_dev": 4249,
+  "H1_rsi5_daily_w2023": 4542,
+  "H1_rsi10_bar_dev": 5441,
+  "H1_rsi10_bar_w2023": 4322,
+  "H1_rsi10_daily_dev": 7225,
+  "H1_rsi10_daily_w2023": 7547,
+  "H1_rsi25_bar_dev": 11366,
+  "H1_rsi25_bar_w2023": 8853,
+  "H1_rsi25_daily_dev": 13521,
+  "H1_rsi25_daily_w2023": 13833,
+  "H4_down2_bar_dev": 3481,
+  "H4_down2_bar_w2023": 3060,
+  "H4_down2_daily_dev": 3865,
+  "H4_down2_daily_w2023": 4065,
+  "H4_down3_bar_dev": 1577,
+  "H4_down3_bar_w2023": 1423,
+  "H4_down3_daily_dev": 1882,
+  "H4_down3_daily_w2023": 2003,
+  "H4_down4_bar_dev": 636,
+  "H4_down4_bar_w2023": 621,
+  "H4_down4_daily_dev": 833,
+  "H4_down4_daily_w2023": 978,
+  "H4_down5_bar_dev": 236,
+  "H4_down5_bar_w2023": 241,
+  "H4_down5_daily_dev": 339,
+  "H4_down5_daily_w2023": 434,
+  "H4_rsi5_bar_dev": 810,
+  "H4_rsi5_bar_w2023": 728,
+  "H4_rsi5_daily_dev": 1131,
+  "H4_rsi5_daily_w2023": 1189,
+  "H4_rsi10_bar_dev": 1566,
+  "H4_rsi10_bar_w2023": 1339,
+  "H4_rsi10_daily_dev": 1978,
+  "H4_rsi10_daily_w2023": 2032,
+  "H4_rsi25_bar_dev": 3198,
+  "H4_rsi25_bar_w2023": 2755,
+  "H4_rsi25_daily_dev": 3660,
+  "H4_rsi25_daily_w2023": 3781
+ },
+ "bars": {
+  "SPX500/USD_M1": {
+   "bars": 2940452,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "SPX500/USD_M5": {
+   "bars": 616434,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "SPX500/USD_M15": {
+   "bars": 206103,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "SPX500/USD_M30": {
+   "bars": 103530,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "SPX500/USD_H1": {
+   "bars": 51791,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "SPX500/USD_H4": {
+   "bars": 13544,
+   "dev": 1300,
+   "w2023": 979
+  },
+  "NAS100/USD_M1": {
+   "bars": 3073078,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "NAS100/USD_M5": {
+   "bars": 618206,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "NAS100/USD_M15": {
+   "bars": 206111,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "NAS100/USD_M30": {
+   "bars": 103518,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "NAS100/USD_H1": {
+   "bars": 51786,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "NAS100/USD_H4": {
+   "bars": 13542,
+   "dev": 1300,
+   "w2023": 980
+  },
+  "US30/USD_M1": {
+   "bars": 3058389,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "US30/USD_M5": {
+   "bars": 618218,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "US30/USD_M15": {
+   "bars": 206152,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "US30/USD_M30": {
+   "bars": 103535,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "US30/USD_H1": {
+   "bars": 51791,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "US30/USD_H4": {
+   "bars": 13546,
+   "dev": 1300,
+   "w2023": 978
+  },
+  "DE30/EUR_M1": {
+   "bars": 2567413,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "DE30/EUR_M5": {
+   "bars": 521195,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "DE30/EUR_M15": {
+   "bars": 173821,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "DE30/EUR_M30": {
+   "bars": 87909,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "DE30/EUR_H1": {
+   "bars": 43960,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "DE30/EUR_H4": {
+   "bars": 12900,
+   "dev": 1272,
+   "w2023": 960
+  },
+  "UK100/GBP_M1": {
+   "bars": 2516281,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "UK100/GBP_M5": {
+   "bars": 527338,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "UK100/GBP_M15": {
+   "bars": 176591,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "UK100/GBP_M30": {
+   "bars": 88349,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "UK100/GBP_H1": {
+   "bars": 44182,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "UK100/GBP_H4": {
+   "bars": 13108,
+   "dev": 1263,
+   "w2023": 954
+  },
+  "JP225/USD_M1": {
+   "bars": 2882992,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "JP225/USD_M5": {
+   "bars": 614830,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "JP225/USD_M15": {
+   "bars": 206238,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "JP225/USD_M30": {
+   "bars": 103625,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "JP225/USD_H1": {
+   "bars": 51844,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "JP225/USD_H4": {
+   "bars": 13548,
+   "dev": 1300,
+   "w2023": 976
+  },
+  "AU200/AUD_M1": {
+   "bars": 2534526,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "AU200/AUD_M5": {
+   "bars": 548127,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "AU200/AUD_M15": {
+   "bars": 185958,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "AU200/AUD_M30": {
+   "bars": 94165,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "AU200/AUD_H1": {
+   "bars": 49314,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "AU200/AUD_H4": {
+   "bars": 13334,
+   "dev": 1278,
+   "w2023": 967
+  },
+  "EU50/EUR_M1": {
+   "bars": 1820825,
+   "dev": 1274,
+   "w2023": 960
+  },
+  "EU50/EUR_M5": {
+   "bars": 480060,
+   "dev": 1274,
+   "w2023": 960
+  },
+  "EU50/EUR_M15": {
+   "bars": 170488,
+   "dev": 1274,
+   "w2023": 960
+  },
+  "EU50/EUR_M30": {
+   "bars": 87457,
+   "dev": 1274,
+   "w2023": 960
+  },
+  "EU50/EUR_H1": {
+   "bars": 43938,
+   "dev": 1274,
+   "w2023": 960
+  },
+  "EU50/EUR_H4": {
+   "bars": 12909,
+   "dev": 1274,
+   "w2023": 960
+  }
+ }
+}

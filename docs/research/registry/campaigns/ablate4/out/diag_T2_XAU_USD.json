@@ -1,0 +1,36 @@
+{
+ "inst": "XAU/USD",
+ "kx": 6.0,
+ "posthoc": true,
+ "target": "T2",
+ "auc": {
+  "2020": {
+   "time_of_day": 0.698,
+   "vol_state": 0.707,
+   "activity_spread": 0.625,
+   "returns_geometry": 0.5,
+   "all_ENG": 0.738
+  },
+  "2021": {
+   "time_of_day": 0.796,
+   "vol_state": 0.766,
+   "activity_spread": 0.67,
+   "returns_geometry": 0.511,
+   "all_ENG": 0.821
+  },
+  "2022": {
+   "time_of_day": 0.743,
+   "vol_state": 0.725,
+   "activity_spread": 0.676,
+   "returns_geometry": 0.521,
+   "all_ENG": 0.798
+  },
+  "2023": {
+   "time_of_day": 0.686,
+   "vol_state": 0.752,
+   "activity_spread": 0.612,
+   "returns_geometry": 0.538,
+   "all_ENG": 0.776
+  }
+ }
+}

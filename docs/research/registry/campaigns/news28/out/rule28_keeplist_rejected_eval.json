@@ -1,0 +1,129 @@
+{
+ "WTICO_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 156,
+   "precision24": 0.312,
+   "kept": 243,
+   "recall28": 0.9358974358974359,
+   "precision28": 0.6008230452674898,
+   "junk_dropped": 0.7180232558139534
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 160,
+   "precision24": 0.32,
+   "kept": 234,
+   "recall28": 0.81875,
+   "precision28": 0.5598290598290598,
+   "junk_dropped": 0.6970588235294117
+  },
+  "n_conditions": 25
+ },
+ "XAU_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 160,
+   "precision24": 0.32,
+   "kept": 198,
+   "recall28": 0.875,
+   "precision28": 0.7070707070707071,
+   "junk_dropped": 0.8294117647058823
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 147,
+   "precision24": 0.294,
+   "kept": 181,
+   "recall28": 0.7551020408163265,
+   "precision28": 0.6132596685082873,
+   "junk_dropped": 0.8016997167138811
+  },
+  "n_conditions": 25
+ },
+ "XAG_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 101,
+   "precision24": 0.202,
+   "kept": 162,
+   "recall28": 0.9603960396039604,
+   "precision28": 0.5987654320987654,
+   "junk_dropped": 0.837092731829574
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 89,
+   "precision24": 0.178,
+   "kept": 160,
+   "recall28": 0.8314606741573034,
+   "precision28": 0.4625,
+   "junk_dropped": 0.7907542579075426
+  },
+  "n_conditions": 20
+ },
+ "EUR_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 258,
+   "precision24": 0.516,
+   "kept": 206,
+   "recall28": 0.686046511627907,
+   "precision28": 0.8592233009708737,
+   "junk_dropped": 0.8801652892561983
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 286,
+   "precision24": 0.572,
+   "kept": 217,
+   "recall28": 0.5804195804195804,
+   "precision28": 0.7649769585253456,
+   "junk_dropped": 0.7616822429906542
+  },
+  "n_conditions": 25
+ },
+ "SPX500_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 192,
+   "precision24": 0.384,
+   "kept": 218,
+   "recall28": 0.859375,
+   "precision28": 0.7568807339449541,
+   "junk_dropped": 0.827922077922078
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 201,
+   "precision24": 0.402,
+   "kept": 220,
+   "recall28": 0.7164179104477612,
+   "precision28": 0.6545454545454545,
+   "junk_dropped": 0.745819397993311
+  },
+  "n_conditions": 25
+ },
+ "NATGAS_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 58,
+   "precision24": 0.116,
+   "kept": 204,
+   "recall28": 0.9482758620689655,
+   "precision28": 0.2696078431372549,
+   "junk_dropped": 0.6628959276018099
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 59,
+   "precision24": 0.118,
+   "kept": 209,
+   "recall28": 0.6949152542372882,
+   "precision28": 0.19617224880382775,
+   "junk_dropped": 0.6190476190476191
+  },
+  "n_conditions": 11
+ },
+ "relevance28_sha256": "6d64fdbe83c28837717638423552814f66cf2d724947012532fdeba3ccfb029c"
+}

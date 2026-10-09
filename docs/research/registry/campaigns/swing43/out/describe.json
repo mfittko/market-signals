@@ -1,0 +1,136 @@
+{
+ "primary_dev": {
+  "index": 1043,
+  "commodity": 1097,
+  "fx": 1055,
+  "bond": 379,
+  "trading6": 633,
+  "all": 3574,
+  "per_index": {
+   "AU200_AUD": 128,
+   "DE30_EUR": 141,
+   "HK33_HKD": 120,
+   "JP225_USD": 108,
+   "NAS100_USD": 151,
+   "SPX500_USD": 139,
+   "UK100_GBP": 120,
+   "US30_USD": 136
+  },
+  "index_weeks": 410
+ },
+ "primary_w2023": {
+  "index": 304,
+  "commodity": 197,
+  "fx": 232,
+  "bond": 48,
+  "trading6": 160,
+  "all": 781,
+  "per_index": {
+   "AU200_AUD": 35,
+   "DE30_EUR": 40,
+   "HK33_HKD": 31,
+   "JP225_USD": 38,
+   "NAS100_USD": 37,
+   "SPX500_USD": 45,
+   "UK100_GBP": 33,
+   "US30_USD": 45
+  },
+  "index_weeks": 113
+ },
+ "rsi5_dev": {
+  "index": 534,
+  "commodity": 539,
+  "fx": 531,
+  "bond": 190,
+  "trading6": 315,
+  "all": 1794
+ },
+ "rsi5_w2023": {
+  "index": 149,
+  "commodity": 102,
+  "fx": 111,
+  "bond": 25,
+  "trading6": 87,
+  "all": 387
+ },
+ "rsi25_dev": {
+  "index": 2263,
+  "commodity": 2336,
+  "fx": 2095,
+  "bond": 855,
+  "trading6": 1362,
+  "all": 7549
+ },
+ "rsi25_w2023": {
+  "index": 583,
+  "commodity": 447,
+  "fx": 522,
+  "bond": 97,
+  "trading6": 341,
+  "all": 1649
+ },
+ "down2_dev": {
+  "index": 2500,
+  "commodity": 2586,
+  "fx": 2364,
+  "bond": 972,
+  "trading6": 1471,
+  "all": 8422
+ },
+ "down2_w2023": {
+  "index": 632,
+  "commodity": 499,
+  "fx": 559,
+  "bond": 114,
+  "trading6": 383,
+  "all": 1804
+ },
+ "down3_dev": {
+  "index": 1078,
+  "commodity": 1189,
+  "fx": 1130,
+  "bond": 436,
+  "trading6": 661,
+  "all": 3833
+ },
+ "down3_w2023": {
+  "index": 312,
+  "commodity": 229,
+  "fx": 244,
+  "bond": 62,
+  "trading6": 177,
+  "all": 847
+ },
+ "fixed5_dev": {
+  "index": 1053,
+  "commodity": 1140,
+  "fx": 1087,
+  "bond": 400,
+  "trading6": 644,
+  "all": 3680
+ },
+ "fixed5_w2023": {
+  "index": 304,
+  "commodity": 208,
+  "fx": 238,
+  "bond": 50,
+  "trading6": 167,
+  "all": 800
+ },
+ "short_dev": {
+  "index": 497,
+  "commodity": 984,
+  "fx": 1008,
+  "bond": 369,
+  "trading6": 472,
+  "all": 2858
+ },
+ "short_w2023": {
+  "index": 42,
+  "commodity": 223,
+  "fx": 189,
+  "bond": 110,
+  "trading6": 83,
+  "all": 564
+ }
+}

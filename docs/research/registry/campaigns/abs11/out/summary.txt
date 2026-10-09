@@ -1,0 +1,285 @@
+## thresholds
+WTICO/USD   T1 5.38%  T2 2.81%
+XAU/USD     T1 1.82%  T2 0.92%
+XAG/USD     T1 3.53%  T2 1.79%
+NATGAS/USD  T1 7.19%  T2 3.67%
+SPX500/USD  T1 2.48%  T2 1.26%
+EUR/USD     T1 0.94%  T2 0.49%
+
+## AUC A1_open: lr / hgb / baselines (dev 2019-22, 2023+)
+WTICO/USD   dev   lr 0.809 [0.753,0.850]  hgb 0.713 [0.667,0.759]  base_rv 0.830 [0.784,0.873]  base_tod 0.391 [0.340,0.430]
+WTICO/USD   w2023 lr 0.858 [0.798,0.907]  hgb 0.808 [0.721,0.862]  base_rv 0.853 [0.807,0.895]  base_tod 0.404 [0.335,0.477]
+XAU/USD     dev   lr 0.663 [0.605,0.714]  hgb 0.614 [0.563,0.676]  base_rv 0.684 [0.629,0.736]  base_tod 0.407 [0.351,0.459]
+XAU/USD     w2023 lr 0.809 [0.777,0.844]  hgb 0.786 [0.746,0.819]  base_rv 0.808 [0.774,0.840]  base_tod 0.627 [0.573,0.667]
+XAG/USD     dev   lr 0.744 [0.691,0.788]  hgb 0.675 [0.615,0.719]  base_rv 0.746 [0.695,0.797]  base_tod 0.407 [0.357,0.463]
+XAG/USD     w2023 lr 0.814 [0.776,0.850]  hgb 0.766 [0.720,0.800]  base_rv 0.811 [0.777,0.845]  base_tod 0.613 [0.569,0.663]
+NATGAS/USD  dev   lr 0.766 [0.726,0.805]  hgb 0.736 [0.696,0.777]  base_rv 0.771 [0.733,0.804]  base_tod 0.671 [0.608,0.726]
+NATGAS/USD  w2023 lr 0.687 [0.623,0.753]  hgb 0.696 [0.634,0.742]  base_rv 0.701 [0.637,0.769]  base_tod 0.476 [0.413,0.547]
+SPX500/USD  dev   lr 0.849 [0.808,0.884]  hgb 0.747 [0.710,0.793]  base_rv 0.853 [0.816,0.890]  base_tod 0.403 [0.352,0.455]
+SPX500/USD  w2023 lr 0.768 [0.628,0.916]  hgb 0.796 [0.677,0.904]  base_rv 0.753 [0.599,0.891]  base_tod 0.368 [0.306,0.447]
+EUR/USD     dev   lr 0.821 [0.790,0.853]  hgb 0.754 [0.709,0.790]  base_rv 0.826 [0.786,0.860]  base_tod 0.591 [0.524,0.660]
+EUR/USD     w2023 lr 0.723 [0.663,0.776]  hgb 0.728 [0.678,0.791]  base_rv 0.711 [0.663,0.773]  base_tod 0.502 [0.447,0.563]
+
+## AUC A1: lr / hgb / baselines (dev 2019-22, 2023+)
+WTICO/USD   dev   lr 0.846 [0.806,0.881]  hgb 0.788 [0.737,0.838]  base_rv 0.799 [0.742,0.846]  base_tod 0.589 [0.547,0.627]  naive_share 0.705 [0.676,0.737]
+WTICO/USD   w2023 lr 0.900 [0.862,0.932]  hgb 0.852 [0.796,0.905]  base_rv 0.845 [0.783,0.894]  base_tod 0.599 [0.575,0.623]  naive_share 0.715 [0.674,0.752]
+XAU/USD     dev   lr 0.779 [0.735,0.814]  hgb 0.651 [0.607,0.704]  base_rv 0.695 [0.639,0.743]  base_tod 0.607 [0.566,0.648]  naive_share 0.604 [0.568,0.636]
+XAU/USD     w2023 lr 0.839 [0.807,0.865]  hgb 0.827 [0.799,0.853]  base_rv 0.784 [0.739,0.819]  base_tod 0.683 [0.660,0.706]  naive_share 0.622 [0.590,0.648]
+XAG/USD     dev   lr 0.808 [0.772,0.849]  hgb 0.729 [0.680,0.776]  base_rv 0.744 [0.698,0.798]  base_tod 0.622 [0.577,0.663]  naive_share 0.633 [0.595,0.663]
+XAG/USD     w2023 lr 0.830 [0.799,0.855]  hgb 0.806 [0.768,0.840]  base_rv 0.772 [0.733,0.815]  base_tod 0.689 [0.672,0.712]  naive_share 0.620 [0.587,0.646]
+NATGAS/USD  dev   lr 0.833 [0.801,0.862]  hgb 0.779 [0.737,0.813]  base_rv 0.779 [0.751,0.817]  base_tod 0.710 [0.668,0.745]  naive_share 0.615 [0.587,0.642]
+NATGAS/USD  w2023 lr 0.783 [0.736,0.824]  hgb 0.758 [0.703,0.804]  base_rv 0.694 [0.631,0.761]  base_tod 0.590 [0.565,0.614]  naive_share 0.585 [0.556,0.618]
+SPX500/USD  dev   lr 0.857 [0.827,0.893]  hgb 0.846 [0.809,0.877]  base_rv 0.830 [0.782,0.866]  base_tod 0.587 [0.540,0.622]  naive_share 0.696 [0.659,0.732]
+SPX500/USD  w2023 lr 0.830 [0.724,0.915]  hgb 0.797 [0.684,0.914]  base_rv 0.731 [0.572,0.905]  base_tod 0.528 [0.490,0.565]  naive_share 0.744 [0.678,0.803]
+EUR/USD     dev   lr 0.862 [0.832,0.892]  hgb 0.796 [0.757,0.835]  base_rv 0.815 [0.775,0.861]  base_tod 0.681 [0.638,0.721]  naive_share 0.611 [0.583,0.635]
+EUR/USD     w2023 lr 0.792 [0.746,0.831]  hgb 0.787 [0.750,0.826]  base_rv 0.722 [0.665,0.778]  base_tod 0.624 [0.596,0.659]  naive_share 0.543 [0.511,0.585]
+
+## CITL by year A1 (lr)
+WTICO/USD   2019:+0.014 2020:-0.027 2021:+0.012 2022:+0.049 2023:+0.022 2024:+0.022 2025:+0.009 2026:+0.022
+XAU/USD     2019:+0.001 2020:-0.001 2021:+0.044 2022:+0.045 2023:+0.025 2024:+0.022 2025:+0.024 2026:-0.006
+XAG/USD     2019:-0.002 2020:+0.012 2021:+0.043 2022:+0.038 2023:+0.024 2024:+0.013 2025:+0.036 2026:+0.018
+NATGAS/USD  2019:+0.017 2020:-0.017 2021:-0.001 2022:-0.025 2023:+0.053 2024:+0.036 2025:+0.010 2026:+0.042
+SPX500/USD  2019:+0.017 2020:-0.017 2021:+0.015 2022:+0.014 2024:+0.004 2025:+0.029 2026:+0.020
+EUR/USD     2019:+0.015 2020:+0.009 2021:+0.006 2022:-0.001 2023:+0.010 2024:+0.018 2025:+0.026 2026:+0.010
+
+## AUC A2: lr / hgb / baselines (dev 2019-22, 2023+)
+WTICO/USD   dev   lr 0.885 [0.869,0.896]  hgb 0.853 [0.840,0.866]  base_rv 0.822 [0.798,0.841]  base_tod 0.636 [0.612,0.663]  naive_back6h 0.773 [0.748,0.794]
+WTICO/USD   w2023 lr 0.861 [0.843,0.878]  hgb 0.857 [0.835,0.875]  base_rv 0.823 [0.799,0.844]  base_tod 0.664 [0.641,0.686]  naive_back6h 0.763 [0.738,0.787]
+XAU/USD     dev   lr 0.801 [0.786,0.818]  hgb 0.765 [0.750,0.781]  base_rv 0.700 [0.675,0.722]  base_tod 0.689 [0.667,0.711]  naive_back6h 0.668 [0.641,0.692]
+XAU/USD     w2023 lr 0.809 [0.797,0.822]  hgb 0.812 [0.800,0.825]  base_rv 0.751 [0.731,0.769]  base_tod 0.680 [0.662,0.695]  naive_back6h 0.682 [0.660,0.702]
+XAG/USD     dev   lr 0.820 [0.804,0.838]  hgb 0.785 [0.761,0.805]  base_rv 0.744 [0.722,0.765]  base_tod 0.675 [0.651,0.698]  naive_back6h 0.702 [0.677,0.722]
+XAG/USD     w2023 lr 0.829 [0.814,0.843]  hgb 0.822 [0.808,0.836]  base_rv 0.759 [0.736,0.782]  base_tod 0.679 [0.665,0.696]  naive_back6h 0.695 [0.670,0.717]
+NATGAS/USD  dev   lr 0.858 [0.845,0.871]  hgb 0.848 [0.834,0.861]  base_rv 0.764 [0.746,0.781]  base_tod 0.808 [0.794,0.823]  naive_back6h 0.662 [0.644,0.682]
+NATGAS/USD  w2023 lr 0.856 [0.846,0.867]  hgb 0.851 [0.838,0.863]  base_rv 0.710 [0.688,0.729]  base_tod 0.800 [0.787,0.813]  naive_back6h 0.604 [0.587,0.622]
+SPX500/USD  dev   lr 0.889 [0.877,0.902]  hgb 0.873 [0.861,0.887]  base_rv 0.857 [0.840,0.871]  base_tod 0.659 [0.619,0.689]  naive_back6h 0.798 [0.779,0.816]
+SPX500/USD  w2023 lr 0.866 [0.836,0.886]  hgb 0.863 [0.838,0.885]  base_rv 0.808 [0.772,0.838]  base_tod 0.725 [0.699,0.759]  naive_back6h 0.728 [0.684,0.769]
+EUR/USD     dev   lr 0.851 [0.840,0.865]  hgb 0.822 [0.804,0.838]  base_rv 0.780 [0.761,0.799]  base_tod 0.739 [0.720,0.759]  naive_back6h 0.722 [0.699,0.739]
+EUR/USD     w2023 lr 0.801 [0.782,0.823]  hgb 0.807 [0.789,0.821]  base_rv 0.691 [0.664,0.717]  base_tod 0.730 [0.713,0.754]  naive_back6h 0.646 [0.622,0.672]
+
+## CITL by year A2 (lr)
+WTICO/USD   2019:+0.005 2020:-0.035 2021:+0.003 2022:-0.005 2023:+0.004 2024:+0.009 2025:+0.011 2026:-0.005
+XAU/USD     2019:-0.014 2020:-0.025 2021:-0.002 2022:+0.005 2023:-0.005 2024:+0.000 2025:-0.015 2026:-0.024
+XAG/USD     2019:-0.012 2020:-0.033 2021:-0.003 2022:-0.017 2023:-0.005 2024:-0.007 2025:+0.000 2026:-0.013
+NATGAS/USD  2019:+0.006 2020:-0.008 2021:-0.018 2022:-0.020 2023:+0.008 2024:-0.006 2025:+0.007 2026:+0.024
+SPX500/USD  2019:+0.011 2020:-0.007 2021:+0.007 2022:-0.016 2023:+0.001 2024:+0.004 2025:+0.005 2026:+0.017
+EUR/USD     2019:+0.012 2020:-0.023 2021:+0.015 2022:-0.025 2023:-0.007 2024:+0.004 2025:+0.001 2026:+0.004
+
+## A1 operating points (model vs naive at matched rate)
+WTICO/USD   dev   model_1pm        /mo 1.58 base 0.12 prec 0.55 rec 0.35 lead_h 7.2 ahead_hit 0.73 ahead_all 0.65 hourUTC 22 calmFA/wk 0.07
+WTICO/USD   dev   model_2pm        /mo 2.69 base 0.12 prec 0.51 rec 0.55 lead_h 6.5 ahead_hit 0.80 ahead_all 0.67 hourUTC 22 calmFA/wk 0.15
+WTICO/USD   dev   model_4pm        /mo 4.31 base 0.12 prec 0.39 rec 0.67 lead_h 9.0 ahead_hit 0.82 ahead_all 0.65 hourUTC 22 calmFA/wk 0.33
+WTICO/USD   dev   naive_1pm        /mo 1.44 base 0.12 prec 0.68 rec 0.39 lead_h 1.0 ahead_hit 0.23 ahead_all 0.15 hourUTC 14 calmFA/wk 0.08
+WTICO/USD   dev   naive_2pm        /mo 2.56 base 0.12 prec 0.60 rec 0.61 lead_h 1.0 ahead_hit 0.29 ahead_all 0.17 hourUTC 14 calmFA/wk 0.11
+WTICO/USD   dev   naive_4pm        /mo 4.79 base 0.12 prec 0.41 rec 0.79 lead_h 2.0 ahead_hit 0.40 ahead_all 0.16 hourUTC 14 calmFA/wk 0.34
+WTICO/USD   dev   naive_fixed_0.5  /mo 9.63 base 0.12 prec 0.24 rec 0.93 lead_h 4.5 ahead_hit 0.55 ahead_all 0.21 hourUTC 14 calmFA/wk 1.03
+WTICO/USD   dev   naive_fixed_0.8  /mo 3.38 base 0.12 prec 0.54 rec 0.72 lead_h 1.5 ahead_hit 0.30 ahead_all 0.16 hourUTC 14 calmFA/wk 0.18
+WTICO/USD   w2023 model_1pm        /mo 1.50 base 0.07 prec 0.32 rec 0.34 lead_h 12.5 ahead_hit 0.74 ahead_all 0.57 hourUTC 12 calmFA/wk 0.10
+WTICO/USD   w2023 model_2pm        /mo 2.43 base 0.07 prec 0.27 rec 0.47 lead_h 12.5 ahead_hit 0.74 ahead_all 0.63 hourUTC 12 calmFA/wk 0.21
+WTICO/USD   w2023 model_4pm        /mo 4.58 base 0.07 prec 0.23 rec 0.75 lead_h 12.0 ahead_hit 0.78 ahead_all 0.66 hourUTC 13 calmFA/wk 0.52
+WTICO/USD   w2023 naive_1pm        /mo 1.02 base 0.07 prec 0.41 rec 0.30 lead_h 1.5 ahead_hit 0.28 ahead_all 0.11 hourUTC 15 calmFA/wk 0.04
+WTICO/USD   w2023 naive_2pm        /mo 2.50 base 0.07 prec 0.38 rec 0.67 lead_h 1.0 ahead_hit 0.35 ahead_all 0.14 hourUTC 15 calmFA/wk 0.18
+WTICO/USD   w2023 naive_4pm        /mo 4.47 base 0.07 prec 0.26 rec 0.81 lead_h 2.8 ahead_hit 0.40 ahead_all 0.12 hourUTC 14 calmFA/wk 0.47
+WTICO/USD   w2023 naive_fixed_0.5  /mo 7.41 base 0.07 prec 0.17 rec 0.89 lead_h 4.5 ahead_hit 0.52 ahead_all 0.17 hourUTC 14 calmFA/wk 0.96
+WTICO/USD   w2023 naive_fixed_0.8  /mo 2.17 base 0.07 prec 0.42 rec 0.64 lead_h 1.5 ahead_hit 0.31 ahead_all 0.11 hourUTC 15 calmFA/wk 0.08
+XAU/USD     dev   model_1pm        /mo 1.40 base 0.12 prec 0.46 rec 0.26 lead_h 8.5 ahead_hit 0.66 ahead_all 0.53 hourUTC 14 calmFA/wk 0.03
+XAU/USD     dev   model_2pm        /mo 2.63 base 0.12 prec 0.40 rec 0.41 lead_h 8.0 ahead_hit 0.60 ahead_all 0.45 hourUTC 12 calmFA/wk 0.12
+XAU/USD     dev   model_4pm        /mo 4.71 base 0.12 prec 0.31 rec 0.59 lead_h 8.5 ahead_hit 0.65 ahead_all 0.51 hourUTC 13 calmFA/wk 0.32
+XAU/USD     dev   naive_1pm        /mo 1.10 base 0.12 prec 0.60 rec 0.26 lead_h 1.0 ahead_hit 0.20 ahead_all 0.09 hourUTC 15 calmFA/wk 0.02
+XAU/USD     dev   naive_2pm        /mo 2.42 base 0.12 prec 0.53 rec 0.50 lead_h 1.0 ahead_hit 0.25 ahead_all 0.12 hourUTC 15 calmFA/wk 0.08
+XAU/USD     dev   naive_4pm        /mo 4.67 base 0.12 prec 0.39 rec 0.72 lead_h 1.5 ahead_hit 0.32 ahead_all 0.14 hourUTC 14 calmFA/wk 0.38
+XAU/USD     dev   naive_fixed_0.5  /mo 10.25 base 0.12 prec 0.23 rec 0.95 lead_h 3.5 ahead_hit 0.53 ahead_all 0.21 hourUTC 13 calmFA/wk 1.31
+XAU/USD     dev   naive_fixed_0.8  /mo 3.71 base 0.12 prec 0.50 rec 0.74 lead_h 1.5 ahead_hit 0.27 ahead_all 0.14 hourUTC 14 calmFA/wk 0.15
+XAU/USD     w2023 model_1pm        /mo 2.06 base 0.20 prec 0.58 rec 0.28 lead_h 5.8 ahead_hit 0.61 ahead_all 0.54 hourUTC 4 calmFA/wk 0.05
+XAU/USD     w2023 model_2pm        /mo 3.34 base 0.20 prec 0.52 rec 0.41 lead_h 6.5 ahead_hit 0.62 ahead_all 0.58 hourUTC 8 calmFA/wk 0.16
+XAU/USD     w2023 model_4pm        /mo 5.20 base 0.20 prec 0.46 rec 0.56 lead_h 8.5 ahead_hit 0.69 ahead_all 0.63 hourUTC 9 calmFA/wk 0.36
+XAU/USD     w2023 naive_1pm        /mo 1.11 base 0.20 prec 0.80 rec 0.21 lead_h 1.0 ahead_hit 0.19 ahead_all 0.15 hourUTC 14 calmFA/wk 0.02
+XAU/USD     w2023 naive_2pm        /mo 2.23 base 0.20 prec 0.63 rec 0.33 lead_h 1.0 ahead_hit 0.19 ahead_all 0.10 hourUTC 14 calmFA/wk 0.07
+XAU/USD     w2023 naive_4pm        /mo 4.87 base 0.20 prec 0.48 rec 0.55 lead_h 1.5 ahead_hit 0.28 ahead_all 0.11 hourUTC 14 calmFA/wk 0.41
+XAU/USD     w2023 naive_fixed_0.5  /mo 12.61 base 0.20 prec 0.31 rec 0.93 lead_h 5.5 ahead_hit 0.54 ahead_all 0.26 hourUTC 12 calmFA/wk 1.55
+XAU/USD     w2023 naive_fixed_0.8  /mo 5.42 base 0.20 prec 0.56 rec 0.71 lead_h 1.5 ahead_hit 0.30 ahead_all 0.15 hourUTC 14 calmFA/wk 0.29
+XAG/USD     dev   model_1pm        /mo 1.67 base 0.12 prec 0.44 rec 0.28 lead_h 3.0 ahead_hit 0.51 ahead_all 0.37 hourUTC 12 calmFA/wk 0.10
+XAG/USD     dev   model_2pm        /mo 3.52 base 0.12 prec 0.36 rec 0.48 lead_h 6.5 ahead_hit 0.58 ahead_all 0.43 hourUTC 11 calmFA/wk 0.25
+XAG/USD     dev   model_4pm        /mo 6.31 base 0.12 prec 0.29 rec 0.70 lead_h 9.5 ahead_hit 0.73 ahead_all 0.56 hourUTC 12 calmFA/wk 0.67
+XAG/USD     dev   naive_1pm        /mo 1.67 base 0.12 prec 0.62 rec 0.40 lead_h 0.8 ahead_hit 0.30 ahead_all 0.16 hourUTC 14 calmFA/wk 0.07
+XAG/USD     dev   naive_2pm        /mo 3.15 base 0.12 prec 0.48 rec 0.58 lead_h 1.0 ahead_hit 0.33 ahead_all 0.13 hourUTC 14 calmFA/wk 0.23
+XAG/USD     dev   naive_4pm        /mo 4.92 base 0.12 prec 0.38 rec 0.71 lead_h 2.0 ahead_hit 0.38 ahead_all 0.15 hourUTC 14 calmFA/wk 0.44
+XAG/USD     dev   naive_fixed_0.5  /mo 9.96 base 0.12 prec 0.24 rec 0.90 lead_h 5.0 ahead_hit 0.53 ahead_all 0.21 hourUTC 13 calmFA/wk 1.02
+XAG/USD     dev   naive_fixed_0.8  /mo 3.79 base 0.12 prec 0.46 rec 0.67 lead_h 1.0 ahead_hit 0.31 ahead_all 0.13 hourUTC 14 calmFA/wk 0.10
+XAG/USD     w2023 model_1pm        /mo 3.05 base 0.20 prec 0.64 rec 0.44 lead_h 5.2 ahead_hit 0.70 ahead_all 0.63 hourUTC 9 calmFA/wk 0.03
+XAG/USD     w2023 model_2pm        /mo 3.78 base 0.20 prec 0.57 rec 0.49 lead_h 6.5 ahead_hit 0.74 ahead_all 0.67 hourUTC 10 calmFA/wk 0.08
+XAG/USD     w2023 model_4pm        /mo 5.09 base 0.20 prec 0.48 rec 0.56 lead_h 9.0 ahead_hit 0.79 ahead_all 0.71 hourUTC 18 calmFA/wk 0.26
+XAG/USD     w2023 naive_1pm        /mo 1.26 base 0.20 prec 0.72 rec 0.21 lead_h 0.5 ahead_hit 0.18 ahead_all 0.12 hourUTC 15 calmFA/wk 0.07
+XAG/USD     w2023 naive_2pm        /mo 2.68 base 0.20 prec 0.69 rec 0.42 lead_h 0.5 ahead_hit 0.25 ahead_all 0.17 hourUTC 14 calmFA/wk 0.11
+XAG/USD     w2023 naive_4pm        /mo 4.89 base 0.20 prec 0.59 rec 0.66 lead_h 1.0 ahead_hit 0.34 ahead_all 0.21 hourUTC 14 calmFA/wk 0.26
+XAG/USD     w2023 naive_fixed_0.5  /mo 12.72 base 0.20 prec 0.34 rec 0.97 lead_h 3.5 ahead_hit 0.54 ahead_all 0.25 hourUTC 12 calmFA/wk 1.77
+XAG/USD     w2023 naive_fixed_0.8  /mo 5.44 base 0.20 prec 0.59 rec 0.72 lead_h 1.0 ahead_hit 0.30 ahead_all 0.18 hourUTC 13 calmFA/wk 0.26
+NATGAS/USD  dev   model_1pm        /mo 1.56 base 0.12 prec 0.47 rec 0.29 lead_h 11.0 ahead_hit 0.57 ahead_all 0.50 hourUTC 8 calmFA/wk 0.01
+NATGAS/USD  dev   model_2pm        /mo 3.13 base 0.12 prec 0.36 rec 0.45 lead_h 10.2 ahead_hit 0.62 ahead_all 0.59 hourUTC 11 calmFA/wk 0.09
+NATGAS/USD  dev   model_4pm        /mo 6.15 base 0.12 prec 0.29 rec 0.72 lead_h 7.5 ahead_hit 0.65 ahead_all 0.63 hourUTC 12 calmFA/wk 0.31
+NATGAS/USD  dev   naive_1pm        /mo 1.48 base 0.12 prec 0.61 rec 0.36 lead_h 0.5 ahead_hit 0.22 ahead_all 0.10 hourUTC 16 calmFA/wk 0.01
+NATGAS/USD  dev   naive_2pm        /mo 2.77 base 0.12 prec 0.51 rec 0.57 lead_h 0.8 ahead_hit 0.27 ahead_all 0.12 hourUTC 15 calmFA/wk 0.09
+NATGAS/USD  dev   naive_4pm        /mo 5.69 base 0.12 prec 0.36 rec 0.82 lead_h 2.0 ahead_hit 0.35 ahead_all 0.17 hourUTC 14 calmFA/wk 0.36
+NATGAS/USD  dev   naive_fixed_0.5  /mo 9.54 base 0.12 prec 0.25 rec 0.95 lead_h 4.0 ahead_hit 0.53 ahead_all 0.20 hourUTC 13 calmFA/wk 0.76
+NATGAS/USD  dev   naive_fixed_0.8  /mo 3.63 base 0.12 prec 0.56 rec 0.81 lead_h 1.0 ahead_hit 0.27 ahead_all 0.16 hourUTC 15 calmFA/wk 0.03
+NATGAS/USD  w2023 model_1pm        /mo 0.91 base 0.08 prec 0.46 rec 0.23 lead_h 8.0 ahead_hit 0.57 ahead_all 0.57 hourUTC 7 calmFA/wk 0.04
+NATGAS/USD  w2023 model_2pm        /mo 1.68 base 0.08 prec 0.33 rec 0.30 lead_h 10.0 ahead_hit 0.68 ahead_all 0.57 hourUTC 10 calmFA/wk 0.12
+NATGAS/USD  w2023 model_4pm        /mo 3.12 base 0.08 prec 0.29 rec 0.50 lead_h 7.5 ahead_hit 0.55 ahead_all 0.50 hourUTC 9 calmFA/wk 0.32
+NATGAS/USD  w2023 naive_1pm        /mo 0.64 base 0.08 prec 0.66 rec 0.23 lead_h 0.5 ahead_hit 0.09 ahead_all 0.06 hourUTC 17 calmFA/wk 0.03
+NATGAS/USD  w2023 naive_2pm        /mo 1.81 base 0.08 prec 0.59 rec 0.59 lead_h 1.0 ahead_hit 0.15 ahead_all 0.08 hourUTC 17 calmFA/wk 0.08
+NATGAS/USD  w2023 naive_4pm        /mo 3.18 base 0.08 prec 0.44 rec 0.77 lead_h 1.5 ahead_hit 0.25 ahead_all 0.11 hourUTC 16 calmFA/wk 0.20
+NATGAS/USD  w2023 naive_fixed_0.5  /mo 11.03 base 0.08 prec 0.16 rec 0.96 lead_h 4.0 ahead_hit 0.50 ahead_all 0.18 hourUTC 14 calmFA/wk 1.59
+NATGAS/USD  w2023 naive_fixed_0.8  /mo 3.40 base 0.08 prec 0.45 rec 0.84 lead_h 1.5 ahead_hit 0.23 ahead_all 0.12 hourUTC 16 calmFA/wk 0.20
+SPX500/USD  dev   model_1pm        /mo 1.54 base 0.11 prec 0.51 rec 0.34 lead_h 8.8 ahead_hit 0.78 ahead_all 0.66 hourUTC 20 calmFA/wk 0.01
+SPX500/USD  dev   model_2pm        /mo 2.98 base 0.11 prec 0.45 rec 0.57 lead_h 8.8 ahead_hit 0.75 ahead_all 0.63 hourUTC 11 calmFA/wk 0.01
+SPX500/USD  dev   model_4pm        /mo 5.04 base 0.11 prec 0.34 rec 0.73 lead_h 10.8 ahead_hit 0.80 ahead_all 0.73 hourUTC 14 calmFA/wk 0.07
+SPX500/USD  dev   naive_1pm        /mo 1.52 base 0.11 prec 0.78 rec 0.51 lead_h 1.0 ahead_hit 0.26 ahead_all 0.19 hourUTC 17 calmFA/wk 0.01
+SPX500/USD  dev   naive_2pm        /mo 2.73 base 0.11 prec 0.58 rec 0.68 lead_h 1.5 ahead_hit 0.33 ahead_all 0.16 hourUTC 16 calmFA/wk 0.02
+SPX500/USD  dev   naive_4pm        /mo 4.83 base 0.11 prec 0.41 rec 0.85 lead_h 3.0 ahead_hit 0.45 ahead_all 0.20 hourUTC 15 calmFA/wk 0.18
+SPX500/USD  dev   naive_fixed_0.5  /mo 8.77 base 0.11 prec 0.25 rec 0.96 lead_h 5.0 ahead_hit 0.55 ahead_all 0.23 hourUTC 15 calmFA/wk 0.68
+SPX500/USD  dev   naive_fixed_0.8  /mo 3.29 base 0.11 prec 0.55 rec 0.78 lead_h 1.5 ahead_hit 0.34 ahead_all 0.17 hourUTC 16 calmFA/wk 0.03
+SPX500/USD  w2023 model_1pm        /mo 1.48 base 0.02 prec 0.22 rec 0.68 lead_h 14.5 ahead_hit 0.85 ahead_all 0.73 hourUTC 13 calmFA/wk 0.09
+SPX500/USD  w2023 model_2pm        /mo 2.32 base 0.02 prec 0.15 rec 0.73 lead_h 15.8 ahead_hit 0.87 ahead_all 0.76 hourUTC 13 calmFA/wk 0.21
+SPX500/USD  w2023 model_4pm        /mo 3.43 base 0.02 prec 0.12 rec 0.82 lead_h 15.8 ahead_hit 0.88 ahead_all 0.80 hourUTC 22 calmFA/wk 0.37
+SPX500/USD  w2023 naive_1pm        /mo 0.95 base 0.02 prec 0.40 rec 0.77 lead_h 1.5 ahead_hit 0.32 ahead_all 0.09 hourUTC 17 calmFA/wk 0.06
+SPX500/USD  w2023 naive_2pm        /mo 1.72 base 0.02 prec 0.24 rec 0.86 lead_h 2.0 ahead_hit 0.40 ahead_all 0.12 hourUTC 16 calmFA/wk 0.14
+SPX500/USD  w2023 naive_4pm        /mo 3.23 base 0.02 prec 0.14 rec 0.91 lead_h 3.0 ahead_hit 0.46 ahead_all 0.15 hourUTC 16 calmFA/wk 0.37
+SPX500/USD  w2023 naive_fixed_0.5  /mo 5.28 base 0.02 prec 0.08 rec 0.91 lead_h 4.5 ahead_hit 0.55 ahead_all 0.16 hourUTC 16 calmFA/wk 0.71
+SPX500/USD  w2023 naive_fixed_0.8  /mo 1.11 base 0.02 prec 0.34 rec 0.77 lead_h 1.5 ahead_hit 0.30 ahead_all 0.06 hourUTC 18 calmFA/wk 0.04
+EUR/USD     dev   model_1pm        /mo 1.98 base 0.11 prec 0.56 rec 0.46 lead_h 9.0 ahead_hit 0.75 ahead_all 0.70 hourUTC 13 calmFA/wk 0.12
+EUR/USD     dev   model_2pm        /mo 3.54 base 0.11 prec 0.42 rec 0.61 lead_h 9.5 ahead_hit 0.75 ahead_all 0.67 hourUTC 11 calmFA/wk 0.24
+EUR/USD     dev   model_4pm        /mo 6.19 base 0.11 prec 0.32 rec 0.81 lead_h 10.8 ahead_hit 0.78 ahead_all 0.70 hourUTC 14 calmFA/wk 0.46
+EUR/USD     dev   naive_1pm        /mo 1.35 base 0.11 prec 0.68 rec 0.38 lead_h 1.0 ahead_hit 0.21 ahead_all 0.13 hourUTC 14 calmFA/wk 0.04
+EUR/USD     dev   naive_2pm        /mo 2.81 base 0.11 prec 0.50 rec 0.58 lead_h 1.5 ahead_hit 0.26 ahead_all 0.10 hourUTC 14 calmFA/wk 0.12
+EUR/USD     dev   naive_4pm        /mo 4.79 base 0.11 prec 0.39 rec 0.78 lead_h 2.0 ahead_hit 0.39 ahead_all 0.16 hourUTC 13 calmFA/wk 0.33
+EUR/USD     dev   naive_fixed_0.5  /mo 10.13 base 0.11 prec 0.23 rec 0.95 lead_h 4.2 ahead_hit 0.53 ahead_all 0.22 hourUTC 13 calmFA/wk 1.30
+EUR/USD     dev   naive_fixed_0.8  /mo 3.92 base 0.11 prec 0.49 rec 0.79 lead_h 1.5 ahead_hit 0.29 ahead_all 0.12 hourUTC 14 calmFA/wk 0.17
+EUR/USD     w2023 model_1pm        /mo 1.28 base 0.08 prec 0.36 rec 0.28 lead_h 6.0 ahead_hit 0.69 ahead_all 0.56 hourUTC 10 calmFA/wk 0.03
+EUR/USD     w2023 model_2pm        /mo 2.37 base 0.08 prec 0.25 rec 0.36 lead_h 9.0 ahead_hit 0.81 ahead_all 0.75 hourUTC 22 calmFA/wk 0.12
+EUR/USD     w2023 model_4pm        /mo 3.29 base 0.08 prec 0.22 rec 0.44 lead_h 11.0 ahead_hit 0.87 ahead_all 0.81 hourUTC 22 calmFA/wk 0.19
+EUR/USD     w2023 naive_1pm        /mo 0.91 base 0.08 prec 0.68 rec 0.37 lead_h 0.8 ahead_hit 0.15 ahead_all 0.11 hourUTC 14 calmFA/wk 0.03
+EUR/USD     w2023 naive_2pm        /mo 2.01 base 0.08 prec 0.52 rec 0.63 lead_h 1.0 ahead_hit 0.23 ahead_all 0.08 hourUTC 14 calmFA/wk 0.12
+EUR/USD     w2023 naive_4pm        /mo 3.58 base 0.08 prec 0.38 rec 0.81 lead_h 1.5 ahead_hit 0.31 ahead_all 0.14 hourUTC 14 calmFA/wk 0.29
+EUR/USD     w2023 naive_fixed_0.5  /mo 9.57 base 0.08 prec 0.16 rec 0.93 lead_h 3.8 ahead_hit 0.49 ahead_all 0.17 hourUTC 14 calmFA/wk 1.43
+EUR/USD     w2023 naive_fixed_0.8  /mo 3.12 base 0.08 prec 0.42 rec 0.79 lead_h 1.5 ahead_hit 0.27 ahead_all 0.10 hourUTC 15 calmFA/wk 0.26
+
+## A2 operating points
+WTICO/USD   dev   model_1pw  /wk 1.67 base 0.12 prec 0.60 recEp 0.14 lead_min 150 ahead_hit 0.71 fwd% alert 3.31 all 1.12 calmFA/wk 0.19
+WTICO/USD   dev   model_2pw  /wk 3.11 base 0.12 prec 0.45 recEp 0.22 lead_min 150 ahead_hit 0.72 fwd% alert 2.64 all 1.12 calmFA/wk 0.68
+WTICO/USD   dev   model_4pw  /wk 5.07 base 0.12 prec 0.33 recEp 0.28 lead_min 165 ahead_hit 0.75 fwd% alert 2.16 all 1.12 calmFA/wk 2.04
+WTICO/USD   dev   naive_1pw  /wk 1.74 base 0.12 prec 0.45 recEp 0.12 lead_min 120 ahead_hit 0.65 fwd% alert 2.55 all 1.12 calmFA/wk 0.30
+WTICO/USD   dev   naive_2pw  /wk 2.76 base 0.12 prec 0.39 recEp 0.17 lead_min 120 ahead_hit 0.65 fwd% alert 2.34 all 1.12 calmFA/wk 0.62
+WTICO/USD   dev   naive_4pw  /wk 4.83 base 0.12 prec 0.31 recEp 0.25 lead_min 150 ahead_hit 0.68 fwd% alert 1.98 all 1.12 calmFA/wk 1.88
+WTICO/USD   w2023 model_1pw  /wk 1.35 base 0.07 prec 0.35 recEp 0.12 lead_min 150 ahead_hit 0.74 fwd% alert 2.30 all 0.97 calmFA/wk 0.42
+WTICO/USD   w2023 model_2pw  /wk 2.38 base 0.07 prec 0.31 recEp 0.20 lead_min 180 ahead_hit 0.77 fwd% alert 2.05 all 0.97 calmFA/wk 0.98
+WTICO/USD   w2023 model_4pw  /wk 4.10 base 0.07 prec 0.20 recEp 0.22 lead_min 180 ahead_hit 0.76 fwd% alert 1.81 all 0.97 calmFA/wk 2.18
+WTICO/USD   w2023 naive_1pw  /wk 1.27 base 0.07 prec 0.31 recEp 0.10 lead_min 150 ahead_hit 0.67 fwd% alert 2.00 all 0.97 calmFA/wk 0.39
+WTICO/USD   w2023 naive_2pw  /wk 2.26 base 0.07 prec 0.22 recEp 0.12 lead_min 180 ahead_hit 0.74 fwd% alert 1.64 all 0.97 calmFA/wk 1.02
+WTICO/USD   w2023 naive_4pw  /wk 4.13 base 0.07 prec 0.17 recEp 0.18 lead_min 180 ahead_hit 0.69 fwd% alert 1.44 all 0.97 calmFA/wk 2.31
+XAU/USD     dev   model_1pw  /wk 1.72 base 0.12 prec 0.35 recEp 0.10 lead_min 180 ahead_hit 0.72 fwd% alert 0.74 all 0.40 calmFA/wk 0.57
+XAU/USD     dev   model_2pw  /wk 2.91 base 0.12 prec 0.30 recEp 0.15 lead_min 210 ahead_hit 0.75 fwd% alert 0.69 all 0.40 calmFA/wk 1.22
+XAU/USD     dev   model_4pw  /wk 5.12 base 0.12 prec 0.25 recEp 0.23 lead_min 180 ahead_hit 0.76 fwd% alert 0.63 all 0.40 calmFA/wk 2.83
+XAU/USD     dev   naive_1pw  /wk 1.40 base 0.12 prec 0.36 recEp 0.09 lead_min 120 ahead_hit 0.66 fwd% alert 0.72 all 0.40 calmFA/wk 0.31
+XAU/USD     dev   naive_2pw  /wk 2.49 base 0.12 prec 0.30 recEp 0.13 lead_min 150 ahead_hit 0.67 fwd% alert 0.63 all 0.40 calmFA/wk 0.89
+XAU/USD     dev   naive_4pw  /wk 4.77 base 0.12 prec 0.24 recEp 0.21 lead_min 150 ahead_hit 0.68 fwd% alert 0.55 all 0.40 calmFA/wk 2.12
+XAU/USD     w2023 model_1pw  /wk 1.83 base 0.18 prec 0.50 recEp 0.10 lead_min 150 ahead_hit 0.73 fwd% alert 0.90 all 0.48 calmFA/wk 0.31
+XAU/USD     w2023 model_2pw  /wk 2.90 base 0.18 prec 0.42 recEp 0.13 lead_min 180 ahead_hit 0.73 fwd% alert 0.83 all 0.48 calmFA/wk 0.83
+XAU/USD     w2023 model_4pw  /wk 5.12 base 0.18 prec 0.37 recEp 0.22 lead_min 210 ahead_hit 0.74 fwd% alert 0.77 all 0.48 calmFA/wk 1.97
+XAU/USD     w2023 naive_1pw  /wk 1.54 base 0.18 prec 0.47 recEp 0.07 lead_min 120 ahead_hit 0.59 fwd% alert 0.85 all 0.48 calmFA/wk 0.24
+XAU/USD     w2023 naive_2pw  /wk 2.86 base 0.18 prec 0.37 recEp 0.11 lead_min 120 ahead_hit 0.64 fwd% alert 0.75 all 0.48 calmFA/wk 0.93
+XAU/USD     w2023 naive_4pw  /wk 5.13 base 0.18 prec 0.31 recEp 0.18 lead_min 150 ahead_hit 0.64 fwd% alert 0.68 all 0.48 calmFA/wk 2.05
+XAG/USD     dev   model_1pw  /wk 1.97 base 0.12 prec 0.40 recEp 0.13 lead_min 180 ahead_hit 0.74 fwd% alert 1.56 all 0.78 calmFA/wk 0.53
+XAG/USD     dev   model_2pw  /wk 3.56 base 0.12 prec 0.32 recEp 0.19 lead_min 210 ahead_hit 0.73 fwd% alert 1.34 all 0.78 calmFA/wk 1.33
+XAG/USD     dev   model_4pw  /wk 5.83 base 0.12 prec 0.27 recEp 0.26 lead_min 210 ahead_hit 0.76 fwd% alert 1.22 all 0.78 calmFA/wk 2.96
+XAG/USD     dev   naive_1pw  /wk 1.67 base 0.12 prec 0.41 recEp 0.11 lead_min 120 ahead_hit 0.64 fwd% alert 1.47 all 0.78 calmFA/wk 0.47
+XAG/USD     dev   naive_2pw  /wk 3.02 base 0.12 prec 0.29 recEp 0.14 lead_min 120 ahead_hit 0.65 fwd% alert 1.14 all 0.78 calmFA/wk 1.07
+XAG/USD     dev   naive_4pw  /wk 5.37 base 0.12 prec 0.25 recEp 0.22 lead_min 150 ahead_hit 0.70 fwd% alert 1.08 all 0.78 calmFA/wk 2.51
+XAG/USD     w2023 model_1pw  /wk 2.22 base 0.18 prec 0.53 recEp 0.13 lead_min 150 ahead_hit 0.72 fwd% alert 1.89 all 0.91 calmFA/wk 0.18
+XAG/USD     w2023 model_2pw  /wk 3.09 base 0.18 prec 0.50 recEp 0.18 lead_min 150 ahead_hit 0.75 fwd% alert 1.80 all 0.91 calmFA/wk 0.51
+XAG/USD     w2023 model_4pw  /wk 4.95 base 0.18 prec 0.40 recEp 0.23 lead_min 180 ahead_hit 0.75 fwd% alert 1.53 all 0.91 calmFA/wk 1.84
+XAG/USD     w2023 naive_1pw  /wk 1.87 base 0.18 prec 0.50 recEp 0.10 lead_min 90 ahead_hit 0.70 fwd% alert 1.81 all 0.91 calmFA/wk 0.16
+XAG/USD     w2023 naive_2pw  /wk 3.01 base 0.18 prec 0.44 recEp 0.15 lead_min 120 ahead_hit 0.66 fwd% alert 1.64 all 0.91 calmFA/wk 0.57
+XAG/USD     w2023 naive_4pw  /wk 4.89 base 0.18 prec 0.38 recEp 0.21 lead_min 120 ahead_hit 0.64 fwd% alert 1.39 all 0.91 calmFA/wk 1.89
+NATGAS/USD  dev   model_1pw  /wk 2.01 base 0.11 prec 0.40 recEp 0.16 lead_min 240 ahead_hit 0.82 fwd% alert 3.16 all 1.43 calmFA/wk 0.12
+NATGAS/USD  dev   model_2pw  /wk 3.22 base 0.11 prec 0.34 recEp 0.20 lead_min 240 ahead_hit 0.81 fwd% alert 2.96 all 1.43 calmFA/wk 0.43
+NATGAS/USD  dev   model_4pw  /wk 5.70 base 0.11 prec 0.26 recEp 0.29 lead_min 240 ahead_hit 0.81 fwd% alert 2.55 all 1.43 calmFA/wk 1.82
+NATGAS/USD  dev   naive_1pw  /wk 1.58 base 0.11 prec 0.22 recEp 0.07 lead_min 150 ahead_hit 0.72 fwd% alert 2.38 all 1.43 calmFA/wk 0.22
+NATGAS/USD  dev   naive_2pw  /wk 2.96 base 0.11 prec 0.21 recEp 0.12 lead_min 180 ahead_hit 0.63 fwd% alert 2.34 all 1.43 calmFA/wk 0.76
+NATGAS/USD  dev   naive_4pw  /wk 5.36 base 0.11 prec 0.19 recEp 0.20 lead_min 210 ahead_hit 0.69 fwd% alert 2.00 all 1.43 calmFA/wk 2.55
+NATGAS/USD  w2023 model_1pw  /wk 0.88 base 0.10 prec 0.34 recEp 0.06 lead_min 210 ahead_hit 0.76 fwd% alert 3.18 all 1.51 calmFA/wk 0.30
+NATGAS/USD  w2023 model_2pw  /wk 1.47 base 0.10 prec 0.37 recEp 0.11 lead_min 225 ahead_hit 0.81 fwd% alert 3.15 all 1.51 calmFA/wk 0.54
+NATGAS/USD  w2023 model_4pw  /wk 3.01 base 0.10 prec 0.30 recEp 0.19 lead_min 240 ahead_hit 0.84 fwd% alert 2.86 all 1.51 calmFA/wk 1.27
+NATGAS/USD  w2023 naive_1pw  /wk 0.81 base 0.10 prec 0.23 recEp 0.04 lead_min 150 ahead_hit 0.55 fwd% alert 2.22 all 1.51 calmFA/wk 0.14
+NATGAS/USD  w2023 naive_2pw  /wk 1.67 base 0.10 prec 0.20 recEp 0.07 lead_min 180 ahead_hit 0.63 fwd% alert 2.15 all 1.51 calmFA/wk 0.51
+NATGAS/USD  w2023 naive_4pw  /wk 3.31 base 0.10 prec 0.17 recEp 0.12 lead_min 150 ahead_hit 0.73 fwd% alert 2.04 all 1.51 calmFA/wk 1.59
+SPX500/USD  dev   model_1pw  /wk 1.56 base 0.11 prec 0.55 recEp 0.15 lead_min 180 ahead_hit 0.74 fwd% alert 1.37 all 0.46 calmFA/wk 0.02
+SPX500/USD  dev   model_2pw  /wk 2.80 base 0.11 prec 0.44 recEp 0.23 lead_min 180 ahead_hit 0.76 fwd% alert 1.14 all 0.46 calmFA/wk 0.19
+SPX500/USD  dev   model_4pw  /wk 4.98 base 0.11 prec 0.31 recEp 0.30 lead_min 210 ahead_hit 0.77 fwd% alert 0.94 all 0.46 calmFA/wk 0.73
+SPX500/USD  dev   naive_1pw  /wk 1.38 base 0.11 prec 0.52 recEp 0.12 lead_min 150 ahead_hit 0.69 fwd% alert 1.31 all 0.46 calmFA/wk 0.08
+SPX500/USD  dev   naive_2pw  /wk 2.58 base 0.11 prec 0.39 recEp 0.18 lead_min 150 ahead_hit 0.70 fwd% alert 1.00 all 0.46 calmFA/wk 0.28
+SPX500/USD  dev   naive_4pw  /wk 4.80 base 0.11 prec 0.29 recEp 0.27 lead_min 180 ahead_hit 0.72 fwd% alert 0.84 all 0.46 calmFA/wk 1.13
+SPX500/USD  w2023 model_1pw  /wk 1.03 base 0.04 prec 0.27 recEp 0.11 lead_min 210 ahead_hit 0.81 fwd% alert 0.85 all 0.34 calmFA/wk 0.28
+SPX500/USD  w2023 model_2pw  /wk 1.82 base 0.04 prec 0.22 recEp 0.17 lead_min 180 ahead_hit 0.78 fwd% alert 0.79 all 0.34 calmFA/wk 0.69
+SPX500/USD  w2023 model_4pw  /wk 3.33 base 0.04 prec 0.16 recEp 0.24 lead_min 240 ahead_hit 0.78 fwd% alert 0.71 all 0.34 calmFA/wk 1.79
+SPX500/USD  w2023 naive_1pw  /wk 0.86 base 0.04 prec 0.24 recEp 0.09 lead_min 135 ahead_hit 0.62 fwd% alert 0.64 all 0.34 calmFA/wk 0.30
+SPX500/USD  w2023 naive_2pw  /wk 1.68 base 0.04 prec 0.19 recEp 0.14 lead_min 180 ahead_hit 0.63 fwd% alert 0.66 all 0.34 calmFA/wk 0.84
+SPX500/USD  w2023 naive_4pw  /wk 3.29 base 0.04 prec 0.14 recEp 0.20 lead_min 210 ahead_hit 0.72 fwd% alert 0.57 all 0.34 calmFA/wk 2.03
+EUR/USD     dev   model_1pw  /wk 1.87 base 0.10 prec 0.42 recEp 0.14 lead_min 180 ahead_hit 0.73 fwd% alert 0.43 all 0.19 calmFA/wk 0.43
+EUR/USD     dev   model_2pw  /wk 3.34 base 0.10 prec 0.36 recEp 0.23 lead_min 210 ahead_hit 0.77 fwd% alert 0.39 all 0.19 calmFA/wk 0.75
+EUR/USD     dev   model_4pw  /wk 5.13 base 0.10 prec 0.31 recEp 0.31 lead_min 210 ahead_hit 0.78 fwd% alert 0.36 all 0.19 calmFA/wk 1.65
+EUR/USD     dev   naive_1pw  /wk 1.60 base 0.10 prec 0.37 recEp 0.11 lead_min 180 ahead_hit 0.69 fwd% alert 0.39 all 0.19 calmFA/wk 0.29
+EUR/USD     dev   naive_2pw  /wk 2.80 base 0.10 prec 0.29 recEp 0.16 lead_min 180 ahead_hit 0.66 fwd% alert 0.33 all 0.19 calmFA/wk 0.82
+EUR/USD     dev   naive_4pw  /wk 4.92 base 0.10 prec 0.23 recEp 0.22 lead_min 180 ahead_hit 0.70 fwd% alert 0.29 all 0.19 calmFA/wk 2.04
+EUR/USD     w2023 model_1pw  /wk 1.06 base 0.08 prec 0.30 recEp 0.08 lead_min 210 ahead_hit 0.76 fwd% alert 0.38 all 0.19 calmFA/wk 0.16
+EUR/USD     w2023 model_2pw  /wk 1.66 base 0.08 prec 0.26 recEp 0.11 lead_min 240 ahead_hit 0.76 fwd% alert 0.35 all 0.19 calmFA/wk 0.36
+EUR/USD     w2023 model_4pw  /wk 2.69 base 0.08 prec 0.21 recEp 0.14 lead_min 240 ahead_hit 0.80 fwd% alert 0.33 all 0.19 calmFA/wk 0.98
+EUR/USD     w2023 naive_1pw  /wk 0.90 base 0.08 prec 0.27 recEp 0.05 lead_min 210 ahead_hit 0.62 fwd% alert 0.34 all 0.19 calmFA/wk 0.21
+EUR/USD     w2023 naive_2pw  /wk 1.61 base 0.08 prec 0.25 recEp 0.10 lead_min 180 ahead_hit 0.67 fwd% alert 0.32 all 0.19 calmFA/wk 0.54
+EUR/USD     w2023 naive_4pw  /wk 3.16 base 0.08 prec 0.20 recEp 0.15 lead_min 210 ahead_hit 0.69 fwd% alert 0.28 all 0.19 calmFA/wk 1.48
+
+## crisis windows (A1 model 2/mo | naive 2/mo | A2 model 2/wk)
+2020H1       WTICO/USD   A1 big  57 alerts  62 lag_d 2.2 rec 0.75 prec 0.69 /wk 2.38 | naive rec 0.60 prec 0.74 lead_h 1.2 vs 7.0 | A2 alerts 278 /wk 10.69 lag_d 7.5 prec 0.66 recEp 0.43
+2020H1       XAU/USD     A1 big  32 alerts  37 lag_d 7.1 rec 0.72 prec 0.62 /wk 1.42 | naive rec 0.62 prec 0.74 lead_h 2.0 vs 8.0 | A2 alerts 146 /wk 5.62 lag_d 7.5 prec 0.48 recEp 0.23
+2020H1       XAG/USD     A1 big  25 alerts  43 lag_d 7.1 rec 0.80 prec 0.47 /wk 1.65 | naive rec 0.72 prec 0.53 lead_h 2.2 vs 10.5 | A2 alerts 196 /wk 7.54 lag_d 2.5 prec 0.34 recEp 0.30
+2020H1       NATGAS/USD  A1 big  13 alerts  46 lag_d 26.1 rec 0.69 prec 0.20 /wk 1.77 | naive rec 0.85 prec 0.31 lead_h 3.5 vs 17.0 | A2 alerts 239 /wk 9.19 lag_d 8.5 prec 0.20 recEp 0.34
+2020H1       SPX500/USD  A1 big  48 alerts  43 lag_d 30.8 rec 0.75 prec 0.84 /wk 1.65 | naive rec 0.79 prec 0.81 lead_h 2.0 vs 9.8 | A2 alerts 210 /wk 8.08 lag_d 7.6 prec 0.60 recEp 0.37
+2020H1       EUR/USD     A1 big  26 alerts  42 lag_d 57.2 rec 0.92 prec 0.57 /wk 1.62 | naive rec 0.81 prec 0.55 lead_h 2.0 vs 13.0 | A2 alerts 214 /wk 8.23 lag_d 8.5 prec 0.33 recEp 0.37
+2022H1       WTICO/USD   A1 big  20 alerts  36 lag_d 42.0 rec 0.70 prec 0.39 /wk 1.39 | naive rec 0.80 prec 0.64 lead_h 2.0 vs 13.0 | A2 alerts 176 /wk 6.81 lag_d 5.5 prec 0.37 recEp 0.27
+2022H1       XAU/USD     A1 big  12 alerts  25 lag_d 32.1 rec 0.67 prec 0.32 /wk 0.97 | naive rec 0.58 prec 0.44 lead_h 0.5 vs 12.5 | A2 alerts 93 /wk 3.60 lag_d 45.5 prec 0.31 recEp 0.18
+2022H1       XAG/USD     A1 big   9 alerts  19 lag_d 5.5 rec 0.44 prec 0.21 /wk 0.73 | naive rec 0.44 prec 0.31 lead_h 0.5 vs 10.5 | A2 alerts 71 /wk 2.75 lag_d 5.5 prec 0.28 recEp 0.14
+2022H1       NATGAS/USD  A1 big  28 alerts  27 lag_d 11.6 rec 0.36 prec 0.37 /wk 1.04 | naive rec 0.50 prec 0.70 lead_h 0.5 vs 4.0 | A2 alerts 139 /wk 5.38 lag_d 2.5 prec 0.46 recEp 0.24
+2022H1       SPX500/USD  A1 big  24 alerts  64 lag_d 18.3 rec 0.83 prec 0.31 /wk 2.48 | naive rec 0.79 prec 0.44 lead_h 1.5 vs 14.5 | A2 alerts 235 /wk 9.09 lag_d 5.5 prec 0.35 recEp 0.35
+2022H1       EUR/USD     A1 big  26 alerts  62 lag_d 26.6 rec 0.81 prec 0.34 /wk 2.40 | naive rec 0.65 prec 0.45 lead_h 1.5 vs 9.5 | A2 alerts 240 /wk 9.28 lag_d 2.5 prec 0.33 recEp 0.36
+2025Q4_26Q1  WTICO/USD   A1 big  12 alerts  26 lag_d 106.1 rec 0.92 prec 0.42 /wk 1.00 | naive rec 0.67 prec 0.35 lead_h 2.0 vs 10.5 | A2 alerts 115 /wk 4.42 lag_d 13.5 prec 0.49 recEp 0.33
+2025Q4_26Q1  XAU/USD     A1 big  62 alerts  43 lag_d 13.3 rec 0.56 prec 0.81 /wk 1.65 | naive rec 0.19 prec 0.86 lead_h 0.8 vs 3.0 | A2 alerts 210 /wk 8.08 lag_d 0.5 prec 0.58 recEp 0.23
+2025Q4_26Q1  XAG/USD     A1 big  79 alerts 104 lag_d 0.2 rec 0.91 prec 0.69 /wk 4.00 | naive rec 0.46 prec 0.75 lead_h 1.0 vs 6.5 | A2 alerts 354 /wk 13.62 lag_d 0.4 prec 0.62 recEp 0.41
+2025Q4_26Q1  NATGAS/USD  A1 big  17 alerts  39 lag_d 5.2 rec 0.53 prec 0.23 /wk 1.50 | naive rec 0.65 prec 0.73 lead_h 0.5 vs 7.0 | A2 alerts 107 /wk 4.12 lag_d 71.5 prec 0.36 recEp 0.25
+2025Q4_26Q1  SPX500/USD  A1 big   4 alerts   6 lag_d 51.0 rec 0.25 prec 0.17 /wk 0.23 | naive rec 0.50 prec 0.29 lead_h 3.2 vs 15.0 | A2 alerts 43 /wk 1.65 lag_d 12.5 prec 0.19 recEp 0.11
+2025Q4_26Q1  EUR/USD     A1 big   7 alerts   4 lag_d 121.2 rec 0.14 prec 0.25 /wk 0.15 | naive rec 0.71 prec 0.56 lead_h 1.0 vs 16.0 | A2 alerts 14 /wk 0.54 lag_d 121.5 prec 0.21 recEp 0.04
+
+## session clock
+WTICO/USD   A1 alerts top hours [('23', 95), ('0', 27), ('22', 27), ('1', 21)] of 239; crossing top [('14.0', 30), ('18.0', 25), ('15.0', 15), ('16.0', 13)]; remaining exc% alerts 2.68 vs all 0.86
+            A2 alerts top hours [('11', 148), ('10', 139), ('9', 119), ('8', 74)] of 1117; positives top [('12', 805), ('13', 783), ('11', 770), ('10', 707)]; fwd% alerts 2.38 vs all 1.04; best hour median 1.70
+XAU/USD     A1 alerts top hours [('23', 62), ('1', 33), ('0', 29), ('22', 28)] of 277; crossing top [('14.0', 49), ('13.0', 38), ('15.0', 32), ('16.0', 21)]; remaining exc% alerts 0.82 vs all 0.29
+            A2 alerts top hours [('9', 167), ('10', 144), ('8', 123), ('13', 119)] of 1179; positives top [('11', 1233), ('12', 1231), ('10', 1186), ('9', 1079)]; fwd% alerts 0.75 vs all 0.44; best hour median 0.70
+XAG/USD     A1 alerts top hours [('23', 95), ('1', 42), ('0', 37), ('22', 25)] of 340; crossing top [('14.0', 50), ('13.0', 30), ('15.0', 29), ('16.0', 25)]; remaining exc% alerts 1.79 vs all 0.50
+            A2 alerts top hours [('9', 176), ('10', 138), ('8', 132), ('13', 119)] of 1350; positives top [('12', 1242), ('11', 1230), ('10', 1184), ('13', 1090)]; fwd% alerts 1.56 vs all 0.84; best hour median 1.33
+NATGAS/USD  A1 alerts top hours [('23', 55), ('0', 25), ('1', 20), ('22', 18)] of 226; crossing top [('18.0', 37), ('14.0', 29), ('16.0', 25), ('15.0', 23)]; remaining exc% alerts 3.11 vs all 1.49
+            A2 alerts top hours [('10', 145), ('9', 135), ('8', 107), ('14', 96)] of 963; positives top [('12', 1177), ('11', 1169), ('10', 1093), ('13', 1053)]; fwd% alerts 3.02 vs all 1.47; best hour median 2.78
+SPX500/USD  A1 alerts top hours [('23', 67), ('0', 34), ('1', 29), ('22', 25)] of 248; crossing top [('14.0', 20), ('20.0', 16), ('15.0', 15), ('17.0', 11)]; remaining exc% alerts 1.24 vs all 0.37
+            A2 alerts top hours [('14', 96), ('11', 95), ('10', 93), ('15', 74)] of 944; positives top [('13', 655), ('14', 654), ('12', 597), ('15', 553)]; fwd% alerts 0.98 vs all 0.40; best hour median 0.68
+EUR/USD     A1 alerts top hours [('22', 106), ('1', 25), ('23', 24), ('0', 20)] of 277; crossing top [('14.0', 31), ('15.0', 20), ('13.0', 18), ('16.0', 17)]; remaining exc% alerts 0.47 vs all 0.14
+            A2 alerts top hours [('8', 114), ('7', 105), ('13', 91), ('9', 90)] of 1023; positives top [('11', 828), ('12', 818), ('10', 811), ('9', 767)]; fwd% alerts 0.38 vs all 0.19; best hour median 0.30
+
+## decision
+WTICO/USD   A1 FAIL fails: ['op_w2023']  op_dev rec 0.55 prec 0.51 2xbase 0.23  op_2023 rec 0.47 prec 0.27 2xbase 0.13  best base dev base_rv 0.799 2023 base_rv 0.845
+WTICO/USD   A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.22 prec 0.45 2xbase 0.23  op_2023 rec 0.20 prec 0.31 2xbase 0.13  best base dev base_rv 0.822 2023 base_rv 0.823
+XAU/USD     A1 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.41 prec 0.40 2xbase 0.23  op_2023 rec 0.41 prec 0.52 2xbase 0.40  best base dev base_rv 0.695 2023 base_rv 0.784
+XAU/USD     A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.15 prec 0.30 2xbase 0.23  op_2023 rec 0.13 prec 0.42 2xbase 0.35  best base dev base_rv 0.700 2023 base_rv 0.751
+XAG/USD     A1 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.48 prec 0.36 2xbase 0.24  op_2023 rec 0.49 prec 0.57 2xbase 0.41  best base dev base_rv 0.744 2023 base_rv 0.772
+XAG/USD     A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.19 prec 0.32 2xbase 0.24  op_2023 rec 0.18 prec 0.50 2xbase 0.36  best base dev base_rv 0.744 2023 base_rv 0.759
+NATGAS/USD  A1 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.45 prec 0.36 2xbase 0.23  op_2023 rec 0.30 prec 0.33 2xbase 0.17  best base dev base_rv 0.779 2023 base_rv 0.694
+NATGAS/USD  A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.20 prec 0.34 2xbase 0.23  op_2023 rec 0.11 prec 0.37 2xbase 0.20  best base dev base_tod 0.808 2023 base_tod 0.800
+SPX500/USD  A1 FAIL fails: ['auc_dev', 'auc_w2023']  op_dev rec 0.57 prec 0.45 2xbase 0.22  op_2023 rec 0.73 prec 0.15 2xbase 0.05  best base dev base_rv 0.830 2023 naive_share 0.744
+SPX500/USD  A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.23 prec 0.44 2xbase 0.21  op_2023 rec 0.17 prec 0.22 2xbase 0.08  best base dev base_rv 0.857 2023 base_rv 0.808
+EUR/USD     A1 FAIL fails: ['op_w2023']  op_dev rec 0.61 prec 0.42 2xbase 0.22  op_2023 rec 0.36 prec 0.25 2xbase 0.15  best base dev base_rv 0.815 2023 base_rv 0.722
+EUR/USD     A2 FAIL fails: ['op_dev', 'op_w2023']  op_dev rec 0.23 prec 0.36 2xbase 0.20  op_2023 rec 0.11 prec 0.26 2xbase 0.16  best base dev base_rv 0.780 2023 base_tod 0.730

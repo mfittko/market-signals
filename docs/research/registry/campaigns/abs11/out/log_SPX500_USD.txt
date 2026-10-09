@@ -1,0 +1,1 @@
+done SPX500/USD secs 125 {"A1": false, "A2": false}

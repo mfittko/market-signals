@@ -1,0 +1,99 @@
+{
+ "reask": {
+  "all": {
+   "n": 2566,
+   "reask_junk_too": 0.996
+  },
+  "conf>=0.99": {
+   "n": 1386,
+   "reask_junk_too": 1.0
+  },
+  "0.9<=conf<0.99": {
+   "n": 1180,
+   "reask_junk_too": 0.992
+  },
+  "EUR_USD": {
+   "n": 222,
+   "reask_junk_too": 0.995
+  },
+  "NATGAS_USD": {
+   "n": 576,
+   "reask_junk_too": 1.0
+  },
+  "SPX500_USD": {
+   "n": 340,
+   "reask_junk_too": 0.974
+  },
+  "WTICO_USD": {
+   "n": 408,
+   "reask_junk_too": 1.0
+  },
+  "XAG_USD": {
+   "n": 570,
+   "reask_junk_too": 1.0
+  },
+  "XAU_USD": {
+   "n": 450,
+   "reask_junk_too": 1.0
+  }
+ },
+ "batch_vs_single": {
+  "batch10": {
+   "n": 10,
+   "agree": 0.8,
+   "agree_both_conf>=0.9": 1.0
+  },
+  "batch100": {
+   "n": 100,
+   "agree": 0.79,
+   "agree_both_conf>=0.9": 1.0
+  },
+  "batch20": {
+   "n": 20,
+   "agree": 0.7,
+   "agree_both_conf>=0.9": 1.0
+  },
+  "batch5": {
+   "n": 5,
+   "agree": 0.8,
+   "agree_both_conf>=0.9": 1.0
+  },
+  "batch50": {
+   "n": 50,
+   "agree": 0.76,
+   "agree_both_conf>=0.9": 1.0
+  }
+ },
+ "single_junk_conf_share": {
+  "n": 4133,
+  ">=0.9": 0.621,
+  ">=0.99": 0.335
+ },
+ "calls": {
+  "total": 8583,
+  "ok": 8572,
+  "rate_limited": 0,
+  "errors": 11,
+  "single_latency_s_p50_p95": [
+   0.34,
+   0.42
+  ]
+ },
+ "projection": {
+  "readable_pairs": 22972499,
+  "distinct_urls": 11683105,
+  "noslug_urls": 363037,
+  "single": {
+   "requests": 22972499,
+   "hours_at_2rps": 3190.6,
+   "tokens_in_B": 11.28,
+   "tokens_out_B": 0.92
+  },
+  "batch100": {
+   "requests": 229725,
+   "hours_at_2rps": 31.9,
+   "tokens_in_B": 5.53,
+   "tokens_out_B": 0.86
+  }
+ }
+}

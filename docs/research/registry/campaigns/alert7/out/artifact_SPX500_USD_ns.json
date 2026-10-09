@@ -1,0 +1,118 @@
+{
+ "model": "lr_todvol T2 big-move alert (attention only, no direction)",
+ "instrument": "SPX500/USD",
+ "status": "research artifact; NOT qualified; shadow under issue 313 decides",
+ "target": {
+  "name": "T2",
+  "horizon_bars": 72,
+  "granularity": "M5",
+  "kx_atr": 6.0,
+  "definition": "mid high/low over bars i+1..i+72 reaches mid_close_i +/- kx*ATR_i (production supertrend ATR)"
+ },
+ "features": [
+  "tod_s",
+  "tod_c",
+  "dow_s",
+  "dow_c",
+  "nday",
+  "rv12_288",
+  "rv48_288",
+  "rv288",
+  "atr_px",
+  "atr_ratio",
+  "range",
+  "range3"
+ ],
+ "feature_definitions": {
+  "tod_s/tod_c": "sin/cos(2*pi*(tod+5)/1440), tod = minutes since 22:00 UTC of the bar OPEN; M5 bar",
+  "dow_s/dow_c": "sin/cos(2*pi*((day+3) mod 7)/7), day = floor((t_min+120)/1440) since 1970-01-01 (session key, 22:00 UTC roll)",
+  "nday": "log1p(number of M5 bars of this session before this one)",
+  "rv12_288/rv48_288": "log((std(diff(mid_c), n)+0.01*ATR)/(std(diff(mid_c), 288)+0.01*ATR)), pandas rolling std (ddof=1)",
+  "rv288": "log((std(diff(mid_c), 288)+0.01*ATR)/ATR)",
+  "atr_px": "log(ATR) - log(max(|mid_c|, 1))",
+  "atr_ratio": "ATR / rolling median of ATR over 2880 bars (min 576)",
+  "range/range3": "(mid_h-mid_l)/ATR; rolling mean of 3"
+ },
+ "scaler": {
+  "mean": [
+   0.0029673771795027566,
+   -0.05697957598616648,
+   0.35500529765287775,
+   -0.08133400488477067,
+   4.66548295481917,
+   -0.31100123123277357,
+   -0.19480356049708736,
+   -0.11164457066733026,
+   -7.482153309481275,
+   1.2234006748033348,
+   0.910253537489416,
+   0.9276757773587981
+  ],
+  "scale": [
+   0.7248485993861323,
+   0.6865413538628952,
+   0.5132226312875516,
+   0.7771477009065451,
+   0.8733485858492941,
+   0.5593600257316583,
+   0.4568707475169716,
+   0.4881370846751146,
+   0.7127652418525746,
+   0.8218526361900247,
+   0.41312888587248336,
+   0.2959058372672596
+  ]
+ },
+ "coefficients": [
+  -0.27269386170862947,
+  -0.8169373995565732,
+  0.04039736567822931,
+  -0.10951586767244344,
+  0.06228533833326071,
+  -0.13673523708783245,
+  -0.0030279157691883397,
+  0.6565853381983027,
+  -0.1372034497684407,
+  -0.1749485348635599,
+  0.04455682561541111,
+  -0.006931088123709214
+ ],
+ "intercept": 0.6641875531162156,
+ "formula": "z = intercept + sum_j coef[j]*(x[j]-mean[j])/scale[j]; p = 1/(1+exp(-z))",
+ "calibrator": "identity (the LR sigmoid is the probability; no Platt/isotonic stage)",
+ "training_cutoff": "2026-09-26",
+ "applies_from": "2026-10-01",
+ "training_rows": 101739,
+ "training_base_rate": 0.6215119079212494,
+ "refit": "quarterly, expanding from data start; rows with session day < quarter start - 5 days; 30-min cadence, all hours, spread <= 0.2 R",
+ "alert_thresholds": {
+  "1_per_week": 0.9515107662835509,
+  "2_per_week": 0.9376136720803413,
+  "4_per_week": 0.9139861851702016
+ },
+ "alert_rule": "alert when p >= threshold and no alert in the previous 360 minutes; thresholds reset each quarter from the trailing 365 days of scores",
+ "drift_monitor": {
+  "citl_20": [
+   -0.1402705774281171,
+   0.06651735143271763
+  ],
+  "base_dev_20": [
+   -0.058807700150890256,
+   0.07747240181813804
+  ],
+  "citl_60": [
+   -0.12214796800032524,
+   0.04093488679364708
+  ],
+  "base_dev_60": [
+   -0.03402750772343332,
+   0.06446696058020986
+  ]
+ },
+ "code_sha256": {
+  "alert7.py": "6a09cf23bdcf2fa840a6ee564fefc3de5644333ceebc78bfd84a51ba39c18808",
+  "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+  "ablate4/run.py": "617d4d3ee9758ac862f79df8a06fa1f7052a26744bd3588e9c8ef32cfe305bbc",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

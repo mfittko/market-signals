@@ -1,0 +1,179 @@
+{
+ "rows_flip_alert_or_suppress": 6375,
+ "fail_open": 582,
+ "snap_mismatch": 4,
+ "no_bidask_history": {
+  "DE30/EUR": 317
+ },
+ "unmatched_bar": 335,
+ "population": 5458,
+ "verdict_counts": {
+  "suppress": 4451,
+  "alert": 1007
+ },
+ "src": {
+  "DE30/EUR": null,
+  "EUR/USD": "EUR_USD_3213370_2026-10-08T0211.npz",
+  "NAS100/USD": "NAS100_USD_3071865_2026-10-08T0705.npz",
+  "NATGAS/USD": "NATGAS_USD_2063563_2026-10-07T2307.npz",
+  "SPX500/USD": "SPX500_USD_2938852_2026-10-08T0033.npz",
+  "WTICO/USD": "WTICO_USD_3002318_2026-10-07T1838.npz",
+  "XAG/USD": "XAG_USD_2823959_2026-10-07T2059.npz",
+  "XAU/USD": "XAU_USD_3060959_2026-10-07T2027.npz"
+ },
+ "research_flip_same_side_at_bar": 0.9706852326859655,
+ "research_flip_any_at_bar": 0.9706852326859655,
+ "cat_tag_counts": {
+  "late_chasing": 2754,
+  "against_trend": 1823,
+  "low_volume": 3935,
+  "chop_weak_setup": 4234,
+  "news_event": 80
+ },
+ "primary_counts": {
+  "late_chasing": 1782,
+  "low_volume": 1439,
+  "chop_weak_setup": 629,
+  "against_trend": 601
+ },
+ "untagged_examples": [],
+ "gate315_share": 0.4941370465371931,
+ "gate315_spread": 0.4728838402345181,
+ "gate315_thin": 0.1126786368633199,
+ "by_model": {
+  "anthropic-default": {
+   "alert": 16,
+   "suppress": 12
+  },
+  "claude-opus-4-8": {
+   "alert": 46,
+   "suppress": 37
+  },
+  "claude-sonnet-5": {
+   "alert": 26,
+   "suppress": 53
+  },
+  "deepseek-ai/DeepSeek-V4-Flash": {
+   "alert": 438,
+   "suppress": 2144
+  },
+  "deepseek-ai/DeepSeek-V4.1-Flash": {
+   "alert": 289,
+   "suppress": 1571
+  },
+  "unknown": {
+   "alert": 12,
+   "suppress": 5
+  },
+  "zai-org/GLM-5.2-FP8": {
+   "alert": 162,
+   "suppress": 573
+  },
+  "zai-org/GLM-5.3": {
+   "alert": 18,
+   "suppress": 56
+  }
+ },
+ "by_stream": {
+  "EUR/USD/M5": {
+   "alert": 65,
+   "suppress": 296
+  },
+  "NAS100/USD/M1": {
+   "alert": 193,
+   "suppress": 1406
+  },
+  "NAS100/USD/M5": {
+   "alert": 68,
+   "suppress": 256
+  },
+  "NATGAS/USD/M5": {
+   "alert": 10,
+   "suppress": 39
+  },
+  "SPX500/USD/M5": {
+   "alert": 55,
+   "suppress": 270
+  },
+  "WTICO/USD/M1": {
+   "alert": 336,
+   "suppress": 1363
+  },
+  "WTICO/USD/M15": {
+   "alert": 1,
+   "suppress": 1
+  },
+  "WTICO/USD/M5": {
+   "alert": 81,
+   "suppress": 244
+  },
+  "XAG/USD/H1": {
+   "alert": 12,
+   "suppress": 16
+  },
+  "XAG/USD/M15": {
+   "alert": 18,
+   "suppress": 36
+  },
+  "XAG/USD/M5": {
+   "alert": 88,
+   "suppress": 251
+  },
+  "XAU/USD/M5": {
+   "alert": 80,
+   "suppress": 273
+  }
+ },
+ "last_signal": "2026-10-08T05:27:00.000000000Z",
+ "first_signal": "2026-07-22T10:15:00.000000000Z",
+ "examples_late_chasing": [
+  "Buy at session high, low volume (0.8x avg), no decisive break; chop/weak impulse.",
+  "Fresh-low sell flip, thin vol 0.72x, ranging ADX \u2014 wrong-extreme entry, suppress.",
+  "Sell near recent low; no decisive break, volume 1.26 avg \u2014 wrong extreme, suppress.",
+  "Sell flip into range low; ADX 19 ranging, mixed HTF, vol 1.45x \u2014 chop, not impulse",
+  "Buy flip at new high on only 1.21x volume; not conviction break; backtest choppy 17.6% win.",
+  "Buy flip near recent high with modest volume, not a decisive breakout\u2014suppress.",
+  "Buy flip near session high, 1.06x volume, HTF bearish \u2014 suppress.",
+  "Low-volume sell at lows, ranging tape, no decisive conviction break."
+ ],
+ "examples_against_trend": [
+  "Counter-trend sell vs bullish HTF/EMA, ranging ADX, weak mid-range close = chop",
+  "Counter-trend buy, below VWAP, ADX 17.8, 1.42x volume only \u2014 no high-conviction impulse.",
+  "Mid-range sell, vol 0.94\u00d7 avg, ADX 14.6 ranging, counter-trend; 15% backtest win rate",
+  "Sell flip into session low, thin 0.13x volume, counter to bull HTF; 8% backtest win rate \u2014 suppress",
+  "No impulse vol 0.99x; ranging ADX 17.3; counter-VWAP; mixed direction; 33% backtest WR",
+  "Counter-HTF buy (M15 down, EMA bear), ranging ADX 19.9, vol 0.96x avg, no impulse \u2014 suppress.",
+  "Buy flip near recent highs, close at open, low conviction volume, HTF counter.",
+  "Counter-trend sell into extended session low; ranging chop, 14% backtest, vol only 1.1x"
+ ],
+ "examples_low_volume": [
+  "Sell flip near day low on weak volume; no decisive breakout, chop risk. Suppress.",
+  "Sell flip at session low, weak volume, no decisive break; recent flips negative.",
+  "Buy flip near day high, weak volume (0.92x) and close low in range \u2014 no conviction, suppress.",
+  "Buy flip near high on 1.07x volume, ADX 16.6 ranging; no conviction break \u2014 suppress.",
+  "Thin volume (0.55x avg), counter-trend sell vs M15 up/EMA bull, mid-range chop \u2014 suppress.",
+  "Sell flip near session low \u2014 wrong extreme; weak vol 1.23\u00d7, RSI exhaustion, ADX ranging.",
+  "Thin-volume sell flip into fresh low; wrong extreme/no conviction; backtest weak.",
+  "Sell flip at session low (wrong extreme), volume 0.98x avg, ADX 15.5 ranging \u2014 chop"
+ ],
+ "examples_chop_weak_setup": [
+  "Sell at session-low floor; vol 1.29\u00d7 below conviction, no decisive break, HTF bull.",
+  "Thin flip (vol 0.71x avg), ADX 13.5 ranging \u2014 no real impulse, chop risk",
+  "Mid-range buy near VWAP, vol 0.81\u00d7 avg, ADX 15.9 ranging, mixed direction \u2014 no impulse",
+  "Prior bar high-volume rejection wick; sell flip lacks lower low/conviction, counter-trend.",
+  "Counter-trend sell 8.7 ATR below VWAP, ranging ADX; wrong range extreme, suppress",
+  "Counter-trend buy (M15 down, below VWAP), thin vol 0.83, mid-range \u2014 no conviction",
+  "Sell flip near day low, weak impulse (1.12x), ranging/HTF counter \u2014 suppress.",
+  "Choppy mid-range flip, low volume 0.85x avg, counter-trend, poor backtest 15% win"
+ ],
+ "examples_news_event": [
+  "Thin volume (0.78\u00d7avg), no breakout conviction, bearish oil headlines, choppy backtest \u2014 suppress.",
+  "Counter-trend sell, neutral impulse, fresh supply-risk headlines, weak ADX, neg backtest",
+  "Counter-trend buy, thin vol 1.09x, neutral impulse; choppy tape, news advisory only",
+  "Mid-range counter-trend sell; 13.6% backtest win rate, bullish oil headlines \u2014 skip.",
+  "Session-low sell flip in ranging tape (ADX 19.7); 25% backtest, small break, bullish news.",
+  "Counter-trend sell vs bull EMA+M15; weak 1.25x vol; 25% backtest WR; bullish Iran news",
+  "Weak-volume sell flip near session low, counter to HTF uptrend and oil news; no conviction.",
+  "Wrong extreme: sell flip at session low, thin 1.07x vol, ranging tape; oil upside geopolitical risk"
+ ]
+}

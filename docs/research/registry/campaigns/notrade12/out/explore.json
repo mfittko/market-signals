@@ -1,0 +1,842 @@
+[
+ {
+  "stream": "WTICO/USD/M1/flip",
+  "n_dev": 47968,
+  "n_2023": 40163,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.893,
+   "R2_chase": 0.075,
+   "R3_thin_hours": 0.164,
+   "R4_release": 0.008,
+   "R5_extended": 0.063,
+   "R6_counter_h1": 0.505
+  },
+  "any_dev": 0.965,
+  "dst_q": [
+   3.4,
+   3.89,
+   4.07
+  ],
+  "dop_q": [
+   0.02,
+   2.16,
+   3.09
+  ]
+ },
+ {
+  "stream": "WTICO/USD/M1/impulse",
+  "n_dev": 17507,
+  "n_2023": 9015,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.917,
+   "R2_chase": 0.095,
+   "R3_thin_hours": 0.182,
+   "R4_release": 0.013,
+   "R5_extended": 0.08,
+   "R6_counter_h1": 0.491
+  },
+  "any_dev": 0.977,
+  "dst_q": [
+   3.14,
+   3.8,
+   4.01
+  ],
+  "dop_q": [
+   0.29,
+   2.53,
+   3.52
+  ]
+ },
+ {
+  "stream": "WTICO/USD/M5/flip",
+  "n_dev": 9058,
+  "n_2023": 7441,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.523,
+   "R2_chase": 0.187,
+   "R3_thin_hours": 0.134,
+   "R4_release": 0.011,
+   "R5_extended": 0.05,
+   "R6_counter_h1": 0.542
+  },
+  "any_dev": 0.86,
+  "dst_q": [
+   3.41,
+   3.91,
+   4.11
+  ],
+  "dop_q": [
+   0.13,
+   1.93,
+   2.74
+  ]
+ },
+ {
+  "stream": "WTICO/USD/M5/impulse",
+  "n_dev": 5088,
+  "n_2023": 3214,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.587,
+   "R2_chase": 0.283,
+   "R3_thin_hours": 0.153,
+   "R4_release": 0.019,
+   "R5_extended": 0.095,
+   "R6_counter_h1": 0.478
+  },
+  "any_dev": 0.907,
+  "dst_q": [
+   3.07,
+   3.76,
+   3.94
+  ],
+  "dop_q": [
+   0.52,
+   2.84,
+   3.87
+  ]
+ },
+ {
+  "stream": "WTICO/USD/M15/flip",
+  "n_dev": 3088,
+  "n_2023": 2521,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.137,
+   "R2_chase": 0.238,
+   "R3_thin_hours": 0.068,
+   "R4_release": 0.006,
+   "R5_extended": 0.04,
+   "R6_counter_h1": 0.62
+  },
+  "any_dev": 0.768,
+  "dst_q": [
+   3.4,
+   3.92,
+   4.13
+  ],
+  "dop_q": [
+   0.48,
+   1.94,
+   2.56
+  ]
+ },
+ {
+  "stream": "WTICO/USD/M15/impulse",
+  "n_dev": 2410,
+  "n_2023": 1705,
+  "thin": [
+   4,
+   5,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.197,
+   "R2_chase": 0.191,
+   "R3_thin_hours": 0.01,
+   "R4_release": 0.007,
+   "R5_extended": 0.112,
+   "R6_counter_h1": 0.449
+  },
+  "any_dev": 0.713,
+  "dst_q": [
+   2.85,
+   3.61,
+   3.81
+  ],
+  "dop_q": [
+   0.77,
+   3.11,
+   4.03
+  ]
+ },
+ {
+  "stream": "XAU/USD/M1/flip",
+  "n_dev": 55643,
+  "n_2023": 39474,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.964,
+   "R2_chase": 0.062,
+   "R3_thin_hours": 0.136,
+   "R4_release": 0.002,
+   "R5_extended": 0.064,
+   "R6_counter_h1": 0.504
+  },
+  "any_dev": 0.989,
+  "dst_q": [
+   3.42,
+   3.91,
+   4.11
+  ],
+  "dop_q": [
+   0.03,
+   2.21,
+   3.1
+  ]
+ },
+ {
+  "stream": "XAU/USD/M1/impulse",
+  "n_dev": 17501,
+  "n_2023": 8611,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.964,
+   "R2_chase": 0.074,
+   "R3_thin_hours": 0.153,
+   "R4_release": 0.004,
+   "R5_extended": 0.08,
+   "R6_counter_h1": 0.497
+  },
+  "any_dev": 0.99,
+  "dst_q": [
+   3.09,
+   3.82,
+   4.02
+  ],
+  "dop_q": [
+   0.26,
+   2.55,
+   3.46
+  ]
+ },
+ {
+  "stream": "XAU/USD/M5/flip",
+  "n_dev": 9228,
+  "n_2023": 7026,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.628,
+   "R2_chase": 0.154,
+   "R3_thin_hours": 0.107,
+   "R4_release": 0.003,
+   "R5_extended": 0.05,
+   "R6_counter_h1": 0.534
+  },
+  "any_dev": 0.889,
+  "dst_q": [
+   3.4,
+   3.87,
+   4.05
+  ],
+  "dop_q": [
+   0.15,
+   2.0,
+   2.8
+  ]
+ },
+ {
+  "stream": "XAU/USD/M5/impulse",
+  "n_dev": 4364,
+  "n_2023": 2488,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.654,
+   "R2_chase": 0.31,
+   "R3_thin_hours": 0.073,
+   "R4_release": 0.009,
+   "R5_extended": 0.09,
+   "R6_counter_h1": 0.478
+  },
+  "any_dev": 0.922,
+  "dst_q": [
+   3.02,
+   3.74,
+   3.94
+  ],
+  "dop_q": [
+   0.55,
+   2.79,
+   3.75
+  ]
+ },
+ {
+  "stream": "XAU/USD/M15/flip",
+  "n_dev": 2942,
+  "n_2023": 2270,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.187,
+   "R2_chase": 0.237,
+   "R3_thin_hours": 0.055,
+   "R4_release": 0.003,
+   "R5_extended": 0.044,
+   "R6_counter_h1": 0.61
+  },
+  "any_dev": 0.782,
+  "dst_q": [
+   3.4,
+   3.9,
+   4.1
+  ],
+  "dop_q": [
+   0.52,
+   1.93,
+   2.62
+  ]
+ },
+ {
+  "stream": "XAU/USD/M15/impulse",
+  "n_dev": 2219,
+  "n_2023": 1368,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.202,
+   "R2_chase": 0.256,
+   "R3_thin_hours": 0.012,
+   "R4_release": 0.003,
+   "R5_extended": 0.132,
+   "R6_counter_h1": 0.451
+  },
+  "any_dev": 0.749,
+  "dst_q": [
+   2.89,
+   3.68,
+   3.88
+  ],
+  "dop_q": [
+   0.88,
+   3.33,
+   4.42
+  ]
+ },
+ {
+  "stream": "XAG/USD/M5/flip",
+  "n_dev": 11048,
+  "n_2023": 7580,
+  "thin": [
+   0,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.958,
+   "R2_chase": 0.148,
+   "R3_thin_hours": 0.144,
+   "R4_release": 0.004,
+   "R5_extended": 0.06,
+   "R6_counter_h1": 0.53
+  },
+  "any_dev": 0.991,
+  "dst_q": [
+   3.44,
+   3.96,
+   4.18
+  ],
+  "dop_q": [
+   0.12,
+   2.09,
+   2.92
+  ]
+ },
+ {
+  "stream": "XAG/USD/M5/impulse",
+  "n_dev": 4832,
+  "n_2023": 2856,
+  "thin": [
+   0,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.946,
+   "R2_chase": 0.301,
+   "R3_thin_hours": 0.154,
+   "R4_release": 0.005,
+   "R5_extended": 0.11,
+   "R6_counter_h1": 0.488
+  },
+  "any_dev": 0.994,
+  "dst_q": [
+   3.06,
+   3.86,
+   4.08
+  ],
+  "dop_q": [
+   0.54,
+   3.04,
+   3.92
+  ]
+ },
+ {
+  "stream": "XAG/USD/M15/flip",
+  "n_dev": 3326,
+  "n_2023": 2338,
+  "thin": [
+   0,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.765,
+   "R2_chase": 0.218,
+   "R3_thin_hours": 0.054,
+   "R4_release": 0.002,
+   "R5_extended": 0.047,
+   "R6_counter_h1": 0.601
+  },
+  "any_dev": 0.946,
+  "dst_q": [
+   3.42,
+   3.98,
+   4.21
+  ],
+  "dop_q": [
+   0.49,
+   1.91,
+   2.55
+  ]
+ },
+ {
+  "stream": "XAG/USD/M15/impulse",
+  "n_dev": 2424,
+  "n_2023": 1650,
+  "thin": [
+   0,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.743,
+   "R2_chase": 0.248,
+   "R3_thin_hours": 0.047,
+   "R4_release": 0.005,
+   "R5_extended": 0.137,
+   "R6_counter_h1": 0.46
+  },
+  "any_dev": 0.933,
+  "dst_q": [
+   2.89,
+   3.73,
+   3.98
+  ],
+  "dop_q": [
+   0.83,
+   3.43,
+   4.17
+  ]
+ },
+ {
+  "stream": "NATGAS/USD/M5/flip",
+  "n_dev": 10901,
+  "n_2023": 8909,
+  "thin": [
+   3,
+   4,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.94,
+   "R2_chase": 0.189,
+   "R3_thin_hours": 0.133,
+   "R4_release": 0.011,
+   "R5_extended": 0.071,
+   "R6_counter_h1": 0.538
+  },
+  "any_dev": 0.983,
+  "dst_q": [
+   3.43,
+   4.05,
+   4.28
+  ],
+  "dop_q": [
+   0.13,
+   2.15,
+   2.96
+  ]
+ },
+ {
+  "stream": "NATGAS/USD/M5/impulse",
+  "n_dev": 4597,
+  "n_2023": 3073,
+  "thin": [
+   3,
+   4,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.939,
+   "R2_chase": 0.331,
+   "R3_thin_hours": 0.086,
+   "R4_release": 0.02,
+   "R5_extended": 0.138,
+   "R6_counter_h1": 0.473
+  },
+  "any_dev": 0.987,
+  "dst_q": [
+   3.16,
+   3.9,
+   4.12
+  ],
+  "dop_q": [
+   0.73,
+   3.35,
+   4.22
+  ]
+ },
+ {
+  "stream": "NATGAS/USD/M15/flip",
+  "n_dev": 3483,
+  "n_2023": 2843,
+  "thin": [
+   3,
+   4,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.833,
+   "R2_chase": 0.26,
+   "R3_thin_hours": 0.069,
+   "R4_release": 0.007,
+   "R5_extended": 0.062,
+   "R6_counter_h1": 0.616
+  },
+  "any_dev": 0.959,
+  "dst_q": [
+   3.48,
+   4.14,
+   4.35
+  ],
+  "dop_q": [
+   0.46,
+   2.1,
+   2.73
+  ]
+ },
+ {
+  "stream": "NATGAS/USD/M15/impulse",
+  "n_dev": 2381,
+  "n_2023": 1725,
+  "thin": [
+   3,
+   4,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.832,
+   "R2_chase": 0.232,
+   "R3_thin_hours": 0.022,
+   "R4_release": 0.009,
+   "R5_extended": 0.153,
+   "R6_counter_h1": 0.444
+  },
+  "any_dev": 0.943,
+  "dst_q": [
+   3.07,
+   3.89,
+   4.09
+  ],
+  "dop_q": [
+   1.03,
+   3.46,
+   4.32
+  ]
+ },
+ {
+  "stream": "SPX500/USD/M5/flip",
+  "n_dev": 9460,
+  "n_2023": 7436,
+  "thin": [
+   3,
+   4,
+   5,
+   6
+  ],
+  "block_dev": {
+   "R1_spread": 0.306,
+   "R2_chase": 0.165,
+   "R3_thin_hours": 0.163,
+   "R4_release": 0.004,
+   "R5_extended": 0.058,
+   "R6_counter_h1": 0.539
+  },
+  "any_dev": 0.798,
+  "dst_q": [
+   3.41,
+   3.89,
+   4.11
+  ],
+  "dop_q": [
+   0.14,
+   2.14,
+   2.94
+  ]
+ },
+ {
+  "stream": "SPX500/USD/M5/impulse",
+  "n_dev": 4635,
+  "n_2023": 3336,
+  "thin": [
+   3,
+   4,
+   5,
+   6
+  ],
+  "block_dev": {
+   "R1_spread": 0.316,
+   "R2_chase": 0.23,
+   "R3_thin_hours": 0.131,
+   "R4_release": 0.007,
+   "R5_extended": 0.101,
+   "R6_counter_h1": 0.501
+  },
+  "any_dev": 0.811,
+  "dst_q": [
+   3.01,
+   3.78,
+   3.97
+  ],
+  "dop_q": [
+   0.44,
+   2.88,
+   3.9
+  ]
+ },
+ {
+  "stream": "SPX500/USD/M15/flip",
+  "n_dev": 3088,
+  "n_2023": 2488,
+  "thin": [
+   3,
+   4,
+   5,
+   6
+  ],
+  "block_dev": {
+   "R1_spread": 0.077,
+   "R2_chase": 0.219,
+   "R3_thin_hours": 0.099,
+   "R4_release": 0.001,
+   "R5_extended": 0.051,
+   "R6_counter_h1": 0.62
+  },
+  "any_dev": 0.765,
+  "dst_q": [
+   3.42,
+   3.95,
+   4.16
+  ],
+  "dop_q": [
+   0.49,
+   2.12,
+   2.79
+  ]
+ },
+ {
+  "stream": "SPX500/USD/M15/impulse",
+  "n_dev": 2146,
+  "n_2023": 1699,
+  "thin": [
+   3,
+   4,
+   5,
+   6
+  ],
+  "block_dev": {
+   "R1_spread": 0.074,
+   "R2_chase": 0.205,
+   "R3_thin_hours": 0.029,
+   "R4_release": 0.0,
+   "R5_extended": 0.129,
+   "R6_counter_h1": 0.457
+  },
+  "any_dev": 0.683,
+  "dst_q": [
+   2.91,
+   3.75,
+   3.94
+  ],
+  "dop_q": [
+   0.84,
+   3.33,
+   4.16
+  ]
+ },
+ {
+  "stream": "EUR/USD/M5/flip",
+  "n_dev": 9763,
+  "n_2023": 7739,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.655,
+   "R2_chase": 0.154,
+   "R3_thin_hours": 0.124,
+   "R4_release": 0.003,
+   "R5_extended": 0.053,
+   "R6_counter_h1": 0.537
+  },
+  "any_dev": 0.896,
+  "dst_q": [
+   3.41,
+   3.87,
+   4.07
+  ],
+  "dop_q": [
+   0.16,
+   2.01,
+   2.8
+  ]
+ },
+ {
+  "stream": "EUR/USD/M5/impulse",
+  "n_dev": 3902,
+  "n_2023": 2220,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.764,
+   "R2_chase": 0.331,
+   "R3_thin_hours": 0.166,
+   "R4_release": 0.004,
+   "R5_extended": 0.067,
+   "R6_counter_h1": 0.477
+  },
+  "any_dev": 0.956,
+  "dst_q": [
+   2.96,
+   3.75,
+   3.92
+  ],
+  "dop_q": [
+   0.38,
+   2.42,
+   3.22
+  ]
+ },
+ {
+  "stream": "EUR/USD/M15/flip",
+  "n_dev": 3106,
+  "n_2023": 2444,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.238,
+   "R2_chase": 0.213,
+   "R3_thin_hours": 0.056,
+   "R4_release": 0.001,
+   "R5_extended": 0.038,
+   "R6_counter_h1": 0.619
+  },
+  "any_dev": 0.791,
+  "dst_q": [
+   3.41,
+   3.92,
+   4.14
+  ],
+  "dop_q": [
+   0.55,
+   1.9,
+   2.48
+  ]
+ },
+ {
+  "stream": "EUR/USD/M15/impulse",
+  "n_dev": 2167,
+  "n_2023": 1367,
+  "thin": [
+   4,
+   21,
+   22,
+   23
+  ],
+  "block_dev": {
+   "R1_spread": 0.352,
+   "R2_chase": 0.205,
+   "R3_thin_hours": 0.01,
+   "R4_release": 0.0,
+   "R5_extended": 0.074,
+   "R6_counter_h1": 0.462
+  },
+  "any_dev": 0.766,
+  "dst_q": [
+   2.79,
+   3.68,
+   3.86
+  ],
+  "dop_q": [
+   0.72,
+   2.61,
+   3.37
+  ]
+ }
+]

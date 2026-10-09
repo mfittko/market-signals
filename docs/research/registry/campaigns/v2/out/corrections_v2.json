@@ -1,0 +1,213 @@
+{
+ "label": "correction v2 (D1, D2); not a new test",
+ "evaluator": "v2",
+ "code_sha256": "d8e57f11aa205a9a7f7bccc2fff2196324b8b17c92d53308ab054158a2bc1a11",
+ "code_files_sha256": {
+  "de_v2.py": "f53da33542c1cdb29f6e6d47074ad899d5053a5295308cb162c268177443259e",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+  "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+  "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+  "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+  "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+ },
+ "rows": [
+  {
+   "source": "results/test.json",
+   "row": "A",
+   "trades": 7441,
+   "meanR": -0.2856488787510723,
+   "meanR_optimistic_v1": -0.28145267117272793,
+   "meanR_optimistic_v2": -0.2851113165954481,
+   "changed_trades": 25,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   },
+   "audit_admissible_bound": -0.2851113165954481,
+   "matches_audit_admissible": true
+  },
+  {
+   "source": "results/test.json",
+   "row": "B",
+   "trades": 1726,
+   "meanR": -0.24390455247043216,
+   "meanR_optimistic_v1": -0.23430228640935807,
+   "meanR_optimistic_v2": -0.24158705536730354,
+   "changed_trades": 7,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   },
+   "audit_admissible_bound": -0.24158705536730354,
+   "matches_audit_admissible": true
+  },
+  {
+   "source": "results/test.json",
+   "row": "C",
+   "trades": 2168,
+   "meanR": -0.09292773040626624,
+   "meanR_optimistic_v1": -0.0919008290929989,
+   "meanR_optimistic_v2": -0.09292773040626624,
+   "changed_trades": 4,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   },
+   "audit_admissible_bound": -0.09292773040626624,
+   "matches_audit_admissible": true
+  },
+  {
+   "source": "results/de_test_WTICO_USD.json",
+   "inst": "WTICO/USD",
+   "row": "A: every flip, immediate (frozen baseline)",
+   "trades": 7441,
+   "meanR": -0.2856488787510723,
+   "meanR_optimistic_v1": -0.28145267117272793,
+   "meanR_optimistic_v2": -0.2851113165954481,
+   "changed_trades": 25,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  },
+  {
+   "source": "results/de_test_WTICO_USD.json",
+   "inst": "WTICO/USD",
+   "row": "D-nogate: same follower, always on",
+   "trades": 1803,
+   "meanR": -0.10338235248976672,
+   "meanR_optimistic_v1": -0.09884397439730747,
+   "meanR_optimistic_v2": -0.10171845897895142,
+   "changed_trades": 4,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   },
+   "audit_admissible_bound": -0.10171845897895142,
+   "matches_audit_admissible": true
+  },
+  {
+   "source": "results/de_test_WTICO_USD.json",
+   "inst": "WTICO/USD",
+   "row": "D-imm: same gate, enter at discovery",
+   "trades": 768,
+   "meanR": -0.1575822697127739,
+   "meanR_optimistic_v1": -0.1575822697127739,
+   "meanR_optimistic_v2": -0.1575822697127739,
+   "changed_trades": 0,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  },
+  {
+   "source": "results/de_test_WTICO_USD.json",
+   "inst": "WTICO/USD",
+   "row": "D: frozen",
+   "trades": 241,
+   "meanR": -0.1077776713085563,
+   "meanR_optimistic_v1": -0.10722723129912286,
+   "meanR_optimistic_v2": -0.1077776713085563,
+   "changed_trades": 1,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   },
+   "audit_admissible_bound": -0.1077776713085563,
+   "matches_audit_admissible": true
+  },
+  {
+   "source": "results/de_test_XAU_USD.json",
+   "inst": "XAU/USD",
+   "row": "A: every flip, immediate (frozen baseline)",
+   "trades": 7027,
+   "meanR": -0.1605802698734664,
+   "meanR_optimistic_v1": -0.1541904333226563,
+   "meanR_optimistic_v2": -0.15531486500652458,
+   "changed_trades": 20,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  },
+  {
+   "source": "results/de_test_XAU_USD.json",
+   "inst": "XAU/USD",
+   "row": "D-nogate: same follower, always on",
+   "trades": 2994,
+   "meanR": -0.10471573570945451,
+   "meanR_optimistic_v1": -0.09990932366657457,
+   "meanR_optimistic_v2": -0.09937171433336907,
+   "changed_trades": 7,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  },
+  {
+   "source": "results/de_test_XAU_USD.json",
+   "inst": "XAU/USD",
+   "row": "D-imm: same gate, enter at discovery",
+   "trades": 6193,
+   "meanR": -0.11449897848642089,
+   "meanR_optimistic_v1": -0.10855384316437854,
+   "meanR_optimistic_v2": -0.10900890905318983,
+   "changed_trades": 12,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  },
+  {
+   "source": "results/de_test_XAU_USD.json",
+   "inst": "XAU/USD",
+   "row": "D: frozen",
+   "trades": 2994,
+   "meanR": -0.10471573570945451,
+   "meanR_optimistic_v1": -0.09990932366657457,
+   "meanR_optimistic_v2": -0.09937171433336907,
+   "changed_trades": 7,
+   "reproduces_published": {
+    "trades": true,
+    "meanR": true,
+    "meanR_optimistic": true
+   }
+  }
+ ],
+ "dispositions": {
+  "WTICO/USD": {
+   "E": {
+    "published": "insufficient support: fit rows 1175, cal rows 15 (0 trades): rejected. The frozen D+E is the no-trade policy (0 R exactly), which cannot exceed the MUE against no-trade; dev held-out showed no predictive skill",
+    "correction_v2": "undefined: E unavailable (insufficient support: fit rows 1175, cal rows 15); E was never fitted, no test of E, no verdict"
+   },
+   "E_novol": {
+    "published": "insufficient support: fit rows 1175, cal rows 15 (0 trades): rejected. The frozen D+E is the no-trade policy (0 R exactly), which cannot exceed the MUE against no-trade; dev held-out showed no predictive skill",
+    "correction_v2": "undefined: E unavailable (insufficient support: fit rows 1175, cal rows 15); E was never fitted, no test of E, no verdict"
+   }
+  },
+  "XAU/USD": {
+   "E": {
+    "published": "no entries (0 trades): rejected. The frozen D+E is the no-trade policy (0 R exactly), which cannot exceed the MUE against no-trade; dev held-out showed no predictive skill",
+    "correction_v2": "unchanged (E was fitted; the no-trade policy was scored)"
+   },
+   "E_novol": {
+    "published": "no entries (0 trades): rejected. The frozen D+E is the no-trade policy (0 R exactly), which cannot exceed the MUE against no-trade; dev held-out showed no predictive skill",
+    "correction_v2": "unchanged (E was fitted; the no-trade policy was scored)"
+   }
+  }
+ }
+}

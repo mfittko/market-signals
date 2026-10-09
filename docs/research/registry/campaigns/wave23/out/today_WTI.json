@@ -1,0 +1,53 @@
+{
+ "note": "illustration only; live mid M1 appended after the research cache end; mid fills, no costs, no thin-hour or spread filter; open trades are marked at the last live close",
+ "last_live_bar": "2026-10-08T12:51",
+ "armed": true,
+ "arm_time": "2026-10-08T07:30",
+ "policies": {
+  "M5|k0.5": {
+   "trades": [
+    {
+     "signal": "2026-10-08T11:55",
+     "side": -1,
+     "R": -1.0,
+     "exit": "2026-10-08T11:55"
+    }
+   ],
+   "total_R": -1.0
+  },
+  "M5|k0.75": {
+   "trades": [
+    {
+     "signal": "2026-10-08T11:55",
+     "side": -1,
+     "R": -1.0,
+     "exit": "2026-10-08T11:55"
+    }
+   ],
+   "total_R": -1.0
+  },
+  "M5|k1.0": {
+   "trades": [
+    {
+     "signal": "2026-10-08T11:55",
+     "side": -1,
+     "R": -1.0,
+     "exit": "2026-10-08T11:55"
+    }
+   ],
+   "total_R": -1.0
+  },
+  "M15|k0.5": {
+   "trades": [],
+   "total_R": 0
+  },
+  "M15|k0.75": {
+   "trades": [],
+   "total_R": 0
+  },
+  "M15|k1.0": {
+   "trades": [],
+   "total_R": 0
+  }
+ }
+}

@@ -1,0 +1,36 @@
+{
+ "inst": "WTICO/USD",
+ "kx": 6.0,
+ "posthoc": true,
+ "target": "T1",
+ "auc": {
+  "2020": {
+   "time_of_day": 0.509,
+   "vol_state": 0.494,
+   "activity_spread": 0.508,
+   "returns_geometry": 0.493,
+   "all_ENG": 0.499
+  },
+  "2021": {
+   "time_of_day": 0.508,
+   "vol_state": 0.517,
+   "activity_spread": 0.531,
+   "returns_geometry": 0.495,
+   "all_ENG": 0.514
+  },
+  "2022": {
+   "time_of_day": 0.526,
+   "vol_state": 0.508,
+   "activity_spread": 0.521,
+   "returns_geometry": 0.502,
+   "all_ENG": 0.518
+  },
+  "2023": {
+   "time_of_day": 0.509,
+   "vol_state": 0.528,
+   "activity_spread": 0.524,
+   "returns_geometry": 0.514,
+   "all_ENG": 0.519
+  }
+ }
+}

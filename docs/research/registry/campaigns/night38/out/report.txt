@@ -1,0 +1,44 @@
+VERDICT FAIL  night CI lb {'dev': 0.230789398237663, 'w2023': -1.6992234916653057}  night-day point {'dev': 2.7394065037171207, 'w2023': -3.0663486632825756}
+
+SPX500/USD dev: trading days 1259, night valid 1253, day valid 1252, skip open 6, skip close 1, early-close days 10, median spread close 0.94 open 1.36 bps, rt cost 1.15 bps
+  all      n  1253/ 1252 night +4.01 [+0.23,+7.94] day +1.27 [-3.47,+5.79] diff +2.74 [-3.51,+9.19] hit 0.557 net +1.67 [-2.10,+5.60] net/yr +4.2% gross/yr +10.1% MDE80 night 5.67 diff 8.89
+  weekday  n   982/  980 night +4.86 [+0.82,+8.81] day +2.21 [-3.19,+7.53] diff +2.65 [-3.94,+10.05] hit 0.566 net +2.89 [-1.15,+6.84] net/yr +7.3% gross/yr +12.2% MDE80 night 5.92 diff 10.01
+  weekend  n   271/  272 night +0.94 [-8.52,+10.86] day -2.11 [-14.19,+9.82] diff +3.05 [-11.20,+18.48] hit 0.524 net -2.74 [-12.18,+7.19] net/yr -6.9% gross/yr +2.4% MDE80 night 13.83 diff 21.65
+  prev_up  n   677/  679 night +5.50 [+0.65,+11.07] day +63.41 [+57.84,+69.47] diff -57.90 [-66.60,-49.82] hit 0.570 net +3.14 [-1.76,+8.69] net/yr +7.9% gross/yr +13.9% MDE80 night 7.59 diff 11.92
+  prev_dn  n   570/  571 night +1.29 [-4.76,+7.17] day -72.61 [-79.49,-65.83] diff +73.90 [+65.01,+82.23] hit 0.540 net -1.03 [-7.10,+4.85] net/yr -2.6% gross/yr +3.3% MDE80 night 8.64 diff 12.74
+SPX500/USD w2023: trading days 944, night valid 944, day valid 944, skip open 0, skip close 0, early-close days 8, median spread close 0.67 open 0.86 bps, rt cost 0.77 bps
+  all      n   944/  944 night +2.42 [-1.70,+6.09] day +5.49 [+1.27,+9.73] diff -3.07 [-9.31,+2.91] hit 0.548 net +0.46 [-3.66,+4.13] net/yr +1.1% gross/yr +6.1% MDE80 night 5.45 diff 8.70
+  weekday  n   736/  736 night +2.61 [-1.49,+6.58] day +4.99 [-0.06,+10.22] diff -2.38 [-9.70,+4.40] hit 0.549 net +1.02 [-3.08,+4.99] net/yr +2.6% gross/yr +6.6% MDE80 night 5.74 diff 10.03
+  weekend  n   208/  208 night +1.75 [-7.94,+10.71] day +7.22 [-3.12,+17.17] diff -5.48 [-19.04,+7.94] hit 0.543 net -1.54 [-11.24,+7.39] net/yr -3.9% gross/yr +4.4% MDE80 night 13.24 diff 19.00
+  prev_up  n   529/  529 night +1.80 [-2.67,+6.65] day +52.04 [+47.31,+58.19] diff -50.23 [-57.79,-43.15] hit 0.524 net -0.16 [-4.61,+4.70] net/yr -0.4% gross/yr +4.5% MDE80 night 6.61 diff 10.23
+  prev_dn  n   415/  415 night +3.20 [-3.91,+8.62] day -53.85 [-59.92,-47.95] diff +57.06 [+48.93,+63.90] hit 0.578 net +1.24 [-5.93,+6.66] net/yr +3.1% gross/yr +8.1% MDE80 night 8.80 diff 10.76
+  yearly night/day mean bps: 2018 +3.84/-6.59 (n 251); 2019 +5.37/+5.83 (n 252); 2020 +13.06/+2.63 (n 247); 2021 +5.27/+4.51 (n 252); 2022 -7.36/-0.04 (n 251); 2023 -1.19/+9.84 (n 250); 2024 +6.27/+2.90 (n 252); 2025 +1.60/+5.22 (n 250); 2026 +3.13/+3.56 (n 192)
+
+NAS100/USD dev: trading days 1259, night valid 1253, day valid 1253, skip open 5, skip close 1, early-close days 10, median spread close 0.55 open 1.67 bps, rt cost 1.11 bps
+  all      n  1253/ 1253 night +4.60 [+0.12,+9.10] day +2.46 [-3.65,+8.21] diff +2.13 [-5.60,+10.05] hit 0.562 net +2.29 [-2.19,+6.81] net/yr +5.8% gross/yr +11.6% MDE80 night 6.66 diff 11.17
+  weekday  n   982/  981 night +6.25 [+1.47,+11.18] day +5.36 [-2.03,+12.24] diff +0.89 [-7.65,+10.32] hit 0.574 net +4.32 [-0.47,+9.25] net/yr +10.9% gross/yr +15.8% MDE80 night 7.22 diff 12.81
+  weekend  n   271/  272 night -1.40 [-11.98,+9.32] day -8.00 [-23.13,+6.83] diff +6.59 [-10.41,+25.28] hit 0.517 net -5.05 [-15.63,+5.70] net/yr -12.7% gross/yr -3.5% MDE80 night 15.21 diff 25.83
+  prev_up  n   670/  672 night +7.30 [+0.87,+13.18] day +88.16 [+81.46,+94.80] diff -80.86 [-90.90,-70.98] hit 0.584 net +5.00 [-1.42,+10.91] net/yr +12.6% gross/yr +18.4% MDE80 night 8.72 diff 14.20
+  prev_dn  n   580/  581 night +0.35 [-6.92,+7.26] day -96.65 [-104.74,-88.37] diff +97.00 [+85.79,+107.59] hit 0.536 net -1.96 [-9.24,+4.97] net/yr -4.9% gross/yr +0.9% MDE80 night 10.12 diff 15.50
+NAS100/USD w2023: trading days 944, night valid 943, day valid 943, skip open 0, skip close 1, early-close days 8, median spread close 0.34 open 1.06 bps, rt cost 0.70 bps
+  all      n   943/  943 night +4.96 [-0.30,+10.05] day +7.11 [+1.20,+13.26] diff -2.15 [-10.59,+5.83] hit 0.550 net +3.07 [-2.19,+8.14] net/yr +7.7% gross/yr +12.5% MDE80 night 7.23 diff 11.98
+  weekday  n   735/  735 night +5.07 [-0.52,+10.50] day +7.03 [+0.03,+14.43] diff -1.96 [-11.96,+7.17] hit 0.550 net +3.55 [-2.04,+8.98] net/yr +8.9% gross/yr +12.8% MDE80 night 7.81 diff 13.63
+  weekend  n   208/  208 night +4.60 [-8.69,+16.76] day +7.40 [-5.85,+20.44] diff -2.80 [-21.34,+16.26] hit 0.553 net +1.38 [-11.91,+13.53] net/yr +3.5% gross/yr +11.6% MDE80 night 17.84 diff 26.70
+  prev_up  n   527/  527 night +3.94 [-2.44,+10.02] day +72.36 [+66.17,+79.59] diff -68.42 [-78.34,-59.19] hit 0.537 net +2.04 [-4.32,+8.16] net/yr +5.1% gross/yr +9.9% MDE80 night 8.95 diff 13.64
+  prev_dn  n   416/  416 night +6.26 [-2.34,+13.78] day -75.55 [-83.19,-68.22] diff +81.81 [+71.42,+92.01] hit 0.567 net +4.36 [-4.25,+11.88] net/yr +11.0% gross/yr +15.8% MDE80 night 11.48 diff 14.79
+  yearly night/day mean bps: 2018 +4.70/-5.06 (n 251); 2019 +6.23/+8.23 (n 252); 2020 +16.77/+8.32 (n 247); 2021 +5.83/+4.19 (n 252); 2022 -10.37/-3.31 (n 251); 2023 +1.15/+16.11 (n 250); 2024 +9.02/+1.08 (n 252); 2025 +4.32/+4.39 (n 250); 2026 +5.45/+6.86 (n 191)
+
+US30/USD dev: trading days 1259, night valid 1253, day valid 1252, skip open 6, skip close 1, early-close days 10, median spread close 0.62 open 0.70 bps, rt cost 0.66 bps
+  all      n  1253/ 1252 night +4.34 [+0.39,+8.30] day +0.44 [-4.16,+4.87] diff +3.90 [-1.94,+9.87] hit 0.547 net +2.49 [-1.46,+6.46] net/yr +6.3% gross/yr +10.9% MDE80 night 5.77 diff 8.49
+  weekday  n   982/  980 night +5.33 [+1.38,+9.36] day +1.32 [-3.76,+6.56] diff +4.01 [-2.59,+10.64] hit 0.556 net +3.84 [-0.10,+7.88] net/yr +9.7% gross/yr +13.4% MDE80 night 5.84 diff 9.58
+  weekend  n   271/  272 night +0.78 [-8.87,+11.19] day -2.71 [-13.76,+8.04] diff +3.49 [-10.66,+18.91] hit 0.517 net -2.41 [-12.05,+8.03] net/yr -6.1% gross/yr +2.0% MDE80 night 14.88 diff 21.20
+  prev_up  n   673/  675 night +6.81 [+1.74,+12.06] day +60.16 [+54.55,+66.14] diff -53.35 [-61.71,-45.34] hit 0.562 net +4.94 [-0.11,+10.19] net/yr +12.5% gross/yr +17.2% MDE80 night 7.52 diff 11.63
+  prev_dn  n   576/  577 night +0.23 [-6.24,+6.58] day -69.42 [-76.57,-63.07] diff +69.65 [+61.09,+78.15] hit 0.530 net -1.61 [-8.10,+4.74] net/yr -4.1% gross/yr +0.6% MDE80 night 8.75 diff 12.34
+US30/USD w2023: trading days 944, night valid 944, day valid 944, skip open 0, skip close 0, early-close days 8, median spread close 0.45 open 0.68 bps, rt cost 0.57 bps
+  all      n   944/  944 night +0.08 [-3.56,+3.31] day +4.84 [+0.94,+8.63] diff -4.76 [-10.43,+0.81] hit 0.518 net -1.68 [-5.33,+1.56] net/yr -4.2% gross/yr +0.2% MDE80 night 4.95 diff 7.97
+  weekday  n   736/  736 night +0.32 [-3.44,+3.78] day +3.80 [-0.82,+8.49] diff -3.48 [-10.02,+2.98] hit 0.519 net -1.07 [-4.82,+2.39] net/yr -2.7% gross/yr +0.8% MDE80 night 5.05 diff 9.16
+  weekend  n   208/  208 night -0.75 [-8.49,+6.91] day +8.54 [-1.15,+17.25] diff -9.28 [-20.73,+2.91] hit 0.514 net -3.83 [-11.58,+3.83] net/yr -9.7% gross/yr -1.9% MDE80 night 11.14 diff 16.54
+  prev_up  n   508/  508 night +0.47 [-3.26,+4.81] day +50.50 [+46.38,+56.22] diff -50.04 [-56.71,-43.62] hit 0.488 net -1.32 [-5.05,+3.00] net/yr -3.3% gross/yr +1.2% MDE80 night 6.00 diff 9.45
+  prev_dn  n   436/  436 night -0.36 [-6.38,+4.31] day -48.36 [-53.28,-43.74] diff +47.99 [+42.13,+53.80] hit 0.553 net -2.09 [-8.10,+2.60] net/yr -5.3% gross/yr -0.9% MDE80 night 7.75 diff 8.42
+  yearly night/day mean bps: 2018 +4.58/-7.05 (n 251); 2019 +4.92/+4.27 (n 252); 2020 +13.62/-0.57 (n 247); 2021 +4.88/+2.25 (n 252); 2022 -6.14/+3.27 (n 251); 2023 -2.04/+7.17 (n 250); 2024 +1.74/+3.85 (n 252); 2025 -2.27/+7.60 (n 250); 2026 +3.74/-0.48 (n 192)
+

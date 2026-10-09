@@ -1,0 +1,326 @@
+[
+ {
+  "inst": "WTICO/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 3419,
+    "news": 161,
+    "excl": 24324
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 3042,
+    "news": 58,
+    "excl": 24036
+   }
+  }
+ },
+ {
+  "inst": "XAU/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 3216,
+    "news": 93,
+    "excl": 26156
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 3007,
+    "news": 19,
+    "excl": 23689
+   }
+  }
+ },
+ {
+  "inst": "XAG/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 3394,
+    "news": 81,
+    "excl": 28304
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 3054,
+    "news": 22,
+    "excl": 25050
+   }
+  }
+ },
+ {
+  "inst": "NATGAS/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 2938,
+    "news": 89,
+    "excl": 23747
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 2589,
+    "news": 75,
+    "excl": 23668
+   }
+  }
+ },
+ {
+  "inst": "SPX500/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 3411,
+    "news": 199,
+    "excl": 24597
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 3170,
+    "news": 124,
+    "excl": 24229
+   }
+  }
+ },
+ {
+  "inst": "EUR/USD",
+  "tf": "M5",
+  "dev": {
+   "signals": {
+    "nonews": 3121,
+    "news": 283,
+    "excl": 27744
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 2789,
+    "news": 228,
+    "excl": 26721
+   }
+  }
+ },
+ {
+  "inst": "WTICO/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 13524,
+    "news": 618,
+    "excl": 127286
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 12346,
+    "news": 244,
+    "excl": 122582
+   }
+  }
+ },
+ {
+  "inst": "XAU/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 14799,
+    "news": 442,
+    "excl": 151921
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 13427,
+    "news": 103,
+    "excl": 140737
+   }
+  }
+ },
+ {
+  "inst": "XAG/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 15384,
+    "news": 407,
+    "excl": 137807
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 13655,
+    "news": 120,
+    "excl": 142842
+   }
+  }
+ },
+ {
+  "inst": "NATGAS/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 11200,
+    "news": 390,
+    "excl": 88188
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 8853,
+    "news": 256,
+    "excl": 72242
+   }
+  }
+ },
+ {
+  "inst": "SPX500/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 13248,
+    "news": 815,
+    "excl": 118243
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 12452,
+    "news": 576,
+    "excl": 117486
+   }
+  }
+ },
+ {
+  "inst": "EUR/USD",
+  "tf": "M1",
+  "dev": {
+   "signals": {
+    "nonews": 13766,
+    "news": 1232,
+    "excl": 154265
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 12729,
+    "news": 1084,
+    "excl": 150035
+   }
+  }
+ },
+ {
+  "inst": "WTICO/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1434,
+    "news": 71,
+    "excl": 7647
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1269,
+    "news": 21,
+    "excl": 7682
+   }
+  }
+ },
+ {
+  "inst": "XAU/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1325,
+    "news": 34,
+    "excl": 7512
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1231,
+    "news": 13,
+    "excl": 7143
+   }
+  }
+ },
+ {
+  "inst": "XAG/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1400,
+    "news": 31,
+    "excl": 8422
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1220,
+    "news": 12,
+    "excl": 7556
+   }
+  }
+ },
+ {
+  "inst": "NATGAS/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1120,
+    "news": 28,
+    "excl": 8241
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1028,
+    "news": 36,
+    "excl": 8302
+   }
+  }
+ },
+ {
+  "inst": "SPX500/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1368,
+    "news": 66,
+    "excl": 7887
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1257,
+    "news": 49,
+    "excl": 7661
+   }
+  }
+ },
+ {
+  "inst": "EUR/USD",
+  "tf": "M15",
+  "dev": {
+   "signals": {
+    "nonews": 1250,
+    "news": 121,
+    "excl": 8348
+   }
+  },
+  "w2023": {
+   "signals": {
+    "nonews": 1149,
+    "news": 94,
+    "excl": 8079
+   }
+  }
+ }
+]

@@ -1,0 +1,3463 @@
+{
+ "cells": [
+  {
+   "kind": "null",
+   "mu": 0.0,
+   "n": 3,
+   "econ_meanR": -0.15428746480810526,
+   "econ_sd": 0.02918788705446725,
+   "econ_dR_vs_D": -0.036253756124892074,
+   "D_meanR": -0.11803370868321318,
+   "label_gap": NaN,
+   "test_rows": 18455.0,
+   "test_episodes": 1923.0,
+   "D_trades": 1899.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 19.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 3
+    },
+    "auc_raw_test": 0.5217595306171402,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5051876777365368,
+    "platt_neg": 0.6666666666666666,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5,
+    "platt_neg": 1.0,
+    "entered": 0.0
+   }
+  },
+  {
+   "kind": "null_hidden",
+   "mu": 0.16,
+   "n": 3,
+   "econ_meanR": 0.024455550046395436,
+   "econ_sd": 0.03467234005891624,
+   "econ_dR_vs_D": -0.025477088111769436,
+   "D_meanR": 0.04993263815816487,
+   "label_gap": 0.1273000453262572,
+   "test_rows": 18790.666666666668,
+   "test_episodes": 1957.3333333333333,
+   "D_trades": 2179.3333333333335,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 25.666666666666668,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 3
+    },
+    "auc_raw_test": 0.5430068136458548,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 1,
+     "learner/representation: test raw AUC < 0.52": 2
+    },
+    "auc_raw_test": 0.5200083011452487,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 2,
+     "threshold: threshold window mean R <= 0 at every p": 1
+    },
+    "auc_raw_test": 0.5843138448445727,
+    "platt_neg": 0.0,
+    "entered": 0.6666666666666666
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.02,
+   "n": 3,
+   "econ_meanR": -0.10622174060156124,
+   "econ_sd": 0.012790896423407678,
+   "econ_dR_vs_D": 0.02473549734632363,
+   "D_meanR": -0.13095723794788486,
+   "label_gap": 0.027644870755491602,
+   "test_rows": 18506.0,
+   "test_episodes": 1935.6666666666667,
+   "D_trades": 1911.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 22.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "learner/representation: test raw AUC < 0.52": 2
+    },
+    "auc_raw_test": 0.520092336373853,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "learner/representation: test raw AUC < 0.52": 2
+    },
+    "auc_raw_test": 0.5145629359012638,
+    "platt_neg": 0.6666666666666666,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: rejected": 1,
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "learner/representation: test raw AUC < 0.52": 1
+    },
+    "auc_raw_test": 0.5215602020293583,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.04,
+   "n": 3,
+   "econ_meanR": -0.03855453156597282,
+   "econ_sd": 0.011488554857252522,
+   "econ_dR_vs_D": 0.0932261878005282,
+   "D_meanR": -0.13178071936650101,
+   "label_gap": 0.05750028731471085,
+   "test_rows": 18696.0,
+   "test_episodes": 1955.6666666666667,
+   "D_trades": 1931.6666666666667,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 24.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 2,
+     "calibration: Platt slope <= 0 (ranking inverted)": 1
+    },
+    "auc_raw_test": 0.5274602263753495,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5049529123144954,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "qualification/power: rejected": 2
+    },
+    "auc_raw_test": 0.5415752819585712,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.6666666666666666
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.065,
+   "n": 3,
+   "econ_meanR": 0.06402839752592109,
+   "econ_sd": 0.02036276570998117,
+   "econ_dR_vs_D": 0.17083634280141824,
+   "D_meanR": -0.10680794527549715,
+   "label_gap": 0.09186113993111798,
+   "test_rows": 18869.666666666668,
+   "test_episodes": 1974.3333333333333,
+   "D_trades": 1974.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 21.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "threshold: threshold window mean R <= 0 at every p": 2
+    },
+    "auc_raw_test": 0.5417783551885518,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5109061337776182,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "threshold: threshold window mean R <= 0 at every p": 1,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.56315631837718,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.1,
+   "n": 3,
+   "econ_meanR": 0.1957468090438388,
+   "econ_sd": 0.0520672412663946,
+   "econ_dR_vs_D": 0.2527991535762078,
+   "D_meanR": -0.05705234453236905,
+   "label_gap": 0.12240033407240529,
+   "test_rows": 19544.666666666668,
+   "test_episodes": 2048.6666666666665,
+   "D_trades": 2051.6666666666665,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 29.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 2,
+     "learner/representation: test raw AUC < 0.52": 1
+    },
+    "auc_raw_test": 0.5451025335092603,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 2,
+     "learner/representation: test raw AUC < 0.52": 1
+    },
+    "auc_raw_test": 0.5292565420460099,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 2,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.5802287391713361,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.16,
+   "n": 3,
+   "econ_meanR": 0.3781326386684383,
+   "econ_sd": 0.04464520789359464,
+   "econ_dR_vs_D": 0.31992416591072537,
+   "D_meanR": 0.05820847275771299,
+   "label_gap": 0.13481724357509178,
+   "test_rows": 20169.0,
+   "test_episodes": 2114.6666666666665,
+   "D_trades": 2165.3333333333335,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 37.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 2,
+     "threshold: threshold window mean R <= 0 at every p": 1
+    },
+    "auc_raw_test": 0.5674737206789112,
+    "platt_neg": 0.0,
+    "entered": 0.6666666666666666
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 2,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.562829878745771,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 3
+    },
+    "auc_raw_test": 0.5832119430262636,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   }
+  },
+  {
+   "kind": "linear",
+   "mu": 0.25,
+   "n": 3,
+   "econ_meanR": 0.6264552138760003,
+   "econ_sd": 0.03297307210834821,
+   "econ_dR_vs_D": 0.35030045254522624,
+   "D_meanR": 0.27615476133077416,
+   "label_gap": 0.12908198491441134,
+   "test_rows": 20814.666666666668,
+   "test_episodes": 2177.3333333333335,
+   "D_trades": 2352.3333333333335,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 55.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 2,
+     "qualified": 1
+    },
+    "auc_raw_test": 0.5840072905257672,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 2,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.5936446554746929,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 3
+    },
+    "auc_raw_test": 0.5711947785512913,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.02,
+   "n": 3,
+   "econ_meanR": -0.04120071668626848,
+   "econ_sd": 0.01824775829861897,
+   "econ_dR_vs_D": 0.07895991659339258,
+   "D_meanR": -0.12016063327966105,
+   "label_gap": 0.048694488333179985,
+   "test_rows": 18722.666666666668,
+   "test_episodes": 1948.6666666666667,
+   "D_trades": 1923.6666666666667,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 21.666666666666668,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5140076784801048,
+    "platt_neg": 0.6666666666666666,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5064490692533922,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 2,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.524734739673836,
+    "platt_neg": 0.6666666666666666,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.04,
+   "n": 3,
+   "econ_meanR": 0.011690388572474437,
+   "econ_sd": 0.019400515217366077,
+   "econ_dR_vs_D": 0.13634236148087983,
+   "D_meanR": -0.12465197290840539,
+   "label_gap": 0.07474170893821584,
+   "test_rows": 19060.0,
+   "test_episodes": 1983.0,
+   "D_trades": 1961.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 20.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window support < 30 at every p": 1,
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "threshold: threshold window mean R <= 0 at every p": 1
+    },
+    "auc_raw_test": 0.5241319144788402,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.509236745273474,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window support < 30 at every p": 1,
+     "threshold: threshold window mean R <= 0 at every p": 1,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.5378749579436946,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.065,
+   "n": 3,
+   "econ_meanR": 0.1038354485457292,
+   "econ_sd": 0.011045718781050816,
+   "econ_dR_vs_D": 0.21371359995066808,
+   "D_meanR": -0.10987815140493884,
+   "label_gap": 0.1115124105416072,
+   "test_rows": 19390.0,
+   "test_episodes": 2038.3333333333333,
+   "D_trades": 2014.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 17.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 1,
+     "threshold: threshold window support < 30 at every p": 1,
+     "qualification/power: rejected": 1
+    },
+    "auc_raw_test": 0.5211897752371962,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5009695447597368,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 1,
+     "qualification/power: inconclusive": 2
+    },
+    "auc_raw_test": 0.5564141035541504,
+    "platt_neg": 0.0,
+    "entered": 0.6666666666666666
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.1,
+   "n": 3,
+   "econ_meanR": 0.2244078560051602,
+   "econ_sd": 0.021284066185579,
+   "econ_dR_vs_D": 0.25793110431849137,
+   "D_meanR": -0.03352324831333121,
+   "label_gap": 0.15139817664843405,
+   "test_rows": 19993.333333333332,
+   "test_episodes": 2085.3333333333335,
+   "D_trades": 2056.6666666666665,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 16.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 1,
+     "qualification/power: inconclusive": 1,
+     "calibration: Platt slope <= 0 (ranking inverted)": 1
+    },
+    "auc_raw_test": 0.5256100690100171,
+    "platt_neg": 0.3333333333333333,
+    "entered": 1.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.507451065280105,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 3
+    },
+    "auc_raw_test": 0.5761119546449419,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.16,
+   "n": 3,
+   "econ_meanR": 0.3419440766696351,
+   "econ_sd": 0.025484459941023437,
+   "econ_dR_vs_D": 0.2761024384223161,
+   "D_meanR": 0.06584163824731905,
+   "label_gap": 0.1790690254815488,
+   "test_rows": 21480.0,
+   "test_episodes": 2256.3333333333335,
+   "D_trades": 2226.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 26.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 3
+    },
+    "auc_raw_test": 0.5415334926164442,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 1,
+     "qualification/power: inconclusive": 2
+    },
+    "auc_raw_test": 0.5316083008791094,
+    "platt_neg": 0.0,
+    "entered": 0.6666666666666666
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 2,
+     "qualification/power: inconclusive": 1
+    },
+    "auc_raw_test": 0.5895656698508807,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   }
+  },
+  {
+   "kind": "interaction",
+   "mu": 0.25,
+   "n": 3,
+   "econ_meanR": 0.492850651706962,
+   "econ_sd": 0.04716103445539928,
+   "econ_dR_vs_D": 0.20210418610282568,
+   "D_meanR": 0.2907464656041363,
+   "label_gap": 0.17146319471055793,
+   "test_rows": 23480.333333333332,
+   "test_episodes": 2466.3333333333335,
+   "D_trades": 2500.3333333333335,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 30.666666666666668,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 3
+    },
+    "auc_raw_test": 0.5865309635352213,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 3
+    },
+    "auc_raw_test": 0.5785578709720168,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualified": 3
+    },
+    "auc_raw_test": 0.585216067152805,
+    "platt_neg": 0.0,
+    "entered": 1.0
+   }
+  },
+  {
+   "kind": "subset",
+   "mu": 0.04,
+   "n": 3,
+   "econ_meanR": 0.08439960764490347,
+   "econ_sd": 0.04996958542234242,
+   "econ_dR_vs_D": 0.18330708665000314,
+   "D_meanR": -0.09890747900509966,
+   "label_gap": 0.03558605608857481,
+   "test_rows": 18121.333333333332,
+   "test_episodes": 1889.0,
+   "D_trades": 1864.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 20.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 3
+    },
+    "auc_raw_test": 0.5228861803834217,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5069968274323823,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5066531568175189,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   }
+  },
+  {
+   "kind": "subset",
+   "mu": 0.065,
+   "n": 3,
+   "econ_meanR": 0.18075759062480065,
+   "econ_sd": 0.06693954214344464,
+   "econ_dR_vs_D": 0.26221259116434986,
+   "D_meanR": -0.08145500053954925,
+   "label_gap": 0.06645671124748437,
+   "test_rows": 17977.666666666668,
+   "test_episodes": 1873.0,
+   "D_trades": 1849.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 22.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 3
+    },
+    "auc_raw_test": 0.5249345339466437,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5045562073789802,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.3333333333333333
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5122634549179739,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   }
+  },
+  {
+   "kind": "subset",
+   "mu": 0.1,
+   "n": 3,
+   "econ_meanR": 0.35288851340588967,
+   "econ_sd": 0.07202476274458709,
+   "econ_dR_vs_D": 0.4142554752872613,
+   "D_meanR": -0.06136696188137169,
+   "label_gap": 0.10906698763986512,
+   "test_rows": 17856.0,
+   "test_episodes": 1856.6666666666667,
+   "D_trades": 1832.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 23.333333333333332,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "threshold: threshold window mean R <= 0 at every p": 2,
+     "threshold: threshold window support < 30 at every p": 1
+    },
+    "auc_raw_test": 0.5296552036059196,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5131161212423284,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "learner/representation: test raw AUC < 0.52": 2
+    },
+    "auc_raw_test": 0.5200276108865022,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.0
+   }
+  },
+  {
+   "kind": "subset",
+   "mu": 0.16,
+   "n": 3,
+   "econ_meanR": 0.5809124447276287,
+   "econ_sd": 0.07858081375205204,
+   "econ_dR_vs_D": 0.6024013321041525,
+   "D_meanR": -0.021488887376523814,
+   "label_gap": 0.16931318297846887,
+   "test_rows": 17632.333333333332,
+   "test_episodes": 1836.6666666666667,
+   "D_trades": 1813.0,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 25.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 1,
+     "threshold: threshold window mean R <= 0 at every p": 2
+    },
+    "auc_raw_test": 0.5270813999519451,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 3,
+      "rate": 1.0,
+      "ci": [
+       0.43849391955098227,
+       1.0
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "learner/representation: test raw AUC < 0.52": 3
+    },
+    "auc_raw_test": 0.5038029319292318,
+    "platt_neg": 0.0,
+    "entered": 0.0
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "rejected": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "calibration: Platt slope <= 0 (ranking inverted)": 1,
+     "threshold: threshold window support < 30 at every p": 2
+    },
+    "auc_raw_test": 0.5310870623723541,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.3333333333333333
+   }
+  },
+  {
+   "kind": "subset",
+   "mu": 0.25,
+   "n": 3,
+   "econ_meanR": 0.9388688525879213,
+   "econ_sd": 0.05909818045900121,
+   "econ_dR_vs_D": 0.9158903219143086,
+   "D_meanR": 0.022978530673612624,
+   "label_gap": 0.22819870886301863,
+   "test_rows": 17236.333333333332,
+   "test_episodes": 1800.3333333333333,
+   "D_trades": 1798.6666666666667,
+   "cfgW_e_available": 0.0,
+   "cfgW_cal_rows": 27.0,
+   "lr": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 2,
+     "threshold: threshold window mean R <= 0 at every p": 1
+    },
+    "auc_raw_test": 0.5311161270151873,
+    "platt_neg": 0.0,
+    "entered": 0.6666666666666666
+   },
+   "hgb": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 1,
+     "learner/representation: test raw AUC < 0.52": 1,
+     "threshold: threshold window mean R <= 0 at every p": 1
+    },
+    "auc_raw_test": 0.5180096102604962,
+    "platt_neg": 0.3333333333333333,
+    "entered": 0.6666666666666666
+   },
+   "oracle": {
+    "rates": {
+     "supported": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "inconclusive": {
+      "k": 1,
+      "rate": 0.3333333333333333,
+      "ci": [
+       0.0614903152761605,
+       0.7923450448735121
+      ]
+     },
+     "rejected": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     },
+     "abstain": {
+      "k": 2,
+      "rate": 0.6666666666666666,
+      "ci": [
+       0.2076549551264879,
+       0.9385096847238394
+      ]
+     },
+     "error": {
+      "k": 0,
+      "rate": 0.0,
+      "ci": [
+       0.0,
+       0.5615060804490177
+      ]
+     }
+    },
+    "cause": {
+     "qualification/power: inconclusive": 1,
+     "threshold: threshold window support < 30 at every p": 2
+    },
+    "auc_raw_test": 0.5408528930768669,
+    "platt_neg": 0.0,
+    "entered": 0.3333333333333333
+   }
+  }
+ ],
+ "curve": [
+  {
+   "econ_bin": [
+    -Infinity,
+    0.0
+   ],
+   "n": 10,
+   "lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     -2.7755575615628914e-17,
+     0.2775401687666166
+    ]
+   },
+   "hgb": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     -2.7755575615628914e-17,
+     0.2775401687666166
+    ]
+   },
+   "oracle": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     -2.7755575615628914e-17,
+     0.2775401687666166
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     -2.7755575615628914e-17,
+     0.2775401687666166
+    ]
+   },
+   "abstain_lr": {
+    "k": 10,
+    "rate": 1.0,
+    "ci": [
+     0.7224598312333834,
+     1.0
+    ]
+   }
+  },
+  {
+   "econ_bin": [
+    0.0,
+    0.05
+   ],
+   "n": 4,
+   "lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "hgb": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "oracle": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "abstain_lr": {
+    "k": 4,
+    "rate": 1.0,
+    "ci": [
+     0.5100999795960008,
+     1.0
+    ]
+   }
+  },
+  {
+   "econ_bin": [
+    0.05,
+    0.1
+   ],
+   "n": 4,
+   "lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "hgb": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "oracle": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.48990002040399916
+    ]
+   },
+   "abstain_lr": {
+    "k": 3,
+    "rate": 0.75,
+    "ci": [
+     0.3006360524426366,
+     0.9544139373553637
+    ]
+   }
+  },
+  {
+   "econ_bin": [
+    0.1,
+    0.2
+   ],
+   "n": 7,
+   "lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.35433884297520657
+    ]
+   },
+   "hgb": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.35433884297520657
+    ]
+   },
+   "oracle": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.35433884297520657
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.35433884297520657
+    ]
+   },
+   "abstain_lr": {
+    "k": 6,
+    "rate": 0.8571428571428571,
+    "ci": [
+     0.48686549668097007,
+     0.9743210440510253
+    ]
+   }
+  },
+  {
+   "econ_bin": [
+    0.2,
+    0.4
+   ],
+   "n": 12,
+   "lr": {
+    "k": 0,
+    "rate": 0.0,
+    "ci": [
+     0.0,
+     0.2425007574992425
+    ]
+   },
+   "hgb": {
+    "k": 1,
+    "rate": 0.08333333333333333,
+    "ci": [
+     0.014864709450773478,
+     0.35388592179859524
+    ]
+   },
+   "oracle": {
+    "k": 7,
+    "rate": 0.5833333333333334,
+    "ci": [
+     0.3195073356553728,
+     0.8067425380947535
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 6,
+    "rate": 0.5,
+    "ci": [
+     0.2537781703934222,
+     0.7462218296065778
+    ]
+   },
+   "abstain_lr": {
+    "k": 5,
+    "rate": 0.4166666666666667,
+    "ci": [
+     0.19325746190524656,
+     0.6804926643446272
+    ]
+   }
+  },
+  {
+   "econ_bin": [
+    0.4,
+    Infinity
+   ],
+   "n": 14,
+   "lr": {
+    "k": 1,
+    "rate": 0.07142857142857142,
+    "ci": [
+     0.012721886112291636,
+     0.3146926955395781
+    ]
+   },
+   "hgb": {
+    "k": 3,
+    "rate": 0.21428571428571427,
+    "ci": [
+     0.0757124833691637,
+     0.4758972377320828
+    ]
+   },
+   "oracle": {
+    "k": 7,
+    "rate": 0.5,
+    "ci": [
+     0.2679886791947528,
+     0.7320113208052472
+    ]
+   },
+   "inconclusive_lr": {
+    "k": 9,
+    "rate": 0.6428571428571429,
+    "ci": [
+     0.3876400468214042,
+     0.8365550926279727
+    ]
+   },
+   "abstain_lr": {
+    "k": 4,
+    "rate": 0.2857142857142857,
+    "ci": [
+     0.11721187910109099,
+     0.5464954117248438
+    ]
+   }
+  }
+ ],
+ "fatal": 0,
+ "n": 57
+}

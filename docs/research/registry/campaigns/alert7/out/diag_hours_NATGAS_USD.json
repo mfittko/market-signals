@@ -1,0 +1,88 @@
+{
+ "inst": "NATGAS/USD",
+ "note": "post-hoc diagnostic, nospread population, 2/week target",
+ "tod": {
+  "dev2020_22": {
+   "alerts": 318,
+   "per_week": 2.031021897810219,
+   "precision": 0.9465408805031447,
+   "top_hours_utc": {
+    "4": 147,
+    "5": 145,
+    "3": 14,
+    "9": 10
+   },
+   "median_fwd_pct": 1.5136007392653297,
+   "median_fwd_pct_all": 1.8422334036682384
+  },
+  "w2023": {
+   "alerts": 389,
+   "per_week": 1.9774872912127812,
+   "precision": 0.9511568123393316,
+   "top_hours_utc": {
+    "5": 190,
+    "4": 179,
+    "6": 20,
+    "23": 0
+   },
+   "median_fwd_pct": 1.3491635186184758,
+   "median_fwd_pct_all": 1.7535727922677475
+  }
+ },
+ "vol": {
+  "dev2020_22": {
+   "alerts": 341,
+   "per_week": 2.1779197080291968,
+   "precision": 0.9882697947214076,
+   "top_hours_utc": {
+    "4": 89,
+    "3": 72,
+    "2": 57,
+    "5": 52
+   },
+   "median_fwd_pct": 1.250642453315066,
+   "median_fwd_pct_all": 1.8422334036682384
+  },
+  "w2023": {
+   "alerts": 329,
+   "per_week": 1.672476397966594,
+   "precision": 0.9787234042553191,
+   "top_hours_utc": {
+    "4": 86,
+    "3": 58,
+    "5": 56,
+    "6": 48
+   },
+   "median_fwd_pct": 1.3605442176870977,
+   "median_fwd_pct_all": 1.7535727922677475
+  }
+ },
+ "todvol": {
+  "dev2020_22": {
+   "alerts": 308,
+   "per_week": 1.9671532846715327,
+   "precision": 1.0,
+   "top_hours_utc": {
+    "4": 92,
+    "5": 61,
+    "3": 51,
+    "6": 47
+   },
+   "median_fwd_pct": 1.4226347887095812,
+   "median_fwd_pct_all": 1.8422334036682384
+  },
+  "w2023": {
+   "alerts": 392,
+   "per_week": 1.9927378358750907,
+   "precision": 0.9974489795918368,
+   "top_hours_utc": {
+    "5": 127,
+    "6": 77,
+    "4": 63,
+    "9": 32
+   },
+   "median_fwd_pct": 1.5792047622286318,
+   "median_fwd_pct_all": 1.7535727922677475
+  }
+ }
+}

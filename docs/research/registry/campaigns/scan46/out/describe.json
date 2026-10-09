@@ -1,0 +1,504 @@
+{
+ "D:AU200_AUD": {
+  "cls": "index",
+  "bars": 5702,
+  "half_spread_bps": 2.14609544759491,
+  "disc_days": 3513,
+  "val_days": 1019,
+  "w2023_days": 965
+ },
+ "D:AUD_JPY": {
+  "cls": "fx",
+  "bars": 5806,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:AUD_USD": {
+  "cls": "fx",
+  "bars": 6342,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:BCO_USD": {
+  "cls": "commodity",
+  "bars": 5969,
+  "half_spread_bps": 2.2533687863345895,
+  "disc_days": 3612,
+  "val_days": 1037,
+  "w2023_days": 974
+ },
+ "D:CORN_USD": {
+  "cls": "commodity",
+  "bars": 5948,
+  "half_spread_bps": 2.0,
+  "disc_days": 3536,
+  "val_days": 1012,
+  "w2023_days": 945
+ },
+ "D:DE10YB_EUR": {
+  "cls": "bond",
+  "bars": 6001,
+  "half_spread_bps": 2.0,
+  "disc_days": 3558,
+  "val_days": 1020,
+  "w2023_days": 958
+ },
+ "D:DE30_EUR": {
+  "cls": "index",
+  "bars": 5990,
+  "half_spread_bps": 0.6322577925772935,
+  "disc_days": 3558,
+  "val_days": 1021,
+  "w2023_days": 958
+ },
+ "D:EUR_GBP": {
+  "cls": "fx",
+  "bars": 6342,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:EUR_JPY": {
+  "cls": "fx",
+  "bars": 6344,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:EUR_USD": {
+  "cls": "fx",
+  "bars": 6344,
+  "half_spread_bps": 0.6531922438088059,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:GBP_USD": {
+  "cls": "fx",
+  "bars": 6345,
+  "half_spread_bps": 0.7125632399872205,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:HK33_HKD": {
+  "cls": "index",
+  "bars": 5848,
+  "half_spread_bps": 2.0,
+  "disc_days": 3459,
+  "val_days": 987,
+  "w2023_days": 925
+ },
+ "D:JP225_USD": {
+  "cls": "index",
+  "bars": 6078,
+  "half_spread_bps": 1.4910939090943947,
+  "disc_days": 3613,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:NAS100_USD": {
+  "cls": "index",
+  "bars": 6082,
+  "half_spread_bps": 0.5659731013840887,
+  "disc_days": 3617,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:NATGAS_USD": {
+  "cls": "commodity",
+  "bars": 6097,
+  "half_spread_bps": 11.237758869802011,
+  "disc_days": 3612,
+  "val_days": 1033,
+  "w2023_days": 972
+ },
+ "D:NZD_USD": {
+  "cls": "fx",
+  "bars": 6245,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1039,
+  "w2023_days": 979
+ },
+ "D:SOYBN_USD": {
+  "cls": "commodity",
+  "bars": 5943,
+  "half_spread_bps": 2.0,
+  "disc_days": 3532,
+  "val_days": 1012,
+  "w2023_days": 945
+ },
+ "D:SPX500_USD": {
+  "cls": "index",
+  "bars": 6082,
+  "half_spread_bps": 0.4744508231728255,
+  "disc_days": 3617,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:SUGAR_USD": {
+  "cls": "commodity",
+  "bars": 5933,
+  "half_spread_bps": 2.0,
+  "disc_days": 3522,
+  "val_days": 1007,
+  "w2023_days": 945
+ },
+ "D:UK100_GBP": {
+  "cls": "index",
+  "bars": 5956,
+  "half_spread_bps": 1.0518288674435061,
+  "disc_days": 3544,
+  "val_days": 1010,
+  "w2023_days": 952
+ },
+ "D:UK10YB_GBP": {
+  "cls": "bond",
+  "bars": 5884,
+  "half_spread_bps": 2.0,
+  "disc_days": 3537,
+  "val_days": 1009,
+  "w2023_days": 952
+ },
+ "D:US30_USD": {
+  "cls": "index",
+  "bars": 6057,
+  "half_spread_bps": 0.33931085964406293,
+  "disc_days": 3599,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:USB10Y_USD": {
+  "cls": "bond",
+  "bars": 6048,
+  "half_spread_bps": 2.0,
+  "disc_days": 3592,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:USB30Y_USD": {
+  "cls": "bond",
+  "bars": 6049,
+  "half_spread_bps": 2.0,
+  "disc_days": 3593,
+  "val_days": 1034,
+  "w2023_days": 974
+ },
+ "D:USD_CAD": {
+  "cls": "fx",
+  "bars": 6341,
+  "half_spread_bps": 2.0,
+  "disc_days": 3638,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:USD_CHF": {
+  "cls": "fx",
+  "bars": 6341,
+  "half_spread_bps": 2.0,
+  "disc_days": 3637,
+  "val_days": 1038,
+  "w2023_days": 977
+ },
+ "D:USD_JPY": {
+  "cls": "fx",
+  "bars": 6344,
+  "half_spread_bps": 0.5933986680484592,
+  "disc_days": 3638,
+  "val_days": 1039,
+  "w2023_days": 977
+ },
+ "D:WHEAT_USD": {
+  "cls": "commodity",
+  "bars": 5946,
+  "half_spread_bps": 2.0,
+  "disc_days": 3537,
+  "val_days": 1011,
+  "w2023_days": 945
+ },
+ "D:WTICO_USD": {
+  "cls": "commodity",
+  "bars": 6106,
+  "half_spread_bps": 2.3097888852959714,
+  "disc_days": 3615,
+  "val_days": 1033,
+  "w2023_days": 972
+ },
+ "D:XAG_USD": {
+  "cls": "commodity",
+  "bars": 5326,
+  "half_spread_bps": 3.7015711112940446,
+  "disc_days": 3320,
+  "val_days": 1033,
+  "w2023_days": 972
+ },
+ "D:XAU_USD": {
+  "cls": "commodity",
+  "bars": 5325,
+  "half_spread_bps": 0.8778187760834404,
+  "disc_days": 3319,
+  "val_days": 1033,
+  "w2023_days": 972
+ },
+ "D:XCU_USD": {
+  "cls": "commodity",
+  "bars": 6049,
+  "half_spread_bps": 2.0,
+  "disc_days": 3604,
+  "val_days": 1033,
+  "w2023_days": 972
+ },
+ "D:XPT_USD": {
+  "cls": "commodity",
+  "bars": 5626,
+  "half_spread_bps": 10.124772650204335,
+  "disc_days": 3621,
+  "val_days": 1032,
+  "w2023_days": 972
+ },
+ "H4:EUR/USD": {
+  "cls": "fx",
+  "bars": 9337,
+  "half_spread_bps": 0.6531922438088059,
+  "disc_days": 1038,
+  "val_days": 518
+ },
+ "H4:GBP/USD": {
+  "cls": "fx",
+  "bars": 9338,
+  "half_spread_bps": 0.7125632399872205,
+  "disc_days": 1038,
+  "val_days": 518
+ },
+ "H4:USD/JPY": {
+  "cls": "fx",
+  "bars": 9347,
+  "half_spread_bps": 0.5933986680484592,
+  "disc_days": 1039,
+  "val_days": 518
+ },
+ "H4:SPX500/USD": {
+  "cls": "index",
+  "bars": 9263,
+  "half_spread_bps": 0.4744508231728255,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H4:NAS100/USD": {
+  "cls": "index",
+  "bars": 9261,
+  "half_spread_bps": 0.5659731013840887,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H4:US30/USD": {
+  "cls": "index",
+  "bars": 9265,
+  "half_spread_bps": 0.33931085964406293,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H4:DE30/EUR": {
+  "cls": "index",
+  "bars": 8674,
+  "half_spread_bps": 0.6322577925772935,
+  "disc_days": 1015,
+  "val_days": 512
+ },
+ "H4:UK100/GBP": {
+  "cls": "index",
+  "bars": 8956,
+  "half_spread_bps": 1.0518288674435061,
+  "disc_days": 1013,
+  "val_days": 501
+ },
+ "H4:JP225/USD": {
+  "cls": "index",
+  "bars": 9267,
+  "half_spread_bps": 1.4910939090943947,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H4:AU200/AUD": {
+  "cls": "index",
+  "bars": 9103,
+  "half_spread_bps": 2.14609544759491,
+  "disc_days": 1022,
+  "val_days": 508
+ },
+ "H4:EU50/EUR": {
+  "cls": "index",
+  "bars": 8683,
+  "half_spread_bps": 1.410181510506402,
+  "disc_days": 1017,
+  "val_days": 512
+ },
+ "H4:WTICO/USD": {
+  "cls": "commodity",
+  "bars": 9264,
+  "half_spread_bps": 2.3097888852959714,
+  "disc_days": 1033,
+  "val_days": 515
+ },
+ "H4:BCO/USD": {
+  "cls": "commodity",
+  "bars": 9295,
+  "half_spread_bps": 2.2533687863345895,
+  "disc_days": 1037,
+  "val_days": 517
+ },
+ "H4:NATGAS/USD": {
+  "cls": "commodity",
+  "bars": 9264,
+  "half_spread_bps": 11.237758869802011,
+  "disc_days": 1033,
+  "val_days": 515
+ },
+ "H4:XAU/USD": {
+  "cls": "commodity",
+  "bars": 9274,
+  "half_spread_bps": 0.8778187760834404,
+  "disc_days": 1034,
+  "val_days": 515
+ },
+ "H4:XAG/USD": {
+  "cls": "commodity",
+  "bars": 9271,
+  "half_spread_bps": 3.7015711112940446,
+  "disc_days": 1034,
+  "val_days": 515
+ },
+ "H4:XPT/USD": {
+  "cls": "commodity",
+  "bars": 9209,
+  "half_spread_bps": 10.124772650204335,
+  "disc_days": 1032,
+  "val_days": 515
+ },
+ "H1:EUR/USD": {
+  "cls": "fx",
+  "bars": 37341,
+  "half_spread_bps": 0.6531922438088059,
+  "disc_days": 1038,
+  "val_days": 518
+ },
+ "H1:GBP/USD": {
+  "cls": "fx",
+  "bars": 37342,
+  "half_spread_bps": 0.7125632399872205,
+  "disc_days": 1038,
+  "val_days": 518
+ },
+ "H1:USD/JPY": {
+  "cls": "fx",
+  "bars": 37351,
+  "half_spread_bps": 0.5933986680484592,
+  "disc_days": 1039,
+  "val_days": 518
+ },
+ "H1:SPX500/USD": {
+  "cls": "index",
+  "bars": 35414,
+  "half_spread_bps": 0.4744508231728255,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H1:NAS100/USD": {
+  "cls": "index",
+  "bars": 35409,
+  "half_spread_bps": 0.5659731013840887,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H1:US30/USD": {
+  "cls": "index",
+  "bars": 35415,
+  "half_spread_bps": 0.33931085964406293,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H1:DE30/EUR": {
+  "cls": "index",
+  "bars": 29602,
+  "half_spread_bps": 0.6322577925772935,
+  "disc_days": 1015,
+  "val_days": 512
+ },
+ "H1:UK100/GBP": {
+  "cls": "index",
+  "bars": 30169,
+  "half_spread_bps": 1.0518288674435061,
+  "disc_days": 1013,
+  "val_days": 501
+ },
+ "H1:JP225/USD": {
+  "cls": "index",
+  "bars": 35464,
+  "half_spread_bps": 1.4910939090943947,
+  "disc_days": 1034,
+  "val_days": 516
+ },
+ "H1:AU200/AUD": {
+  "cls": "index",
+  "bars": 33613,
+  "half_spread_bps": 2.14609544759491,
+  "disc_days": 1022,
+  "val_days": 508
+ },
+ "H1:EU50/EUR": {
+  "cls": "index",
+  "bars": 29598,
+  "half_spread_bps": 1.410181510506402,
+  "disc_days": 1017,
+  "val_days": 512
+ },
+ "H1:WTICO/USD": {
+  "cls": "commodity",
+  "bars": 35458,
+  "half_spread_bps": 2.3097888852959714,
+  "disc_days": 1033,
+  "val_days": 515
+ },
+ "H1:BCO/USD": {
+  "cls": "commodity",
+  "bars": 33761,
+  "half_spread_bps": 2.2533687863345895,
+  "disc_days": 1037,
+  "val_days": 517
+ },
+ "H1:NATGAS/USD": {
+  "cls": "commodity",
+  "bars": 35400,
+  "half_spread_bps": 11.237758869802011,
+  "disc_days": 1033,
+  "val_days": 515
+ },
+ "H1:XAU/USD": {
+  "cls": "commodity",
+  "bars": 35462,
+  "half_spread_bps": 0.8778187760834404,
+  "disc_days": 1034,
+  "val_days": 515
+ },
+ "H1:XAG/USD": {
+  "cls": "commodity",
+  "bars": 35460,
+  "half_spread_bps": 3.7015711112940446,
+  "disc_days": 1034,
+  "val_days": 515
+ },
+ "H1:XPT/USD": {
+  "cls": "commodity",
+  "bars": 34994,
+  "half_spread_bps": 10.124772650204335,
+  "disc_days": 1032,
+  "val_days": 515
+ }
+}

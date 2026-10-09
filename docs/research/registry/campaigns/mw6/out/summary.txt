@@ -1,0 +1,611 @@
+== policy table (fin 3 %): Sharpe [CI] | annR | maxDD | trades/eff | worst R | >1R | fin share | side null p, diff [CI] | time null p | thin p
+WTICO/ B1_tsmom60_h20       dev20 S -0.10 [-1.25,+1.08] annR -0.34 dd 6.4 n 1037/1037.0 worst -3.87 >1R +0.20 finsh +0.75 | side p 0.27 d +0.01 [-3.69,+4.36] | time p 0.43
+WTICO/ B1_tsmom60_h20       w2023 S -0.24 [-1.31,+0.75] annR -0.76 dd 6.6 n 959/959.0 worst -2.53 >1R +0.16 finsh +0.73 | side p 0.28 d -0.33 [-3.43,+3.14] | time p 0.59
+WTICO/ B2_tsmom120_h20      dev20 S +0.21 [-0.86,+1.34] annR +0.75 dd 8.2 n 1037/1037.0 worst -3.87 >1R +0.14 finsh +0.75 | side p 0.14 d +1.09 [-2.61,+5.34] | time p 0.39
+WTICO/ B2_tsmom120_h20      w2023 S -0.43 [-1.34,+0.46] annR -1.35 dd 8.6 n 959/959.0 worst -6.07 >1R +0.16 finsh +0.73 | side p 0.41 d -0.90 [-3.66,+1.90] | time p 0.62
+WTICO/ B3_tsmom20_h5        dev20 S +1.17 [+0.25,+2.21] annR +3.84 dd 4.0 n 1036/1036.0 worst -2.09 >1R +0.02 finsh +0.43 | side p 0.00 d +4.40 [+1.40,+8.08] | time p 0.03
+WTICO/ B3_tsmom20_h5        w2023 S +0.00 [-0.96,+0.90] annR +0.00 dd 4.7 n 974/974.0 worst -3.01 >1R +0.02 finsh +0.40 | side p 0.22 d +0.70 [-2.19,+3.70] | time p 0.34
+WTICO/ B4_st_d1             dev20 S +0.62 [-0.31,+1.70] annR +2.27 dd 5.4 n 22/22 worst -1.29 >1R +0.14 finsh +0.88 | side p 0.20 d +2.25 [-1.08,+6.37] | time p 0.07
+WTICO/ B4_st_d1             w2023 S +0.15 [-0.72,+1.02] annR +0.71 dd 5.8 n 23/23 worst -1.14 >1R +0.17 finsh +0.84 | side p 0.36 d +1.06 [-2.81,+5.79] | time p 0.28
+WTICO/ B5_st_h4d1           dev20 S +0.75 [-0.30,+1.77] annR +2.51 dd 6.2 n 49/49 worst -1.02 >1R +0.04 finsh +0.75 | side p 0.12 d +2.02 [-0.92,+5.31] | time p 0.04
+WTICO/ B5_st_h4d1           w2023 S +0.09 [-0.89,+1.02] annR +0.31 dd 4.7 n 48/48 worst -1.24 >1R +0.06 finsh +0.72 | side p 0.41 d +0.38 [-2.73,+3.25] | time p 0.33
+WTICO/ B6_donchian          dev20 S +0.71 [-0.28,+1.75] annR +2.28 dd 4.8 n 43/43 worst -1.02 >1R +0.12 finsh +0.71 | side p 0.07 d +2.23 [-0.53,+5.32] | time p 0.10
+WTICO/ B6_donchian          w2023 S -0.03 [-1.02,+0.86] annR -0.10 dd 5.8 n 34/34 worst -1.01 >1R +0.09 finsh +0.68 | side p 0.37 d +0.29 [-1.98,+2.84] | time p 0.40
+WTICO/ C1_st_h4d1_bigweek   dev20 S -0.34 [-1.14,+0.58] annR -0.75 dd 4.6 n 28/28 worst -1.02 >1R +0.07 finsh +0.75 | side p 0.59 d -0.32 [-2.13,+1.49] | time p 0.72 | thin p 0.97 d -1.86 [-3.51,-0.32]
+WTICO/ C1_st_h4d1_bigweek   w2023 S -0.84 [-1.67,+0.10] annR -1.52 dd 6.8 n 18/18 worst -1.24 >1R +0.06 finsh +0.71 | side p 0.92 d -1.18 [-2.85,+0.38] | time p 0.95 | thin p 0.99 d -1.73 [-3.42,-0.27]
+WTICO/ C2_tsmom60_bigweek   dev20 S -0.67 [-1.82,+0.61] annR -0.96 dd 5.4 n 433/433.0 worst -2.49 >1R +0.21 finsh +0.76 | side p 0.78 d -0.83 [-2.35,+0.98] | time p 0.80 | thin p 1.00 d -0.83 [-1.79,+0.35]
+WTICO/ C2_tsmom60_bigweek   w2023 S -0.53 [-1.28,+0.11] annR -0.77 dd 3.4 n 295/295.0 worst -1.89 >1R +0.18 finsh +0.73 | side p 0.75 d -0.69 [-1.73,+0.23] | time p 0.65 | thin p 0.94 d -0.53 [-1.55,+0.39]
+XAU/US B1_tsmom60_h20       dev20 S -0.30 [-1.24,+0.55] annR -0.96 dd 9.2 n 1037/1037.0 worst -5.22 >1R +0.16 finsh +0.86 | side p 0.02 d -0.02 [-3.06,+2.73] | time p 0.71
+XAU/US B1_tsmom60_h20       w2023 S +0.97 [-0.07,+1.94] annR +3.62 dd 3.6 n 959/959.0 worst -3.55 >1R +0.10 finsh +0.91 | side p 0.00 d +4.35 [+0.48,+8.14] | time p 0.12
+XAU/US B2_tsmom120_h20      dev20 S +0.22 [-0.78,+1.18] annR +0.80 dd 8.4 n 1037/1037.0 worst -3.44 >1R +0.14 finsh +0.86 | side p 0.01 d +1.66 [-1.80,+5.11] | time p 0.35
+XAU/US B2_tsmom120_h20      w2023 S +1.10 [+0.05,+2.13] annR +4.41 dd 6.5 n 959/959.0 worst -3.07 >1R +0.10 finsh +0.91 | side p 0.00 d +5.14 [+0.98,+9.39] | time p 0.14
+XAU/US B3_tsmom20_h5        dev20 S -0.05 [-1.18,+0.90] annR -0.16 dd 7.4 n 1037/1037.0 worst -1.73 >1R +0.04 finsh +0.61 | side p 0.09 d +1.04 [-2.49,+4.21] | time p 0.34
+XAU/US B3_tsmom20_h5        w2023 S +0.26 [-0.91,+1.31] annR +0.90 dd 7.2 n 974/974.0 worst -2.16 >1R +0.04 finsh +0.72 | side p 0.07 d +1.74 [-2.17,+5.53] | time p 0.27
+XAU/US B4_st_d1             dev20 S -0.13 [-1.05,+0.74] annR -0.51 dd 9.0 n 28/28 worst -1.40 >1R +0.25 finsh +0.92 | side p 0.41 d +0.35 [-3.29,+4.03] | time p 0.59
+XAU/US B4_st_d1             w2023 S -0.04 [-1.14,+0.90] annR -0.17 dd 10.0 n 24/24 worst -1.43 >1R +0.38 finsh +0.94 | side p 0.41 d +0.44 [-3.77,+4.28] | time p 0.59
+XAU/US B5_st_h4d1           dev20 S -0.21 [-1.25,+0.66] annR -0.65 dd 7.2 n 55/55 worst -1.05 >1R +0.09 finsh +0.84 | side p 0.55 d -0.34 [-3.09,+2.06] | time p 0.58
+XAU/US B5_st_h4d1           w2023 S +0.10 [-1.03,+1.14] annR +0.31 dd 8.8 n 47/47 worst -1.06 >1R +0.17 finsh +0.91 | side p 0.35 d +0.46 [-2.58,+3.12] | time p 0.50
+XAU/US B6_donchian          dev20 S +0.08 [-0.88,+1.04] annR +0.26 dd 7.1 n 37/37 worst -1.07 >1R +0.14 finsh +0.82 | side p 0.28 d +0.74 [-1.71,+3.40] | time p 0.34
+XAU/US B6_donchian          w2023 S +0.26 [-0.82,+1.21] annR +0.90 dd 5.5 n 37/37 worst -1.05 >1R +0.11 finsh +0.91 | side p 0.14 d +1.58 [-1.40,+4.19] | time p 0.49
+XAU/US C1_st_h4d1_bigweek   dev20 S -0.29 [-1.22,+0.57] annR -0.75 dd 7.4 n 39/39 worst -1.05 >1R +0.10 finsh +0.84 | side p 0.50 d -0.03 [-2.27,+2.12] | time p 0.66 | thin p 0.65 d -0.26 [-1.64,+1.14]
+XAU/US C1_st_h4d1_bigweek   w2023 S +0.56 [-0.51,+1.53] annR +1.76 dd 4.5 n 39/39 worst -1.05 >1R +0.15 finsh +0.90 | side p 0.17 d +1.53 [-1.44,+3.97] | time p 0.23 | thin p 0.04 d +1.58 [+0.16,+2.76]
+XAU/US C2_tsmom60_bigweek   dev20 S +0.00 [-0.92,+0.92] annR +0.00 dd 6.9 n 717/717.0 worst -3.44 >1R +0.13 finsh +0.86 | side p 0.06 d +0.52 [-1.83,+2.88] | time p 0.56 | thin p 0.01 d +0.65 [-0.41,+1.82]
+XAU/US C2_tsmom60_bigweek   w2023 S +0.82 [-0.13,+1.80] annR +2.83 dd 3.4 n 771/771.0 worst -3.07 >1R +0.10 finsh +0.91 | side p 0.00 d +3.34 [+0.06,+7.01] | time p 0.24 | thin p 0.96 d +0.37 [-0.80,+1.75]
+XAG/US B1_tsmom60_h20       dev20 S -0.44 [-1.68,+0.58] annR -1.57 dd 11.4 n 1037/1037.0 worst -7.65 >1R +0.18 finsh +0.65 | side p 0.34 d -0.92 [-4.71,+2.91] | time p 0.62
+XAG/US B1_tsmom60_h20       w2023 S +0.08 [-1.05,+1.23] annR +0.26 dd 10.9 n 959/959.0 worst -3.30 >1R +0.18 finsh +0.74 | side p 0.14 d +0.67 [-3.09,+4.74] | time p 0.51
+XAG/US B2_tsmom120_h20      dev20 S -0.25 [-1.27,+0.69] annR -0.83 dd 4.8 n 1037/1037.0 worst -7.33 >1R +0.17 finsh +0.65 | side p 0.20 d -0.15 [-3.17,+3.36] | time p 0.58
+XAG/US B2_tsmom120_h20      w2023 S +0.58 [-0.60,+1.66] annR +2.10 dd 6.1 n 959/959.0 worst -2.20 >1R +0.15 finsh +0.74 | side p 0.01 d +2.61 [-1.64,+6.76] | time p 0.23
+XAG/US B3_tsmom20_h5        dev20 S -0.10 [-1.17,+0.91] annR -0.34 dd 8.4 n 1037/1037.0 worst -2.56 >1R +0.03 finsh +0.32 | side p 0.12 d +0.83 [-2.48,+4.45] | time p 0.28
+XAG/US B3_tsmom20_h5        w2023 S -0.39 [-1.65,+0.76] annR -1.32 dd 11.8 n 974/974.0 worst -2.45 >1R +0.04 finsh +0.42 | side p 0.47 d -0.54 [-4.62,+3.46] | time p 0.68
+XAG/US B4_st_d1             dev20 S +0.19 [-0.80,+1.11] annR +0.74 dd 11.6 n 24/24 worst -1.31 >1R +0.04 finsh +0.81 | side p 0.24 d +1.42 [-2.48,+5.53] | time p 0.24
+XAG/US B4_st_d1             w2023 S +0.32 [-0.57,+1.56] annR +1.70 dd 8.5 n 24/24 worst -1.31 >1R +0.12 finsh +0.83 | side p 0.10 d +2.39 [-3.19,+8.76] | time p 0.20
+XAG/US B5_st_h4d1           dev20 S +0.02 [-0.88,+0.84] annR +0.07 dd 9.3 n 49/49 worst -1.01 >1R +0.04 finsh +0.58 | side p 0.36 d +0.48 [-1.88,+2.92] | time p 0.41
+XAG/US B5_st_h4d1           w2023 S +0.37 [-0.62,+1.33] annR +1.09 dd 2.6 n 43/43 worst -1.03 >1R +0.02 finsh +0.75 | side p 0.34 d +0.65 [-1.87,+3.07] | time p 0.23
+XAG/US B6_donchian          dev20 S +0.34 [-0.72,+1.18] annR +1.11 dd 4.7 n 38/38 worst -1.01 >1R +0.11 finsh +0.57 | side p 0.24 d +1.05 [-1.49,+3.66] | time p 0.26
+XAG/US B6_donchian          w2023 S -0.19 [-1.29,+1.03] annR -0.56 dd 8.1 n 34/34 worst -1.02 >1R +0.15 finsh +0.69 | side p 0.55 d -0.30 [-2.84,+2.47] | time p 0.68
+XAG/US C1_st_h4d1_bigweek   dev20 S -0.32 [-1.32,+0.56] annR -0.91 dd 12.6 n 41/41 worst -1.01 >1R +0.07 finsh +0.62 | side p 0.67 d -0.69 [-3.07,+1.54] | time p 0.66 | thin p 0.92 d -0.96 [-2.35,+0.40]
+XAG/US C1_st_h4d1_bigweek   w2023 S +0.20 [-0.82,+1.19] annR +0.58 dd 3.7 n 42/42 worst -1.03 >1R +0.02 finsh +0.75 | side p 0.53 d +0.07 [-2.55,+2.58] | time p 0.29 | thin p 0.73 d -0.27 [-1.24,+0.54]
+XAG/US C2_tsmom60_bigweek   dev20 S -0.42 [-1.59,+0.53] annR -1.21 dd 9.9 n 832/832.0 worst -7.33 >1R +0.16 finsh +0.66 | side p 0.42 d -0.80 [-3.53,+2.18] | time p 0.66 | thin p 0.51 d -0.01 [-1.07,+1.11]
+XAG/US C2_tsmom60_bigweek   w2023 S +0.18 [-0.95,+1.27] annR +0.59 dd 8.4 n 874/874.0 worst -3.30 >1R +0.16 finsh +0.74 | side p 0.10 d +1.00 [-2.53,+4.76] | time p 0.51 | thin p 0.06 d +0.40 [-0.38,+1.28]
+NATGAS B1_tsmom60_h20       dev20 S +0.22 [-0.71,+1.12] annR +0.72 dd 4.8 n 1035/1035.0 worst -3.26 >1R +0.17 finsh +0.35 | side p 0.04 d +1.34 [-1.68,+4.51] | time p 0.17
+NATGAS B1_tsmom60_h20       w2023 S -0.53 [-1.54,+0.26] annR -1.72 dd 9.4 n 958/958.0 worst -3.85 >1R +0.18 finsh +0.37 | side p 0.45 d -1.23 [-4.36,+1.40] | time p 0.75
+NATGAS B2_tsmom120_h20      dev20 S +0.15 [-0.76,+0.95] annR +0.53 dd 5.3 n 1037/1037.0 worst -3.74 >1R +0.17 finsh +0.35 | side p 0.04 d +1.15 [-2.06,+4.04] | time p 0.34
+NATGAS B2_tsmom120_h20      w2023 S -0.54 [-1.52,+0.27] annR -1.79 dd 9.5 n 959/959.0 worst -3.85 >1R +0.18 finsh +0.37 | side p 0.47 d -1.29 [-4.56,+1.46] | time p 0.85
+NATGAS B3_tsmom20_h5        dev20 S -0.28 [-1.23,+0.69] annR -0.96 dd 10.2 n 1037/1037.0 worst -1.76 >1R +0.02 finsh +0.12 | side p 0.05 d +1.02 [-1.86,+4.36] | time p 0.32
+NATGAS B3_tsmom20_h5        w2023 S -0.51 [-1.53,+0.40] annR -1.68 dd 9.0 n 972/972.0 worst -2.93 >1R +0.02 finsh +0.13 | side p 0.23 d -0.27 [-3.78,+2.81] | time p 0.57
+NATGAS B4_st_d1             dev20 S -0.59 [-1.67,+0.57] annR -2.32 dd 11.2 n 36/36 worst -1.55 >1R +0.28 finsh +0.46 | side p 0.78 d -2.07 [-6.37,+2.57] | time p 0.77
+NATGAS B4_st_d1             w2023 S +0.09 [-0.80,+0.87] annR +0.33 dd 6.1 n 26/26 worst -1.49 >1R +0.12 finsh +0.51 | side p 0.29 d +0.68 [-2.71,+3.61] | time p 0.34
+NATGAS B5_st_h4d1           dev20 S -0.65 [-1.57,+0.42] annR -2.14 dd 9.3 n 62/62 worst -1.01 >1R +0.11 finsh +0.34 | side p 0.81 d -1.36 [-4.20,+1.95] | time p 0.81
+NATGAS B5_st_h4d1           w2023 S +0.05 [-0.84,+0.89] annR +0.17 dd 7.1 n 50/50 worst -1.00 >1R +0.02 finsh +0.37 | side p 0.31 d +0.72 [-2.01,+2.99] | time p 0.30
+NATGAS B6_donchian          dev20 S -0.74 [-1.75,+0.28] annR -2.21 dd 10.1 n 46/46 worst -1.25 >1R +0.30 finsh +0.29 | side p 0.82 d -1.58 [-4.30,+1.32] | time p 0.83
+NATGAS B6_donchian          w2023 S -0.01 [-1.08,+0.85] annR -0.04 dd 4.6 n 37/37 worst -1.01 >1R +0.14 finsh +0.32 | side p 0.29 d +0.70 [-2.00,+2.87] | time p 0.33
+NATGAS C1_st_h4d1_bigweek   dev20 S -1.19 [-2.12,-0.05] annR -2.84 dd 11.8 n 32/32 worst -1.01 >1R +0.19 finsh +0.34 | side p 0.99 d -2.58 [-4.64,-0.11] | time p 0.94 | thin p 0.96 d -1.94 [-3.51,-0.04]
+NATGAS C1_st_h4d1_bigweek   w2023 S +0.03 [-0.86,+0.88] annR +0.06 dd 5.2 n 24/24 worst -1.00 >1R +0.00 finsh +0.38 | side p 0.40 d +0.26 [-1.55,+2.08] | time p 0.34 | thin p 0.53 d +0.00 [-1.59,+1.65]
+NATGAS C2_tsmom60_bigweek   dev20 S -0.04 [-0.86,+0.62] annR -0.09 dd 4.0 n 481/481.0 worst -2.41 >1R +0.14 finsh +0.38 | side p 0.26 d +0.11 [-1.61,+1.49] | time p 0.47 | thin p 0.95 d -0.41 [-1.69,+0.64]
+NATGAS C2_tsmom60_bigweek   w2023 S +0.42 [-0.50,+1.06] annR +0.76 dd 2.5 n 415/415.0 worst -2.66 >1R +0.11 finsh +0.37 | side p 0.04 d +0.94 [-0.71,+2.23] | time p 0.10 | thin p 0.00 d +1.46 [+0.38,+2.40]
+SPX500 B1_tsmom60_h20       dev20 S -0.26 [-1.12,+0.68] annR -0.96 dd 7.6 n 1038/1038.0 worst -10.39 >1R +0.17 finsh +0.94 | side p 0.15 d -0.26 [-3.76,+3.12] | time p 0.75
+SPX500 B1_tsmom60_h20       w2023 S +0.60 [-0.23,+1.42] annR +2.10 dd 3.5 n 962/962.0 worst -3.81 >1R +0.13 finsh +0.96 | side p 0.00 d +2.99 [+0.03,+5.78] | time p 0.27
+SPX500 B2_tsmom120_h20      dev20 S -0.34 [-1.20,+0.65] annR -1.32 dd 11.4 n 1038/1038.0 worst -10.39 >1R +0.16 finsh +0.94 | side p 0.18 d -0.56 [-4.36,+3.03] | time p 0.83
+SPX500 B2_tsmom120_h20      w2023 S +0.61 [-0.19,+1.52] annR +2.18 dd 3.7 n 962/962.0 worst -3.81 >1R +0.13 finsh +0.96 | side p 0.00 d +3.01 [+0.19,+6.07] | time p 0.28
+SPX500 B3_tsmom20_h5        dev20 S -0.17 [-1.02,+0.69] annR -0.56 dd 7.1 n 1038/1038.0 worst -3.80 >1R +0.03 finsh +0.78 | side p 0.24 d +0.23 [-2.78,+3.19] | time p 0.55
+SPX500 B3_tsmom20_h5        w2023 S +0.24 [-0.54,+1.22] annR +0.81 dd 5.2 n 977/977.0 worst -1.72 >1R +0.02 finsh +0.85 | side p 0.01 d +1.97 [-0.63,+5.14] | time p 0.46
+SPX500 B4_st_d1             dev20 S -0.35 [-1.30,+0.52] annR -1.51 dd 13.1 n 34/34 worst -1.43 >1R +0.26 finsh +0.96 | side p 0.69 d -0.89 [-4.67,+2.97] | time p 0.70
+SPX500 B4_st_d1             w2023 S -0.44 [-1.33,+0.40] annR -1.57 dd 8.9 n 26/26 worst -1.67 >1R +0.35 finsh +0.97 | side p 0.69 d -0.98 [-3.93,+2.10] | time p 0.83
+SPX500 B5_st_h4d1           dev20 S -0.08 [-1.18,+0.84] annR -0.31 dd 9.6 n 56/56 worst -1.05 >1R +0.12 finsh +0.93 | side p 0.52 d -0.27 [-3.25,+2.87] | time p 0.41
+SPX500 B5_st_h4d1           w2023 S -0.48 [-1.35,+0.47] annR -1.52 dd 9.4 n 50/50 worst -1.04 >1R +0.06 finsh +0.96 | side p 0.59 d -0.38 [-3.03,+2.68] | time p 0.80
+SPX500 B6_donchian          dev20 S -0.04 [-0.93,+0.77] annR -0.14 dd 8.7 n 48/48 worst -1.05 >1R +0.10 finsh +0.92 | side p 0.43 d +0.18 [-2.22,+2.61] | time p 0.41
+SPX500 B6_donchian          w2023 S -0.13 [-0.90,+0.73] annR -0.38 dd 6.6 n 41/41 worst -1.04 >1R +0.07 finsh +0.95 | side p 0.31 d +0.46 [-1.64,+2.81] | time p 0.61
+SPX500 C1_st_h4d1_bigweek   dev20 S +0.98 [+0.12,+1.62] annR +2.52 dd 2.1 n 17/17 worst -1.01 >1R +0.06 finsh +0.94 | side p 0.07 d +1.91 [+0.22,+4.05] | time p 0.02 | thin p 0.00 d +2.62 [+0.72,+5.32]
+SPX500 C1_st_h4d1_bigweek   w2023 S -0.05 [-0.84,+0.89] annR -0.07 dd 2.1 n 10/10 worst -1.01 >1R +0.20 finsh +0.96 | side p 0.35 d +0.17 [-0.78,+1.37] | time p 0.39 | thin p 0.25 d +0.33 [-0.70,+1.49]
+SPX500 C2_tsmom60_bigweek   dev20 S -0.48 [-1.29,+0.39] annR -0.64 dd 3.0 n 292/292.0 worst -7.50 >1R +0.12 finsh +0.94 | side p 0.67 d -0.53 [-1.57,+0.69] | time p 0.72 | thin p 0.89 d -0.47 [-1.42,+0.58]
+SPX500 C2_tsmom60_bigweek   w2023 S +0.26 [-0.59,+1.04] annR +0.35 dd 2.9 n 149/149.0 worst -2.13 >1R +0.13 finsh +0.96 | side p 0.13 d +0.47 [-0.48,+1.46] | time p 0.09 | thin p 0.94 d -0.10 [-1.01,+0.79]
+EUR/US B1_tsmom60_h20       dev20 S -0.55 [-1.56,+0.37] annR -1.54 dd 11.4 n 1042/1042.0 worst -3.74 >1R +0.16 finsh +0.90 | side p 0.00 d +0.19 [-2.46,+2.74] | time p 0.47
+EUR/US B1_tsmom60_h20       w2023 S -1.12 [-2.15,-0.23] annR -3.16 dd 13.4 n 964/964.0 worst -3.61 >1R +0.23 finsh +0.91 | side p 0.01 d -1.39 [-4.06,+1.17] | time p 0.92
+EUR/US B2_tsmom120_h20      dev20 S +0.04 [-0.84,+0.97] annR +0.14 dd 5.6 n 1042/1042.0 worst -3.74 >1R +0.12 finsh +0.90 | side p 0.00 d +1.91 [-1.08,+4.94] | time p 0.26
+EUR/US B2_tsmom120_h20      w2023 S -1.31 [-2.23,-0.42] annR -3.91 dd 17.0 n 964/964.0 worst -3.61 >1R +0.23 finsh +0.91 | side p 0.11 d -2.26 [-5.01,+0.38] | time p 0.97
+EUR/US B3_tsmom20_h5        dev20 S -1.34 [-2.34,-0.43] annR -3.95 dd 18.1 n 1042/1042.0 worst -2.09 >1R +0.03 finsh +0.70 | side p 0.43 d -1.75 [-4.56,+0.93] | time p 0.93
+EUR/US B3_tsmom20_h5        w2023 S -0.23 [-1.22,+0.51] annR -0.74 dd 7.3 n 979/979.0 worst -2.18 >1R +0.02 finsh +0.72 | side p 0.01 d +1.58 [-1.39,+3.99] | time p 0.14
+EUR/US B4_st_d1             dev20 S -0.52 [-1.39,+0.46] annR -1.76 dd 11.2 n 27/27 worst -1.49 >1R +0.37 finsh +0.94 | side p 0.50 d -0.07 [-2.96,+3.33] | time p 0.57
+EUR/US B4_st_d1             w2023 S -0.95 [-1.95,-0.07] annR -3.22 dd 13.3 n 28/28 worst -1.32 >1R +0.21 finsh +0.94 | side p 0.91 d -1.68 [-4.88,+1.30] | time p 0.89
+EUR/US B5_st_h4d1           dev20 S -0.39 [-1.32,+0.59] annR -1.16 dd 8.4 n 55/55 worst -1.08 >1R +0.07 finsh +0.88 | side p 0.47 d +0.05 [-2.35,+2.79] | time p 0.42
+EUR/US B5_st_h4d1           w2023 S -0.98 [-2.01,-0.12] annR -2.91 dd 12.5 n 50/50 worst -1.08 >1R +0.14 finsh +0.90 | side p 0.81 d -1.40 [-4.27,+1.00] | time p 0.91
+EUR/US B6_donchian          dev20 S -1.26 [-2.15,-0.24] annR -3.36 dd 14.9 n 46/46 worst -1.06 >1R +0.15 finsh +0.87 | side p 0.97 d -2.15 [-4.50,+0.34] | time p 0.96
+EUR/US B6_donchian          w2023 S -0.29 [-1.15,+0.55] annR -0.79 dd 7.3 n 39/39 worst -1.10 >1R +0.13 finsh +0.90 | side p 0.26 d +0.69 [-1.55,+2.96] | time p 0.39
+EUR/US C1_st_h4d1_bigweek   dev20 S +0.27 [-0.56,+1.04] annR +0.52 dd 2.5 n 19/19 worst -1.08 >1R +0.11 finsh +0.90 | side p 0.14 d +0.89 [-0.58,+2.42] | time p 0.16 | thin p 0.07 d +0.91 [-0.30,+2.23]
+EUR/US C1_st_h4d1_bigweek   w2023 S -0.29 [-1.47,+0.68] annR -0.47 dd 3.6 n 12/12 worst -1.06 >1R +0.25 finsh +0.89 | side p 0.65 d -0.29 [-1.72,+1.21] | time p 0.51 | thin p 0.28 d +0.30 [-1.00,+1.74]
+EUR/US C2_tsmom60_bigweek   dev20 S -0.23 [-1.11,+0.63] annR -0.33 dd 3.0 n 323/323.0 worst -3.15 >1R +0.15 finsh +0.89 | side p 0.10 d +0.05 [-1.33,+1.22] | time p 0.37 | thin p 0.12 d +0.03 [-1.19,+0.99]
+EUR/US C2_tsmom60_bigweek   w2023 S +0.11 [-0.92,+0.90] annR +0.13 dd 1.4 n 197/197.0 worst -2.38 >1R +0.14 finsh +0.91 | side p 0.03 d +0.43 [-0.55,+1.64] | time p 0.13 | thin p 0.00 d +0.90 [+0.12,+1.76]
+
+== financing sensitivity: Sharpe dev / w2023 at 0, 3, 6 %
+WTICO/ B1_tsmom60_h20       0.0: -0.02/-0.14  0.03: -0.10/-0.24  0.06: -0.18/-0.34
+WTICO/ B2_tsmom120_h20      0.0: +0.29/-0.33  0.03: +0.21/-0.43  0.06: +0.13/-0.53
+WTICO/ B3_tsmom20_h5        0.0: +1.26/+0.10  0.03: +1.17/+0.00  0.06: +1.09/-0.10
+WTICO/ B4_st_d1             0.0: +0.69/+0.21  0.03: +0.62/+0.15  0.06: +0.55/+0.08
+WTICO/ B5_st_h4d1           0.0: +0.80/+0.16  0.03: +0.75/+0.09  0.06: +0.69/+0.02
+WTICO/ B6_donchian          0.0: +0.77/+0.02  0.03: +0.71/-0.03  0.06: +0.65/-0.09
+WTICO/ C1_st_h4d1_bigweek   0.0: -0.30/-0.80  0.03: -0.34/-0.84  0.06: -0.38/-0.87
+WTICO/ C2_tsmom60_bigweek   0.0: -0.61/-0.49  0.03: -0.67/-0.53  0.06: -0.73/-0.58
+XAU/US B1_tsmom60_h20       0.0: -0.06/+1.15  0.03: -0.30/+0.97  0.06: -0.53/+0.79
+XAU/US B2_tsmom120_h20      0.0: +0.43/+1.27  0.03: +0.22/+1.10  0.06: +0.01/+0.94
+XAU/US B3_tsmom20_h5        0.0: +0.19/+0.45  0.03: -0.05/+0.26  0.06: -0.29/+0.07
+XAU/US B4_st_d1             0.0: +0.06/+0.11  0.03: -0.13/-0.04  0.06: -0.32/-0.20
+XAU/US B5_st_h4d1           0.0: -0.02/+0.24  0.03: -0.21/+0.10  0.06: -0.40/-0.05
+XAU/US B6_donchian          0.0: +0.21/+0.37  0.03: +0.08/+0.26  0.06: -0.05/+0.14
+XAU/US C1_st_h4d1_bigweek   0.0: -0.14/+0.68  0.03: -0.29/+0.56  0.06: -0.43/+0.45
+XAU/US C2_tsmom60_bigweek   0.0: +0.19/+0.96  0.03: +0.00/+0.82  0.06: -0.18/+0.68
+XAG/US B1_tsmom60_h20       0.0: -0.33/+0.18  0.03: -0.44/+0.08  0.06: -0.56/-0.03
+XAG/US B2_tsmom120_h20      0.0: -0.12/+0.67  0.03: -0.25/+0.58  0.06: -0.37/+0.48
+XAG/US B3_tsmom20_h5        0.0: +0.02/-0.29  0.03: -0.10/-0.39  0.06: -0.23/-0.50
+XAG/US B4_st_d1             0.0: +0.29/+0.39  0.03: +0.19/+0.32  0.06: +0.09/+0.26
+XAG/US B5_st_h4d1           0.0: +0.12/+0.45  0.03: +0.02/+0.37  0.06: -0.07/+0.29
+XAG/US B6_donchian          0.0: +0.41/-0.13  0.03: +0.34/-0.19  0.06: +0.26/-0.25
+XAG/US C1_st_h4d1_bigweek   0.0: -0.24/+0.27  0.03: -0.32/+0.20  0.06: -0.39/+0.12
+XAG/US C2_tsmom60_bigweek   0.0: -0.32/+0.28  0.03: -0.42/+0.18  0.06: -0.52/+0.09
+NATGAS B1_tsmom60_h20       0.0: +0.28/-0.47  0.03: +0.22/-0.53  0.06: +0.15/-0.58
+NATGAS B2_tsmom120_h20      0.0: +0.22/-0.49  0.03: +0.15/-0.54  0.06: +0.09/-0.60
+NATGAS B3_tsmom20_h5        0.0: -0.22/-0.45  0.03: -0.28/-0.51  0.06: -0.35/-0.57
+NATGAS B4_st_d1             0.0: -0.53/+0.13  0.03: -0.59/+0.09  0.06: -0.64/+0.04
+NATGAS B5_st_h4d1           0.0: -0.60/+0.09  0.03: -0.65/+0.05  0.06: -0.70/+0.01
+NATGAS B6_donchian          0.0: -0.69/+0.02  0.03: -0.74/-0.01  0.06: -0.78/-0.05
+NATGAS C1_st_h4d1_bigweek   0.0: -1.17/+0.05  0.03: -1.19/+0.03  0.06: -1.21/+0.00
+NATGAS C2_tsmom60_bigweek   0.0: -0.01/+0.46  0.03: -0.04/+0.42  0.06: -0.08/+0.38
+SPX500 B1_tsmom60_h20       0.0: -0.07/+0.83  0.03: -0.26/+0.60  0.06: -0.45/+0.36
+SPX500 B2_tsmom120_h20      0.0: -0.16/+0.84  0.03: -0.34/+0.61  0.06: -0.51/+0.38
+SPX500 B3_tsmom20_h5        0.0: +0.04/+0.50  0.03: -0.17/+0.24  0.06: -0.37/-0.01
+SPX500 B4_st_d1             0.0: -0.20/-0.25  0.03: -0.35/-0.44  0.06: -0.49/-0.63
+SPX500 B5_st_h4d1           0.0: +0.06/-0.29  0.03: -0.08/-0.48  0.06: -0.22/-0.68
+SPX500 B6_donchian          0.0: +0.10/+0.05  0.03: -0.04/-0.13  0.06: -0.18/-0.31
+SPX500 C1_st_h4d1_bigweek   0.0: +1.02/+0.02  0.03: +0.98/-0.05  0.06: +0.93/-0.11
+SPX500 C2_tsmom60_bigweek   0.0: -0.39/+0.33  0.03: -0.48/+0.26  0.06: -0.57/+0.19
+EUR/US B1_tsmom60_h20       0.0: +0.02/-0.57  0.03: -0.55/-1.12  0.06: -1.12/-1.67
+EUR/US B2_tsmom120_h20      0.0: +0.53/-0.79  0.03: +0.04/-1.31  0.06: -0.45/-1.83
+EUR/US B3_tsmom20_h5        0.0: -0.80/+0.27  0.03: -1.34/-0.23  0.06: -1.88/-0.73
+EUR/US B4_st_d1             0.0: -0.07/-0.51  0.03: -0.52/-0.95  0.06: -0.96/-1.38
+EUR/US B5_st_h4d1           0.0: -0.01/-0.60  0.03: -0.39/-0.98  0.06: -0.77/-1.36
+EUR/US B6_donchian          0.0: -0.91/+0.06  0.03: -1.26/-0.29  0.06: -1.61/-0.64
+EUR/US C1_st_h4d1_bigweek   0.0: +0.46/-0.16  0.03: +0.27/-0.29  0.06: +0.08/-0.43
+EUR/US C2_tsmom60_bigweek   0.0: +0.01/+0.33  0.03: -0.23/+0.11  0.06: -0.46/-0.11
+
+== pooled (fin 3 %)
+B1_tsmom60_h20       wti_xau dev201 S -0.26 [-1.28,+0.75] annR -1.30 dd 10.8 | w2023 S +0.60 [-0.52,+1.56] annR +2.84 dd 6.0 | crises 2020H1:+1.9R 2022H1:-0.6R 2025Q4_26Q1:+9.4R
+B1_tsmom60_h20       all6    dev201 S -0.48 [-1.43,+0.46] annR -4.64 dd 23.8 | w2023 S +0.03 [-0.95,+0.95] annR +0.33 dd 17.9 | crises 2020H1:-11.2R 2022H1:-0.7R 2025Q4_26Q1:+10.8R
+B2_tsmom120_h20      wti_xau dev201 S +0.29 [-0.63,+1.26] annR +1.55 dd 7.7 | w2023 S +0.63 [-0.42,+1.60] annR +3.05 dd 8.1 | crises 2020H1:+3.0R 2022H1:+3.1R 2025Q4_26Q1:+4.7R
+B2_tsmom120_h20      all6    dev201 S +0.01 [-0.84,+0.87] annR +0.07 dd 16.1 | w2023 S +0.16 [-0.80,+1.08] annR +1.61 dd 20.3 | crises 2020H1:-5.4R 2022H1:+1.6R 2025Q4_26Q1:+6.0R
+B3_tsmom20_h5        wti_xau dev201 S +0.76 [-0.13,+1.75] annR +3.66 dd 4.9 | w2023 S +0.19 [-0.87,+1.10] annR +0.90 dd 9.8 | crises 2020H1:+5.9R 2022H1:+3.3R 2025Q4_26Q1:+6.5R
+B3_tsmom20_h5        all6    dev201 S -0.22 [-1.15,+0.80] annR -2.14 dd 16.1 | w2023 S -0.21 [-1.08,+0.54] annR -2.01 dd 17.4 | crises 2020H1:-1.9R 2022H1:-0.2R 2025Q4_26Q1:+2.0R
+B4_st_d1             wti_xau dev201 S +0.31 [-0.55,+1.21] annR +1.76 dd 9.6 | w2023 S +0.09 [-0.87,+1.00] annR +0.54 dd 11.7 | crises 2020H1:+8.7R 2022H1:+2.5R 2025Q4_26Q1:+8.9R
+B4_st_d1             all6    dev201 S -0.27 [-1.19,+0.66] annR -3.08 dd 25.9 | w2023 S -0.17 [-1.05,+0.66] annR -2.22 dd 20.5 | crises 2020H1:+10.3R 2022H1:-3.7R 2025Q4_26Q1:+7.1R
+B5_st_h4d1           wti_xau dev201 S +0.39 [-0.56,+1.27] annR +1.85 dd 6.8 | w2023 S +0.13 [-1.02,+1.15] annR +0.62 dd 10.8 | crises 2020H1:+7.5R 2022H1:+2.7R 2025Q4_26Q1:+7.0R
+B5_st_h4d1           all6    dev201 S -0.17 [-1.06,+0.69] annR -1.67 dd 18.0 | w2023 S -0.28 [-1.17,+0.52] annR -2.55 dd 16.9 | crises 2020H1:+14.8R 2022H1:-1.9R 2025Q4_26Q1:+2.9R
+B6_donchian          wti_xau dev201 S +0.52 [-0.33,+1.44] annR +2.53 dd 5.7 | w2023 S +0.17 [-0.86,+1.02] annR +0.79 dd 9.5 | crises 2020H1:+6.2R 2022H1:+2.9R 2025Q4_26Q1:+6.6R
+B6_donchian          all6    dev201 S -0.21 [-1.14,+0.71] annR -2.06 dd 22.0 | w2023 S -0.11 [-0.97,+0.74] annR -0.97 dd 16.5 | crises 2020H1:+7.4R 2022H1:-2.3R 2025Q4_26Q1:+5.7R
+C1_st_h4d1_bigweek   wti_xau dev201 S -0.43 [-1.29,+0.40] annR -1.49 dd 8.9 | w2023 S +0.06 [-1.04,+1.11] annR +0.23 dd 7.5 | crises 2020H1:+1.5R 2022H1:-0.9R 2025Q4_26Q1:+4.5R
+C1_st_h4d1_bigweek   all6    dev201 S -0.32 [-1.17,+0.62] annR -2.20 dd 23.3 | w2023 S +0.05 [-0.96,+0.95] annR +0.33 dd 10.7 | crises 2020H1:+10.5R 2022H1:-5.3R 2025Q4_26Q1:+6.1R
+C2_tsmom60_bigweek   wti_xau dev201 S -0.31 [-1.24,+0.63] annR -0.95 dd 9.0 | w2023 S +0.55 [-0.41,+1.50] annR +2.05 dd 4.8 | crises 2020H1:+0.5R 2022H1:-1.5R 2025Q4_26Q1:+5.4R
+C2_tsmom60_bigweek   all6    dev201 S -0.51 [-1.52,+0.44] annR -3.21 dd 19.7 | w2023 S +0.56 [-0.38,+1.51] annR +3.89 dd 10.1 | crises 2020H1:-6.9R 2022H1:-2.2R 2025Q4_26Q1:+10.7R
+
+== crisis stress (fin 3 %): total R, worst trade, maxDD per policy
+WTICO/ B1_tsmom60_h20       2020H1: +0.7 worst -3.87 dd 3.9 | 2022H1: +1.0 worst -1.85 dd 2.4 | 2025Q4_26Q1: +5.1 worst -2.45 dd 1.6
+WTICO/ B2_tsmom120_h20      2020H1: +0.4 worst -3.87 dd 3.8 | 2022H1: +3.1 worst -1.83 dd 2.4 | 2025Q4_26Q1: +0.4 worst -6.07 dd 2.4
+WTICO/ B3_tsmom20_h5        2020H1: +6.7 worst -1.59 dd 1.9 | 2022H1: +3.4 worst -1.33 dd 2.0 | 2025Q4_26Q1: +2.9 worst -2.33 dd 2.1
+WTICO/ B4_st_d1             2020H1: +8.9 worst +2.75 dd 1.6 | 2022H1: +0.9 worst -0.76 dd 5.1 | 2025Q4_26Q1: +6.3 worst -1.14 dd 3.1
+WTICO/ B5_st_h4d1           2020H1: +8.1 worst +0.56 dd 1.5 | 2022H1: +1.4 worst -0.86 dd 4.1 | 2025Q4_26Q1: +2.4 worst -0.81 dd 3.5
+WTICO/ B6_donchian          2020H1: +7.4 worst -0.28 dd 1.8 | 2022H1: +1.5 worst -0.75 dd 2.3 | 2025Q4_26Q1: +3.9 worst -0.81 dd 2.4
+WTICO/ C1_st_h4d1_bigweek   2020H1: +3.1 worst +0.40 dd 1.2 | 2022H1: -0.8 worst -0.86 dd 3.7 | 2025Q4_26Q1: -0.1 worst -0.67 dd 1.1
+WTICO/ C2_tsmom60_bigweek   2020H1: -0.3 worst -2.49 dd 3.1 | 2022H1: -0.6 worst -1.85 dd 1.3 | 2025Q4_26Q1: +1.1 worst -0.52 dd 0.4
+XAU/US B1_tsmom60_h20       2020H1: +1.2 worst -3.44 dd 3.0 | 2022H1: -1.6 worst -4.04 dd 2.8 | 2025Q4_26Q1: +4.2 worst -1.98 dd 3.4
+XAU/US B2_tsmom120_h20      2020H1: +2.7 worst -3.44 dd 3.0 | 2022H1: -0.0 worst -2.12 dd 3.2 | 2025Q4_26Q1: +4.3 worst -1.98 dd 3.4
+XAU/US B3_tsmom20_h5        2020H1: -0.8 worst -1.53 dd 4.1 | 2022H1: -0.1 worst -1.07 dd 2.4 | 2025Q4_26Q1: +3.6 worst -1.41 dd 2.4
+XAU/US B4_st_d1             2020H1: -0.3 worst -1.17 dd 4.9 | 2022H1: +1.6 worst +0.81 dd 2.8 | 2025Q4_26Q1: +2.6 worst -0.81 dd 4.2
+XAU/US B5_st_h4d1           2020H1: -0.6 worst -1.01 dd 4.1 | 2022H1: +1.3 worst -0.86 dd 1.5 | 2025Q4_26Q1: +4.6 worst -0.78 dd 3.1
+XAU/US B6_donchian          2020H1: -1.2 worst -1.07 dd 4.3 | 2022H1: +1.4 worst -0.70 dd 1.2 | 2025Q4_26Q1: +2.7 worst -1.01 dd 3.2
+XAU/US C1_st_h4d1_bigweek   2020H1: -1.6 worst -1.01 dd 3.1 | 2022H1: -0.1 worst -0.50 dd 2.9 | 2025Q4_26Q1: +4.6 worst -0.78 dd 3.1
+XAU/US C2_tsmom60_bigweek   2020H1: +0.8 worst -3.44 dd 2.1 | 2022H1: -0.9 worst -2.57 dd 2.5 | 2025Q4_26Q1: +4.2 worst -1.98 dd 3.4
+XAG/US B1_tsmom60_h20       2020H1: -5.9 worst -7.65 dd 6.5 | 2022H1: -1.9 worst -2.72 dd 3.2 | 2025Q4_26Q1: +6.0 worst -1.55 dd 3.2
+XAG/US B2_tsmom120_h20      2020H1: -0.5 worst -7.33 dd 3.1 | 2022H1: -1.6 worst -2.72 dd 3.4 | 2025Q4_26Q1: +6.2 worst -1.55 dd 3.2
+XAG/US B3_tsmom20_h5        2020H1: -0.4 worst -2.56 dd 3.8 | 2022H1: -0.3 worst -1.22 dd 2.0 | 2025Q4_26Q1: +3.1 worst -2.23 dd 3.5
+XAG/US B4_st_d1             2020H1: +3.3 worst +2.27 dd 3.0 | 2022H1: -0.2 worst -0.85 dd 2.5 | 2025Q4_26Q1: +4.6 worst -1.02 dd 7.3
+XAG/US B5_st_h4d1           2020H1: +3.6 worst -0.89 dd 2.3 | 2022H1: -0.6 worst -0.77 dd 2.4 | 2025Q4_26Q1: +2.6 worst -0.91 dd 1.8
+XAG/US B6_donchian          2020H1: +1.1 worst -1.01 dd 3.1 | 2022H1: +0.8 worst -0.52 dd 1.4 | 2025Q4_26Q1: +3.4 worst -0.57 dd 3.2
+XAG/US C1_st_h4d1_bigweek   2020H1: +4.2 worst -0.14 dd 2.3 | 2022H1: -0.1 worst -0.77 dd 1.9 | 2025Q4_26Q1: +2.6 worst -0.91 dd 1.8
+XAG/US C2_tsmom60_bigweek   2020H1: -4.1 worst -7.33 dd 5.0 | 2022H1: -1.7 worst -2.72 dd 3.0 | 2025Q4_26Q1: +6.0 worst -1.55 dd 3.2
+NATGAS B1_tsmom60_h20       2020H1: +1.6 worst -1.51 dd 1.5 | 2022H1: +0.8 worst -2.15 dd 2.1 | 2025Q4_26Q1: -0.9 worst -3.85 dd 3.2
+NATGAS B2_tsmom120_h20      2020H1: +1.3 worst -2.01 dd 1.5 | 2022H1: -1.6 worst -3.74 dd 2.9 | 2025Q4_26Q1: -2.8 worst -3.85 dd 3.5
+NATGAS B3_tsmom20_h5        2020H1: -2.3 worst -1.07 dd 3.8 | 2022H1: +2.2 worst -1.37 dd 2.1 | 2025Q4_26Q1: -2.9 worst -2.93 dd 5.4
+NATGAS B4_st_d1             2020H1: -2.6 worst -1.42 dd 4.4 | 2022H1: -2.5 worst -1.33 dd 4.0 | 2025Q4_26Q1: +0.7 worst -1.33 dd 2.8
+NATGAS B5_st_h4d1           2020H1: -2.1 worst -1.00 dd 3.8 | 2022H1: -1.6 worst -1.00 dd 3.2 | 2025Q4_26Q1: +1.3 worst -1.00 dd 2.3
+NATGAS B6_donchian          2020H1: -3.5 worst -1.01 dd 4.8 | 2022H1: -2.2 worst -1.01 dd 3.9 | 2025Q4_26Q1: -0.9 worst -1.01 dd 3.1
+NATGAS C1_st_h4d1_bigweek   2020H1: -2.3 worst -1.00 dd 3.8 | 2022H1: -3.7 worst -1.00 dd 5.0 | 2025Q4_26Q1: +0.3 worst -1.00 dd 2.3
+NATGAS C2_tsmom60_bigweek   2020H1: -0.2 worst -1.51 dd 1.5 | 2022H1: -0.5 worst -2.15 dd 2.0 | 2025Q4_26Q1: +0.1 worst -2.08 dd 2.5
+SPX500 B1_tsmom60_h20       2020H1: -5.5 worst -10.39 dd 7.6 | 2022H1: +0.1 worst -2.65 dd 2.2 | 2025Q4_26Q1: -0.1 worst -2.26 dd 1.6
+SPX500 B2_tsmom120_h20      2020H1: -6.4 worst -10.39 dd 8.6 | 2022H1: -1.0 worst -2.07 dd 2.9 | 2025Q4_26Q1: -0.7 worst -2.26 dd 1.9
+SPX500 B3_tsmom20_h5        2020H1: -0.3 worst -3.80 dd 3.2 | 2022H1: -1.5 worst -1.43 dd 2.2 | 2025Q4_26Q1: -1.7 worst -0.98 dd 3.1
+SPX500 B4_st_d1             2020H1: +0.8 worst -1.13 dd 5.0 | 2022H1: -0.1 worst -1.00 dd 3.0 | 2025Q4_26Q1: -4.0 worst -1.16 dd 5.8
+SPX500 B5_st_h4d1           2020H1: +4.7 worst -1.03 dd 2.4 | 2022H1: -0.1 worst -1.01 dd 2.5 | 2025Q4_26Q1: -4.9 worst -1.04 dd 6.4
+SPX500 B6_donchian          2020H1: +3.6 worst -1.04 dd 2.1 | 2022H1: -0.6 worst -0.84 dd 2.1 | 2025Q4_26Q1: -3.6 worst -1.04 dd 4.3
+SPX500 C1_st_h4d1_bigweek   2020H1: +6.3 worst -0.74 dd 1.7 | 2022H1: +0.5 worst -1.01 dd 2.1 | 2025Q4_26Q1: -0.5 worst -1.01 dd 0.6
+SPX500 C2_tsmom60_bigweek   2020H1: -1.5 worst -7.50 dd 2.3 | 2022H1: +0.9 worst -1.18 dd 1.4 | 2025Q4_26Q1: -0.0 worst -2.13 dd 0.0
+EUR/US B1_tsmom60_h20       2020H1: -3.3 worst -3.74 dd 3.7 | 2022H1: +0.7 worst -2.57 dd 2.3 | 2025Q4_26Q1: -3.6 worst -2.40 dd 3.6
+EUR/US B2_tsmom120_h20      2020H1: -2.9 worst -3.74 dd 4.9 | 2022H1: +2.8 worst -1.05 dd 1.6 | 2025Q4_26Q1: -1.4 worst -2.24 dd 2.2
+EUR/US B3_tsmom20_h5        2020H1: -4.7 worst -2.09 dd 6.1 | 2022H1: -3.9 worst -1.60 dd 4.5 | 2025Q4_26Q1: -2.9 worst -2.18 dd 4.2
+EUR/US B4_st_d1             2020H1: +0.2 worst -0.21 dd 2.2 | 2022H1: -3.5 worst -1.10 dd 4.6 | 2025Q4_26Q1: -3.0 worst -1.06 dd 3.5
+EUR/US B5_st_h4d1           2020H1: +1.0 worst -0.62 dd 2.0 | 2022H1: -2.3 worst -1.00 dd 2.7 | 2025Q4_26Q1: -3.1 worst -1.08 dd 3.3
+EUR/US B6_donchian          2020H1: +0.2 worst -0.67 dd 2.8 | 2022H1: -3.2 worst -1.03 dd 3.5 | 2025Q4_26Q1: +0.1 worst -1.10 dd 2.1
+EUR/US C1_st_h4d1_bigweek   2020H1: +0.7 worst +0.08 dd 1.9 | 2022H1: -1.2 worst -1.00 dd 2.5 | 2025Q4_26Q1: -0.8 worst -0.84 dd 0.8
+EUR/US C2_tsmom60_bigweek   2020H1: -1.7 worst -3.15 dd 2.7 | 2022H1: +0.6 worst -2.57 dd 1.4 | 2025Q4_26Q1: -0.7 worst -2.24 dd 0.8
+
+== big-week state
+WTICO/ dev2019_22   on 0.42 epis 49 first 2019-01-01 lag 0 recall +0.73 calmFA +0.33 fwdex5 on/off +0.13/+0.07
+WTICO/ w2023        on 0.32 epis 30 first 2023-01-04 lag 2 recall +0.55 calmFA +0.25 fwdex5 on/off +0.11/+0.07
+WTICO/ 2020H1       on 0.79 epis 3 first 2020-01-08 lag 5 recall +0.81 calmFA +0.38 fwdex5 on/off +0.23/+0.09
+WTICO/ 2022H1       on 0.62 epis 9 first 2022-01-06 lag 3 recall +0.79 calmFA +0.40 fwdex5 on/off +0.13/+0.10
+WTICO/ 2025Q4_26Q1  on 0.23 epis 4 first 2025-10-23 lag 16 recall +0.67 calmFA +0.13 fwdex5 on/off +0.22/+0.07
+XAU/US dev2019_22   on 0.69 epis 37 first 2019-01-04 lag 3 recall +0.76 calmFA +0.46 fwdex5 on/off +0.03/+0.03
+XAU/US w2023        on 0.81 epis 19 first 2023-01-04 lag 2 recall +0.91 calmFA +0.43 fwdex5 on/off +0.04/+0.03
+XAU/US 2020H1       on 0.80 epis 5 first 2020-01-03 lag 2 recall +0.84 calmFA +0.50 fwdex5 on/off +0.04/+0.03
+XAU/US 2022H1       on 0.67 epis 5 first 2022-01-27 lag 18 recall +0.89 calmFA +0.47 fwdex5 on/off +0.03/+0.03
+XAU/US 2025Q4_26Q1  on 1.00 epis 1 first 2025-10-01 lag 0 recall +1.00 calmFA +0.50 fwdex5 on/off +0.07/-
+XAG/US dev2019_22   on 0.80 epis 24 first 2019-01-01 lag 0 recall +0.86 calmFA +0.44 fwdex5 on/off +0.07/+0.04
+XAG/US w2023        on 0.91 epis 25 first 2023-01-02 lag 0 recall +0.94 calmFA +0.49 fwdex5 on/off +0.08/+0.06
+XAG/US 2020H1       on 0.81 epis 5 first 2020-01-01 lag 0 recall +0.93 calmFA +0.41 fwdex5 on/off +0.08/+0.05
+XAG/US 2022H1       on 0.93 epis 4 first 2022-01-03 lag 0 recall +0.91 calmFA +0.51 fwdex5 on/off +0.06/+0.06
+XAG/US 2025Q4_26Q1  on 1.00 epis 1 first 2025-10-01 lag 0 recall +1.00 calmFA +0.50 fwdex5 on/off +0.16/-
+NATGAS dev2019_22   on 0.46 epis 41 first 2019-01-01 lag 0 recall +0.75 calmFA +0.22 fwdex5 on/off +0.16/+0.09
+NATGAS w2023        on 0.42 epis 48 first 2023-01-02 lag 0 recall +0.67 calmFA +0.34 fwdex5 on/off +0.14/+0.11
+NATGAS 2020H1       on 0.57 epis 6 first 2020-01-17 lag 12 recall +0.73 calmFA +0.33 fwdex5 on/off +0.14/+0.10
+NATGAS 2022H1       on 0.82 epis 4 first 2022-01-12 lag 7 recall +0.85 calmFA +0.46 fwdex5 on/off +0.19/+0.16
+NATGAS 2025Q4_26Q1  on 0.69 epis 6 first 2025-10-02 lag 1 recall +0.68 calmFA +0.51 fwdex5 on/off +0.17/+0.14
+SPX500 dev2019_22   on 0.28 epis 29 first 2019-01-01 lag 0 recall +0.66 calmFA +0.23 fwdex5 on/off +0.06/+0.03
+SPX500 w2023        on 0.15 epis 23 first 2023-03-13 lag 50 recall +0.52 calmFA +0.34 fwdex5 on/off +0.04/+0.03
+SPX500 2020H1       on 0.56 epis 4 first 2020-02-06 lag 26 recall +0.82 calmFA +0.26 fwdex5 on/off +0.09/+0.04
+SPX500 2022H1       on 0.81 epis 5 first 2022-01-10 lag 5 recall +0.73 calmFA +0.52 fwdex5 on/off +0.05/+0.06
+SPX500 2025Q4_26Q1  on 0.02 epis 2 first 2026-03-27 lag 127 recall +0.00 calmFA +0.00 fwdex5 on/off +0.05/+0.03
+EUR/US dev2019_22   on 0.31 epis 27 first 2019-06-24 lag 124 recall +0.71 calmFA +0.18 fwdex5 on/off +0.02/+0.01
+EUR/US w2023        on 0.21 epis 36 first 2023-01-09 lag 5 recall +0.31 calmFA +0.35 fwdex5 on/off +0.02/+0.01
+EUR/US 2020H1       on 0.55 epis 3 first 2020-02-11 lag 29 recall +0.94 calmFA +0.31 fwdex5 on/off +0.02/+0.01
+EUR/US 2022H1       on 0.68 epis 7 first 2022-01-13 lag 8 recall +0.73 calmFA +0.42 fwdex5 on/off +0.02/+0.02
+EUR/US 2025Q4_26Q1  on 0.13 epis 2 first 2026-01-27 lag 84 recall +0.00 calmFA +0.35 fwdex5 on/off +0.01/+0.01
+
+== stress index {"dev2019_22": {"mean": 2.952015355086372, "share_ge3": 0.555662188099808}, "w2023": {"mean": 2.8089430894308944, "share_ge3": 0.6107723577235772}, "2020H1": {"mean": 4.038461538461538, "share_ge3": 0.7615384615384615}, "2022H1": {"mean": 4.511627906976744, "share_ge3": 0.9302325581395349}, "2025Q4_26Q1": {"mean": 3.0692307692307694, "share_ge3": 0.8076923076923077}}
+
+== labels: sign hit [CI] (eff) | first passage hit
+WTICO/ dev2019_22/mom20/H5/all          0.595 [+0.54,+0.65] eff 207.2 fwdR +0.092 | fp 0.613 [+0.52,+0.69] n 333
+WTICO/ dev2019_22/mom20/H5/big_on       0.551 [+0.49,+0.63] eff 86.4 fwdR +0.067 | fp 0.591 [+0.55,+0.67] n 115
+WTICO/ dev2019_22/mom20/H5/big_off      0.626 [+0.56,+0.69] eff 120.8 fwdR +0.110 | fp 0.624 [+0.52,+0.70] n 218
+WTICO/ dev2019_22/mom20/H20/all         0.584 [+0.50,+0.68] eff 51.8 fwdR +0.253 | fp 0.664 [+0.55,+0.76] n 399
+WTICO/ dev2019_22/mom20/H20/big_on      0.549 [+0.44,+0.68] eff 21.6 fwdR +0.109 | fp 0.598 [+0.48,+0.75] n 107
+WTICO/ dev2019_22/mom20/H20/big_off     0.609 [+0.48,+0.71] eff 30.2 fwdR +0.356 | fp 0.688 [+0.55,+0.80] n 292
+WTICO/ dev2019_22/mom60/H5/all          0.514 [+0.46,+0.57] eff 207.4 fwdR -0.003 | fp 0.441 [+0.32,+0.53] n 333
+WTICO/ dev2019_22/mom60/H5/big_on       0.447 [+0.37,+0.55] eff 86.4 fwdR -0.020 | fp 0.426 [+0.29,+0.57] n 115
+WTICO/ dev2019_22/mom60/H5/big_off      0.562 [+0.48,+0.63] eff 121.0 fwdR +0.009 | fp 0.450 [+0.30,+0.54] n 218
+WTICO/ dev2019_22/mom60/H20/all         0.506 [+0.42,+0.61] eff 51.9 fwdR +0.020 | fp 0.455 [+0.28,+0.59] n 400
+WTICO/ dev2019_22/mom60/H20/big_on      0.481 [+0.38,+0.63] eff 21.6 fwdR -0.127 | fp 0.280 [+0.09,+0.45] n 107
+WTICO/ dev2019_22/mom60/H20/big_off     0.524 [+0.42,+0.64] eff 30.2 fwdR +0.125 | fp 0.519 [+0.32,+0.67] n 293
+WTICO/ dev2019_22/mom120/H5/all         0.508 [+0.45,+0.58] eff 207.4 fwdR +0.003 | fp 0.459 [+0.34,+0.58] n 333
+WTICO/ dev2019_22/mom120/H5/big_on      0.502 [+0.43,+0.61] eff 86.4 fwdR +0.040 | fp 0.548 [+0.40,+0.74] n 115
+WTICO/ dev2019_22/mom120/H5/big_off     0.512 [+0.43,+0.60] eff 121.0 fwdR -0.024 | fp 0.413 [+0.31,+0.53] n 218
+WTICO/ dev2019_22/mom120/H20/all        0.492 [+0.39,+0.60] eff 51.9 fwdR +0.107 | fp 0.522 [+0.36,+0.68] n 400
+WTICO/ dev2019_22/mom120/H20/big_on     0.468 [+0.35,+0.62] eff 21.6 fwdR +0.020 | fp 0.523 [+0.30,+0.75] n 107
+WTICO/ dev2019_22/mom120/H20/big_off    0.509 [+0.41,+0.64] eff 30.2 fwdR +0.169 | fp 0.522 [+0.36,+0.71] n 293
+WTICO/ dev2019_22/st_d1/H5/all          0.561 [+0.51,+0.62] eff 207.4 fwdR +0.069 | fp 0.619 [+0.53,+0.70] n 333
+WTICO/ dev2019_22/st_d1/H5/big_on       0.544 [+0.48,+0.63] eff 86.4 fwdR +0.061 | fp 0.600 [+0.56,+0.68] n 115
+WTICO/ dev2019_22/st_d1/H5/big_off      0.574 [+0.51,+0.65] eff 121.0 fwdR +0.074 | fp 0.628 [+0.53,+0.71] n 218
+WTICO/ dev2019_22/st_d1/H20/all         0.500 [+0.41,+0.60] eff 51.9 fwdR +0.136 | fp 0.618 [+0.50,+0.73] n 400
+WTICO/ dev2019_22/st_d1/H20/big_on      0.532 [+0.41,+0.67] eff 21.6 fwdR +0.071 | fp 0.570 [+0.47,+0.73] n 107
+WTICO/ dev2019_22/st_d1/H20/big_off     0.478 [+0.35,+0.60] eff 30.2 fwdR +0.182 | fp 0.635 [+0.51,+0.77] n 293
+WTICO/ dev2019_22/st_h4d1/H5/all        0.546 [+0.48,+0.62] eff 120.2 fwdR +0.035 | fp 0.578 [+0.45,+0.69] n 192
+WTICO/ dev2019_22/st_h4d1/H5/big_on     0.524 [+0.45,+0.61] eff 50.8 fwdR +0.023 | fp 0.577 [+0.55,+0.69] n 78
+WTICO/ dev2019_22/st_h4d1/H5/big_off    0.562 [+0.48,+0.67] eff 69.4 fwdR +0.044 | fp 0.579 [+0.41,+0.72] n 114
+WTICO/ dev2019_22/st_h4d1/H20/all       0.529 [+0.41,+0.65] eff 30.1 fwdR +0.151 | fp 0.634 [+0.52,+0.78] n 243
+WTICO/ dev2019_22/st_h4d1/H20/big_on    0.559 [+0.42,+0.71] eff 12.7 fwdR +0.145 | fp 0.647 [+0.62,+0.78] n 68
+WTICO/ dev2019_22/st_h4d1/H20/big_off   0.507 [+0.38,+0.64] eff 17.4 fwdR +0.156 | fp 0.629 [+0.49,+0.78] n 175
+WTICO/ w2023/mom20/H5/all               0.508 [+0.46,+0.56] eff 194.6 fwdR +0.014 | fp 0.529 [+0.47,+0.61] n 312
+WTICO/ w2023/mom20/H5/big_on            0.465 [+0.38,+0.55] eff 62.0 fwdR -0.023 | fp 0.430 [+0.38,+0.54] n 93
+WTICO/ w2023/mom20/H5/big_off           0.528 [+0.47,+0.58] eff 132.6 fwdR +0.031 | fp 0.571 [+0.51,+0.66] n 219
+WTICO/ w2023/mom20/H20/all              0.528 [+0.47,+0.60] eff 47.9 fwdR +0.058 | fp 0.512 [+0.37,+0.62] n 338
+WTICO/ w2023/mom20/H20/big_on           0.481 [+0.37,+0.59] eff 14.8 fwdR -0.073 | fp 0.275 [+0.12,+0.44] n 80
+WTICO/ w2023/mom20/H20/big_off          0.549 [+0.48,+0.64] eff 33.1 fwdR +0.117 | fp 0.585 [+0.45,+0.70] n 258
+WTICO/ w2023/mom60/H5/all               0.467 [+0.43,+0.51] eff 194.6 fwdR -0.012 | fp 0.500 [+0.42,+0.58] n 312
+WTICO/ w2023/mom60/H5/big_on            0.465 [+0.42,+0.55] eff 62.0 fwdR -0.025 | fp 0.430 [+0.33,+0.54] n 93
+WTICO/ w2023/mom60/H5/big_off           0.468 [+0.41,+0.53] eff 132.6 fwdR -0.007 | fp 0.530 [+0.43,+0.62] n 219
+WTICO/ w2023/mom60/H20/all              0.461 [+0.37,+0.55] eff 47.9 fwdR -0.031 | fp 0.423 [+0.30,+0.56] n 338
+WTICO/ w2023/mom60/H20/big_on           0.407 [+0.31,+0.54] eff 14.8 fwdR -0.191 | fp 0.300 [+0.19,+0.45] n 80
+WTICO/ w2023/mom60/H20/big_off          0.486 [+0.39,+0.59] eff 33.1 fwdR +0.041 | fp 0.461 [+0.33,+0.60] n 258
+WTICO/ w2023/mom120/H5/all              0.452 [+0.40,+0.50] eff 194.6 fwdR -0.038 | fp 0.449 [+0.36,+0.54] n 312
+WTICO/ w2023/mom120/H5/big_on           0.474 [+0.40,+0.55] eff 62.0 fwdR -0.021 | fp 0.495 [+0.37,+0.62] n 93
+WTICO/ w2023/mom120/H5/big_off          0.442 [+0.38,+0.50] eff 132.6 fwdR -0.045 | fp 0.429 [+0.32,+0.53] n 219
+WTICO/ w2023/mom120/H20/all             0.446 [+0.36,+0.54] eff 47.9 fwdR -0.078 | fp 0.414 [+0.29,+0.54] n 338
+WTICO/ w2023/mom120/H20/big_on          0.515 [+0.40,+0.64] eff 14.8 fwdR +0.049 | fp 0.525 [+0.33,+0.76] n 80
+WTICO/ w2023/mom120/H20/big_off         0.415 [+0.30,+0.52] eff 33.1 fwdR -0.135 | fp 0.380 [+0.22,+0.49] n 258
+WTICO/ w2023/st_d1/H5/all               0.470 [+0.42,+0.52] eff 194.6 fwdR +0.020 | fp 0.551 [+0.48,+0.64] n 312
+WTICO/ w2023/st_d1/H5/big_on            0.410 [+0.35,+0.50] eff 62.0 fwdR -0.048 | fp 0.452 [+0.39,+0.63] n 93
+WTICO/ w2023/st_d1/H5/big_off           0.498 [+0.44,+0.56] eff 132.6 fwdR +0.051 | fp 0.594 [+0.49,+0.68] n 219
+WTICO/ w2023/st_d1/H20/all              0.494 [+0.41,+0.59] eff 47.9 fwdR +0.040 | fp 0.509 [+0.37,+0.64] n 338
+WTICO/ w2023/st_d1/H20/big_on           0.451 [+0.33,+0.60] eff 14.8 fwdR -0.084 | fp 0.350 [+0.12,+0.69] n 80
+WTICO/ w2023/st_d1/H20/big_off          0.513 [+0.41,+0.62] eff 33.1 fwdR +0.095 | fp 0.558 [+0.42,+0.68] n 258
+WTICO/ w2023/st_h4d1/H5/all             0.443 [+0.39,+0.50] eff 108.8 fwdR +0.000 | fp 0.527 [+0.43,+0.63] n 184
+WTICO/ w2023/st_h4d1/H5/big_on          0.383 [+0.31,+0.52] eff 35.0 fwdR -0.040 | fp 0.484 [+0.42,+0.64] n 64
+WTICO/ w2023/st_h4d1/H5/big_off         0.472 [+0.40,+0.53] eff 73.8 fwdR +0.019 | fp 0.550 [+0.41,+0.67] n 120
+WTICO/ w2023/st_h4d1/H20/all            0.473 [+0.39,+0.56] eff 26.8 fwdR -0.022 | fp 0.473 [+0.33,+0.60] n 182
+WTICO/ w2023/st_h4d1/H20/big_on         0.428 [+0.31,+0.61] eff 8.3 fwdR -0.105 | fp 0.370 [+0.15,+0.69] n 54
+WTICO/ w2023/st_h4d1/H20/big_off        0.493 [+0.38,+0.60] eff 18.4 fwdR +0.015 | fp 0.516 [+0.34,+0.62] n 128
+XAU/US dev2019_22/mom20/H5/all          0.501 [+0.44,+0.55] eff 207.4 fwdR +0.022 | fp 0.579 [+0.47,+0.66] n 347
+XAU/US dev2019_22/mom20/H5/big_on       0.477 [+0.41,+0.53] eff 143.4 fwdR -0.008 | fp 0.569 [+0.46,+0.65] n 209
+XAU/US dev2019_22/mom20/H5/big_off      0.556 [+0.47,+0.63] eff 64.0 fwdR +0.091 | fp 0.594 [+0.42,+0.67] n 138
+XAU/US dev2019_22/mom20/H20/all         0.517 [+0.43,+0.58] eff 51.9 fwdR +0.136 | fp 0.588 [+0.47,+0.70] n 386
+XAU/US dev2019_22/mom20/H20/big_on      0.495 [+0.40,+0.57] eff 35.9 fwdR +0.041 | fp 0.529 [+0.37,+0.66] n 227
+XAU/US dev2019_22/mom20/H20/big_off     0.566 [+0.44,+0.64] eff 16.0 fwdR +0.347 | fp 0.673 [+0.50,+0.79] n 159
+XAU/US dev2019_22/mom60/H5/all          0.532 [+0.48,+0.58] eff 207.4 fwdR +0.021 | fp 0.522 [+0.41,+0.60] n 347
+XAU/US dev2019_22/mom60/H5/big_on       0.531 [+0.47,+0.59] eff 143.4 fwdR +0.009 | fp 0.517 [+0.41,+0.61] n 209
+XAU/US dev2019_22/mom60/H5/big_off      0.534 [+0.42,+0.62] eff 64.0 fwdR +0.047 | fp 0.529 [+0.36,+0.58] n 138
+XAU/US dev2019_22/mom60/H20/all         0.490 [+0.39,+0.57] eff 51.9 fwdR +0.011 | fp 0.505 [+0.36,+0.63] n 386
+XAU/US dev2019_22/mom60/H20/big_on      0.516 [+0.41,+0.60] eff 35.9 fwdR +0.075 | fp 0.507 [+0.35,+0.65] n 227
+XAU/US dev2019_22/mom60/H20/big_off     0.431 [+0.27,+0.54] eff 16.0 fwdR -0.133 | fp 0.503 [+0.26,+0.67] n 159
+XAU/US dev2019_22/mom120/H5/all         0.547 [+0.49,+0.59] eff 207.4 fwdR +0.049 | fp 0.550 [+0.43,+0.65] n 347
+XAU/US dev2019_22/mom120/H5/big_on      0.548 [+0.50,+0.61] eff 143.4 fwdR +0.032 | fp 0.536 [+0.42,+0.67] n 209
+XAU/US dev2019_22/mom120/H5/big_off     0.544 [+0.42,+0.64] eff 64.0 fwdR +0.087 | fp 0.572 [+0.36,+0.68] n 138
+XAU/US dev2019_22/mom120/H20/all        0.495 [+0.39,+0.58] eff 51.9 fwdR +0.141 | fp 0.611 [+0.47,+0.76] n 386
+XAU/US dev2019_22/mom120/H20/big_on     0.477 [+0.38,+0.57] eff 35.9 fwdR +0.044 | fp 0.546 [+0.39,+0.72] n 227
+XAU/US dev2019_22/mom120/H20/big_off    0.534 [+0.37,+0.66] eff 16.0 fwdR +0.359 | fp 0.704 [+0.52,+0.86] n 159
+XAU/US dev2019_22/st_d1/H5/all          0.504 [+0.45,+0.55] eff 207.4 fwdR +0.018 | fp 0.553 [+0.45,+0.63] n 347
+XAU/US dev2019_22/st_d1/H5/big_on       0.498 [+0.43,+0.56] eff 143.4 fwdR -0.009 | fp 0.531 [+0.41,+0.64] n 209
+XAU/US dev2019_22/st_d1/H5/big_off      0.519 [+0.42,+0.62] eff 64.0 fwdR +0.078 | fp 0.587 [+0.43,+0.65] n 138
+XAU/US dev2019_22/st_d1/H20/all         0.500 [+0.40,+0.58] eff 51.9 fwdR +0.071 | fp 0.598 [+0.48,+0.72] n 386
+XAU/US dev2019_22/st_d1/H20/big_on      0.502 [+0.39,+0.58] eff 35.9 fwdR +0.077 | fp 0.577 [+0.43,+0.72] n 227
+XAU/US dev2019_22/st_d1/H20/big_off     0.497 [+0.34,+0.60] eff 16.0 fwdR +0.059 | fp 0.629 [+0.40,+0.81] n 159
+XAU/US dev2019_22/st_h4d1/H5/all        0.453 [+0.37,+0.52] eff 117.8 fwdR -0.009 | fp 0.562 [+0.45,+0.64] n 208
+XAU/US dev2019_22/st_h4d1/H5/big_on     0.447 [+0.37,+0.52] eff 86.4 fwdR -0.047 | fp 0.519 [+0.38,+0.61] n 133
+XAU/US dev2019_22/st_h4d1/H5/big_off    0.471 [+0.33,+0.57] eff 31.4 fwdR +0.096 | fp 0.640 [+0.49,+0.69] n 75
+XAU/US dev2019_22/st_h4d1/H20/all       0.492 [+0.38,+0.57] eff 29.4 fwdR +0.080 | fp 0.588 [+0.49,+0.71] n 228
+XAU/US dev2019_22/st_h4d1/H20/big_on    0.465 [+0.33,+0.56] eff 21.6 fwdR +0.041 | fp 0.546 [+0.38,+0.70] n 152
+XAU/US dev2019_22/st_h4d1/H20/big_off   0.567 [+0.40,+0.66] eff 7.8 fwdR +0.188 | fp 0.671 [+0.54,+0.86] n 76
+XAU/US w2023/mom20/H5/all               0.519 [+0.46,+0.57] eff 194.6 fwdR +0.035 | fp 0.591 [+0.49,+0.69] n 347
+XAU/US w2023/mom20/H5/big_on            0.525 [+0.46,+0.58] eff 157.2 fwdR +0.048 | fp 0.607 [+0.52,+0.71] n 270
+XAU/US w2023/mom20/H5/big_off           0.492 [+0.37,+0.60] eff 37.4 fwdR -0.019 | fp 0.532 [+0.39,+0.65] n 77
+XAU/US w2023/mom20/H20/all              0.545 [+0.47,+0.64] eff 47.9 fwdR +0.171 | fp 0.619 [+0.49,+0.77] n 402
+XAU/US w2023/mom20/H20/big_on           0.586 [+0.51,+0.69] eff 38.5 fwdR +0.276 | fp 0.679 [+0.56,+0.84] n 305
+XAU/US w2023/mom20/H20/big_off          0.374 [+0.26,+0.51] eff 9.3 fwdR -0.261 | fp 0.433 [+0.23,+0.61] n 97
+XAU/US w2023/mom60/H5/all               0.542 [+0.48,+0.60] eff 194.6 fwdR +0.065 | fp 0.597 [+0.52,+0.70] n 347
+XAU/US w2023/mom60/H5/big_on            0.539 [+0.48,+0.60] eff 157.2 fwdR +0.054 | fp 0.611 [+0.54,+0.72] n 270
+XAU/US w2023/mom60/H5/big_off           0.551 [+0.42,+0.63] eff 37.4 fwdR +0.113 | fp 0.545 [+0.36,+0.58] n 77
+XAU/US w2023/mom60/H20/all              0.595 [+0.51,+0.69] eff 47.9 fwdR +0.331 | fp 0.694 [+0.58,+0.83] n 402
+XAU/US w2023/mom60/H20/big_on           0.608 [+0.52,+0.72] eff 38.5 fwdR +0.328 | fp 0.682 [+0.57,+0.85] n 305
+XAU/US w2023/mom60/H20/big_off          0.540 [+0.40,+0.64] eff 9.3 fwdR +0.346 | fp 0.732 [+0.57,+0.84] n 97
+XAU/US w2023/mom120/H5/all              0.563 [+0.50,+0.62] eff 194.6 fwdR +0.109 | fp 0.669 [+0.56,+0.76] n 347
+XAU/US w2023/mom120/H5/big_on           0.551 [+0.48,+0.61] eff 157.2 fwdR +0.068 | fp 0.619 [+0.50,+0.73] n 270
+XAU/US w2023/mom120/H5/big_off          0.615 [+0.43,+0.74] eff 37.4 fwdR +0.277 | fp 0.844 [+0.75,+0.94] n 77
+XAU/US w2023/mom120/H20/all             0.617 [+0.52,+0.71] eff 47.9 fwdR +0.411 | fp 0.716 [+0.58,+0.88] n 402
+XAU/US w2023/mom120/H20/big_on          0.604 [+0.50,+0.71] eff 38.5 fwdR +0.355 | fp 0.662 [+0.50,+0.85] n 305
+XAU/US w2023/mom120/H20/big_off         0.668 [+0.50,+0.81] eff 9.3 fwdR +0.642 | fp 0.887 [+0.77,+0.98] n 97
+XAU/US w2023/st_d1/H5/all               0.520 [+0.45,+0.58] eff 194.6 fwdR +0.031 | fp 0.602 [+0.51,+0.70] n 347
+XAU/US w2023/st_d1/H5/big_on            0.537 [+0.47,+0.60] eff 157.2 fwdR +0.057 | fp 0.619 [+0.53,+0.72] n 270
+XAU/US w2023/st_d1/H5/big_off           0.449 [+0.26,+0.59] eff 37.4 fwdR -0.077 | fp 0.545 [+0.29,+0.75] n 77
+XAU/US w2023/st_d1/H20/all              0.542 [+0.45,+0.64] eff 47.9 fwdR +0.200 | fp 0.619 [+0.48,+0.78] n 402
+XAU/US w2023/st_d1/H20/big_on           0.577 [+0.47,+0.68] eff 38.5 fwdR +0.278 | fp 0.679 [+0.57,+0.85] n 305
+XAU/US w2023/st_d1/H20/big_off          0.396 [+0.24,+0.53] eff 9.3 fwdR -0.121 | fp 0.433 [+0.11,+0.68] n 97
+XAU/US w2023/st_h4d1/H5/all             0.528 [+0.44,+0.60] eff 115.6 fwdR +0.063 | fp 0.638 [+0.54,+0.75] n 235
+XAU/US w2023/st_h4d1/H5/big_on          0.518 [+0.43,+0.59] eff 95.0 fwdR +0.055 | fp 0.624 [+0.52,+0.76] n 189
+XAU/US w2023/st_h4d1/H5/big_off         0.573 [+0.38,+0.75] eff 20.6 fwdR +0.101 | fp 0.696 [+0.43,+0.91] n 46
+XAU/US w2023/st_h4d1/H20/all            0.531 [+0.42,+0.65] eff 28.4 fwdR +0.202 | fp 0.668 [+0.55,+0.84] n 265
+XAU/US w2023/st_h4d1/H20/big_on         0.552 [+0.44,+0.68] eff 23.2 fwdR +0.224 | fp 0.689 [+0.60,+0.86] n 206
+XAU/US w2023/st_h4d1/H20/big_off        0.437 [+0.17,+0.65] eff 5.2 fwdR +0.103 | fp 0.593 [+0.37,+0.81] n 59
+XAG/US dev2019_22/mom20/H5/all          0.480 [+0.43,+0.53] eff 207.4 fwdR +0.018 | fp 0.553 [+0.46,+0.65] n 338
+XAG/US dev2019_22/mom20/H5/big_on       0.469 [+0.42,+0.52] eff 166.4 fwdR +0.008 | fp 0.536 [+0.41,+0.64] n 250
+XAG/US dev2019_22/mom20/H5/big_off      0.527 [+0.43,+0.60] eff 41.0 fwdR +0.057 | fp 0.602 [+0.47,+0.68] n 88
+XAG/US dev2019_22/mom20/H20/all         0.511 [+0.44,+0.58] eff 51.9 fwdR +0.074 | fp 0.536 [+0.41,+0.65] n 388
+XAG/US dev2019_22/mom20/H20/big_on      0.489 [+0.41,+0.57] eff 41.6 fwdR +0.044 | fp 0.557 [+0.39,+0.67] n 287
+XAG/US dev2019_22/mom20/H20/big_off     0.600 [+0.44,+0.72] eff 10.2 fwdR +0.194 | fp 0.475 [+0.28,+0.64] n 101
+XAG/US dev2019_22/mom60/H5/all          0.502 [+0.46,+0.55] eff 207.4 fwdR -0.008 | fp 0.491 [+0.40,+0.58] n 338
+XAG/US dev2019_22/mom60/H5/big_on       0.493 [+0.44,+0.55] eff 166.4 fwdR -0.012 | fp 0.476 [+0.37,+0.56] n 250
+XAG/US dev2019_22/mom60/H5/big_off      0.541 [+0.43,+0.60] eff 41.0 fwdR +0.010 | fp 0.534 [+0.41,+0.56] n 88
+XAG/US dev2019_22/mom60/H20/all         0.418 [+0.33,+0.50] eff 51.9 fwdR -0.078 | fp 0.479 [+0.35,+0.62] n 388
+XAG/US dev2019_22/mom60/H20/big_on      0.415 [+0.32,+0.50] eff 41.6 fwdR -0.080 | fp 0.467 [+0.30,+0.58] n 287
+XAG/US dev2019_22/mom60/H20/big_off     0.429 [+0.22,+0.59] eff 10.2 fwdR -0.071 | fp 0.515 [+0.28,+0.69] n 101
+XAG/US dev2019_22/mom120/H5/all         0.475 [+0.43,+0.53] eff 207.4 fwdR -0.018 | fp 0.482 [+0.41,+0.58] n 338
+XAG/US dev2019_22/mom120/H5/big_on      0.492 [+0.44,+0.55] eff 166.4 fwdR +0.015 | fp 0.536 [+0.45,+0.62] n 250
+XAG/US dev2019_22/mom120/H5/big_off     0.410 [+0.31,+0.49] eff 41.0 fwdR -0.153 | fp 0.330 [+0.16,+0.42] n 88
+XAG/US dev2019_22/mom120/H20/all        0.439 [+0.36,+0.52] eff 51.9 fwdR -0.015 | fp 0.518 [+0.41,+0.66] n 388
+XAG/US dev2019_22/mom120/H20/big_on     0.462 [+0.38,+0.54] eff 41.6 fwdR +0.020 | fp 0.551 [+0.42,+0.69] n 287
+XAG/US dev2019_22/mom120/H20/big_off    0.346 [+0.17,+0.52] eff 10.2 fwdR -0.155 | fp 0.426 [+0.23,+0.62] n 101
+XAG/US dev2019_22/st_d1/H5/all          0.486 [+0.44,+0.54] eff 207.4 fwdR +0.022 | fp 0.556 [+0.46,+0.66] n 338
+XAG/US dev2019_22/st_d1/H5/big_on       0.456 [+0.40,+0.52] eff 166.4 fwdR -0.008 | fp 0.504 [+0.38,+0.62] n 250
+XAG/US dev2019_22/st_d1/H5/big_off      0.610 [+0.49,+0.68] eff 41.0 fwdR +0.147 | fp 0.705 [+0.60,+0.75] n 88
+XAG/US dev2019_22/st_d1/H20/all         0.501 [+0.41,+0.59] eff 51.9 fwdR +0.042 | fp 0.528 [+0.37,+0.68] n 388
+XAG/US dev2019_22/st_d1/H20/big_on      0.476 [+0.38,+0.56] eff 41.6 fwdR +0.001 | fp 0.505 [+0.30,+0.66] n 287
+XAG/US dev2019_22/st_d1/H20/big_off     0.605 [+0.42,+0.78] eff 10.2 fwdR +0.209 | fp 0.594 [+0.34,+0.85] n 101
+XAG/US dev2019_22/st_h4d1/H5/all        0.474 [+0.41,+0.55] eff 112.2 fwdR +0.052 | fp 0.624 [+0.53,+0.72] n 189
+XAG/US dev2019_22/st_h4d1/H5/big_on     0.440 [+0.38,+0.52] eff 92.2 fwdR +0.014 | fp 0.570 [+0.46,+0.67] n 142
+XAG/US dev2019_22/st_h4d1/H5/big_off    0.630 [+0.50,+0.76] eff 20.0 fwdR +0.227 | fp 0.787 [+0.70,+0.85] n 47
+XAG/US dev2019_22/st_h4d1/H20/all       0.549 [+0.45,+0.66] eff 28.1 fwdR +0.134 | fp 0.574 [+0.42,+0.78] n 209
+XAG/US dev2019_22/st_h4d1/H20/big_on    0.508 [+0.38,+0.61] eff 23.1 fwdR +0.082 | fp 0.540 [+0.32,+0.73] n 161
+XAG/US dev2019_22/st_h4d1/H20/big_off   0.740 [+0.62,+0.86] eff 5.0 fwdR +0.373 | fp 0.688 [+0.50,+0.88] n 48
+XAG/US w2023/mom20/H5/all               0.492 [+0.42,+0.56] eff 194.6 fwdR -0.009 | fp 0.526 [+0.42,+0.62] n 340
+XAG/US w2023/mom20/H5/big_on            0.494 [+0.42,+0.56] eff 177.6 fwdR -0.007 | fp 0.533 [+0.42,+0.63] n 306
+XAG/US w2023/mom20/H5/big_off           0.471 [+0.41,+0.55] eff 17.0 fwdR -0.040 | fp 0.471 [+0.29,+0.53] n 34
+XAG/US w2023/mom20/H20/all              0.482 [+0.42,+0.56] eff 47.9 fwdR +0.072 | fp 0.507 [+0.41,+0.65] n 416
+XAG/US w2023/mom20/H20/big_on           0.481 [+0.40,+0.57] eff 43.6 fwdR +0.085 | fp 0.511 [+0.38,+0.68] n 362
+XAG/US w2023/mom20/H20/big_off          0.494 [+0.34,+0.64] eff 4.2 fwdR -0.069 | fp 0.481 [+0.31,+0.65] n 54
+XAG/US w2023/mom60/H5/all               0.480 [+0.41,+0.54] eff 194.6 fwdR -0.019 | fp 0.474 [+0.36,+0.61] n 340
+XAG/US w2023/mom60/H5/big_on            0.490 [+0.43,+0.56] eff 177.6 fwdR -0.010 | fp 0.487 [+0.37,+0.62] n 306
+XAG/US w2023/mom60/H5/big_off           0.376 [+0.14,+0.53] eff 17.0 fwdR -0.123 | fp 0.353 [+0.03,+0.47] n 34
+XAG/US w2023/mom60/H20/all              0.443 [+0.36,+0.53] eff 47.9 fwdR +0.061 | fp 0.490 [+0.33,+0.68] n 416
+XAG/US w2023/mom60/H20/big_on           0.454 [+0.37,+0.54] eff 43.6 fwdR +0.092 | fp 0.514 [+0.37,+0.71] n 362
+XAG/US w2023/mom60/H20/big_off          0.329 [+0.08,+0.51] eff 4.2 fwdR -0.258 | fp 0.333 [+0.06,+0.54] n 54
+XAG/US w2023/mom120/H5/all              0.527 [+0.45,+0.59] eff 194.6 fwdR +0.044 | fp 0.544 [+0.46,+0.66] n 340
+XAG/US w2023/mom120/H5/big_on           0.521 [+0.45,+0.59] eff 177.6 fwdR +0.040 | fp 0.542 [+0.44,+0.66] n 306
+XAG/US w2023/mom120/H5/big_off          0.588 [+0.35,+0.79] eff 17.0 fwdR +0.083 | fp 0.559 [+0.24,+0.82] n 34
+XAG/US w2023/mom120/H20/all             0.534 [+0.44,+0.63] eff 47.9 fwdR +0.210 | fp 0.613 [+0.49,+0.77] n 416
+XAG/US w2023/mom120/H20/big_on          0.532 [+0.44,+0.63] eff 43.6 fwdR +0.202 | fp 0.608 [+0.48,+0.77] n 362
+XAG/US w2023/mom120/H20/big_off         0.565 [+0.29,+0.81] eff 4.2 fwdR +0.292 | fp 0.648 [+0.43,+0.87] n 54
+XAG/US w2023/st_d1/H5/all               0.535 [+0.48,+0.59] eff 194.6 fwdR +0.034 | fp 0.579 [+0.50,+0.68] n 340
+XAG/US w2023/st_d1/H5/big_on            0.528 [+0.47,+0.59] eff 177.6 fwdR +0.030 | fp 0.578 [+0.48,+0.69] n 306
+XAG/US w2023/st_d1/H5/big_off           0.612 [+0.45,+0.80] eff 17.0 fwdR +0.069 | fp 0.588 [+0.50,+0.62] n 34
+XAG/US w2023/st_d1/H20/all              0.515 [+0.44,+0.61] eff 47.9 fwdR +0.131 | fp 0.570 [+0.46,+0.73] n 416
+XAG/US w2023/st_d1/H20/big_on           0.517 [+0.44,+0.61] eff 43.6 fwdR +0.158 | fp 0.586 [+0.46,+0.75] n 362
+XAG/US w2023/st_d1/H20/big_off          0.494 [+0.33,+0.75] eff 4.2 fwdR -0.150 | fp 0.463 [+0.26,+0.78] n 54
+XAG/US w2023/st_h4d1/H5/all             0.539 [+0.48,+0.62] eff 115.0 fwdR +0.027 | fp 0.571 [+0.49,+0.68] n 219
+XAG/US w2023/st_h4d1/H5/big_on          0.542 [+0.48,+0.62] eff 106.0 fwdR +0.034 | fp 0.586 [+0.50,+0.71] n 203
+XAG/US w2023/st_h4d1/H5/big_off         0.511 [+0.31,+0.67] eff 9.0 fwdR -0.053
+XAG/US w2023/st_h4d1/H20/all            0.481 [+0.40,+0.58] eff 28.4 fwdR +0.134 | fp 0.565 [+0.43,+0.73] n 260
+XAG/US w2023/st_h4d1/H20/big_on         0.489 [+0.41,+0.59] eff 26.1 fwdR +0.173 | fp 0.591 [+0.45,+0.77] n 230
+XAG/US w2023/st_h4d1/H20/big_off        0.378 [+0.16,+0.64] eff 2.2 fwdR -0.323 | fp 0.367 [+0.13,+0.50] n 30
+NATGAS dev2019_22/mom20/H5/all          0.496 [+0.44,+0.55] eff 207.4 fwdR +0.018 | fp 0.563 [+0.50,+0.65] n 396
+NATGAS dev2019_22/mom20/H5/big_on       0.484 [+0.42,+0.55] eff 96.2 fwdR -0.021 | fp 0.489 [+0.41,+0.60] n 188
+NATGAS dev2019_22/mom20/H5/big_off      0.505 [+0.43,+0.59] eff 111.2 fwdR +0.052 | fp 0.630 [+0.50,+0.76] n 208
+NATGAS dev2019_22/mom20/H20/all         0.499 [+0.41,+0.58] eff 51.9 fwdR +0.034 | fp 0.517 [+0.38,+0.65] n 445
+NATGAS dev2019_22/mom20/H20/big_on      0.466 [+0.34,+0.56] eff 24.1 fwdR -0.064 | fp 0.456 [+0.28,+0.66] n 171
+NATGAS dev2019_22/mom20/H20/big_off     0.527 [+0.42,+0.64] eff 27.8 fwdR +0.119 | fp 0.555 [+0.37,+0.73] n 274
+NATGAS dev2019_22/mom60/H5/all          0.504 [+0.44,+0.56] eff 207.0 fwdR +0.025 | fp 0.530 [+0.44,+0.62] n 396
+NATGAS dev2019_22/mom60/H5/big_on       0.482 [+0.41,+0.55] eff 96.2 fwdR +0.001 | fp 0.505 [+0.40,+0.61] n 188
+NATGAS dev2019_22/mom60/H5/big_off      0.523 [+0.45,+0.60] eff 110.8 fwdR +0.047 | fp 0.553 [+0.40,+0.67] n 208
+NATGAS dev2019_22/mom60/H20/all         0.529 [+0.44,+0.62] eff 51.8 fwdR +0.114 | fp 0.552 [+0.39,+0.68] n 444
+NATGAS dev2019_22/mom60/H20/big_on      0.501 [+0.38,+0.59] eff 24.1 fwdR +0.034 | fp 0.526 [+0.33,+0.69] n 171
+NATGAS dev2019_22/mom60/H20/big_off     0.552 [+0.44,+0.66] eff 27.7 fwdR +0.184 | fp 0.568 [+0.38,+0.74] n 273
+NATGAS dev2019_22/mom120/H5/all         0.503 [+0.45,+0.54] eff 207.4 fwdR +0.016 | fp 0.548 [+0.46,+0.63] n 396
+NATGAS dev2019_22/mom120/H5/big_on      0.518 [+0.44,+0.57] eff 96.2 fwdR +0.030 | fp 0.580 [+0.49,+0.69] n 188
+NATGAS dev2019_22/mom120/H5/big_off     0.491 [+0.43,+0.56] eff 111.2 fwdR +0.003 | fp 0.519 [+0.36,+0.64] n 208
+NATGAS dev2019_22/mom120/H20/all        0.540 [+0.46,+0.63] eff 51.9 fwdR +0.095 | fp 0.593 [+0.47,+0.70] n 445
+NATGAS dev2019_22/mom120/H20/big_on     0.516 [+0.41,+0.63] eff 24.1 fwdR +0.030 | fp 0.602 [+0.49,+0.73] n 171
+NATGAS dev2019_22/mom120/H20/big_off    0.561 [+0.46,+0.68] eff 27.8 fwdR +0.151 | fp 0.588 [+0.43,+0.73] n 274
+NATGAS dev2019_22/st_d1/H5/all          0.449 [+0.40,+0.51] eff 207.4 fwdR -0.027 | fp 0.485 [+0.41,+0.58] n 396
+NATGAS dev2019_22/st_d1/H5/big_on       0.420 [+0.37,+0.49] eff 96.2 fwdR -0.078 | fp 0.404 [+0.34,+0.54] n 188
+NATGAS dev2019_22/st_d1/H5/big_off      0.475 [+0.41,+0.56] eff 111.2 fwdR +0.016 | fp 0.558 [+0.40,+0.69] n 208
+NATGAS dev2019_22/st_d1/H20/all         0.442 [+0.35,+0.53] eff 51.9 fwdR -0.051 | fp 0.463 [+0.31,+0.61] n 445
+NATGAS dev2019_22/st_d1/H20/big_on      0.360 [+0.27,+0.44] eff 24.1 fwdR -0.250 | fp 0.374 [+0.21,+0.56] n 171
+NATGAS dev2019_22/st_d1/H20/big_off     0.513 [+0.39,+0.64] eff 27.8 fwdR +0.120 | fp 0.518 [+0.31,+0.71] n 274
+NATGAS dev2019_22/st_h4d1/H5/all        0.452 [+0.38,+0.53] eff 114.6 fwdR -0.032 | fp 0.504 [+0.41,+0.62] n 224
+NATGAS dev2019_22/st_h4d1/H5/big_on     0.425 [+0.35,+0.52] eff 55.0 fwdR -0.082 | fp 0.440 [+0.36,+0.57] n 100
+NATGAS dev2019_22/st_h4d1/H5/big_off    0.477 [+0.38,+0.55] eff 59.6 fwdR +0.015 | fp 0.556 [+0.37,+0.72] n 124
+NATGAS dev2019_22/st_h4d1/H20/all       0.482 [+0.37,+0.58] eff 28.6 fwdR -0.003 | fp 0.473 [+0.31,+0.66] n 239
+NATGAS dev2019_22/st_h4d1/H20/big_on    0.407 [+0.28,+0.50] eff 13.8 fwdR -0.191 | fp 0.385 [+0.28,+0.54] n 96
+NATGAS dev2019_22/st_h4d1/H20/big_off   0.550 [+0.38,+0.70] eff 14.9 fwdR +0.171 | fp 0.531 [+0.27,+0.78] n 143
+NATGAS w2023/mom20/H5/all               0.501 [+0.44,+0.55] eff 194.2 fwdR -0.007 | fp 0.533 [+0.45,+0.63] n 304
+NATGAS w2023/mom20/H5/big_on            0.495 [+0.40,+0.56] eff 83.2 fwdR -0.017 | fp 0.556 [+0.46,+0.76] n 117
+NATGAS w2023/mom20/H5/big_off           0.505 [+0.45,+0.57] eff 111.0 fwdR +0.000 | fp 0.519 [+0.44,+0.60] n 187
+NATGAS w2023/mom20/H20/all              0.494 [+0.41,+0.57] eff 47.9 fwdR +0.017 | fp 0.531 [+0.40,+0.67] n 341
+NATGAS w2023/mom20/H20/big_on           0.483 [+0.34,+0.58] eff 20.7 fwdR -0.003 | fp 0.547 [+0.40,+0.76] n 137
+NATGAS w2023/mom20/H20/big_off          0.503 [+0.42,+0.58] eff 27.1 fwdR +0.032 | fp 0.520 [+0.41,+0.64] n 204
+NATGAS w2023/mom60/H5/all               0.475 [+0.41,+0.53] eff 194.4 fwdR -0.027 | fp 0.477 [+0.37,+0.61] n 304
+NATGAS w2023/mom60/H5/big_on            0.558 [+0.47,+0.63] eff 83.2 fwdR +0.052 | fp 0.598 [+0.49,+0.79] n 117
+NATGAS w2023/mom60/H5/big_off           0.414 [+0.34,+0.49] eff 111.2 fwdR -0.086 | fp 0.401 [+0.28,+0.57] n 187
+NATGAS w2023/mom60/H20/all              0.438 [+0.34,+0.53] eff 47.9 fwdR -0.113 | fp 0.432 [+0.30,+0.62] n 340
+NATGAS w2023/mom60/H20/big_on           0.531 [+0.40,+0.64] eff 20.7 fwdR +0.148 | fp 0.650 [+0.57,+0.86] n 137
+NATGAS w2023/mom60/H20/big_off          0.366 [+0.25,+0.49] eff 27.1 fwdR -0.312 | fp 0.286 [+0.13,+0.49] n 203
+NATGAS w2023/mom120/H5/all              0.481 [+0.42,+0.53] eff 194.6 fwdR -0.025 | fp 0.480 [+0.39,+0.59] n 304
+NATGAS w2023/mom120/H5/big_on           0.536 [+0.44,+0.62] eff 83.2 fwdR +0.024 | fp 0.530 [+0.41,+0.68] n 117
+NATGAS w2023/mom120/H5/big_off          0.440 [+0.37,+0.52] eff 111.4 fwdR -0.062 | fp 0.449 [+0.36,+0.57] n 187
+NATGAS w2023/mom120/H20/all             0.430 [+0.34,+0.52] eff 47.9 fwdR -0.114 | fp 0.469 [+0.34,+0.64] n 341
+NATGAS w2023/mom120/H20/big_on          0.442 [+0.31,+0.56] eff 20.7 fwdR -0.074 | fp 0.489 [+0.36,+0.71] n 137
+NATGAS w2023/mom120/H20/big_off         0.421 [+0.31,+0.53] eff 27.2 fwdR -0.145 | fp 0.456 [+0.29,+0.68] n 204
+NATGAS w2023/st_d1/H5/all               0.525 [+0.46,+0.58] eff 194.6 fwdR +0.013 | fp 0.556 [+0.47,+0.66] n 304
+NATGAS w2023/st_d1/H5/big_on            0.526 [+0.44,+0.59] eff 83.2 fwdR +0.014 | fp 0.556 [+0.46,+0.76] n 117
+NATGAS w2023/st_d1/H5/big_off           0.524 [+0.46,+0.60] eff 111.4 fwdR +0.012 | fp 0.556 [+0.49,+0.66] n 187
+NATGAS w2023/st_d1/H20/all              0.451 [+0.36,+0.53] eff 47.9 fwdR -0.084 | fp 0.475 [+0.34,+0.67] n 341
+NATGAS w2023/st_d1/H20/big_on           0.519 [+0.39,+0.61] eff 20.7 fwdR +0.042 | fp 0.577 [+0.43,+0.82] n 137
+NATGAS w2023/st_d1/H20/big_off          0.399 [+0.31,+0.51] eff 27.2 fwdR -0.180 | fp 0.407 [+0.25,+0.66] n 204
+NATGAS w2023/st_h4d1/H5/all             0.546 [+0.48,+0.61] eff 115.4 fwdR +0.009 | fp 0.558 [+0.44,+0.70] n 181
+NATGAS w2023/st_h4d1/H5/big_on          0.567 [+0.45,+0.65] eff 55.4 fwdR +0.024 | fp 0.592 [+0.51,+0.84] n 76
+NATGAS w2023/st_h4d1/H5/big_off         0.527 [+0.45,+0.62] eff 60.0 fwdR -0.004 | fp 0.533 [+0.43,+0.65] n 105
+NATGAS w2023/st_h4d1/H20/all            0.470 [+0.38,+0.56] eff 28.4 fwdR -0.054 | fp 0.503 [+0.37,+0.73] n 193
+NATGAS w2023/st_h4d1/H20/big_on         0.518 [+0.34,+0.63] eff 13.8 fwdR +0.072 | fp 0.560 [+0.46,+0.87] n 91
+NATGAS w2023/st_h4d1/H20/big_off        0.425 [+0.35,+0.55] eff 14.6 fwdR -0.174 | fp 0.451 [+0.30,+0.75] n 102
+SPX500 dev2019_22/mom20/H5/all          0.552 [+0.50,+0.61] eff 207.6 fwdR +0.006 | fp 0.426 [+0.33,+0.50] n 336
+SPX500 dev2019_22/mom20/H5/big_on       0.502 [+0.44,+0.59] eff 58.2 fwdR +0.019 | fp 0.588 [+0.42,+0.64] n 80
+SPX500 dev2019_22/mom20/H5/big_off      0.572 [+0.50,+0.63] eff 149.4 fwdR +0.002 | fp 0.375 [+0.28,+0.45] n 256
+SPX500 dev2019_22/mom20/H20/all         0.544 [+0.47,+0.64] eff 51.9 fwdR -0.033 | fp 0.397 [+0.27,+0.50] n 363
+SPX500 dev2019_22/mom20/H20/big_on      0.481 [+0.34,+0.62] eff 14.6 fwdR -0.020 | fp 0.521 [+0.34,+0.59] n 73
+SPX500 dev2019_22/mom20/H20/big_off     0.569 [+0.47,+0.67] eff 37.4 fwdR -0.037 | fp 0.366 [+0.22,+0.50] n 290
+SPX500 dev2019_22/mom60/H5/all          0.553 [+0.51,+0.61] eff 207.6 fwdR +0.007 | fp 0.408 [+0.34,+0.47] n 336
+SPX500 dev2019_22/mom60/H5/big_on       0.450 [+0.37,+0.56] eff 58.2 fwdR -0.021 | fp 0.525 [+0.47,+0.69] n 80
+SPX500 dev2019_22/mom60/H5/big_off      0.593 [+0.54,+0.66] eff 149.4 fwdR +0.018 | fp 0.371 [+0.29,+0.44] n 256
+SPX500 dev2019_22/mom60/H20/all         0.574 [+0.48,+0.67] eff 51.9 fwdR -0.002 | fp 0.402 [+0.29,+0.54] n 363
+SPX500 dev2019_22/mom60/H20/big_on      0.430 [+0.29,+0.60] eff 14.6 fwdR -0.116 | fp 0.603 [+0.45,+0.88] n 73
+SPX500 dev2019_22/mom60/H20/big_off     0.631 [+0.53,+0.73] eff 37.4 fwdR +0.042 | fp 0.352 [+0.23,+0.49] n 290
+SPX500 dev2019_22/mom120/H5/all         0.529 [+0.47,+0.60] eff 207.6 fwdR +0.001 | fp 0.417 [+0.34,+0.49] n 336
+SPX500 dev2019_22/mom120/H5/big_on      0.457 [+0.40,+0.55] eff 58.2 fwdR -0.032 | fp 0.487 [+0.45,+0.60] n 80
+SPX500 dev2019_22/mom120/H5/big_off     0.557 [+0.50,+0.64] eff 149.4 fwdR +0.014 | fp 0.395 [+0.31,+0.47] n 256
+SPX500 dev2019_22/mom120/H20/all        0.533 [+0.44,+0.63] eff 51.9 fwdR -0.033 | fp 0.416 [+0.29,+0.54] n 363
+SPX500 dev2019_22/mom120/H20/big_on     0.354 [+0.24,+0.49] eff 14.6 fwdR -0.257 | fp 0.493 [+0.23,+0.71] n 73
+SPX500 dev2019_22/mom120/H20/big_off    0.602 [+0.51,+0.71] eff 37.4 fwdR +0.054 | fp 0.397 [+0.27,+0.52] n 290
+SPX500 dev2019_22/st_d1/H5/all          0.502 [+0.44,+0.56] eff 207.6 fwdR -0.035 | fp 0.423 [+0.32,+0.49] n 336
+SPX500 dev2019_22/st_d1/H5/big_on       0.505 [+0.41,+0.59] eff 58.2 fwdR +0.021 | fp 0.588 [+0.42,+0.64] n 80
+SPX500 dev2019_22/st_d1/H5/big_off      0.501 [+0.43,+0.57] eff 149.4 fwdR -0.057 | fp 0.371 [+0.27,+0.45] n 256
+SPX500 dev2019_22/st_d1/H20/all         0.479 [+0.39,+0.57] eff 51.9 fwdR -0.139 | fp 0.366 [+0.20,+0.48] n 363
+SPX500 dev2019_22/st_d1/H20/big_on      0.478 [+0.33,+0.59] eff 14.6 fwdR -0.006 | fp 0.562 [+0.37,+0.66] n 73
+SPX500 dev2019_22/st_d1/H20/big_off     0.479 [+0.37,+0.59] eff 37.4 fwdR -0.191 | fp 0.317 [+0.16,+0.46] n 290
+SPX500 dev2019_22/st_h4d1/H5/all        0.525 [+0.46,+0.59] eff 125.6 fwdR -0.030 | fp 0.406 [+0.30,+0.50] n 197
+SPX500 dev2019_22/st_h4d1/H5/big_on     0.503 [+0.42,+0.57] eff 37.8 fwdR +0.005 | fp 0.552 [+0.40,+0.62] n 58
+SPX500 dev2019_22/st_h4d1/H5/big_off    0.535 [+0.46,+0.61] eff 87.8 fwdR -0.045 | fp 0.345 [+0.22,+0.48] n 139
+SPX500 dev2019_22/st_h4d1/H20/all       0.540 [+0.44,+0.64] eff 31.4 fwdR -0.082 | fp 0.349 [+0.18,+0.49] n 218
+SPX500 dev2019_22/st_h4d1/H20/big_on    0.519 [+0.37,+0.62] eff 9.4 fwdR +0.057 | fp 0.568 [+0.36,+0.61] n 44
+SPX500 dev2019_22/st_h4d1/H20/big_off   0.549 [+0.43,+0.67] eff 21.9 fwdR -0.142 | fp 0.293 [+0.11,+0.44] n 174
+SPX500 w2023/mom20/H5/all               0.554 [+0.50,+0.61] eff 195.2 fwdR +0.036 | fp 0.472 [+0.37,+0.57] n 318
+SPX500 w2023/mom20/H5/big_on            0.510 [+0.38,+0.60] eff 29.8 fwdR +0.031 | fp 0.600 [+0.47,+0.78] n 45
+SPX500 w2023/mom20/H5/big_off           0.562 [+0.51,+0.63] eff 165.4 fwdR +0.037 | fp 0.451 [+0.35,+0.54] n 273
+SPX500 w2023/mom20/H20/all              0.595 [+0.51,+0.69] eff 48.0 fwdR +0.165 | fp 0.570 [+0.46,+0.71] n 351
+SPX500 w2023/mom20/H20/big_on           0.671 [+0.48,+0.84] eff 7.5 fwdR +0.298 | fp 0.786 [+0.62,+0.93] n 56
+SPX500 w2023/mom20/H20/big_off          0.581 [+0.50,+0.68] eff 40.6 fwdR +0.140 | fp 0.529 [+0.41,+0.68] n 295
+SPX500 w2023/mom60/H5/all               0.599 [+0.54,+0.64] eff 195.2 fwdR +0.071 | fp 0.481 [+0.37,+0.56] n 318
+SPX500 w2023/mom60/H5/big_on            0.523 [+0.34,+0.65] eff 29.8 fwdR +0.013 | fp 0.467 [+0.33,+0.73] n 45
+SPX500 w2023/mom60/H5/big_off           0.613 [+0.56,+0.66] eff 165.4 fwdR +0.081 | fp 0.484 [+0.38,+0.55] n 273
+SPX500 w2023/mom60/H20/all              0.644 [+0.54,+0.73] eff 48.0 fwdR +0.233 | fp 0.553 [+0.39,+0.71] n 351
+SPX500 w2023/mom60/H20/big_on           0.631 [+0.35,+0.88] eff 7.5 fwdR +0.221 | fp 0.750 [+0.66,+0.91] n 56
+SPX500 w2023/mom60/H20/big_off          0.647 [+0.54,+0.73] eff 40.6 fwdR +0.236 | fp 0.515 [+0.35,+0.67] n 295
+SPX500 w2023/mom120/H5/all              0.576 [+0.51,+0.64] eff 195.2 fwdR +0.060 | fp 0.440 [+0.37,+0.52] n 318
+SPX500 w2023/mom120/H5/big_on           0.550 [+0.31,+0.72] eff 29.8 fwdR +0.049 | fp 0.444 [+0.24,+0.56] n 45
+SPX500 w2023/mom120/H5/big_off          0.580 [+0.52,+0.64] eff 165.4 fwdR +0.062 | fp 0.440 [+0.36,+0.53] n 273
+SPX500 w2023/mom120/H20/all             0.645 [+0.55,+0.74] eff 48.0 fwdR +0.242 | fp 0.530 [+0.37,+0.70] n 351
+SPX500 w2023/mom120/H20/big_on          0.671 [+0.38,+0.89] eff 7.5 fwdR +0.321 | fp 0.804 [+0.68,+0.84] n 56
+SPX500 w2023/mom120/H20/big_off         0.640 [+0.54,+0.74] eff 40.6 fwdR +0.228 | fp 0.478 [+0.29,+0.66] n 295
+SPX500 w2023/st_d1/H5/all               0.533 [+0.47,+0.60] eff 195.2 fwdR +0.017 | fp 0.465 [+0.37,+0.56] n 318
+SPX500 w2023/st_d1/H5/big_on            0.523 [+0.38,+0.61] eff 29.8 fwdR +0.041 | fp 0.622 [+0.51,+0.87] n 45
+SPX500 w2023/st_d1/H5/big_off           0.534 [+0.47,+0.61] eff 165.4 fwdR +0.013 | fp 0.440 [+0.33,+0.53] n 273
+SPX500 w2023/st_d1/H20/all              0.531 [+0.44,+0.63] eff 48.0 fwdR +0.078 | fp 0.530 [+0.43,+0.69] n 351
+SPX500 w2023/st_d1/H20/big_on           0.617 [+0.46,+0.77] eff 7.5 fwdR +0.235 | fp 0.786 [+0.68,+0.95] n 56
+SPX500 w2023/st_d1/H20/big_off          0.515 [+0.41,+0.62] eff 40.6 fwdR +0.049 | fp 0.481 [+0.37,+0.65] n 295
+SPX500 w2023/st_h4d1/H5/all             0.557 [+0.48,+0.64] eff 118.8 fwdR +0.020 | fp 0.479 [+0.36,+0.61] n 192
+SPX500 w2023/st_h4d1/H5/big_on          0.589 [+0.42,+0.68] eff 21.4 fwdR +0.061 | fp 0.611 [+0.50,+0.81] n 36
+SPX500 w2023/st_h4d1/H5/big_off         0.550 [+0.47,+0.64] eff 97.4 fwdR +0.012 | fp 0.449 [+0.32,+0.58] n 156
+SPX500 w2023/st_h4d1/H20/all            0.577 [+0.47,+0.70] eff 29.3 fwdR +0.126 | fp 0.541 [+0.41,+0.70] n 220
+SPX500 w2023/st_h4d1/H20/big_on         0.748 [+0.65,+0.90] eff 5.3 fwdR +0.410 | fp 0.800 [+0.64,+0.91] n 45
+SPX500 w2023/st_h4d1/H20/big_off        0.539 [+0.43,+0.67] eff 23.9 fwdR +0.063 | fp 0.474 [+0.34,+0.65] n 175
+EUR/US dev2019_22/mom20/H5/all          0.466 [+0.42,+0.51] eff 208.4 fwdR -0.035 | fp 0.475 [+0.40,+0.55] n 339
+EUR/US dev2019_22/mom20/H5/big_on       0.446 [+0.35,+0.52] eff 64.6 fwdR -0.105 | fp 0.364 [+0.24,+0.42] n 107
+EUR/US dev2019_22/mom20/H5/big_off      0.476 [+0.43,+0.53] eff 143.8 fwdR -0.004 | fp 0.526 [+0.45,+0.60] n 232
+EUR/US dev2019_22/mom20/H20/all         0.521 [+0.45,+0.58] eff 52.1 fwdR -0.029 | fp 0.485 [+0.37,+0.60] n 324
+EUR/US dev2019_22/mom20/H20/big_on      0.542 [+0.41,+0.66] eff 16.1 fwdR -0.030 | fp 0.417 [+0.24,+0.60] n 96
+EUR/US dev2019_22/mom20/H20/big_off     0.512 [+0.45,+0.58] eff 36.0 fwdR -0.028 | fp 0.513 [+0.36,+0.64] n 228
+EUR/US dev2019_22/mom60/H5/all          0.491 [+0.44,+0.55] eff 208.4 fwdR -0.020 | fp 0.478 [+0.40,+0.57] n 339
+EUR/US dev2019_22/mom60/H5/big_on       0.508 [+0.44,+0.58] eff 64.6 fwdR -0.045 | fp 0.449 [+0.34,+0.59] n 107
+EUR/US dev2019_22/mom60/H5/big_off      0.484 [+0.42,+0.54] eff 143.8 fwdR -0.009 | fp 0.491 [+0.38,+0.58] n 232
+EUR/US dev2019_22/mom60/H20/all         0.523 [+0.44,+0.60] eff 52.1 fwdR +0.019 | fp 0.512 [+0.39,+0.70] n 324
+EUR/US dev2019_22/mom60/H20/big_on      0.573 [+0.45,+0.69] eff 16.1 fwdR +0.023 | fp 0.490 [+0.32,+0.91] n 96
+EUR/US dev2019_22/mom60/H20/big_off     0.501 [+0.41,+0.58] eff 36.0 fwdR +0.018 | fp 0.522 [+0.35,+0.70] n 228
+EUR/US dev2019_22/mom120/H5/all         0.541 [+0.49,+0.59] eff 208.4 fwdR +0.026 | fp 0.516 [+0.43,+0.62] n 339
+EUR/US dev2019_22/mom120/H5/big_on      0.489 [+0.39,+0.56] eff 64.6 fwdR -0.053 | fp 0.430 [+0.33,+0.61] n 107
+EUR/US dev2019_22/mom120/H5/big_off     0.565 [+0.51,+0.62] eff 143.8 fwdR +0.061 | fp 0.556 [+0.44,+0.63] n 232
+EUR/US dev2019_22/mom120/H20/all        0.588 [+0.50,+0.67] eff 52.1 fwdR +0.154 | fp 0.639 [+0.52,+0.81] n 324
+EUR/US dev2019_22/mom120/H20/big_on     0.567 [+0.41,+0.67] eff 16.1 fwdR +0.084 | fp 0.583 [+0.41,+0.98] n 96
+EUR/US dev2019_22/mom120/H20/big_off    0.598 [+0.50,+0.69] eff 36.0 fwdR +0.186 | fp 0.662 [+0.50,+0.80] n 228
+EUR/US dev2019_22/st_d1/H5/all          0.493 [+0.44,+0.55] eff 208.4 fwdR -0.005 | fp 0.513 [+0.42,+0.60] n 339
+EUR/US dev2019_22/st_d1/H5/big_on       0.533 [+0.45,+0.61] eff 64.6 fwdR +0.005 | fp 0.514 [+0.39,+0.58] n 107
+EUR/US dev2019_22/st_d1/H5/big_off      0.476 [+0.41,+0.54] eff 143.8 fwdR -0.009 | fp 0.513 [+0.43,+0.59] n 232
+EUR/US dev2019_22/st_d1/H20/all         0.521 [+0.43,+0.60] eff 52.1 fwdR +0.024 | fp 0.540 [+0.38,+0.70] n 324
+EUR/US dev2019_22/st_d1/H20/big_on      0.622 [+0.50,+0.75] eff 16.1 fwdR +0.143 | fp 0.583 [+0.33,+0.84] n 96
+EUR/US dev2019_22/st_d1/H20/big_off     0.476 [+0.38,+0.56] eff 36.0 fwdR -0.030 | fp 0.522 [+0.35,+0.70] n 228
+EUR/US dev2019_22/st_h4d1/H5/all        0.448 [+0.37,+0.52] eff 120.0 fwdR -0.024 | fp 0.517 [+0.42,+0.60] n 209
+EUR/US dev2019_22/st_h4d1/H5/big_on     0.509 [+0.43,+0.58] eff 44.8 fwdR +0.016 | fp 0.566 [+0.47,+0.58] n 83
+EUR/US dev2019_22/st_h4d1/H5/big_off    0.412 [+0.33,+0.51] eff 75.2 fwdR -0.048 | fp 0.484 [+0.34,+0.60] n 126
+EUR/US dev2019_22/st_h4d1/H20/all       0.507 [+0.41,+0.60] eff 30.0 fwdR -0.003 | fp 0.546 [+0.37,+0.72] n 196
+EUR/US dev2019_22/st_h4d1/H20/big_on    0.554 [+0.41,+0.68] eff 11.2 fwdR +0.042 | fp 0.576 [+0.29,+0.85] n 66
+EUR/US dev2019_22/st_h4d1/H20/big_off   0.479 [+0.38,+0.57] eff 18.8 fwdR -0.031 | fp 0.531 [+0.32,+0.73] n 130
+EUR/US w2023/mom20/H5/all               0.526 [+0.47,+0.57] eff 195.6 fwdR +0.031 | fp 0.580 [+0.50,+0.65] n 295
+EUR/US w2023/mom20/H5/big_on            0.457 [+0.35,+0.57] eff 39.4 fwdR -0.022 | fp 0.574 [+0.53,+0.81] n 47
+EUR/US w2023/mom20/H5/big_off           0.543 [+0.49,+0.58] eff 156.2 fwdR +0.045 | fp 0.581 [+0.51,+0.64] n 248
+EUR/US w2023/mom20/H20/all              0.472 [+0.39,+0.56] eff 48.1 fwdR -0.027 | fp 0.543 [+0.42,+0.71] n 311
+EUR/US w2023/mom20/H20/big_on           0.563 [+0.46,+0.76] eff 9.8 fwdR +0.134 | fp 0.649 [+0.60,+1.00] n 57
+EUR/US w2023/mom20/H20/big_off          0.449 [+0.37,+0.54] eff 38.3 fwdR -0.068 | fp 0.520 [+0.40,+0.68] n 254
+EUR/US w2023/mom60/H5/all               0.461 [+0.41,+0.50] eff 195.6 fwdR -0.035 | fp 0.488 [+0.39,+0.59] n 295
+EUR/US w2023/mom60/H5/big_on            0.508 [+0.43,+0.60] eff 39.4 fwdR +0.022 | fp 0.596 [+0.53,+0.77] n 47
+EUR/US w2023/mom60/H5/big_off           0.449 [+0.39,+0.50] eff 156.2 fwdR -0.049 | fp 0.468 [+0.37,+0.57] n 248
+EUR/US w2023/mom60/H20/all              0.438 [+0.36,+0.53] eff 48.1 fwdR -0.124 | fp 0.437 [+0.32,+0.58] n 311
+EUR/US w2023/mom60/H20/big_on           0.584 [+0.50,+0.77] eff 9.8 fwdR +0.149 | fp 0.684 [+0.65,+0.91] n 57
+EUR/US w2023/mom60/H20/big_off          0.401 [+0.31,+0.50] eff 38.3 fwdR -0.194 | fp 0.382 [+0.28,+0.50] n 254
+EUR/US w2023/mom120/H5/all              0.493 [+0.43,+0.54] eff 195.6 fwdR -0.008 | fp 0.536 [+0.44,+0.61] n 295
+EUR/US w2023/mom120/H5/big_on           0.503 [+0.45,+0.58] eff 39.4 fwdR +0.014 | fp 0.532 [+0.45,+0.66] n 47
+EUR/US w2023/mom120/H5/big_off          0.490 [+0.42,+0.54] eff 156.2 fwdR -0.014 | fp 0.536 [+0.44,+0.60] n 248
+EUR/US w2023/mom120/H20/all             0.415 [+0.33,+0.51] eff 48.1 fwdR -0.187 | fp 0.376 [+0.24,+0.51] n 311
+EUR/US w2023/mom120/H20/big_on          0.467 [+0.33,+0.66] eff 9.8 fwdR -0.221 | fp 0.351 [+0.18,+0.44] n 57
+EUR/US w2023/mom120/H20/big_off         0.402 [+0.30,+0.52] eff 38.3 fwdR -0.178 | fp 0.382 [+0.24,+0.52] n 254
+EUR/US w2023/st_d1/H5/all               0.453 [+0.39,+0.50] eff 195.6 fwdR -0.024 | fp 0.485 [+0.38,+0.58] n 295
+EUR/US w2023/st_d1/H5/big_on            0.447 [+0.35,+0.56] eff 39.4 fwdR -0.022 | fp 0.574 [+0.53,+0.81] n 47
+EUR/US w2023/st_d1/H5/big_off           0.455 [+0.39,+0.50] eff 156.2 fwdR -0.024 | fp 0.468 [+0.37,+0.54] n 248
+EUR/US w2023/st_d1/H20/all              0.406 [+0.32,+0.49] eff 48.1 fwdR -0.173 | fp 0.431 [+0.30,+0.62] n 311
+EUR/US w2023/st_d1/H20/big_on           0.553 [+0.43,+0.77] eff 9.8 fwdR +0.117 | fp 0.649 [+0.60,+1.00] n 57
+EUR/US w2023/st_d1/H20/big_off          0.368 [+0.29,+0.46] eff 38.3 fwdR -0.248 | fp 0.382 [+0.26,+0.55] n 254
+EUR/US w2023/st_h4d1/H5/all             0.467 [+0.39,+0.52] eff 112.2 fwdR -0.040 | fp 0.469 [+0.34,+0.56] n 192
+EUR/US w2023/st_h4d1/H5/big_on          0.430 [+0.34,+0.56] eff 28.4 fwdR -0.034 | fp 0.579 [+0.53,+0.79] n 38
+EUR/US w2023/st_h4d1/H5/big_off         0.480 [+0.39,+0.54] eff 83.8 fwdR -0.042 | fp 0.442 [+0.34,+0.53] n 154
+EUR/US w2023/st_h4d1/H20/all            0.456 [+0.37,+0.58] eff 27.4 fwdR -0.149 | fp 0.383 [+0.22,+0.63] n 201
+EUR/US w2023/st_h4d1/H20/big_on         0.556 [+0.43,+0.80] eff 7.1 fwdR +0.095 | fp 0.625 [+0.56,+1.00] n 48
+EUR/US w2023/st_h4d1/H20/big_off        0.421 [+0.34,+0.54] eff 20.3 fwdR -0.234 | fp 0.307 [+0.18,+0.55] n 153

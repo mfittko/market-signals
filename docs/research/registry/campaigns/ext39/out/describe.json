@@ -1,0 +1,62 @@
+{
+ "k2.0_dev": {
+  "all": 6602,
+  "bond": 752,
+  "commodity": 2186,
+  "fx": 2039,
+  "index": 1625,
+  "up": 3157,
+  "down": 3445,
+  "weeks": 910
+ },
+ "k2.0_w2023": {
+  "all": 1303,
+  "bond": 157,
+  "commodity": 438,
+  "fx": 401,
+  "index": 307,
+  "up": 652,
+  "down": 651,
+  "weeks": 188
+ },
+ "k2.5_dev": {
+  "all": 3272,
+  "bond": 341,
+  "commodity": 1110,
+  "fx": 992,
+  "index": 829,
+  "up": 1466,
+  "down": 1806,
+  "weeks": 763
+ },
+ "k2.5_w2023": {
+  "all": 625,
+  "bond": 64,
+  "commodity": 228,
+  "fx": 200,
+  "index": 133,
+  "up": 288,
+  "down": 337,
+  "weeks": 161
+ },
+ "k3.0_dev": {
+  "all": 1581,
+  "bond": 141,
+  "commodity": 543,
+  "fx": 470,
+  "index": 427,
+  "up": 655,
+  "down": 926,
+  "weeks": 538
+ },
+ "k3.0_w2023": {
+  "all": 304,
+  "bond": 33,
+  "commodity": 103,
+  "fx": 98,
+  "index": 70,
+  "up": 132,
+  "down": 172,
+  "weeks": 117
+ }
+}

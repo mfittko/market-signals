@@ -1,0 +1,129 @@
+{
+ "WTICO_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 156,
+   "precision24": 0.312,
+   "kept": 445,
+   "recall28": 0.974,
+   "precision28": 0.342,
+   "junk_dropped": 0.148
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 160,
+   "precision24": 0.32,
+   "kept": 431,
+   "recall28": 0.881,
+   "precision28": 0.327,
+   "junk_dropped": 0.147
+  },
+  "n_conditions": 2
+ },
+ "XAU_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 160,
+   "precision24": 0.32,
+   "kept": 356,
+   "recall28": 0.981,
+   "precision28": 0.441,
+   "junk_dropped": 0.415
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 147,
+   "precision24": 0.294,
+   "kept": 353,
+   "recall28": 0.912,
+   "precision28": 0.38,
+   "junk_dropped": 0.38
+  },
+  "n_conditions": 11
+ },
+ "XAG_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 101,
+   "precision24": 0.202,
+   "kept": 311,
+   "recall28": 0.98,
+   "precision28": 0.318,
+   "junk_dropped": 0.469
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 89,
+   "precision24": 0.178,
+   "kept": 307,
+   "recall28": 0.843,
+   "precision28": 0.244,
+   "junk_dropped": 0.436
+  },
+  "n_conditions": 9
+ },
+ "EUR_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 258,
+   "precision24": 0.516,
+   "kept": 440,
+   "recall28": 0.977,
+   "precision28": 0.573,
+   "junk_dropped": 0.223
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 286,
+   "precision24": 0.572,
+   "kept": 452,
+   "recall28": 0.962,
+   "precision28": 0.608,
+   "junk_dropped": 0.173
+  },
+  "n_conditions": 4
+ },
+ "SPX500_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 192,
+   "precision24": 0.384,
+   "kept": 426,
+   "recall28": 0.958,
+   "precision28": 0.432,
+   "junk_dropped": 0.214
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 201,
+   "precision24": 0.402,
+   "kept": 429,
+   "recall28": 0.935,
+   "precision28": 0.438,
+   "junk_dropped": 0.194
+  },
+  "n_conditions": 4
+ },
+ "NATGAS_USD": {
+  "fit": {
+   "n": 500,
+   "jev_rel": 58,
+   "precision24": 0.116,
+   "kept": 318,
+   "recall28": 0.983,
+   "precision28": 0.179,
+   "junk_dropped": 0.41
+  },
+  "heldout": {
+   "n": 500,
+   "jev_rel": 59,
+   "precision24": 0.118,
+   "kept": 323,
+   "recall28": 0.797,
+   "precision28": 0.146,
+   "junk_dropped": 0.374
+  },
+  "n_conditions": 8
+ },
+ "relevance28_sha256": "70e61b2fce0444c20c2c065adf1c95689986c23420edfcd0a62be24f35cf4bbb"
+}

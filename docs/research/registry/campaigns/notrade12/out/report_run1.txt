@@ -1,0 +1,132 @@
+
+## primary_M5_M15 / dev2018_22: n=119656 signals, mean R all -0.490, daily CVaR5 -96.46, maxDD 58656 R
+| reason | blocked | R blocked | R kept | delta kept-all [CI] | p_holm | null q97.5 | losses avoided / winners missed (R) | saved R/day [CI] | dCVaR5 kept-all [CI] (null mean) | MDD reduction (null mean) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| R1_spread | 60.9% | -0.728 | -0.120 | +0.371 [+0.351, +0.394] | 0.00699 | +0.009 | 69205 / 16150 | +38.642 [+57.119, +65.400] | +70.018 [+66.531, +73.708] (+53.83) | 53056 (35708) |
+| R2_chase | 21.3% | -0.426 | -0.508 | -0.017 [-0.023, -0.012] | 1 | +0.004 | 19125 / 8279 | +7.900 [+11.483, +13.684] | +11.912 [+10.234, +13.774] (+18.51) | 10846 (12479) |
+| R3_thin_hours | 10.9% | -0.854 | -0.446 | +0.045 [+0.041, +0.048] | 0.00699 | +0.003 | 13792 / 2636 | +8.125 [+12.066, +13.732] | +14.538 [+13.245, +15.865] (+9.47) | 11156 (6401) |
+| R4_release | 0.7% | -0.338 | -0.491 | -0.001 [-0.002, -0.000] | 1 | +0.001 | 561 / 295 | +0.194 [+0.199, +0.417] | +0.594 [+0.143, +1.080] (+0.58) | 266 (384) |
+| R5_extended | 7.3% | -0.362 | -0.500 | -0.010 [-0.013, -0.007] | 1 | +0.002 | 6481 / 3299 | +2.317 [+3.200, +4.140] | +4.402 [+3.300, +5.567] (+6.32) | 3181 (4310) |
+| R6_counter_h1 | 52.7% | -0.494 | -0.486 | +0.004 [-0.006, +0.014] | 1 | +0.007 | 50027 / 18894 | +22.676 [+33.584, +38.381] | +46.758 [+44.685, +48.893] (+46.46) | 31134 (30911) |
+| ANY | 88.9% | -0.538 | -0.106 | +0.384 [+0.354, +0.415] | 0.00699 | +0.023 | 88090 / 30839 | +41.698 [+61.820, +70.510] | +85.207 [+82.066, +88.492] (+80.70) | 57242 (52181) |
+kept mean R with CI (absolute): R1_spread -0.120 [-0.134, -0.106], R2_chase -0.508 [-0.534, -0.484], R3_thin_hours -0.446 [-0.469, -0.424], R4_release -0.491 [-0.515, -0.469], R5_extended -0.500 [-0.525, -0.478], R6_counter_h1 -0.486 [-0.514, -0.461], ANY -0.106 [-0.134, -0.077]
+incremental over R1 (base n=46815, mean -0.120): R2_chase share 24.8% delta -0.009 [-0.018, -0.001] beats_null=False; R3_thin_hours share 4.9% delta +0.004 [+0.001, +0.006] beats_null=True; R4_release share 0.9% delta -0.000 [-0.002, +0.001] beats_null=False; R5_extended share 9.6% delta -0.010 [-0.015, -0.005] beats_null=False; R6_counter_h1 share 54.1% delta +0.021 [+0.002, +0.037] beats_null=True; ANY share 71.8% delta +0.013 [-0.012, +0.037] beats_null=False
+streams with ANY-kept mean R >= 0: [('SPX500/USD/M15/impulse', 2146, 0.005859024729394583)]
+by stream (n, all, ANY share, ANY kept, R1-only kept):
+  WTICO/USD/M5/flip: n=9058 all -0.288 ANY 86% kept -0.092 R1kept -0.118
+  WTICO/USD/M5/impulse: n=5088 all -0.305 ANY 91% kept -0.134 R1kept -0.128
+  WTICO/USD/M15/flip: n=3088 all -0.120 ANY 77% kept -0.057 R1kept -0.089
+  WTICO/USD/M15/impulse: n=2410 all -0.106 ANY 71% kept -0.055 R1kept -0.060
+  XAU/USD/M5/flip: n=9228 all -0.339 ANY 89% kept -0.121 R1kept -0.168
+  XAU/USD/M5/impulse: n=4364 all -0.331 ANY 92% kept -0.119 R1kept -0.143
+  XAU/USD/M15/flip: n=2942 all -0.190 ANY 78% kept -0.172 R1kept -0.167
+  XAU/USD/M15/impulse: n=2219 all -0.121 ANY 75% kept -0.179 R1kept -0.078
+  XAG/USD/M5/flip: n=11048 all -0.876 ANY 99% kept -0.127 R1kept -0.161
+  XAG/USD/M5/impulse: n=4832 all -0.798 ANY 99% kept -0.203 R1kept -0.158
+  XAG/USD/M15/flip: n=3326 all -0.445 ANY 95% kept -0.363 R1kept -0.175
+  XAG/USD/M15/impulse: n=2424 all -0.389 ANY 93% kept -0.092 R1kept -0.080
+  NATGAS/USD/M5/flip: n=10901 all -1.322 ANY 98% kept -0.028 R1kept -0.096
+  NATGAS/USD/M5/impulse: n=4597 all -1.015 ANY 99% kept -0.165 R1kept -0.194
+  NATGAS/USD/M15/flip: n=3483 all -0.660 ANY 96% kept -0.081 R1kept -0.111
+  NATGAS/USD/M15/impulse: n=2381 all -0.569 ANY 94% kept -0.169 R1kept -0.161
+  SPX500/USD/M5/flip: n=9460 all -0.204 ANY 80% kept -0.097 R1kept -0.132
+  SPX500/USD/M5/impulse: n=4635 all -0.170 ANY 81% kept -0.033 R1kept -0.082
+  SPX500/USD/M15/flip: n=3088 all -0.077 ANY 77% kept -0.039 R1kept -0.060
+  SPX500/USD/M15/impulse: n=2146 all +0.002 ANY 68% kept +0.006 R1kept +0.008
+  EUR/USD/M5/flip: n=9763 all -0.418 ANY 90% kept -0.167 R1kept -0.199
+  EUR/USD/M5/impulse: n=3902 all -0.430 ANY 96% kept -0.199 R1kept -0.157
+  EUR/USD/M15/flip: n=3106 all -0.192 ANY 79% kept -0.121 R1kept -0.135
+  EUR/USD/M15/impulse: n=2167 all -0.215 ANY 77% kept -0.207 R1kept -0.124
+
+## primary_M5_M15 / w2023: n=87727 signals, mean R all -0.370, daily CVaR5 -70.25, maxDD 32432 R
+| reason | blocked | R blocked | R kept | delta kept-all [CI] | p_holm | null q97.5 | losses avoided / winners missed (R) | saved R/day [CI] | dCVaR5 kept-all [CI] (null mean) | MDD reduction (null mean) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| R1_spread | 54.5% | -0.581 | -0.116 | +0.254 [+0.238, +0.269] | 0.00699 | +0.009 | 40091 / 12298 | +26.647 [+39.518, +45.229] | +41.611 [+38.862, +44.035] (+34.20) | 27764 (17653) |
+| R2_chase | 20.0% | -0.334 | -0.379 | -0.009 [-0.015, -0.003] | 1 | +0.004 | 12229 / 6372 | +5.616 [+8.012, +9.831] | +9.328 [+7.725, +10.973] (+12.49) | 5852 (6466) |
+| R3_thin_hours | 11.8% | -0.646 | -0.333 | +0.037 [+0.033, +0.040] | 0.00699 | +0.003 | 9368 / 2667 | +6.425 [+9.454, +11.021] | +9.919 [+8.524, +11.254] (+7.40) | 6696 (3836) |
+| R4_release | 0.6% | -0.172 | -0.371 | -0.001 [-0.002, -0.000] | 1 | +0.001 | 320 / 235 | +0.082 [+0.004, +0.254] | +0.335 [+0.118, +0.598] (+0.34) | 85 (184) |
+| R5_extended | 6.8% | -0.238 | -0.379 | -0.010 [-0.013, -0.006] | 1 | +0.002 | 3897 / 2478 | +1.361 [+1.734, +2.619] | +3.048 [+2.251, +3.841] (+4.24) | 1420 (2199) |
+| R6_counter_h1 | 53.5% | -0.365 | -0.375 | -0.006 [-0.017, +0.006] | 1 | +0.009 | 33295 / 16155 | +16.434 [+24.332, +28.061] | +33.651 [+31.697, +35.566] (+33.63) | 17133 (17354) |
+| ANY | 87.1% | -0.406 | -0.123 | +0.247 [+0.219, +0.275] | 0.00699 | +0.021 | 56248 / 25200 | +29.768 [+44.194, +50.610] | +58.529 [+55.998, +60.861] (+56.37) | 31031 (28249) |
+kept mean R with CI (absolute): R1_spread -0.116 [-0.134, -0.100], R2_chase -0.379 [-0.393, -0.365], R3_thin_hours -0.333 [-0.347, -0.320], R4_release -0.371 [-0.385, -0.358], R5_extended -0.379 [-0.393, -0.365], R6_counter_h1 -0.375 [-0.395, -0.358], ANY -0.123 [-0.154, -0.094]
+incremental over R1 (base n=39930, mean -0.116): R2_chase share 23.5% delta -0.007 [-0.017, +0.002] beats_null=False; R3_thin_hours share 5.5% delta +0.001 [-0.002, +0.004] beats_null=False; R4_release share 0.7% delta -0.000 [-0.003, +0.001] beats_null=False; R5_extended share 9.3% delta -0.005 [-0.011, +0.001] beats_null=False; R6_counter_h1 share 54.9% delta +0.008 [-0.012, +0.027] beats_null=False; ANY share 71.7% delta -0.006 [-0.036, +0.019] beats_null=False
+streams with ANY-kept mean R >= 0: [('XAG/USD/M5/impulse', 2856, 0.10429804836938195), ('NATGAS/USD/M5/impulse', 3073, 0.5864418658281679), ('NATGAS/USD/M15/impulse', 1725, 0.1968865252309198), ('SPX500/USD/M15/impulse', 1699, 0.019323849553990826)]
+by stream (n, all, ANY share, ANY kept, R1-only kept):
+  WTICO/USD/M5/flip: n=7441 all -0.286 ANY 85% kept -0.071 R1kept -0.089
+  WTICO/USD/M5/impulse: n=3214 all -0.400 ANY 93% kept -0.212 R1kept -0.173
+  WTICO/USD/M15/flip: n=2520 all -0.153 ANY 77% kept -0.183 R1kept -0.107
+  WTICO/USD/M15/impulse: n=1705 all -0.158 ANY 75% kept -0.120 R1kept -0.101
+  XAU/USD/M5/flip: n=7025 all -0.161 ANY 78% kept -0.088 R1kept -0.106
+  XAU/USD/M5/impulse: n=2488 all -0.184 ANY 83% kept -0.055 R1kept -0.091
+  XAU/USD/M15/flip: n=2269 all -0.125 ANY 73% kept -0.184 R1kept -0.122
+  XAU/USD/M15/impulse: n=1368 all -0.096 ANY 70% kept -0.151 R1kept -0.088
+  XAG/USD/M5/flip: n=7580 all -0.421 ANY 93% kept -0.162 R1kept -0.162
+  XAG/USD/M5/impulse: n=2856 all -0.411 ANY 95% kept +0.104 R1kept -0.129
+  XAG/USD/M15/flip: n=2337 all -0.231 ANY 85% kept -0.114 R1kept -0.151
+  XAG/USD/M15/impulse: n=1650 all -0.203 ANY 83% kept -0.102 R1kept -0.090
+  NATGAS/USD/M5/flip: n=8908 all -1.014 ANY 99% kept -0.001 R1kept -0.328
+  NATGAS/USD/M5/impulse: n=3073 all -0.828 ANY 100% kept +0.586 R1kept +0.090
+  NATGAS/USD/M15/flip: n=2843 all -0.464 ANY 98% kept -0.341 R1kept -0.232
+  NATGAS/USD/M15/impulse: n=1725 all -0.414 ANY 98% kept +0.197 R1kept +0.086
+  SPX500/USD/M5/flip: n=7435 all -0.169 ANY 77% kept -0.159 R1kept -0.119
+  SPX500/USD/M5/impulse: n=3335 all -0.142 ANY 79% kept -0.155 R1kept -0.107
+  SPX500/USD/M15/flip: n=2487 all -0.069 ANY 74% kept -0.090 R1kept -0.065
+  SPX500/USD/M15/impulse: n=1699 all -0.057 ANY 68% kept +0.019 R1kept -0.055
+  EUR/USD/M5/flip: n=7739 all -0.442 ANY 96% kept -0.173 R1kept -0.156
+  EUR/USD/M5/impulse: n=2220 all -0.533 ANY 98% kept -0.203 R1kept -0.259
+  EUR/USD/M15/flip: n=2443 all -0.246 ANY 84% kept -0.181 R1kept -0.202
+  EUR/USD/M15/impulse: n=1367 all -0.231 ANY 86% kept -0.320 R1kept -0.146
+
+## secondary_M1 / dev2018_22: n=138619 signals, mean R all -0.752, daily CVaR5 -151.30, maxDD 104302 R
+| reason | blocked | R blocked | R kept | delta kept-all [CI] | p_holm | null q97.5 | losses avoided / winners missed (R) | saved R/day [CI] | dCVaR5 kept-all [CI] (null mean) | MDD reduction (null mean) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| R1_spread | 93.3% | -0.795 | -0.157 | +0.595 [+0.557, +0.631] | 0.00699 | +0.022 | 125591 / 22742 | +79.666 [+118.749, +133.613] | +138.574 [+132.590, +144.164] (+136.42) | 102838 (97354) |
+| R2_chase | 7.2% | -0.621 | -0.763 | -0.010 [-0.013, -0.007] | 1 | +0.002 | 8501 / 2296 | +4.806 [+6.800, +8.480] | +4.664 [+2.926, +6.322] (+10.24) | 6205 (7526) |
+| R3_thin_hours | 15.4% | -1.228 | -0.666 | +0.087 [+0.082, +0.091] | 0.00699 | +0.003 | 27854 / 1632 | +20.311 [+30.398, +34.046] | +32.455 [+29.308, +35.424] (+21.83) | 26222 (16055) |
+| R4_release | 0.5% | -0.318 | -0.755 | -0.002 [-0.003, -0.002] | 1 | +0.001 | 508 / 267 | +0.187 [+0.198, +0.393] | +0.296 [+0.107, +0.659] (+0.78) | 241 (571) |
+| R5_extended | 6.8% | -0.582 | -0.765 | -0.012 [-0.014, -0.010] | 1 | +0.002 | 7753 / 2287 | +4.234 [+6.165, +7.266] | +6.122 [+4.744, +7.379] (+9.58) | 5466 (7065) |
+| R6_counter_h1 | 50.2% | -0.747 | -0.758 | -0.005 [-0.012, +0.000] | 1 | +0.006 | 65613 / 13641 | +40.257 [+59.970, +67.613] | +75.644 [+72.629, +78.747] (+71.79) | 51971 (52348) |
+| ANY | 97.9% | -0.765 | -0.169 | +0.583 [+0.525, +0.635] | 0.00699 | +0.044 | 129264 / 25445 | +80.417 [+119.948, +134.825] | +145.067 [+139.188, +150.500] (+144.66) | 103811 (102145) |
+kept mean R with CI (absolute): R1_spread -0.157 [-0.188, -0.129], R2_chase -0.763 [-0.791, -0.735], R3_thin_hours -0.666 [-0.692, -0.641], R4_release -0.755 [-0.784, -0.727], R5_extended -0.765 [-0.794, -0.737], R6_counter_h1 -0.758 [-0.786, -0.731], ANY -0.169 [-0.221, -0.123]
+incremental over R1 (base n=9227, mean -0.157): R2_chase share 14.1% delta -0.001 [-0.013, +0.010] beats_null=False; R3_thin_hours share 2.2% delta +0.002 [-0.002, +0.005] beats_null=False; R4_release share 3.3% delta +0.002 [-0.004, +0.007] beats_null=False; R5_extended share 13.0% delta +0.002 [-0.009, +0.013] beats_null=False; R6_counter_h1 share 51.7% delta -0.011 [-0.043, +0.020] beats_null=False; ANY share 69.0% delta -0.012 [-0.057, +0.029] beats_null=False
+streams with ANY-kept mean R >= 0: none
+by stream (n, all, ANY share, ANY kept, R1-only kept):
+  WTICO/USD/M1/flip: n=47968 all -0.716 ANY 97% kept -0.152 R1kept -0.140
+  WTICO/USD/M1/impulse: n=17507 all -0.725 ANY 98% kept -0.121 R1kept -0.134
+  XAU/USD/M1/flip: n=55643 all -0.778 ANY 99% kept -0.206 R1kept -0.204
+  XAU/USD/M1/impulse: n=17501 all -0.797 ANY 99% kept -0.309 R1kept -0.201
+
+## secondary_M1 / w2023: n=97260 signals, mean R all -0.636, daily CVaR5 -109.00, maxDD 61874 R
+| reason | blocked | R blocked | R kept | delta kept-all [CI] | p_holm | null q97.5 | losses avoided / winners missed (R) | saved R/day [CI] | dCVaR5 kept-all [CI] (null mean) | MDD reduction (null mean) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| R1_spread | 87.5% | -0.705 | -0.156 | +0.480 [+0.448, +0.509] | 0.00699 | +0.022 | 78958 / 18985 | +61.700 [+91.296, +104.621] | +92.138 [+88.430, +95.725] (+89.02) | 59971 (54121) |
+| R2_chase | 8.3% | -0.571 | -0.642 | -0.006 [-0.010, -0.002] | 1 | +0.002 | 6860 / 2269 | +4.723 [+6.571, +8.479] | +3.093 [+2.074, +4.311] (+7.89) | 4591 (5111) |
+| R3_thin_hours | 16.0% | -1.173 | -0.534 | +0.102 [+0.096, +0.109] | 0.00699 | +0.003 | 19962 / 1689 | +18.799 [+27.836, +32.031] | +23.392 [+21.399, +25.611] (+15.42) | 18273 (9914) |
+| R4_release | 0.4% | -0.404 | -0.637 | -0.001 [-0.002, -0.001] | 1 | +0.001 | 301 / 127 | +0.180 [+0.202, +0.372] | +0.136 [-0.100, +0.401] (+0.41) | 175 (276) |
+| R5_extended | 7.1% | -0.444 | -0.651 | -0.015 [-0.018, -0.012] | 1 | +0.002 | 5229 / 2167 | +3.150 [+4.402, +5.592] | +3.911 [+3.106, +4.936] (+6.82) | 3062 (4397) |
+| R6_counter_h1 | 50.4% | -0.628 | -0.645 | -0.009 [-0.017, -0.001] | 1 | +0.009 | 43054 / 12321 | +31.619 [+46.931, +53.719] | +50.522 [+48.080, +52.905] (+49.32) | 30734 (31151) |
+| ANY | 96.1% | -0.656 | -0.156 | +0.480 [+0.431, +0.531] | 0.00699 | +0.038 | 83873 / 22596 | +63.043 [+93.254, +106.782] | +101.293 [+98.096, +104.337] (+100.05) | 61271 (59431) |
+kept mean R with CI (absolute): R1_spread -0.156 [-0.184, -0.130], R2_chase -0.642 [-0.665, -0.619], R3_thin_hours -0.534 [-0.555, -0.512], R4_release -0.637 [-0.661, -0.613], R5_extended -0.651 [-0.675, -0.627], R6_counter_h1 -0.645 [-0.670, -0.619], ANY -0.156 [-0.206, -0.107]
+incremental over R1 (base n=12192, mean -0.156): R2_chase share 15.5% delta +0.002 [-0.007, +0.013] beats_null=False; R3_thin_hours share 3.1% delta +0.003 [-0.002, +0.006] beats_null=False; R4_release share 1.6% delta +0.000 [-0.003, +0.004] beats_null=False; R5_extended share 12.0% delta -0.002 [-0.012, +0.006] beats_null=False; R6_counter_h1 share 51.6% delta -0.010 [-0.037, +0.019] beats_null=False; ANY share 68.6% delta +0.000 [-0.037, +0.039] beats_null=False
+streams with ANY-kept mean R >= 0: [('WTICO/USD/M1/impulse', 9014, 0.06768460960279382)]
+by stream (n, all, ANY share, ANY kept, R1-only kept):
+  WTICO/USD/M1/flip: n=40162 all -0.803 ANY 97% kept -0.112 R1kept -0.150
+  WTICO/USD/M1/impulse: n=9014 all -0.832 ANY 97% kept +0.068 R1kept -0.075
+  XAU/USD/M1/flip: n=39473 all -0.454 ANY 95% kept -0.214 R1kept -0.175
+  XAU/USD/M1/impulse: n=8611 all -0.489 ANY 96% kept -0.097 R1kept -0.138
+
+## verdicts
+primary_M5_M15 R1_spread {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}
+primary_M5_M15 R2_chase {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+primary_M5_M15 R3_thin_hours {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}
+primary_M5_M15 R4_release {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+primary_M5_M15 R5_extended {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+primary_M5_M15 R6_counter_h1 {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+primary_M5_M15 ANY {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}
+secondary_M1 R1_spread {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}
+secondary_M1 R2_chase {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+secondary_M1 R3_thin_hours {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}
+secondary_M1 R4_release {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+secondary_M1 R5_extended {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+secondary_M1 R6_counter_h1 {'dev_holm': False, 'dev_beats_random': False, 'w2023_same_sign': False, 'PASS': False}
+secondary_M1 ANY {'dev_holm': True, 'dev_beats_random': True, 'w2023_same_sign': True, 'PASS': True}

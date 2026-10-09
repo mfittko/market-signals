@@ -1,0 +1,98 @@
+{
+ "note": "Derive the tightened relevance rule (relevance28.json) from the Jev-labelled sample.\nForm (drop-list): a news24 row stays relevant to an instrument under news28 unless it matches one of the instrument's\n'drop' conditions:\n  th:X    GKG theme X is in the stored theme string (sorted, truncated to 400 chars by the news24 fetch)\n  sole:X  X is the ONLY news24 rule theme of this instrument in the stored theme string\n  url:s   s is a substring of the lowercase URL\nFit on the even-k half of the sample, evaluated on the odd-k half (held-out). Greedy: drop the candidate (support >= MIN_SUP\nrows in the fit half) with the best junk-removed / (relevant-removed + 1) ratio while fit recall stays >= TARGET.\nAn earlier keep-list form (out/relevance28_keeplist_rejected.json) failed the held-out recall check and is not used.",
+ "fit": {
+  "target_recall_fit": 0.95,
+  "min_support": 10,
+  "min_junk_removed": 5,
+  "labeller": "TypeSafe jev-1.13.0",
+  "sample": "labels.db, 1000 rows per instrument, seed 28; fit = even k, held-out = odd k"
+ },
+ "drop": {
+  "WTICO_USD": [
+   "th:SOC_POINTSOFINTEREST_SCHOOL",
+   "th:DRUG_TRADE",
+   "th:TAX_FNCACT_DIRECTOR",
+   "sole:FUELPRICES",
+   "th:SECURITY_SERVICES",
+   "th:TAX_WORLDMAMMALS",
+   "th:EPU_CATS_MIGRATION_FEAR_MIGRATION",
+   "th:TAX_FNCACT_EXECUTIVE",
+   "th:TAX_DISEASE_COVID-19"
+  ],
+  "XAU_USD": [
+   "sole:WB_2936_GOLD",
+   "th:SOC_POINTSOFINTEREST_SCHOOL",
+   "th:TAX_WORLDMAMMALS",
+   "th:DISCRIMINATION_RACE",
+   "th:RESIGNATION",
+   "th:SOC_POINTSOFINTEREST_JAIL",
+   "th:WB_1406_DISEASES",
+   "th:TAX_FNCACT_DIRECTOR",
+   "th:EPU_CATS_HEALTHCARE",
+   "th:ENV_CLIMATECHANGE",
+   "th:DISCRIMINATION",
+   "th:SOC_POINTSOFINTEREST_PRISON",
+   "th:SOC_POINTSOFINTEREST_UNIVERSITY",
+   "th:IMMIGRATION"
+  ],
+  "XAG_USD": [
+   "th:SOC_GENERALCRIME",
+   "sole:WB_2936_GOLD",
+   "th:DISCRIMINATION",
+   "th:TAX_WORLDMAMMALS",
+   "th:EPU_CATS_MIGRATION_FEAR_MIGRATION",
+   "th:SOC_POINTSOFINTEREST",
+   "th:TAX_FNCACT_MAN",
+   "th:WB_2937_SILVER",
+   "th:TAX_FNCACT_CEO",
+   "th:EPU_POLICY_REGULATORY",
+   "th:ENV_CLIMATECHANGE",
+   "th:CRISISLEX_T08_MISSINGFOUNDTRAPPEDPEOPLE",
+   "th:PUBLIC_TRANSPORT",
+   "th:TAX_FNCACT_POLICE",
+   "th:DRUG_TRADE"
+  ],
+  "EUR_USD": [
+   "th:TAX_FNCACT_MINISTER",
+   "th:ECON_ENTREPRENEURSHIP",
+   "th:CORRUPTION",
+   "th:EPU_POLICY_REGULATORY",
+   "th:CONSTITUTIONAL",
+   "th:SCIENCE"
+  ],
+  "SPX500_USD": [
+   "url:inc",
+   "th:TAX_FNCACT_ATTORNEY",
+   "url:releases",
+   "th:EPU_POLICY_REGULATION",
+   "th:CRISISLEX_T04_INFRASTRUCTURE",
+   "th:TAX_FNCACT_DIRECTORS",
+   "th:SOC_INNOVATION",
+   "th:WB_133_INFORMATION_AND_COMMUNICATION_TECHNOLOGIES",
+   "th:CRIME_ILLEGAL_DRUGS",
+   "url:quarter",
+   "th:TAX_DISEASE_DISEASE"
+  ],
+  "NATGAS_USD": [
+   "th:SCIENCE",
+   "th:LEGISLATION",
+   "th:ARREST",
+   "th:AGRICULTURE",
+   "th:WB_507_ENERGY_AND_EXTRACTIVES",
+   "th:PUBLIC_TRANSPORT",
+   "th:EPU_POLICY_BUDGET",
+   "th:SECURITY_SERVICES",
+   "th:ENV_SOLAR",
+   "th:TAX_FNCACT_PRESIDENT",
+   "th:DISASTER_FIRE",
+   "th:CRISISLEX_T08_MISSINGFOUNDTRAPPEDPEOPLE",
+   "th:EPU_CATS_MIGRATION_FEAR_MIGRATION",
+   "th:NATURAL_DISASTER_TORNADOES",
+   "th:CORRUPTION",
+   "th:SOC_POINTSOFINTEREST_HOSPITAL",
+   "url:how",
+   "th:TAX_FNCACT_CEO",
+   "th:DISCRIMINATION"
+  ]
+ }
+}

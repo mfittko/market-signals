@@ -1,0 +1,191 @@
+{
+ "instruments": {
+  "FR40_EUR": {
+   "first": "2003-02-03",
+   "last": "2026-10-08",
+   "bars": 5928,
+   "max_corr_with": "DE30_EUR",
+   "max_corr": 0.9212589506427288,
+   "status": "kept"
+  },
+  "EU50_EUR": {
+   "first": "2003-09-22",
+   "last": "2026-10-08",
+   "bars": 5864,
+   "max_corr_with": "DE30_EUR",
+   "max_corr": 0.9335131104447985,
+   "status": "kept"
+  },
+  "NL25_EUR": {
+   "first": "2008-01-21",
+   "last": "2026-10-08",
+   "bars": 4791,
+   "max_corr_with": "DE30_EUR",
+   "max_corr": 0.8233341863980679,
+   "status": "kept"
+  },
+  "CH20_CHF": {
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 5919,
+   "max_corr_with": "DE30_EUR",
+   "max_corr": 0.6913731397994997,
+   "status": "kept"
+  },
+  "ESPIX_EUR": {
+   "first": "2016-12-02",
+   "last": "2026-10-08",
+   "bars": 2516,
+   "max_corr_with": "DE30_EUR",
+   "max_corr": 0.7440990105449644,
+   "status": "dropped: history starts after 2010"
+  },
+  "SG30_SGD": {
+   "first": "2004-01-21",
+   "last": "2026-10-08",
+   "bars": 5813,
+   "max_corr_with": "HK33_HKD",
+   "max_corr": 0.49629647350528455,
+   "status": "kept"
+  },
+  "CN50_USD": {
+   "first": "2011-08-30",
+   "last": "2026-10-08",
+   "bars": 3834,
+   "max_corr_with": "HK33_HKD",
+   "max_corr": 0.6308961930964788,
+   "status": "dropped: history starts after 2010"
+  },
+  "IN50_USD": {
+   "first": "2011-08-26",
+   "last": "2022-07-04",
+   "bars": 2734,
+   "max_corr_with": "US30_USD",
+   "max_corr": 0.5387628045898075,
+   "status": "dropped: history starts after 2010"
+  },
+  "TWIX_USD": {
+   "first": "2011-08-30",
+   "last": "2023-10-23",
+   "bars": 3044,
+   "max_corr_with": "SPX500_USD",
+   "max_corr": 0.6046505686137841,
+   "status": "dropped: history starts after 2010"
+  },
+  "US2000_USD": {
+   "first": "2003-03-24",
+   "last": "2026-10-08",
+   "bars": 6086,
+   "max_corr_with": "SPX500_USD",
+   "max_corr": 0.8948506240241396,
+   "status": "kept"
+  },
+  "CHINAH_HKD": {
+   "first": "2020-11-23",
+   "last": "2026-10-08",
+   "bars": 1448,
+   "max_corr_with": "HK33_HKD",
+   "max_corr": 0.9662140786869767,
+   "status": "dropped: history starts after 2010"
+  },
+  "JP225Y_JPY": {
+   "first": "2020-04-28",
+   "last": "2026-10-08",
+   "bars": 1670,
+   "max_corr_with": "JP225_USD",
+   "max_corr": 0.9991287941829246,
+   "status": "dropped: history starts after 2010"
+  }
+ },
+ "universe": [
+  "FR40_EUR",
+  "EU50_EUR",
+  "NL25_EUR",
+  "CH20_CHF",
+  "SG30_SGD",
+  "US2000_USD"
+ ],
+ "counts": {
+  "primary_full": {
+   "FR40_EUR": 156,
+   "EU50_EUR": 153,
+   "NL25_EUR": 144,
+   "CH20_CHF": 148,
+   "SG30_SGD": 131,
+   "US2000_USD": 170,
+   "pooled": 902
+  },
+  "primary_dev": {
+   "FR40_EUR": 123,
+   "EU50_EUR": 117,
+   "NL25_EUR": 109,
+   "CH20_CHF": 121,
+   "SG30_SGD": 99,
+   "US2000_USD": 135,
+   "pooled": 704
+  },
+  "primary_w2023": {
+   "FR40_EUR": 33,
+   "EU50_EUR": 36,
+   "NL25_EUR": 35,
+   "CH20_CHF": 27,
+   "SG30_SGD": 32,
+   "US2000_USD": 35,
+   "pooled": 198
+  },
+  "down3_full": {
+   "FR40_EUR": 166,
+   "EU50_EUR": 168,
+   "NL25_EUR": 144,
+   "CH20_CHF": 154,
+   "SG30_SGD": 142,
+   "US2000_USD": 169,
+   "pooled": 943
+  },
+  "down3_dev": {
+   "FR40_EUR": 131,
+   "EU50_EUR": 129,
+   "NL25_EUR": 103,
+   "CH20_CHF": 123,
+   "SG30_SGD": 107,
+   "US2000_USD": 134,
+   "pooled": 727
+  },
+  "down3_w2023": {
+   "FR40_EUR": 35,
+   "EU50_EUR": 39,
+   "NL25_EUR": 41,
+   "CH20_CHF": 31,
+   "SG30_SGD": 35,
+   "US2000_USD": 35,
+   "pooled": 216
+  },
+  "rsi5_full": {
+   "FR40_EUR": 77,
+   "EU50_EUR": 71,
+   "NL25_EUR": 67,
+   "CH20_CHF": 82,
+   "SG30_SGD": 65,
+   "US2000_USD": 90,
+   "pooled": 452
+  },
+  "rsi5_dev": {
+   "FR40_EUR": 61,
+   "EU50_EUR": 53,
+   "NL25_EUR": 52,
+   "CH20_CHF": 68,
+   "SG30_SGD": 49,
+   "US2000_USD": 70,
+   "pooled": 353
+  },
+  "rsi5_w2023": {
+   "FR40_EUR": 16,
+   "EU50_EUR": 18,
+   "NL25_EUR": 15,
+   "CH20_CHF": 14,
+   "SG30_SGD": 16,
+   "US2000_USD": 20,
+   "pooled": 99
+  }
+ }
+}

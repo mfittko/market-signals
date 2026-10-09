@@ -1,0 +1,1 @@
+done EUR/USD secs 128 {"A1": false, "A2": false}

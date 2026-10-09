@@ -1,0 +1,1 @@
+done WTICO/USD secs 126 {"A1": false, "A2": false}

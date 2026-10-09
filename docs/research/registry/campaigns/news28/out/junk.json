@@ -1,0 +1,846 @@
+{
+ "WTICO_USD": {
+  "n": 1000,
+  "jev_relevant": 316,
+  "precision24": 0.316,
+  "high_conf_junk": 408,
+  "rule_theme_hits": {
+   "ARMEDCONFLICT": [
+    555,
+    0.41
+   ],
+   "ENV_OIL": [
+    365,
+    0.33
+   ],
+   "MILITARY": [
+    146,
+    0.43
+   ],
+   "ECON_OILPRICE": [
+    139,
+    0.49
+   ],
+   "FUELPRICES": [
+    75,
+    0.27
+   ],
+   "ECON_GASOLINEPRICE": [
+    36,
+    0.33
+   ],
+   "WB_2433_CONFLICT_AND_VIOLENCE": [
+    18,
+    0.17
+   ],
+   "TERROR": [
+    16,
+    0.44
+   ]
+  },
+  "sole_theme": {
+   "ARMEDCONFLICT": [
+    333,
+    0.35
+   ],
+   "ENV_OIL": [
+    158,
+    0.12
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    95,
+    0.13
+   ],
+   "MILITARY": [
+    31,
+    0.19
+   ],
+   "FUELPRICES": [
+    24,
+    0.04
+   ],
+   "ECON_OILPRICE": [
+    11,
+    0.55
+   ],
+   "WB_2433_CONFLICT_AND_VIOLENCE": [
+    8,
+    0.25
+   ],
+   "TERROR": [
+    2,
+    0.0
+   ],
+   "ECON_GASOLINEPRICE": [
+    2,
+    0.0
+   ]
+  },
+  "junk_url_tokens": [
+   [
+    "post",
+    16,
+    0.06
+   ]
+  ],
+  "rel_url_tokens": [
+   [
+    "ukraine",
+    71,
+    0.83
+   ],
+   [
+    "iran",
+    55,
+    0.85
+   ],
+   [
+    "russia",
+    54,
+    0.7
+   ],
+   [
+    "war",
+    50,
+    0.66
+   ],
+   [
+    "says",
+    43,
+    0.6
+   ],
+   [
+    "stocks",
+    20,
+    0.6
+   ],
+   [
+    "israel",
+    17,
+    0.94
+   ],
+   [
+    "east",
+    16,
+    0.62
+   ],
+   [
+    "saudi",
+    16,
+    0.81
+   ],
+   [
+    "europe",
+    15,
+    0.6
+   ],
+   [
+    "asian",
+    13,
+    0.62
+   ],
+   [
+    "israeli",
+    13,
+    0.85
+   ],
+   [
+    "putin",
+    13,
+    0.77
+   ],
+   [
+    "hamas",
+    13,
+    1.0
+   ],
+   [
+    "markets",
+    13,
+    0.69
+   ]
+  ]
+ },
+ "XAU_USD": {
+  "n": 1000,
+  "jev_relevant": 307,
+  "precision24": 0.307,
+  "high_conf_junk": 450,
+  "rule_theme_hits": {
+   "ARMEDCONFLICT": [
+    839,
+    0.33
+   ],
+   "WB_2936_GOLD": [
+    60,
+    0.03
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    46,
+    0.67
+   ]
+  },
+  "sole_theme": {
+   "ARMEDCONFLICT": [
+    826,
+    0.32
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    68,
+    0.15
+   ],
+   "WB_2936_GOLD": [
+    59,
+    0.02
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    34,
+    0.62
+   ]
+  },
+  "junk_url_tokens": [
+   [
+    "police",
+    17,
+    0.06
+   ]
+  ],
+  "rel_url_tokens": [
+   [
+    "war",
+    37,
+    0.81
+   ],
+   [
+    "ukraine",
+    31,
+    0.97
+   ],
+   [
+    "iran",
+    23,
+    0.96
+   ],
+   [
+    "china",
+    22,
+    0.82
+   ],
+   [
+    "israel",
+    22,
+    1.0
+   ],
+   [
+    "russia",
+    20,
+    0.85
+   ],
+   [
+    "gaza",
+    18,
+    1.0
+   ],
+   [
+    "stocks",
+    16,
+    0.69
+   ],
+   [
+    "israeli",
+    15,
+    0.87
+   ],
+   [
+    "international",
+    15,
+    0.6
+   ],
+   [
+    "attack",
+    14,
+    0.71
+   ],
+   [
+    "security",
+    13,
+    0.62
+   ],
+   [
+    "hamas",
+    13,
+    0.92
+   ],
+   [
+    "russian",
+    13,
+    0.69
+   ],
+   [
+    "articleshow",
+    12,
+    0.67
+   ]
+  ]
+ },
+ "XAG_USD": {
+  "n": 1000,
+  "jev_relevant": 190,
+  "precision24": 0.19,
+  "high_conf_junk": 570,
+  "rule_theme_hits": {
+   "ARMEDCONFLICT": [
+    803,
+    0.2
+   ],
+   "WB_2936_GOLD": [
+    58,
+    0.03
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    46,
+    0.65
+   ],
+   "WB_2937_SILVER": [
+    27,
+    0.07
+   ]
+  },
+  "sole_theme": {
+   "ARMEDCONFLICT": [
+    788,
+    0.19
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    88,
+    0.09
+   ],
+   "WB_2936_GOLD": [
+    50,
+    0.0
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    34,
+    0.59
+   ],
+   "WB_2937_SILVER": [
+    18,
+    0.0
+   ]
+  },
+  "junk_url_tokens": [
+   [
+    "gold",
+    17,
+    0.06
+   ],
+   [
+    "police",
+    17,
+    0.0
+   ],
+   [
+    "man",
+    15,
+    0.0
+   ],
+   [
+    "covid",
+    15,
+    0.07
+   ]
+  ],
+  "rel_url_tokens": [
+   [
+    "war",
+    37,
+    0.62
+   ],
+   [
+    "ukraine",
+    31,
+    0.77
+   ],
+   [
+    "iran",
+    23,
+    0.96
+   ],
+   [
+    "israel",
+    22,
+    0.82
+   ],
+   [
+    "russia",
+    20,
+    0.75
+   ],
+   [
+    "gaza",
+    18,
+    0.83
+   ],
+   [
+    "stocks",
+    16,
+    0.69
+   ],
+   [
+    "israeli",
+    15,
+    0.67
+   ],
+   [
+    "hamas",
+    13,
+    0.92
+   ],
+   [
+    "wall",
+    11,
+    0.64
+   ],
+   [
+    "global",
+    10,
+    0.6
+   ],
+   [
+    "east",
+    10,
+    0.7
+   ]
+  ]
+ },
+ "EUR_USD": {
+  "n": 1000,
+  "jev_relevant": 544,
+  "precision24": 0.544,
+  "high_conf_junk": 222,
+  "rule_theme_hits": {
+   "ECON_INFLATION": [
+    571,
+    0.6
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    529,
+    0.65
+   ],
+   "ECON_INTEREST_RATES": [
+    515,
+    0.67
+   ],
+   "EPU_POLICY_INTEREST_RATES": [
+    304,
+    0.69
+   ],
+   "EPU_POLICY_CENTRAL_BANK": [
+    299,
+    0.73
+   ]
+  },
+  "sole_theme": {
+   "ECON_INFLATION": [
+    159,
+    0.31
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    101,
+    0.37
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    78,
+    0.33
+   ],
+   "EPU_POLICY_CENTRAL_BANK": [
+    59,
+    0.47
+   ],
+   "ECON_INTEREST_RATES": [
+    36,
+    0.47
+   ]
+  },
+  "junk_url_tokens": [],
+  "rel_url_tokens": [
+   [
+    "article",
+    211,
+    0.63
+   ],
+   [
+    "fed",
+    91,
+    0.99
+   ],
+   [
+    "stocks",
+    85,
+    0.76
+   ],
+   [
+    "markets",
+    83,
+    0.7
+   ],
+   [
+    "inflation",
+    82,
+    0.87
+   ],
+   [
+    "world",
+    73,
+    0.62
+   ],
+   [
+    "market",
+    62,
+    0.61
+   ],
+   [
+    "after",
+    61,
+    0.77
+   ],
+   [
+    "rate",
+    59,
+    0.83
+   ],
+   [
+    "economy",
+    58,
+    0.69
+   ],
+   [
+    "stock",
+    54,
+    0.61
+   ],
+   [
+    "wall",
+    44,
+    0.84
+   ],
+   [
+    "rates",
+    41,
+    0.71
+   ],
+   [
+    "global",
+    40,
+    0.75
+   ],
+   [
+    "shares",
+    39,
+    0.74
+   ]
+  ]
+ },
+ "SPX500_USD": {
+  "n": 1000,
+  "jev_relevant": 393,
+  "precision24": 0.393,
+  "high_conf_junk": 340,
+  "rule_theme_hits": {
+   "ECON_STOCKMARKET": [
+    679,
+    0.36
+   ],
+   "ECON_INFLATION": [
+    345,
+    0.57
+   ],
+   "ECON_INTEREST_RATES": [
+    231,
+    0.68
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    181,
+    0.76
+   ]
+  },
+  "sole_theme": {
+   "ECON_STOCKMARKET": [
+    499,
+    0.24
+   ],
+   "ECON_INFLATION": [
+    151,
+    0.38
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    31,
+    0.32
+   ],
+   "EPU_POLICY_FEDERAL_RESERVE": [
+    26,
+    0.35
+   ],
+   "ECON_INTEREST_RATES": [
+    25,
+    0.24
+   ]
+  },
+  "junk_url_tokens": [
+   [
+    "inc",
+    37,
+    0.03
+   ],
+   [
+    "announces",
+    37,
+    0.08
+   ],
+   [
+    "price",
+    24,
+    0.08
+   ],
+   [
+    "financial",
+    23,
+    0.04
+   ],
+   [
+    "results",
+    21,
+    0.05
+   ],
+   [
+    "releases",
+    18,
+    0.0
+   ],
+   [
+    "holdings",
+    15,
+    0.0
+   ],
+   [
+    "group",
+    15,
+    0.0
+   ]
+  ],
+  "rel_url_tokens": [
+   [
+    "markets",
+    65,
+    0.65
+   ],
+   [
+    "world",
+    52,
+    0.63
+   ],
+   [
+    "after",
+    43,
+    0.7
+   ],
+   [
+    "inflation",
+    40,
+    0.9
+   ],
+   [
+    "fed",
+    38,
+    1.0
+   ],
+   [
+    "trump",
+    38,
+    0.71
+   ],
+   [
+    "wall",
+    31,
+    0.94
+   ],
+   [
+    "prices",
+    30,
+    0.73
+   ],
+   [
+    "china",
+    27,
+    0.74
+   ],
+   [
+    "economy",
+    26,
+    0.69
+   ],
+   [
+    "street",
+    26,
+    0.88
+   ],
+   [
+    "rate",
+    25,
+    0.84
+   ],
+   [
+    "asian",
+    25,
+    0.88
+   ],
+   [
+    "oil",
+    23,
+    0.83
+   ],
+   [
+    "coronavirus",
+    22,
+    0.68
+   ]
+  ]
+ },
+ "NATGAS_USD": {
+  "n": 1000,
+  "jev_relevant": 117,
+  "precision24": 0.117,
+  "high_conf_junk": 576,
+  "rule_theme_hits": {
+   "CRISISLEX_O01_WEATHER": [
+    676,
+    0.11
+   ],
+   "ENV_NATURALGAS": [
+    242,
+    0.15
+   ],
+   "NATURAL_DISASTER_HURRICANE": [
+    107,
+    0.23
+   ],
+   "NATURAL_DISASTER_WINTER_STORM": [
+    32,
+    0.38
+   ],
+   "ECON_NATGASPRICE": [
+    27,
+    0.26
+   ],
+   "NATURAL_DISASTER_HEAT_WAVE": [
+    17,
+    0.18
+   ]
+  },
+  "sole_theme": {
+   "CRISISLEX_O01_WEATHER": [
+    571,
+    0.07
+   ],
+   "ENV_NATURALGAS": [
+    193,
+    0.13
+   ],
+   "NATURAL_DISASTER_HURRICANE": [
+    54,
+    0.09
+   ],
+   "(no rule theme: url/org/person/truncated)": [
+    31,
+    0.06
+   ],
+   "NATURAL_DISASTER_WINTER_STORM": [
+    22,
+    0.27
+   ],
+   "ECON_NATGASPRICE": [
+    3,
+    0.0
+   ]
+  },
+  "junk_url_tokens": [
+   [
+    "for",
+    99,
+    0.09
+   ],
+   [
+    "world",
+    64,
+    0.08
+   ],
+   [
+    "with",
+    46,
+    0.09
+   ],
+   [
+    "business",
+    42,
+    0.07
+   ],
+   [
+    "from",
+    37,
+    0.05
+   ],
+   [
+    "after",
+    32,
+    0.09
+   ],
+   [
+    "local",
+    29,
+    0.0
+   ],
+   [
+    "how",
+    21,
+    0.0
+   ],
+   [
+    "trump",
+    21,
+    0.1
+   ],
+   [
+    "stock",
+    16,
+    0.0
+   ],
+   [
+    "wildfires",
+    16,
+    0.0
+   ],
+   [
+    "stories",
+    15,
+    0.07
+   ],
+   [
+    "first",
+    15,
+    0.07
+   ],
+   [
+    "life",
+    15,
+    0.0
+   ]
+  ],
+  "rel_url_tokens": [
+   [
+    "winter",
+    21,
+    0.62
+   ]
+  ]
+ }
+}

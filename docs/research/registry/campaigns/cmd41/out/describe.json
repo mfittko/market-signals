@@ -1,0 +1,444 @@
+{
+ "bars": {
+  "GF": {
+   "n": 4110,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 129,
+   "rolls": 244
+  },
+  "HE": {
+   "n": 4111,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 116,
+   "rolls": 155
+  },
+  "HO": {
+   "n": 4238,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 197,
+   "rolls": 210
+  },
+  "KE": {
+   "n": 3222,
+   "first": "2013-12-16",
+   "last": "2026-10-08",
+   "contracts": 65,
+   "rolls": 106
+  },
+  "LE": {
+   "n": 4111,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 99,
+   "rolls": 158
+  },
+  "PA": {
+   "n": 4238,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 66,
+   "rolls": 65
+  },
+  "RB": {
+   "n": 4238,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 197,
+   "rolls": 254
+  },
+  "ZL": {
+   "n": 4118,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 88,
+   "rolls": 105
+  },
+  "ZM": {
+   "n": 4118,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 92,
+   "rolls": 126
+  },
+  "ZO": {
+   "n": 4118,
+   "first": "2010-06-07",
+   "last": "2026-10-08",
+   "contracts": 73,
+   "rolls": 224
+  }
+ },
+ "k2.0_dev": {
+  "all": 1277,
+  "weeks": 518,
+  "up": 657,
+  "down": 620,
+  "per_market": {
+   "GF": 135,
+   "HE": 143,
+   "HO": 123,
+   "KE": 84,
+   "LE": 142,
+   "PA": 130,
+   "RB": 128,
+   "ZL": 134,
+   "ZM": 132,
+   "ZO": 126
+  },
+  "per_group": {
+   "energy": 251,
+   "grains": 476,
+   "livestock": 420,
+   "metal": 130
+  }
+ },
+ "k2.0_w2023": {
+  "all": 393,
+  "weeks": 161,
+  "up": 209,
+  "down": 184,
+  "per_market": {
+   "GF": 43,
+   "HE": 45,
+   "HO": 37,
+   "KE": 37,
+   "LE": 49,
+   "PA": 34,
+   "RB": 37,
+   "ZL": 33,
+   "ZM": 42,
+   "ZO": 36
+  },
+  "per_group": {
+   "energy": 74,
+   "grains": 148,
+   "livestock": 137,
+   "metal": 34
+  }
+ },
+ "k2.0_roll_drops_all_windows": [
+  {
+   "h": 1,
+   "entry": "close",
+   "events": 1670,
+   "kept": 1622,
+   "roll_drop": 48
+  },
+  {
+   "h": 1,
+   "entry": "next",
+   "events": 1670,
+   "kept": 1565,
+   "roll_drop": 103
+  },
+  {
+   "h": 3,
+   "entry": "close",
+   "events": 1670,
+   "kept": 1511,
+   "roll_drop": 155
+  },
+  {
+   "h": 3,
+   "entry": "next",
+   "events": 1670,
+   "kept": 1454,
+   "roll_drop": 212
+  },
+  {
+   "h": 5,
+   "entry": "close",
+   "events": 1670,
+   "kept": 1412,
+   "roll_drop": 254
+  },
+  {
+   "h": 5,
+   "entry": "next",
+   "events": 1670,
+   "kept": 1355,
+   "roll_drop": 311
+  },
+  {
+   "h": 10,
+   "entry": "close",
+   "events": 1670,
+   "kept": 1181,
+   "roll_drop": 483
+  },
+  {
+   "h": 10,
+   "entry": "next",
+   "events": 1670,
+   "kept": 1137,
+   "roll_drop": 527
+  }
+ ],
+ "k2.5_dev": {
+  "all": 595,
+  "weeks": 345,
+  "up": 327,
+  "down": 268,
+  "per_market": {
+   "GF": 58,
+   "HE": 51,
+   "HO": 66,
+   "KE": 40,
+   "LE": 58,
+   "PA": 70,
+   "RB": 71,
+   "ZL": 53,
+   "ZM": 73,
+   "ZO": 55
+  },
+  "per_group": {
+   "energy": 137,
+   "grains": 221,
+   "livestock": 167,
+   "metal": 70
+  }
+ },
+ "k2.5_w2023": {
+  "all": 183,
+  "weeks": 106,
+  "up": 87,
+  "down": 96,
+  "per_market": {
+   "GF": 15,
+   "HE": 19,
+   "HO": 20,
+   "KE": 15,
+   "LE": 22,
+   "PA": 19,
+   "RB": 20,
+   "ZL": 14,
+   "ZM": 18,
+   "ZO": 21
+  },
+  "per_group": {
+   "energy": 40,
+   "grains": 68,
+   "livestock": 56,
+   "metal": 19
+  }
+ },
+ "k2.5_roll_drops_all_windows": [
+  {
+   "h": 1,
+   "entry": "close",
+   "events": 778,
+   "kept": 761,
+   "roll_drop": 17
+  },
+  {
+   "h": 1,
+   "entry": "next",
+   "events": 778,
+   "kept": 729,
+   "roll_drop": 49
+  },
+  {
+   "h": 3,
+   "entry": "close",
+   "events": 778,
+   "kept": 699,
+   "roll_drop": 79
+  },
+  {
+   "h": 3,
+   "entry": "next",
+   "events": 778,
+   "kept": 675,
+   "roll_drop": 103
+  },
+  {
+   "h": 5,
+   "entry": "close",
+   "events": 778,
+   "kept": 655,
+   "roll_drop": 123
+  },
+  {
+   "h": 5,
+   "entry": "next",
+   "events": 778,
+   "kept": 634,
+   "roll_drop": 144
+  },
+  {
+   "h": 10,
+   "entry": "close",
+   "events": 778,
+   "kept": 564,
+   "roll_drop": 214
+  },
+  {
+   "h": 10,
+   "entry": "next",
+   "events": 778,
+   "kept": 543,
+   "roll_drop": 235
+  }
+ ],
+ "k2.5_roll_drops_per_market_h5_close": {
+  "GF": {
+   "events": 73,
+   "kept": 62,
+   "roll_drop": 11
+  },
+  "HE": {
+   "events": 70,
+   "kept": 62,
+   "roll_drop": 8
+  },
+  "HO": {
+   "events": 86,
+   "kept": 70,
+   "roll_drop": 16
+  },
+  "KE": {
+   "events": 55,
+   "kept": 44,
+   "roll_drop": 11
+  },
+  "LE": {
+   "events": 80,
+   "kept": 64,
+   "roll_drop": 16
+  },
+  "PA": {
+   "events": 89,
+   "kept": 85,
+   "roll_drop": 4
+  },
+  "RB": {
+   "events": 91,
+   "kept": 67,
+   "roll_drop": 24
+  },
+  "ZL": {
+   "events": 67,
+   "kept": 56,
+   "roll_drop": 11
+  },
+  "ZM": {
+   "events": 91,
+   "kept": 79,
+   "roll_drop": 12
+  },
+  "ZO": {
+   "events": 76,
+   "kept": 66,
+   "roll_drop": 10
+  }
+ },
+ "k3.0_dev": {
+  "all": 267,
+  "weeks": 170,
+  "up": 139,
+  "down": 128,
+  "per_market": {
+   "GF": 19,
+   "HE": 17,
+   "HO": 35,
+   "KE": 18,
+   "LE": 28,
+   "PA": 37,
+   "RB": 34,
+   "ZL": 23,
+   "ZM": 35,
+   "ZO": 21
+  },
+  "per_group": {
+   "energy": 69,
+   "grains": 97,
+   "livestock": 64,
+   "metal": 37
+  }
+ },
+ "k3.0_w2023": {
+  "all": 77,
+  "weeks": 57,
+  "up": 43,
+  "down": 34,
+  "per_market": {
+   "GF": 8,
+   "HE": 5,
+   "HO": 9,
+   "KE": 5,
+   "LE": 8,
+   "PA": 9,
+   "RB": 10,
+   "ZL": 7,
+   "ZM": 9,
+   "ZO": 7
+  },
+  "per_group": {
+   "energy": 19,
+   "grains": 28,
+   "livestock": 21,
+   "metal": 9
+  }
+ },
+ "k3.0_roll_drops_all_windows": [
+  {
+   "h": 1,
+   "entry": "close",
+   "events": 344,
+   "kept": 335,
+   "roll_drop": 9
+  },
+  {
+   "h": 1,
+   "entry": "next",
+   "events": 344,
+   "kept": 319,
+   "roll_drop": 25
+  },
+  {
+   "h": 3,
+   "entry": "close",
+   "events": 344,
+   "kept": 307,
+   "roll_drop": 37
+  },
+  {
+   "h": 3,
+   "entry": "next",
+   "events": 344,
+   "kept": 296,
+   "roll_drop": 48
+  },
+  {
+   "h": 5,
+   "entry": "close",
+   "events": 344,
+   "kept": 286,
+   "roll_drop": 58
+  },
+  {
+   "h": 5,
+   "entry": "next",
+   "events": 344,
+   "kept": 276,
+   "roll_drop": 68
+  },
+  {
+   "h": 10,
+   "entry": "close",
+   "events": 344,
+   "kept": 247,
+   "roll_drop": 97
+  },
+  {
+   "h": 10,
+   "entry": "next",
+   "events": 344,
+   "kept": 239,
+   "roll_drop": 105
+  }
+ ]
+}

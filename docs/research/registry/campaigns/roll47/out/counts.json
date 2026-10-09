@@ -1,0 +1,218 @@
+{
+ "WTICO/USD": {
+  "dev": {
+   "decisions": 102564,
+   "days": 1365,
+   "signals_per_day": {
+    "fix0.4": 23.176,
+    "fix0.8": 8.6,
+    "fix1.2": 3.91,
+    "vol2": 16.482,
+    "vol3": 7.658
+   }
+  },
+  "w2023": {
+   "decisions": 80524,
+   "days": 1026,
+   "signals_per_day": {
+    "fix0.4": 21.428,
+    "fix0.8": 6.75,
+    "fix1.2": 2.573,
+    "vol2": 16.664,
+    "vol3": 7.351
+   }
+  }
+ },
+ "XAU/USD": {
+  "dev": {
+   "decisions": 107553,
+   "days": 1336,
+   "signals_per_day": {
+    "fix0.4": 3.406,
+    "fix0.8": 0.548,
+    "fix1.2": 0.147,
+    "vol2": 17.293,
+    "vol3": 7.965
+   }
+  },
+  "w2023": {
+   "decisions": 84948,
+   "days": 1013,
+   "signals_per_day": {
+    "fix0.4": 6.129,
+    "fix0.8": 1.162,
+    "fix1.2": 0.384,
+    "vol2": 18.581,
+    "vol3": 8.553
+   }
+  }
+ },
+ "XAG/USD": {
+  "dev": {
+   "decisions": 75131,
+   "days": 1305,
+   "signals_per_day": {
+    "fix0.4": 13.231,
+    "fix0.8": 3.545,
+    "fix1.2": 1.274,
+    "vol2": 12.345,
+    "vol3": 5.639
+   }
+  },
+  "w2023": {
+   "decisions": 83463,
+   "days": 1007,
+   "signals_per_day": {
+    "fix0.4": 19.754,
+    "fix0.8": 6.4,
+    "fix1.2": 2.8,
+    "vol2": 18.098,
+    "vol3": 8.341
+   }
+  }
+ },
+ "NATGAS/USD": {
+  "dev": {
+   "decisions": 43178,
+   "days": 1252,
+   "signals_per_day": {
+    "fix0.4": 20.667,
+    "fix0.8": 11.467,
+    "fix1.2": 6.27,
+    "vol2": 7.242,
+    "vol3": 3.184
+   }
+  },
+  "w2023": {
+   "decisions": 28450,
+   "days": 986,
+   "signals_per_day": {
+    "fix0.4": 19.006,
+    "fix0.8": 11.476,
+    "fix1.2": 6.427,
+    "vol2": 5.844,
+    "vol3": 2.338
+   }
+  }
+ },
+ "SPX500/USD": {
+  "dev": {
+   "decisions": 95658,
+   "days": 1309,
+   "signals_per_day": {
+    "fix0.4": 6.969,
+    "fix0.8": 1.601,
+    "fix1.2": 0.537,
+    "vol2": 16.413,
+    "vol3": 8.328
+   }
+  },
+  "w2023": {
+   "decisions": 78417,
+   "days": 1010,
+   "signals_per_day": {
+    "fix0.4": 3.643,
+    "fix0.8": 0.587,
+    "fix1.2": 0.154,
+    "vol2": 17.504,
+    "vol3": 8.495
+   }
+  }
+ },
+ "NAS100/USD": {
+  "dev": {
+   "decisions": 110196,
+   "days": 1316,
+   "signals_per_day": {
+    "fix0.4": 10.59,
+    "fix0.8": 2.761,
+    "fix1.2": 0.953,
+    "vol2": 19.354,
+    "vol3": 9.74
+   }
+  },
+  "w2023": {
+   "decisions": 84536,
+   "days": 1035,
+   "signals_per_day": {
+    "fix0.4": 7.001,
+    "fix0.8": 1.35,
+    "fix1.2": 0.403,
+    "vol2": 18.369,
+    "vol3": 8.756
+   }
+  }
+ },
+ "US30/USD": {
+  "dev": {
+   "decisions": 109708,
+   "days": 1316,
+   "signals_per_day": {
+    "fix0.4": 6.591,
+    "fix0.8": 1.465,
+    "fix1.2": 0.505,
+    "vol2": 18.952,
+    "vol3": 9.686
+   }
+  },
+  "w2023": {
+   "decisions": 82518,
+   "days": 1032,
+   "signals_per_day": {
+    "fix0.4": 3.202,
+    "fix0.8": 0.477,
+    "fix1.2": 0.098,
+    "vol2": 17.866,
+    "vol3": 8.47
+   }
+  }
+ },
+ "DE30/EUR": {
+  "dev": {
+   "decisions": 89516,
+   "days": 1272,
+   "signals_per_day": {
+    "fix0.4": 7.851,
+    "fix0.8": 1.656,
+    "fix1.2": 0.553,
+    "vol2": 15.778,
+    "vol3": 7.756
+   }
+  },
+  "w2023": {
+   "decisions": 71070,
+   "days": 959,
+   "signals_per_day": {
+    "fix0.4": 3.913,
+    "fix0.8": 0.504,
+    "fix1.2": 0.124,
+    "vol2": 16.118,
+    "vol3": 7.454
+   }
+  }
+ },
+ "EUR/USD": {
+  "dev": {
+   "decisions": 115379,
+   "days": 1365,
+   "signals_per_day": {
+    "fix0.4": 0.577,
+    "fix0.8": 0.042,
+    "fix1.2": 0.006,
+    "vol2": 17.825,
+    "vol3": 7.779
+   }
+  },
+  "w2023": {
+   "decisions": 90914,
+   "days": 1018,
+   "signals_per_day": {
+    "fix0.4": 0.445,
+    "fix0.8": 0.032,
+    "fix1.2": 0.004,
+    "vol2": 19.048,
+    "vol3": 8.206
+   }
+  }
+ }
+}

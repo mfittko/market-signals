@@ -1,0 +1,115 @@
+### orb15: INCONCLUSIVE
+  dev: n 6099 (1220/yr) net -0.017 [-0.053, +0.018] hit 0.363 gross +0.066 cost 0.083 per-day -0.081 MDE 0.053 | side -0.060 p 0.003 | clock -0.075 p 0.005 holm_p_le0=1.000 holm_p_side=0.021 holm_p_clock=0.035
+      EUR/USD     n  1212 net -0.075 [-0.163, +0.024] hit 0.288 gross +0.027 MDE 0.131 side p 0.207 clock -0.152 p 0.095
+      NATGAS/USD  n   568 net -0.009 [-0.097, +0.092] hit 0.396 gross +0.110 MDE 0.138 side p 0.123 clock -0.025 p 0.383
+      SPX500/USD  n  1240 net +0.041 [-0.037, +0.115] hit 0.391 gross +0.089 MDE 0.109 side p 0.089 clock +0.007 p 0.254
+      WTICO/USD   n  1239 net -0.021 [-0.099, +0.053] hit 0.365 gross +0.048 MDE 0.105 side p 0.119 clock -0.072 p 0.104
+      XAG/USD     n   685 net -0.010 [-0.095, +0.094] hit 0.387 gross +0.102 MDE 0.139 side p 0.028 clock -0.161 p 0.010
+      XAU/USD     n  1155 net -0.023 [-0.096, +0.059] hit 0.379 gross +0.060 MDE 0.111 side p 0.243 clock -0.084 p 0.109
+  w2023: n 4966 (1318/yr) net -0.056 [-0.098, -0.013] hit 0.351 gross +0.017 cost 0.072 per-day -0.285 MDE 0.060 | side -0.054 p 0.546 | clock -0.071 p 0.294 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000
+      EUR/USD     n   742 net +0.027 [-0.082, +0.142] hit 0.313 gross +0.156 MDE 0.164 side p 0.141 clock -0.132 p 0.015
+      NATGAS/USD  n   528 net -0.127 [-0.208, -0.043] hit 0.381 gross -0.004 MDE 0.122 side p 0.633 clock -0.116 p 0.587
+      SPX500/USD  n   933 net +0.072 [-0.022, +0.172] hit 0.407 gross +0.098 MDE 0.135 side p 0.008 clock +0.006 p 0.154
+      WTICO/USD   n   938 net -0.114 [-0.203, -0.037] hit 0.336 gross -0.053 MDE 0.123 side p 0.961 clock -0.096 p 0.662
+      XAG/USD     n   866 net -0.147 [-0.228, -0.059] hit 0.324 gross -0.066 MDE 0.126 side p 0.940 clock -0.099 p 0.866
+      XAU/USD     n   959 net -0.067 [-0.156, +0.020] hit 0.348 gross -0.016 MDE 0.130 side p 0.692 clock -0.058 p 0.557
+  2020H1: n 507 (1017/yr) net -0.054 [-0.184, +0.078] hit 0.329 gross +0.014 cost 0.068 per-day -0.216 MDE 0.188 | side -0.062 p 0.459 | clock -0.022 p 0.637 
+  2022H1: n 734 (1481/yr) net +0.050 [-0.055, +0.171] hit 0.388 gross +0.137 cost 0.086 per-day +0.289 MDE 0.160 | side -0.008 p 0.110 | clock -0.022 p 0.134 
+  2025Q4_26Q1: n 681 (1367/yr) net -0.110 [-0.206, +0.026] hit 0.326 gross -0.056 cost 0.055 per-day -0.586 MDE 0.167 | side -0.019 p 0.971 | clock -0.071 p 0.751 
+### orb30: REJECTED
+  dev: n 6431 (1286/yr) net -0.038 [-0.069, -0.005] hit 0.402 gross +0.034 cost 0.072 per-day -0.190 MDE 0.045 | side -0.055 p 0.111 | clock -0.063 p 0.090 holm_p_le0=1.000 holm_p_side=0.665 holm_p_clock=0.398
+      EUR/USD     n  1277 net -0.097 [-0.164, -0.014] hit 0.330 gross -0.013 MDE 0.111 side p 0.765 clock -0.127 p 0.244
+      NATGAS/USD  n   689 net -0.049 [-0.123, +0.017] hit 0.419 gross +0.054 MDE 0.104 side p 0.162 clock -0.019 p 0.731
+      SPX500/USD  n  1223 net +0.003 [-0.060, +0.067] hit 0.430 gross +0.036 MDE 0.088 side p 0.372 clock +0.011 p 0.582
+      WTICO/USD   n  1247 net -0.032 [-0.097, +0.027] hit 0.399 gross +0.027 MDE 0.092 side p 0.441 clock -0.052 p 0.264
+      XAG/USD     n   814 net -0.030 [-0.090, +0.046] hit 0.423 gross +0.075 MDE 0.099 side p 0.010 clock -0.139 p 0.005
+      XAU/USD     n  1181 net -0.023 [-0.082, +0.046] hit 0.427 gross +0.051 MDE 0.091 side p 0.133 clock -0.071 p 0.100
+  w2023: n 5308 (1409/yr) net -0.051 [-0.088, -0.015] hit 0.388 gross +0.017 cost 0.068 per-day -0.281 MDE 0.051 | side -0.054 p 0.431 | clock -0.066 p 0.199 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000
+      EUR/USD     n   885 net -0.042 [-0.132, +0.071] hit 0.344 gross +0.070 MDE 0.147 side p 0.466 clock -0.127 p 0.045
+      NATGAS/USD  n   696 net -0.158 [-0.223, -0.097] hit 0.366 gross -0.036 MDE 0.096 side p 0.862 clock -0.099 p 0.910
+      SPX500/USD  n   928 net +0.053 [-0.011, +0.134] hit 0.444 gross +0.075 MDE 0.104 side p 0.032 clock +0.018 p 0.259
+      WTICO/USD   n   934 net -0.099 [-0.174, -0.024] hit 0.383 gross -0.046 MDE 0.104 side p 0.904 clock -0.072 p 0.786
+      XAG/USD     n   923 net -0.086 [-0.151, -0.010] hit 0.374 gross -0.007 MDE 0.106 side p 0.690 clock -0.107 p 0.313
+      XAU/USD     n   942 net -0.004 [-0.083, +0.078] hit 0.410 gross +0.035 MDE 0.118 side p 0.145 clock -0.048 p 0.159
+  2020H1: n 563 (1130/yr) net -0.104 [-0.210, +0.000] hit 0.357 gross -0.044 cost 0.060 per-day -0.462 MDE 0.144 | side -0.036 p 0.914 | clock -0.007 p 0.950 
+  2022H1: n 734 (1481/yr) net +0.023 [-0.085, +0.135] hit 0.444 gross +0.089 cost 0.066 per-day +0.134 MDE 0.151 | side -0.020 p 0.136 | clock -0.002 p 0.294 
+  2025Q4_26Q1: n 725 (1455/yr) net -0.064 [-0.148, +0.035] hit 0.375 gross -0.008 cost 0.056 per-day -0.360 MDE 0.128 | side -0.020 p 0.847 | clock -0.078 p 0.418 
+### fade15: REJECTED
+  dev: n 4084 (817/yr) net -0.101 [-0.128, -0.072] hit 0.503 gross -0.013 cost 0.088 per-day -0.324 MDE 0.040 | side -0.096 p 0.670 | clock -0.115 p 0.154 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=0.463
+      EUR/USD     n   779 net -0.120 [-0.179, -0.057] hit 0.542 gross -0.022 MDE 0.091 side p 0.643 clock -0.127 p 0.383
+      NATGAS/USD  n   309 net -0.117 [-0.204, -0.021] hit 0.502 gross +0.014 MDE 0.132 side p 0.565 clock -0.109 p 0.552
+      SPX500/USD  n   952 net -0.056 [-0.112, +0.008] hit 0.477 gross +0.008 MDE 0.087 side p 0.442 clock -0.089 p 0.144
+      WTICO/USD   n   881 net -0.115 [-0.181, -0.063] hit 0.507 gross -0.035 MDE 0.083 side p 0.872 clock -0.115 p 0.483
+      XAG/USD     n   368 net -0.148 [-0.226, -0.082] hit 0.492 gross -0.049 MDE 0.111 side p 0.617 clock -0.141 p 0.567
+      XAU/USD     n   795 net -0.092 [-0.151, -0.028] hit 0.496 gross +0.001 MDE 0.090 side p 0.185 clock -0.128 p 0.090
+  w2023: n 3330 (884/yr) net -0.071 [-0.102, -0.040] hit 0.531 gross +0.004 cost 0.075 per-day -0.246 MDE 0.043 | side -0.075 p 0.397 | clock -0.098 p 0.035 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=0.244
+      EUR/USD     n   430 net -0.131 [-0.201, -0.065] hit 0.588 gross -0.022 MDE 0.101 side p 0.628 clock -0.124 p 0.567
+      NATGAS/USD  n   218 net -0.191 [-0.294, -0.104] hit 0.491 gross -0.070 MDE 0.133 side p 0.907 clock -0.151 p 0.801
+      SPX500/USD  n   720 net -0.075 [-0.145, -0.001] hit 0.504 gross -0.039 MDE 0.105 side p 0.703 clock -0.072 p 0.562
+      WTICO/USD   n   701 net -0.006 [-0.076, +0.062] hit 0.559 gross +0.062 MDE 0.099 side p 0.012 clock -0.082 p 0.005
+      XAG/USD     n   531 net -0.109 [-0.178, -0.048] hit 0.520 gross -0.008 MDE 0.096 side p 0.684 clock -0.122 p 0.348
+      XAU/USD     n   730 net -0.030 [-0.106, +0.040] hit 0.516 gross +0.038 MDE 0.102 side p 0.539 clock -0.100 p 0.030
+  2020H1: n 371 (745/yr) net -0.109 [-0.208, -0.007] hit 0.499 gross -0.007 cost 0.102 per-day -0.319 MDE 0.148 | side -0.088 p 0.691 | clock -0.118 p 0.408 
+  2022H1: n 531 (1072/yr) net -0.094 [-0.168, -0.033] hit 0.497 gross -0.027 cost 0.067 per-day -0.390 MDE 0.095 | side -0.090 p 0.549 | clock -0.089 p 0.572 
+  2025Q4_26Q1: n 473 (949/yr) net -0.103 [-0.166, -0.036] hit 0.520 gross -0.033 cost 0.070 per-day -0.387 MDE 0.095 | side -0.062 p 0.849 | clock -0.102 p 0.502 
+### fade30: REJECTED
+  dev: n 4059 (812/yr) net -0.095 [-0.131, -0.063] hit 0.438 gross -0.001 cost 0.094 per-day -0.303 MDE 0.049 | side -0.100 p 0.366 | clock -0.115 p 0.080 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=0.398
+      EUR/USD     n   788 net -0.094 [-0.158, -0.030] hit 0.462 gross -0.002 MDE 0.095 side p 0.276 clock -0.126 p 0.154
+      NATGAS/USD  n   305 net -0.178 [-0.291, -0.053] hit 0.403 gross -0.061 MDE 0.167 side p 0.867 clock -0.114 p 0.881
+      SPX500/USD  n   938 net -0.043 [-0.124, +0.031] hit 0.410 gross +0.035 MDE 0.112 side p 0.218 clock -0.087 p 0.104
+      WTICO/USD   n   878 net -0.066 [-0.132, +0.008] hit 0.475 gross +0.020 MDE 0.101 side p 0.360 clock -0.114 p 0.100
+      XAG/USD     n   366 net -0.195 [-0.268, -0.110] hit 0.423 gross -0.086 MDE 0.109 side p 0.953 clock -0.145 p 0.851
+      XAU/USD     n   784 net -0.112 [-0.182, -0.055] hit 0.425 gross -0.004 MDE 0.096 side p 0.317 clock -0.133 p 0.274
+  w2023: n 3360 (892/yr) net -0.090 [-0.124, -0.054] hit 0.463 gross -0.011 cost 0.079 per-day -0.315 MDE 0.050 | side -0.069 p 0.896 | clock -0.095 p 0.383 holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000
+      EUR/USD     n   436 net -0.184 [-0.261, -0.105] hit 0.482 gross -0.079 MDE 0.114 side p 0.972 clock -0.137 p 0.896
+      NATGAS/USD  n   206 net -0.133 [-0.239, -0.033] hit 0.461 gross -0.011 MDE 0.148 side p 0.495 clock -0.147 p 0.388
+      SPX500/USD  n   730 net -0.084 [-0.162, +0.009] hit 0.415 gross -0.045 MDE 0.121 side p 0.818 clock -0.061 p 0.736
+      WTICO/USD   n   706 net -0.016 [-0.082, +0.058] hit 0.499 gross +0.067 MDE 0.105 side p 0.246 clock -0.073 p 0.095
+      XAG/USD     n   580 net -0.088 [-0.165, -0.020] hit 0.497 gross +0.015 MDE 0.103 side p 0.474 clock -0.123 p 0.169
+      XAU/USD     n   702 net -0.101 [-0.173, -0.028] hit 0.440 gross -0.034 MDE 0.107 side p 0.802 clock -0.099 p 0.517
+  2020H1: n 358 (718/yr) net -0.036 [-0.165, +0.089] hit 0.480 gross +0.087 cost 0.124 per-day -0.103 MDE 0.185 | side -0.075 p 0.222 | clock -0.129 p 0.070 
+  2022H1: n 512 (1033/yr) net -0.081 [-0.189, +0.039] hit 0.416 gross -0.006 cost 0.075 per-day -0.322 MDE 0.155 | side -0.087 p 0.436 | clock -0.089 p 0.388 
+  2025Q4_26Q1: n 470 (943/yr) net -0.110 [-0.199, -0.031] hit 0.447 gross -0.027 cost 0.084 per-day -0.408 MDE 0.129 | side -0.069 p 0.857 | clock -0.095 p 0.617 
+### mom30: REJECTED
+  dev: n 3956 (791/yr) net -0.189 [-0.245, -0.137] hit 0.451 gross -0.057 cost 0.132 per-day -0.612 MDE 0.079 | side -0.129 p 0.983 | clock -0.130 p 0.980 | long -0.192 delta +0.002 [-0.073, +0.081] holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000 holm_p_long=0.458
+      EUR/USD     n   940 net -0.183 [-0.301, -0.081] hit 0.456 gross -0.043 MDE 0.151 side p 0.794 clock -0.166 p 0.622 long -0.191 d +0.008 [-0.125, +0.164]
+      NATGAS/USD  n   225 net -0.016 [-0.232, +0.205] hit 0.542 gross +0.134 MDE 0.329 side p 0.118 clock -0.087 p 0.249 long -0.266 d +0.250 [-0.114, +0.622]
+      SPX500/USD  n  1045 net -0.245 [-0.372, -0.122] hit 0.441 gross -0.146 MDE 0.179 side p 0.976 clock -0.086 p 0.995 long -0.172 d -0.073 [-0.221, +0.115]
+      WTICO/USD   n   922 net -0.217 [-0.352, -0.127] hit 0.430 gross -0.073 MDE 0.161 side p 0.900 clock -0.147 p 0.886 long -0.182 d -0.036 [-0.200, +0.117]
+      XAG/USD     n    72 net -0.022 [-0.303, +0.336] hit 0.486 gross +0.150 MDE 0.460 side p 0.186 clock -0.103 p 0.338 long -0.275 d +0.253 [-0.213, +0.835]
+      XAU/USD     n   752 net -0.153 [-0.229, -0.074] hit 0.452 gross -0.008 MDE 0.116 side p 0.577 clock -0.142 p 0.587 long -0.202 d +0.050 [-0.071, +0.177]
+  w2023: n 3533 (938/yr) net -0.142 [-0.194, -0.091] hit 0.455 gross -0.028 cost 0.114 per-day -0.525 MDE 0.074 | side -0.114 p 0.860 | clock -0.113 p 0.891 | long -0.141 delta -0.001 [-0.077, +0.072] holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000 holm_p_long=1.000
+      EUR/USD     n   484 net -0.203 [-0.334, -0.077] hit 0.452 gross -0.056 MDE 0.179 side p 0.774 clock -0.125 p 0.876 long -0.215 d +0.012 [-0.172, +0.188]
+      NATGAS/USD  n    57 net -0.331 [-0.662, +0.099] hit 0.439 gross -0.161 MDE 0.518 side p 0.808 clock -0.191 p 0.766 long -0.067 d -0.263 [-0.610, +0.192]
+      SPX500/USD  n   931 net -0.105 [-0.233, +0.015] hit 0.472 gross -0.033 MDE 0.170 side p 0.724 clock -0.050 p 0.816 long -0.067 d -0.038 [-0.209, +0.130]
+      WTICO/USD   n   762 net -0.204 [-0.311, -0.114] hit 0.434 gross -0.074 MDE 0.142 side p 0.911 clock -0.150 p 0.836 long -0.193 d -0.011 [-0.172, +0.112]
+      XAG/USD     n   376 net -0.126 [-0.237, -0.022] hit 0.444 gross +0.015 MDE 0.155 side p 0.410 clock -0.147 p 0.318 long -0.152 d +0.027 [-0.153, +0.209]
+      XAU/USD     n   923 net -0.090 [-0.164, -0.012] hit 0.464 gross +0.022 MDE 0.113 side p 0.289 clock -0.123 p 0.164 long -0.132 d +0.042 [-0.064, +0.151]
+  2020H1: n 348 (698/yr) net -0.197 [-0.415, +0.024] hit 0.434 gross -0.083 cost 0.113 per-day -0.557 MDE 0.315 | side -0.114 p 0.770 | clock -0.162 p 0.642 | long -0.103 delta -0.093 [-0.357, +0.237] 
+  2022H1: n 564 (1138/yr) net -0.135 [-0.301, +0.002] hit 0.449 gross -0.036 cost 0.098 per-day -0.604 MDE 0.217 | side -0.097 p 0.700 | clock -0.039 p 0.925 | long -0.174 delta +0.039 [-0.209, +0.239] 
+  2025Q4_26Q1: n 494 (991/yr) net -0.190 [-0.303, -0.059] hit 0.447 gross -0.087 cost 0.103 per-day -0.738 MDE 0.179 | side -0.100 p 0.924 | clock -0.109 p 0.871 | long -0.272 delta +0.082 [-0.098, +0.264] 
+### mom60: REJECTED
+  dev: n 3957 (792/yr) net -0.160 [-0.213, -0.110] hit 0.463 gross -0.028 cost 0.132 per-day -0.519 MDE 0.076 | side -0.133 p 0.833 | clock -0.126 p 0.905 | long -0.192 delta +0.032 [-0.042, +0.106] holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000 holm_p_long=0.432
+      EUR/USD     n   939 net -0.115 [-0.236, -0.017] hit 0.481 gross +0.024 MDE 0.159 side p 0.328 clock -0.165 p 0.169 long -0.192 d +0.076 [-0.049, +0.215]
+      NATGAS/USD  n   227 net -0.154 [-0.363, +0.095] hit 0.515 gross -0.004 MDE 0.308 side p 0.533 clock -0.060 p 0.856 long -0.271 d +0.117 [-0.228, +0.463]
+      SPX500/USD  n  1045 net -0.185 [-0.321, -0.075] hit 0.454 gross -0.085 MDE 0.177 side p 0.893 clock -0.099 p 0.935 long -0.172 d -0.013 [-0.168, +0.138]
+      WTICO/USD   n   922 net -0.228 [-0.347, -0.115] hit 0.428 gross -0.084 MDE 0.168 side p 0.931 clock -0.144 p 0.945 long -0.182 d -0.046 [-0.193, +0.131]
+      XAG/USD     n    72 net -0.067 [-0.342, +0.270] hit 0.472 gross +0.104 MDE 0.464 side p 0.268 clock -0.060 p 0.542 long -0.275 d +0.208 [-0.282, +0.759]
+      XAU/USD     n   752 net -0.110 [-0.191, -0.031] hit 0.479 gross +0.034 MDE 0.120 side p 0.218 clock -0.120 p 0.413 long -0.202 d +0.092 [-0.035, +0.229]
+  w2023: n 3535 (938/yr) net -0.126 [-0.173, -0.078] hit 0.467 gross -0.012 cost 0.114 per-day -0.466 MDE 0.069 | side -0.113 p 0.687 | clock -0.119 p 0.602 | long -0.136 delta +0.011 [-0.064, +0.082] holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000 holm_p_long=1.000
+      EUR/USD     n   488 net -0.194 [-0.329, -0.078] hit 0.451 gross -0.047 MDE 0.182 side p 0.750 clock -0.152 p 0.766 long -0.198 d +0.003 [-0.192, +0.202]
+      NATGAS/USD  n    57 net -0.097 [-0.451, +0.385] hit 0.509 gross +0.073 MDE 0.614 side p 0.340 clock -0.248 p 0.189 long -0.072 d -0.024 [-0.405, +0.554]
+      SPX500/USD  n   932 net -0.112 [-0.233, -0.009] hit 0.484 gross -0.040 MDE 0.166 side p 0.737 clock -0.056 p 0.836 long -0.063 d -0.048 [-0.242, +0.119]
+      WTICO/USD   n   760 net -0.133 [-0.252, -0.040] hit 0.449 gross -0.004 MDE 0.149 side p 0.502 clock -0.161 p 0.323 long -0.190 d +0.056 [-0.114, +0.186]
+      XAG/USD     n   376 net -0.117 [-0.232, -0.008] hit 0.452 gross +0.023 MDE 0.164 side p 0.340 clock -0.128 p 0.438 long -0.152 d +0.035 [-0.145, +0.227]
+      XAU/USD     n   922 net -0.102 [-0.167, -0.037] hit 0.476 gross +0.009 MDE 0.098 side p 0.407 clock -0.117 p 0.348 long -0.132 d +0.029 [-0.067, +0.136]
+  2020H1: n 348 (698/yr) net -0.089 [-0.282, +0.088] hit 0.471 gross +0.025 cost 0.113 per-day -0.251 MDE 0.276 | side -0.117 p 0.394 | clock -0.137 p 0.338 | long -0.103 delta +0.014 [-0.282, +0.334] 
+  2022H1: n 564 (1138/yr) net +0.020 [-0.079, +0.148] hit 0.488 gross +0.119 cost 0.098 per-day +0.091 MDE 0.167 | side -0.096 p 0.049 | clock -0.015 p 0.279 | long -0.174 delta +0.194 [-0.023, +0.397] 
+  2025Q4_26Q1: n 493 (989/yr) net -0.178 [-0.301, -0.038] hit 0.450 gross -0.075 cost 0.103 per-day -0.692 MDE 0.195 | side -0.102 p 0.881 | clock -0.110 p 0.871 | long -0.270 delta +0.091 [-0.109, +0.281] 
+### eia: INCONCLUSIVE
+  dev: n 186 (37/yr) net -0.032 [-0.251, +0.153] hit 0.468 gross +0.113 cost 0.145 per-day -0.032 MDE 0.288 | side -0.148 p 0.135 | clock -0.209 p 0.029 | long -0.326 delta +0.294 [+0.026, +0.580] holm_p_le0=1.000 holm_p_side=0.674 holm_p_clock=0.174 holm_p_long=0.045
+      WTICO/USD   n   186 net -0.032 [-0.254, +0.181] hit 0.468 gross +0.113 MDE 0.314 side p 0.137 clock -0.209 p 0.029 long -0.326 d +0.294 [+0.016, +0.606]
+  w2023: n 151 (40/yr) net -0.388 [-0.566, -0.181] hit 0.430 gross -0.256 cost 0.131 per-day -0.388 MDE 0.285 | side -0.128 p 0.995 | clock -0.186 p 0.993 | long -0.154 delta -0.234 [-0.514, +0.044] holm_p_le0=1.000 holm_p_side=1.000 holm_p_clock=1.000 holm_p_long=1.000
+      WTICO/USD   n   151 net -0.388 [-0.583, -0.185] hit 0.430 gross -0.256 MDE 0.286 side p 0.993 clock -0.186 p 0.993 long -0.154 d -0.234 [-0.519, +0.046]
+  2020H1: n 21 (42/yr) net +0.045 [-0.740, +0.762] hit 0.524 gross +0.197 cost 0.152 per-day +0.045 MDE 1.087 | side -0.160 p 0.299 | clock +0.283 p 0.737 | long -0.102 delta +0.147 [-1.291, +1.321] 
+  2022H1: n 25 (50/yr) net +0.113 [-0.375, +0.643] hit 0.440 gross +0.187 cost 0.075 per-day +0.113 MDE 0.728 | side -0.071 p 0.264 | clock -0.167 p 0.106 | long -0.484 delta +0.596 [-0.241, +1.328] 

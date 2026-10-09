@@ -1,0 +1,29 @@
+{
+ "rows": {
+  "WTICO_USD": 4046517,
+  "XAU_USD": 7438326,
+  "XAG_USD": 7769082,
+  "NATGAS_USD": 1493097,
+  "EUR_USD": 741424,
+  "SPX500_USD": 2255929
+ },
+ "distinct_urls": {
+  "WTICO_USD": 4044614,
+  "XAU_USD": 7434783,
+  "XAG_USD": 7765308,
+  "NATGAS_USD": 1492433,
+  "EUR_USD": 741271,
+  "SPX500_USD": 2255462
+ },
+ "noslug_rows": {
+  "WTICO_USD": 149778,
+  "XAU_USD": 245445,
+  "XAG_USD": 250862,
+  "NATGAS_USD": 29438,
+  "EUR_USD": 26126,
+  "SPX500_USD": 59723
+ },
+ "distinct_urls_all": 11683105,
+ "distinct_noslug_all": 363037,
+ "url_inst_pairs": 23733871
+}

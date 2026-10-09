@@ -1,0 +1,56 @@
+{
+ "SPX500/USD": {
+  "dev": {
+   "trading_days": 1259,
+   "night_valid": 1253,
+   "day_valid": 1252,
+   "skip_open": 6,
+   "skip_close": 1,
+   "weekend_nights": 273
+  },
+  "w2023": {
+   "trading_days": 944,
+   "night_valid": 944,
+   "day_valid": 944,
+   "skip_open": 0,
+   "skip_close": 0,
+   "weekend_nights": 208
+  }
+ },
+ "NAS100/USD": {
+  "dev": {
+   "trading_days": 1259,
+   "night_valid": 1253,
+   "day_valid": 1253,
+   "skip_open": 5,
+   "skip_close": 1,
+   "weekend_nights": 273
+  },
+  "w2023": {
+   "trading_days": 944,
+   "night_valid": 943,
+   "day_valid": 943,
+   "skip_open": 0,
+   "skip_close": 1,
+   "weekend_nights": 208
+  }
+ },
+ "US30/USD": {
+  "dev": {
+   "trading_days": 1259,
+   "night_valid": 1253,
+   "day_valid": 1252,
+   "skip_open": 6,
+   "skip_close": 1,
+   "weekend_nights": 273
+  },
+  "w2023": {
+   "trading_days": 944,
+   "night_valid": 944,
+   "day_valid": 944,
+   "skip_open": 0,
+   "skip_close": 0,
+   "weekend_nights": 208
+  }
+ }
+}

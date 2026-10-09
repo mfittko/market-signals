@@ -1,0 +1,37 @@
+{
+ "created": "2026-10-09T18:35:00+0200",
+ "code_sha256": {
+  "abs48.py": "5d70def7b9b5296db4411c8a1b45bd7a21a1650f96e67f2a40b881f7a70387ab",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64"
+ },
+ "title": "abs48: abs11 A1 big-day model rescored on the remaining move after the alert (excursion from the assessment time, 5 min notification latency)",
+ "purpose": "Answer the external audit point (issue 307 comment 6053046878, section 3): the excursion starts at the assessment time, latency is included, the remaining move after the alert is reported.",
+ "before_registration": "Only synthetic self-checks (abs48.py check) ran. No remaining-move outcome, score or alert was computed. Prior knowledge: abs11 results (A1 AUC 0.78-0.90 on the from-open target, registered FAIL).",
+ "declared": "Attention only, no direction, no entries. 2023+ is a development window, not a holdout. A PASS admits silent shadow logging only; promotion follows issue 313 rules.",
+ "reused_unchanged": "abs11.py imported (sha256 matches the abs11 registration): 30-min mid bars (cached out/bars_*.npz), session definition (22:00 UTC roll, valid >= 8 bars), features F_ALL / F_OPEN, T1 per instrument from abs11 prereg.json, the A1 intraday population (valid, finite features, session excursion so far < T1), abs11.walk quarterly expanding walk-forward LR and its rv / tod baseline LRs (fitted on the abs11 big-day label exactly as in abs11; HGB omitted, it does not feed the LR), abs11.day_thr / first_per_day, abs11.auc_ci (day-cluster bootstrap, 200 reps).",
+ "assessment_times": "Alert stream: every 30-min bar close t while the session excursion so far < T1 (abs11 A1 intraday rows). The session open (22:00 UTC, abs11 open model) is scored as a secondary AUC only, not in the alert stream (abs11 alerts used the intraday model only).",
+ "latency": "L = 5 min. Entry reference P_(t+L) = mid open of the first M1 bar opening at or after t + 5 min in the same session. No such bar: M_rem = 0 (the alert fails).",
+ "outcomes": {
+  "M_rem": "max over M1 bars from the entry bar to the last bar of the session of max(mid_high / P_(t+L) - 1, 1 - mid_low / P_(t+L)), in %",
+  "PRIMARY y_pri": "M_rem >= delta, delta = T1 - exc_so(t) (exc_so = abs11 session excursion from the open at t)",
+  "SECONDARY y_half": "M_rem >= T1 / 2"
+ },
+ "operating_point": "Per instrument one frozen threshold on the A1 LR probability: the round(rate x dev months)-th largest per-session max score over dev 2019-2022 rows (abs11.day_thr), applied unchanged to 2023+. Alert = first row per session with p >= threshold. Rate 2/month registered, 4/month reported.",
+ "windows": {
+  "dev": "sessions 2019-01-01 .. 2022-12-31",
+  "w2023": "sessions 2023-01-01 .. abs11 data end (development window)"
+ },
+ "metrics": {
+  "auc": "LR vs baselines on the outcome over alert-stream rows; day-cluster bootstrap 95% CI (200 reps, seed 48); pooled across instruments with the session day as the cluster",
+  "baselines": "abs11 rv LR, abs11 tod LR, already-moved = exc_so / T1 (identical to abs11's naive A1 score, reported once)",
+  "precision": "share of alerts with outcome 1; base = share of alert-stream rows with outcome 1 in the window (a randomly timed alert); the session big-day share is also reported",
+  "recall": "independent big sessions = valid sessions with session excursion from the open >= T1 (abs11 definition, all valid sessions incl. ones that crossed before any assessment); caught = an alert in that session with outcome 1. Secondary: recall of sessions with >= 1 outcome-1 row",
+  "remaining": "mean and median M_rem % at alerts vs all rows",
+  "lead": "on big sessions with an alert: hours from the entry time t+L to the end of the first M1 bar whose excursion from the open reaches T1; median, and share <= 0 (crossed before the alert counts)",
+  "abs11_comparison": "precision on the abs11 big-day label at the same alerts"
+ },
+ "decision_rule": "PASS for silent shadow logging iff, on the PRIMARY outcome, pooled over the six instruments, in BOTH dev and 2023+ at 2/month: recall of big sessions >= 0.5, precision >= 2 x row base rate, and LR AUC CI lower bound > the best baseline's pooled point AUC (rv, tod, already-moved). Per-instrument results are reported and do not decide. Otherwise FAIL.",
+ "budget": {"instruments": 6, "outcomes": 2, "rates": 2, "models": 1, "baselines": 3, "latency_values": 1, "tuned_hyperparameters": 0},
+ "data": "abs11 cached 30-min bars and stress table (read-only); history.db candles_ba M1 bid/ask via bars.load_m1, mid = (bid + ask) / 2, restricted to times before the end of abs11's last 30-min bar. Nothing fetched."
+}

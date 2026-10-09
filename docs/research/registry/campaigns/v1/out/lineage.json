@@ -1,0 +1,533 @@
+{
+ "events": [
+  [
+   "harness code written (bars..sens)",
+   "2026-10-07T19:19:28+0200"
+  ],
+  [
+   "A-C dev + freeze (frozen.json)",
+   "2026-10-07T20:01:59+0200"
+  ],
+  [
+   "A-C single test look 2023-01-01..2026-10-07 (test_ledger.jsonl)",
+   "2026-10-07T22:49:30+0200"
+  ],
+  [
+   "A-C verdict posted (GitHub)",
+   "2026-10-07T20:50:05Z"
+  ],
+  [
+   "D-E preregistration v1 (trials.jsonl mode=prereg)",
+   "2026-10-07T22:59:59+0200"
+  ],
+  [
+   "D-E preregistration v2 after v1 dev results (E label, p grid, windows)",
+   "2026-10-07T23:01:44+0200"
+  ],
+  [
+   "D-E dry run on 2022 dev data",
+   "2026-10-07T23:03:02+0200"
+  ],
+  [
+   "de.py last modified (after the dry run, before the test look)",
+   "2026-10-07T23:03:14+0200"
+  ],
+  [
+   "D-E single test look WTI (test_ledger_de.jsonl)",
+   "2026-10-07T23:03:16+0200"
+  ],
+  [
+   "D-E single test look XAU",
+   "2026-10-07T23:03:27+0200"
+  ],
+  [
+   "D-E interim verdict posted (GitHub)",
+   "2026-10-07T21:04:53Z"
+  ]
+ ],
+ "trial_groups": [
+  {
+   "exp": "ladder-wti-m5",
+   "mode": "dev",
+   "inst": null,
+   "version": null,
+   "first": "2026-10-07T20:01:57",
+   "last": "2026-10-07T20:01:57",
+   "n": 993
+  },
+  {
+   "exp": "ladder-wti-m5",
+   "mode": "freeze",
+   "inst": null,
+   "version": null,
+   "first": "2026-10-07T20:01:59",
+   "last": "2026-10-07T20:01:59",
+   "n": 248
+  },
+  {
+   "exp": "ladder-wti-m5",
+   "mode": "sensitivity",
+   "inst": null,
+   "version": null,
+   "first": "2026-10-07T20:02:03",
+   "last": "2026-10-07T20:02:03",
+   "n": 5
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "prereg",
+   "inst": "WTICO/USD",
+   "version": null,
+   "first": "2026-10-07T22:59:59",
+   "last": "2026-10-07T22:59:59",
+   "n": 1
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "dev",
+   "inst": "WTICO/USD",
+   "version": null,
+   "first": "2026-10-07T23:00:05",
+   "last": "2026-10-07T23:01:56",
+   "n": 350
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "freeze",
+   "inst": "WTICO/USD",
+   "version": null,
+   "first": "2026-10-07T23:00:10",
+   "last": "2026-10-07T23:01:55",
+   "n": 80
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "prereg",
+   "inst": "XAU/USD",
+   "version": null,
+   "first": "2026-10-07T23:00:14",
+   "last": "2026-10-07T23:00:14",
+   "n": 1
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "dev",
+   "inst": "XAU/USD",
+   "version": null,
+   "first": "2026-10-07T23:00:20",
+   "last": "2026-10-07T23:02:14",
+   "n": 426
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "freeze",
+   "inst": "XAU/USD",
+   "version": null,
+   "first": "2026-10-07T23:00:25",
+   "last": "2026-10-07T23:02:08",
+   "n": 80
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "prereg",
+   "inst": "WTICO/USD",
+   "version": 2,
+   "first": "2026-10-07T23:01:44",
+   "last": "2026-10-07T23:01:44",
+   "n": 1
+  },
+  {
+   "exp": "ladder-de",
+   "mode": "prereg",
+   "inst": "XAU/USD",
+   "version": 2,
+   "first": "2026-10-07T23:01:57",
+   "last": "2026-10-07T23:01:57",
+   "n": 1
+  }
+ ],
+ "preregistrations": [
+  {
+   "ts": "2026-10-07T22:59:59",
+   "inst": "WTICO/USD",
+   "version": null,
+   "e_label": null,
+   "mue_R": 0.05,
+   "multiple_comparisons": "dev is development data; test: one look per frozen variant, verdict on the Bonferroni interval over the frozen variants of the instrument; confirmation by prospective shadow (313)",
+   "grid": {
+    "gates": [
+     [
+      "none",
+      null
+     ],
+     [
+      "armed",
+      0.6
+     ],
+     [
+      "armed",
+      0.8
+     ],
+     [
+      "fired",
+      0.8
+     ],
+     [
+      "fired",
+      0.9
+     ]
+    ],
+    "confirms": [
+     "imm",
+     "h1",
+     "m15",
+     "brk"
+    ],
+    "waits": [
+     12,
+     48
+    ],
+    "spr_max": 0.2,
+    "e_pgrid": [
+     0.3,
+     0.35,
+     0.4,
+     0.45,
+     0.5,
+     0.55,
+     0.6,
+     0.65
+    ]
+   },
+   "schedule": "dev walk-forward 2019..2022, freeze, single test look 2023-01-01..newest"
+  },
+  {
+   "ts": "2026-10-07T23:00:14",
+   "inst": "XAU/USD",
+   "version": null,
+   "e_label": null,
+   "mue_R": 0.05,
+   "multiple_comparisons": "dev is development data; test: one look per frozen variant, verdict on the Bonferroni interval over the frozen variants of the instrument; confirmation by prospective shadow (313)",
+   "grid": {
+    "gates": [
+     [
+      "none",
+      null
+     ],
+     [
+      "armed",
+      0.6
+     ],
+     [
+      "armed",
+      0.8
+     ],
+     [
+      "fired",
+      0.8
+     ],
+     [
+      "fired",
+      0.9
+     ]
+    ],
+    "confirms": [
+     "imm",
+     "h1",
+     "m15",
+     "brk"
+    ],
+    "waits": [
+     12,
+     48
+    ],
+    "spr_max": 0.2,
+    "e_pgrid": [
+     0.3,
+     0.35,
+     0.4,
+     0.45,
+     0.5,
+     0.55,
+     0.6,
+     0.65
+    ]
+   },
+   "schedule": "dev walk-forward 2019..2022, freeze, single test look 2023-01-01..newest"
+  },
+  {
+   "ts": "2026-10-07T23:01:44",
+   "inst": "WTICO/USD",
+   "version": 2,
+   "e_label": "arm: +1R before the stop within H (308 label contract)",
+   "mue_R": 0.05,
+   "multiple_comparisons": "dev is development data; test: one look per frozen variant, verdict on the Bonferroni interval over the frozen variants of the instrument; confirmation by prospective shadow (313)",
+   "grid": {
+    "gates": [
+     [
+      "none",
+      null
+     ],
+     [
+      "armed",
+      0.6
+     ],
+     [
+      "armed",
+      0.8
+     ],
+     [
+      "fired",
+      0.8
+     ],
+     [
+      "fired",
+      0.9
+     ]
+    ],
+    "confirms": [
+     "imm",
+     "h1",
+     "m15",
+     "brk"
+    ],
+    "waits": [
+     12,
+     48
+    ],
+    "spr_max": 0.2,
+    "e_pgrid": [
+     0.4,
+     0.45,
+     0.5,
+     0.55,
+     0.6,
+     0.65
+    ]
+   },
+   "schedule": "dev walk-forward 2019..2022, freeze, single test look 2023-01-01..newest"
+  },
+  {
+   "ts": "2026-10-07T23:01:57",
+   "inst": "XAU/USD",
+   "version": 2,
+   "e_label": "arm: +1R before the stop within H (308 label contract)",
+   "mue_R": 0.05,
+   "multiple_comparisons": "dev is development data; test: one look per frozen variant, verdict on the Bonferroni interval over the frozen variants of the instrument; confirmation by prospective shadow (313)",
+   "grid": {
+    "gates": [
+     [
+      "none",
+      null
+     ],
+     [
+      "armed",
+      0.6
+     ],
+     [
+      "armed",
+      0.8
+     ],
+     [
+      "fired",
+      0.8
+     ],
+     [
+      "fired",
+      0.9
+     ]
+    ],
+    "confirms": [
+     "imm",
+     "h1",
+     "m15",
+     "brk"
+    ],
+    "waits": [
+     12,
+     48
+    ],
+    "spr_max": 0.2,
+    "e_pgrid": [
+     0.4,
+     0.45,
+     0.5,
+     0.55,
+     0.6,
+     0.65
+    ]
+   },
+   "schedule": "dev walk-forward 2019..2022, freeze, single test look 2023-01-01..newest"
+  }
+ ],
+ "ledgers": {
+  "test_ledger.jsonl": [
+   {
+    "variant": "A",
+    "hash": "836e03115e84",
+    "ts": "2026-10-07T22:49:30",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "variant": "B",
+    "hash": "a7fefd2dc1e1",
+    "ts": "2026-10-07T22:49:30",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "variant": "C",
+    "hash": "fa7dfa91bf0e",
+    "ts": "2026-10-07T22:49:30",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   }
+  ],
+  "test_ledger_de.jsonl": [
+   {
+    "inst": "WTICO/USD",
+    "variant": "D",
+    "hash": "638f58bf0dfc",
+    "ts": "2026-10-07T23:03:16",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "inst": "WTICO/USD",
+    "variant": "D_imm",
+    "hash": "64630488f9bd",
+    "ts": "2026-10-07T23:03:16",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "inst": "WTICO/USD",
+    "variant": "D_nogate",
+    "hash": "bc6f78e88703",
+    "ts": "2026-10-07T23:03:16",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "inst": "WTICO/USD",
+    "variant": "E",
+    "hash": "1b61ea6a5b1a",
+    "ts": "2026-10-07T23:03:16",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "inst": "WTICO/USD",
+    "variant": "E_novol",
+    "hash": "12433502a877",
+    "ts": "2026-10-07T23:03:16",
+    "data_to": "2026-10-07T18:38:00.000000000Z"
+   },
+   {
+    "inst": "XAU/USD",
+    "variant": "D",
+    "hash": "27c475c31ba3",
+    "ts": "2026-10-07T23:03:27",
+    "data_to": "2026-10-07T20:27:00.000000000Z"
+   },
+   {
+    "inst": "XAU/USD",
+    "variant": "D_imm",
+    "hash": "85df7b9e2310",
+    "ts": "2026-10-07T23:03:27",
+    "data_to": "2026-10-07T20:27:00.000000000Z"
+   },
+   {
+    "inst": "XAU/USD",
+    "variant": "D_nogate",
+    "hash": "532ecf4d4171",
+    "ts": "2026-10-07T23:03:27",
+    "data_to": "2026-10-07T20:27:00.000000000Z"
+   },
+   {
+    "inst": "XAU/USD",
+    "variant": "E",
+    "hash": "3a457ab4e107",
+    "ts": "2026-10-07T23:03:27",
+    "data_to": "2026-10-07T20:27:00.000000000Z"
+   },
+   {
+    "inst": "XAU/USD",
+    "variant": "E_novol",
+    "hash": "4c365c864ceb",
+    "ts": "2026-10-07T23:03:27",
+    "data_to": "2026-10-07T20:27:00.000000000Z"
+   }
+  ]
+ },
+ "file_mtimes_local": {
+  "ladder.py": "2026-10-07T19:25:05",
+  "de.py": "2026-10-07T23:03:14",
+  "labels.py": "2026-10-07T19:20:40",
+  "fills.py": "2026-10-07T19:19:34",
+  "validate.py": "2026-10-07T19:24:54",
+  "nulls.py": "2026-10-07T19:21:27",
+  "gate.py": "2026-10-07T19:22:56",
+  "bars.py": "2026-10-07T19:19:28",
+  "frozen.json": "2026-10-07T20:01:59",
+  "frozen_de.json": "2026-10-07T23:02:14",
+  "results/test.json": "2026-10-07T22:49:44",
+  "results/de_test_WTICO_USD.json": "2026-10-07T23:03:26",
+  "results/de_test_XAU_USD.json": "2026-10-07T23:03:40",
+  "cache/dryrun_ledger.jsonl": "2026-10-07T23:02:56",
+  "cache/dry.log": "2026-10-07T23:03:02"
+ },
+ "github_utc": {
+  "309 A-C verdict": "2026-10-07T20:50:05Z",
+  "310 D-E interim": "2026-10-07T21:04:53Z",
+  "308 evaluator-audit addendum": "2026-10-07T21:36:47Z",
+  "310 calibration/representation addendum": "2026-10-07T21:37:59Z"
+ },
+ "feedback_edges": [
+  {
+   "source": "A-C test look (C beats A by +0.19 R/trade but not the same-tod null: a spread/session effect)",
+   "decision": "carried-forward spread rule SPR_MAX = 0.2 R for every later policy (de.py docstring: 'Carried constraint from 309')",
+   "affected": "D-E candidate population and every D/E result on the SAME 2023-2026 window",
+   "note": "the 0.208 threshold itself was set on dev data (frozen.json 20:01:59); adopting it as a hard rule was decided after the test look"
+  },
+  {
+   "source": "A-C test look (B volatility gate adds nothing as a flip filter)",
+   "decision": "D-E reuses the spike-4 gate as an episode opener with fired/armed variants; gate state split reported again",
+   "affected": "D-E design (gate grid)",
+   "note": "design feedback, not label fitting"
+  },
+  {
+   "source": "D-E dev v1 results (E label net_R > 0, base 0.18)",
+   "decision": "prereg v2: E label = arm, p grid 0.40-0.65, quarterly E windows",
+   "affected": "E (dev only, before any D-E test look)",
+   "note": "allowed on development data; the trial family includes v1 attempts"
+  }
+ ],
+ "looks_on_window": [
+  {
+   "window": "2023-01-01..2026-10-07",
+   "inst": "WTICO/USD",
+   "variants": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "D_imm",
+    "D_nogate",
+    "E",
+    "E_novol"
+   ]
+  },
+  {
+   "window": "2023-01-01..2026-10-07",
+   "inst": "XAU/USD",
+   "variants": [
+    "D",
+    "D_imm",
+    "D_nogate",
+    "E",
+    "E_novol"
+   ]
+  }
+ ],
+ "gaps": [
+  "ledger entries carry a config hash, timestamp and data_to, but no code version or code hash: which de.py scored the test cannot be proven after de.py changed between the dry run and the test look",
+  "each campaign applies Bonferroni only inside its own instrument family (A-C: none; D-E: k=5); the 2023-2026 WTI window received 8 frozen-variant looks across two campaigns, which no correction covers jointly",
+  "trials.jsonl rows of D-E dev v1 carry no version field; they are counted in the dev trial total but cannot be separated from v2 rows"
+ ],
+ "classification": "2023-01-01..2026-10-07 is development evidence for WTICO/USD and XAU/USD in any further campaign: it has been scored for 8 (WTI) and 5 (XAU) frozen variants, and the A-C test outcome shaped the D-E design that was then scored on the same window. A positive claim needs data after 2026-10-07T18:38Z (WTI) / 20:27Z (XAU), or prospective capture under #313, with the total comparison family registered."
+}

@@ -1,0 +1,1 @@
+bench check OK: ENG (27 features) and trailing windows unchanged on 53660 pre-cut bars under post-cut perturbation; next-bar leak detected; TS2Vec ({'train_windows': 3000, 'n_iters': 600, 'secs': 43.1, 'last_loss': 1.2264042837734528}) embeddings of pre-cut windows unchanged; windows shifted 12 bars later change the embedding

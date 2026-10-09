@@ -1,0 +1,223 @@
+DECISION {'cell': 'WTICO/USD M5 gross H6 (amendment 1)', 'pass': False}
+
+== M5 ==  NEWS mean R [CI] | CONTROL mean R | NEWS-CONTROL [CI] | cont% news/ctrl | n news/ctrl
+WTICO/USD   dev   gross H3  news +0.234 [+0.013,+0.503] ctrl +0.014 diff +0.220 [-0.020,+0.504] cont  56/ 43 n 64/1010
+WTICO/USD   dev   gross H6  news +0.275 [+0.015,+0.576] ctrl +0.030 diff +0.245 [-0.025,+0.552] cont  45/ 37 n 64/1010
+WTICO/USD   dev   gross H12 news +0.241 [-0.065,+0.606] ctrl +0.056 diff +0.185 [-0.136,+0.554] cont  38/ 31 n 64/1010
+WTICO/USD   dev   net   H3  news +0.089 [-0.134,+0.356] ctrl -0.117 diff +0.206 [-0.023,+0.487] cont  45/ 36 n 64/1010
+WTICO/USD   dev   net   H6  news +0.045 [-0.176,+0.312] ctrl -0.099 diff +0.144 [-0.088,+0.419] cont  38/ 33 n 64/1010
+WTICO/USD   dev   net   H12 news -0.002 [-0.271,+0.317] ctrl -0.095 diff +0.094 [-0.176,+0.412] cont  30/ 26 n 64/1010
+WTICO/USD   w2023 gross H3  news +0.161 [-0.213,+0.621] ctrl +0.040 diff +0.120 [-0.256,+0.580] cont  43/ 44 n 21/888 SMALL-N
+WTICO/USD   w2023 gross H6  news +0.140 [-0.239,+0.546] ctrl +0.036 diff +0.105 [-0.278,+0.490] cont  33/ 38 n 21/888 SMALL-N
+WTICO/USD   w2023 gross H12 news +0.023 [-0.295,+0.513] ctrl +0.057 diff -0.034 [-0.368,+0.447] cont  33/ 33 n 21/888 SMALL-N
+WTICO/USD   w2023 net   H3  news +0.059 [-0.349,+0.519] ctrl -0.079 diff +0.138 [-0.284,+0.619] cont  43/ 38 n 21/888 SMALL-N
+WTICO/USD   w2023 net   H6  news +0.036 [-0.341,+0.458] ctrl -0.085 diff +0.122 [-0.264,+0.530] cont  33/ 34 n 21/888 SMALL-N
+WTICO/USD   w2023 net   H12 news -0.080 [-0.415,+0.421] ctrl -0.062 diff -0.019 [-0.369,+0.463] cont  24/ 30 n 21/888 SMALL-N
+XAU/USD     dev   gross H3  news -0.002 [-0.301,+0.313] ctrl +0.008 diff -0.010 [-0.308,+0.310] cont  34/ 40 n 32/791
+XAU/USD     dev   gross H6  news -0.005 [-0.453,+0.437] ctrl -0.006 diff +0.000 [-0.453,+0.437] cont  38/ 36 n 32/791
+XAU/USD     dev   gross H12 news +0.013 [-0.541,+0.537] ctrl -0.022 diff +0.036 [-0.516,+0.549] cont  28/ 28 n 32/791
+XAU/USD     dev   net   H3  news -0.157 [-0.421,+0.125] ctrl -0.141 diff -0.016 [-0.287,+0.268] cont  28/ 33 n 32/791
+XAU/USD     dev   net   H6  news -0.100 [-0.526,+0.313] ctrl -0.157 diff +0.057 [-0.381,+0.483] cont  31/ 31 n 32/791
+XAU/USD     dev   net   H12 news -0.083 [-0.576,+0.403] ctrl -0.159 diff +0.076 [-0.431,+0.548] cont  22/ 24 n 32/791
+XAU/USD     w2023 gross H3  news -0.515 [-1.000,+0.076] ctrl +0.059 diff -0.574 [-1.092,+0.033] cont  20/ 43 n 5/801 SMALL-N
+XAU/USD     w2023 gross H6  news -0.468 [-1.000,+0.161] ctrl +0.086 diff -0.554 [-1.136,+0.102] cont  40/ 38 n 5/801 SMALL-N
+XAU/USD     w2023 gross H12 news -0.357 [-1.000,+0.538] ctrl +0.096 diff -0.453 [-1.147,+0.464] cont  20/ 31 n 5/801 SMALL-N
+XAU/USD     w2023 net   H3  news -0.585 [-1.000,-0.055] ctrl -0.048 diff -0.537 [-0.984,-0.000] cont  20/ 39 n 5/801 SMALL-N
+XAU/USD     w2023 net   H6  news -0.524 [-1.000,+0.035] ctrl -0.030 diff -0.493 [-1.013,+0.096] cont  20/ 33 n 5/801 SMALL-N
+XAU/USD     w2023 net   H12 news -0.391 [-1.000,+0.434] ctrl -0.044 diff -0.347 [-1.004,+0.509] cont  20/ 26 n 5/801 SMALL-N
+XAG/USD     dev   gross H3  news +0.069 [+0.069,+0.069] ctrl -0.023 diff +0.092 [-0.039,+0.212] cont  40/ 43 n 5/182 SMALL-N
+XAG/USD     dev   gross H6  news +0.798 [+0.798,+0.798] ctrl +0.003 diff +0.795 [+0.637,+0.947] cont  40/ 34 n 5/182 SMALL-N
+XAG/USD     dev   gross H12 news +0.910 [+0.910,+0.910] ctrl -0.028 diff +0.938 [+0.786,+1.101] cont  60/ 27 n 5/182 SMALL-N
+XAG/USD     dev   net   H3  news -0.048 [-0.048,-0.048] ctrl -0.236 diff +0.187 [+0.093,+0.288] cont  20/ 34 n 5/182 SMALL-N
+XAG/USD     dev   net   H6  news +0.405 [+0.405,+0.405] ctrl -0.220 diff +0.624 [+0.493,+0.761] cont  40/ 25 n 5/182 SMALL-N
+XAG/USD     dev   net   H12 news +0.886 [+0.886,+0.886] ctrl -0.217 diff +1.103 [+0.961,+1.262] cont  60/ 23 n 5/182 SMALL-N
+XAG/USD     w2023 gross H3  news +0.396 [+0.335,+0.456] ctrl +0.003 diff +0.392 [+0.266,+0.518] cont 100/ 42 n 2/366 SMALL-N
+XAG/USD     w2023 gross H6  news -0.132 [-1.000,+0.736] ctrl +0.017 diff -0.149 [-1.091,+0.790] cont  50/ 35 n 2/366 SMALL-N
+XAG/USD     w2023 gross H12 news +0.276 [-1.000,+1.551] ctrl +0.029 diff +0.246 [-1.115,+1.605] cont  50/ 29 n 2/366 SMALL-N
+XAG/USD     w2023 net   H3  news -0.346 [-1.000,+0.308] ctrl -0.136 diff -0.210 [-0.927,+0.505] cont  50/ 33 n 2/366 SMALL-N
+XAG/USD     w2023 net   H6  news -0.207 [-1.000,+0.585] ctrl -0.115 diff -0.092 [-0.969,+0.770] cont  50/ 31 n 2/366 SMALL-N
+XAG/USD     w2023 net   H12 news +0.201 [-1.000,+1.401] ctrl -0.083 diff +0.283 [-1.015,+1.569] cont  50/ 26 n 2/366 SMALL-N
+EUR/USD     dev   gross H3  news -0.091 [-0.326,+0.157] ctrl -0.032 diff -0.059 [-0.300,+0.185] cont  39/ 40 n 61/638
+EUR/USD     dev   gross H6  news -0.063 [-0.311,+0.189] ctrl -0.060 diff -0.003 [-0.259,+0.255] cont  36/ 35 n 61/638
+EUR/USD     dev   gross H12 news -0.011 [-0.312,+0.328] ctrl -0.057 diff +0.046 [-0.265,+0.384] cont  31/ 29 n 61/638
+EUR/USD     dev   net   H3  news -0.207 [-0.448,+0.048] ctrl -0.181 diff -0.027 [-0.269,+0.228] cont  36/ 34 n 61/638
+EUR/USD     dev   net   H6  news -0.175 [-0.420,+0.083] ctrl -0.206 diff +0.031 [-0.224,+0.293] cont  36/ 29 n 61/638
+EUR/USD     dev   net   H12 news -0.100 [-0.401,+0.249] ctrl -0.213 diff +0.113 [-0.199,+0.458] cont  30/ 24 n 61/638
+EUR/USD     w2023 gross H3  news +0.180 [-0.085,+0.486] ctrl -0.070 diff +0.249 [-0.013,+0.558] cont  53/ 39 n 36/416
+EUR/USD     w2023 gross H6  news +0.258 [-0.079,+0.688] ctrl -0.057 diff +0.315 [-0.035,+0.727] cont  44/ 34 n 36/416
+EUR/USD     w2023 gross H12 news +0.171 [-0.200,+0.603] ctrl -0.063 diff +0.234 [-0.144,+0.678] cont  39/ 26 n 36/416
+EUR/USD     w2023 net   H3  news +0.052 [-0.195,+0.365] ctrl -0.196 diff +0.248 [+0.004,+0.555] cont  42/ 33 n 36/416
+EUR/USD     w2023 net   H6  news +0.137 [-0.199,+0.581] ctrl -0.190 diff +0.327 [-0.011,+0.759] cont  36/ 30 n 36/416
+EUR/USD     w2023 net   H12 news +0.120 [-0.249,+0.542] ctrl -0.206 diff +0.325 [-0.033,+0.744] cont  39/ 24 n 36/416
+SPX500/USD  dev   gross H3  news +0.217 [-0.048,+0.517] ctrl -0.015 diff +0.233 [-0.043,+0.541] cont  50/ 40 n 40/863
+SPX500/USD  dev   gross H6  news +0.499 [+0.097,+0.900] ctrl +0.003 diff +0.496 [+0.088,+0.879] cont  55/ 36 n 40/863
+SPX500/USD  dev   gross H12 news +0.384 [+0.029,+0.795] ctrl +0.019 diff +0.365 [-0.001,+0.769] cont  45/ 29 n 40/863
+SPX500/USD  dev   net   H3  news +0.115 [-0.128,+0.398] ctrl -0.109 diff +0.224 [-0.009,+0.501] cont  45/ 36 n 40/863
+SPX500/USD  dev   net   H6  news +0.417 [+0.030,+0.796] ctrl -0.101 diff +0.518 [+0.131,+0.913] cont  55/ 33 n 40/863
+SPX500/USD  dev   net   H12 news +0.277 [-0.057,+0.653] ctrl -0.092 diff +0.369 [+0.033,+0.734] cont  40/ 26 n 40/863
+SPX500/USD  w2023 gross H3  news -0.113 [-0.382,+0.121] ctrl -0.009 diff -0.104 [-0.386,+0.156] cont  40/ 42 n 40/811
+SPX500/USD  w2023 gross H6  news -0.085 [-0.422,+0.250] ctrl -0.020 diff -0.065 [-0.408,+0.287] cont  35/ 36 n 40/811
+SPX500/USD  w2023 gross H12 news -0.024 [-0.370,+0.356] ctrl +0.015 diff -0.039 [-0.399,+0.342] cont  28/ 30 n 40/811
+SPX500/USD  w2023 net   H3  news -0.154 [-0.413,+0.074] ctrl -0.081 diff -0.073 [-0.344,+0.179] cont  35/ 38 n 40/811
+SPX500/USD  w2023 net   H6  news -0.141 [-0.452,+0.191] ctrl -0.088 diff -0.053 [-0.381,+0.288] cont  32/ 34 n 40/811
+SPX500/USD  w2023 net   H12 news -0.050 [-0.386,+0.317] ctrl -0.071 diff +0.021 [-0.326,+0.385] cont  25/ 28 n 40/811
+NATGAS/USD  dev   gross H3  news -0.399 [-0.705,-0.173] ctrl -0.059 diff -0.340 [-0.617,-0.114] cont   0/ 39 n 4/207 SMALL-N
+NATGAS/USD  dev   gross H6  news -0.639 [-0.879,-0.399] ctrl -0.047 diff -0.592 [-0.897,-0.325] cont   0/ 38 n 4/207 SMALL-N
+NATGAS/USD  dev   gross H12 news -0.814 [-1.000,-0.487] ctrl -0.063 diff -0.751 [-1.046,-0.395] cont   0/ 26 n 4/207 SMALL-N
+NATGAS/USD  dev   net   H3  news -0.667 [-1.000,-0.282] ctrl -0.186 diff -0.480 [-0.864,-0.118] cont   0/ 34 n 4/207 SMALL-N
+NATGAS/USD  dev   net   H6  news -0.901 [-1.000,-0.603] ctrl -0.186 diff -0.714 [-0.936,-0.425] cont   0/ 33 n 4/207 SMALL-N
+NATGAS/USD  dev   net   H12 news -0.965 [-1.000,-0.859] ctrl -0.194 diff -0.770 [-0.976,-0.578] cont   0/ 23 n 4/207 SMALL-N
+NATGAS/USD  w2023 gross H3  news +0.108 [-0.330,+0.681] ctrl +0.002 diff +0.106 [-0.348,+0.638] cont  60/ 42 n 10/66 SMALL-N
+NATGAS/USD  w2023 gross H6  news +0.183 [-0.402,+1.183] ctrl -0.008 diff +0.191 [-0.479,+1.238] cont  50/ 41 n 10/66 SMALL-N
+NATGAS/USD  w2023 gross H12 news +0.140 [-0.615,+1.976] ctrl -0.031 diff +0.171 [-0.559,+2.099] cont  40/ 32 n 10/66 SMALL-N
+NATGAS/USD  w2023 net   H3  news -0.010 [-0.391,+0.496] ctrl -0.180 diff +0.170 [-0.239,+0.676] cont  60/ 30 n 10/66 SMALL-N
+NATGAS/USD  w2023 net   H6  news +0.057 [-0.482,+1.032] ctrl -0.162 diff +0.219 [-0.382,+1.273] cont  50/ 36 n 10/66 SMALL-N
+NATGAS/USD  w2023 net   H12 news +0.070 [-0.645,+1.812] ctrl -0.177 diff +0.247 [-0.425,+2.039] cont  40/ 27 n 10/66 SMALL-N
+
+== M15 ==  NEWS mean R [CI] | CONTROL mean R | NEWS-CONTROL [CI] | cont% news/ctrl | n news/ctrl
+WTICO/USD   dev   gross H3  news +0.218 [-0.032,+0.505] ctrl -0.042 diff +0.260 [+0.005,+0.558] cont  65/ 42 n 37/574
+WTICO/USD   dev   gross H6  news +0.236 [-0.070,+0.545] ctrl -0.030 diff +0.266 [-0.065,+0.591] cont  49/ 37 n 37/574
+WTICO/USD   dev   gross H12 news +0.283 [-0.133,+0.767] ctrl -0.001 diff +0.284 [-0.170,+0.792] cont  35/ 31 n 37/574
+WTICO/USD   dev   net   H3  news +0.124 [-0.128,+0.411] ctrl -0.125 diff +0.250 [-0.012,+0.543] cont  57/ 38 n 37/574
+WTICO/USD   dev   net   H6  news +0.188 [-0.111,+0.493] ctrl -0.112 diff +0.300 [-0.028,+0.611] cont  46/ 33 n 37/574
+WTICO/USD   dev   net   H12 news +0.230 [-0.182,+0.694] ctrl -0.079 diff +0.308 [-0.123,+0.775] cont  38/ 28 n 37/574
+WTICO/USD   w2023 gross H3  news -0.189 [-0.584,+0.254] ctrl +0.003 diff -0.193 [-0.627,+0.254] cont  47/ 42 n 15/548 SMALL-N
+WTICO/USD   w2023 gross H6  news -0.098 [-0.592,+0.346] ctrl -0.004 diff -0.095 [-0.620,+0.360] cont  33/ 36 n 15/548 SMALL-N
+WTICO/USD   w2023 gross H12 news +0.319 [-0.521,+1.341] ctrl -0.053 diff +0.372 [-0.477,+1.403] cont  33/ 28 n 15/548 SMALL-N
+WTICO/USD   w2023 net   H3  news -0.242 [-0.610,+0.174] ctrl -0.106 diff -0.135 [-0.540,+0.279] cont  47/ 38 n 15/548 SMALL-N
+WTICO/USD   w2023 net   H6  news -0.182 [-0.630,+0.224] ctrl -0.094 diff -0.089 [-0.590,+0.342] cont  27/ 33 n 15/548 SMALL-N
+WTICO/USD   w2023 net   H12 news +0.112 [-0.615,+0.977] ctrl -0.133 diff +0.245 [-0.487,+1.092] cont  27/ 26 n 15/548 SMALL-N
+XAU/USD     dev   gross H3  news +0.002 [-0.490,+0.411] ctrl +0.060 diff -0.058 [-0.558,+0.349] cont  45/ 44 n 20/542 SMALL-N
+XAU/USD     dev   gross H6  news -0.017 [-0.546,+0.596] ctrl +0.066 diff -0.083 [-0.610,+0.517] cont  35/ 36 n 20/542 SMALL-N
+XAU/USD     dev   gross H12 news -0.198 [-0.616,+0.244] ctrl +0.049 diff -0.247 [-0.682,+0.198] cont  20/ 29 n 20/542 SMALL-N
+XAU/USD     dev   net   H3  news -0.040 [-0.524,+0.362] ctrl -0.045 diff +0.005 [-0.478,+0.404] cont  45/ 40 n 20/542 SMALL-N
+XAU/USD     dev   net   H6  news -0.040 [-0.564,+0.555] ctrl -0.055 diff +0.014 [-0.499,+0.605] cont  35/ 33 n 20/542 SMALL-N
+XAU/USD     dev   net   H12 news -0.208 [-0.633,+0.239] ctrl -0.064 diff -0.144 [-0.564,+0.274] cont  20/ 26 n 20/542 SMALL-N
+XAU/USD     w2023 gross H3  news +0.570 [-1.000,+3.000] ctrl -0.040 diff +0.609 [-0.926,+3.032] cont  50/ 39 n 4/469 SMALL-N
+XAU/USD     w2023 gross H6  news +0.466 [-1.000,+3.000] ctrl -0.001 diff +0.467 [-0.944,+2.983] cont  25/ 37 n 4/469 SMALL-N
+XAU/USD     w2023 gross H12 news +0.478 [-1.000,+3.000] ctrl +0.006 diff +0.471 [-0.960,+2.978] cont  25/ 29 n 4/469 SMALL-N
+XAU/USD     w2023 net   H3  news +0.005 [-1.000,+1.392] ctrl -0.138 diff +0.142 [-0.837,+1.527] cont  25/ 35 n 4/469 SMALL-N
+XAU/USD     w2023 net   H6  news +0.179 [-1.000,+1.958] ctrl -0.093 diff +0.272 [-0.862,+2.033] cont  25/ 32 n 4/469 SMALL-N
+XAU/USD     w2023 net   H12 news +0.452 [-1.000,+3.000] ctrl -0.099 diff +0.550 [-0.861,+3.076] cont  25/ 26 n 4/469 SMALL-N
+XAG/USD     dev   gross H3  news -0.271 [-0.843,-0.015] ctrl -0.092 diff -0.179 [-0.755,+0.091] cont  33/ 39 n 9/306 SMALL-N
+XAG/USD     dev   gross H6  news -0.063 [-1.000,+1.336] ctrl -0.015 diff -0.049 [-0.989,+1.324] cont  44/ 36 n 9/306 SMALL-N
+XAG/USD     dev   gross H12 news -0.127 [-1.000,+1.702] ctrl -0.015 diff -0.112 [-0.979,+1.766] cont  33/ 29 n 9/306 SMALL-N
+XAG/USD     dev   net   H3  news -0.401 [-1.000,-0.178] ctrl -0.226 diff -0.174 [-0.800,+0.088] cont  33/ 32 n 9/306 SMALL-N
+XAG/USD     dev   net   H6  news -0.124 [-1.000,+1.216] ctrl -0.154 diff +0.030 [-0.862,+1.349] cont  44/ 32 n 9/306 SMALL-N
+XAG/USD     dev   net   H12 news -0.150 [-1.000,+1.667] ctrl -0.140 diff -0.009 [-0.875,+1.882] cont  33/ 26 n 9/306 SMALL-N
+XAG/USD     w2023 gross H3  news -0.540 [-1.000,+0.289] ctrl -0.024 diff -0.517 [-1.012,+0.393] cont  25/ 39 n 4/327 SMALL-N
+XAG/USD     w2023 gross H6  news -0.227 [-1.000,+1.575] ctrl -0.037 diff -0.190 [-1.050,+1.652] cont  25/ 35 n 4/327 SMALL-N
+XAG/USD     w2023 gross H12 news -0.000 [-1.000,+2.333] ctrl -0.023 diff +0.023 [-1.064,+2.384] cont  25/ 29 n 4/327 SMALL-N
+XAG/USD     w2023 net   H3  news -0.578 [-1.000,+0.206] ctrl -0.138 diff -0.440 [-0.902,+0.411] cont  25/ 34 n 4/327 SMALL-N
+XAG/USD     w2023 net   H6  news -0.252 [-1.000,+1.493] ctrl -0.161 diff -0.091 [-0.924,+1.665] cont  25/ 30 n 4/327 SMALL-N
+XAG/USD     w2023 net   H12 news -0.000 [-1.000,+2.333] ctrl -0.158 diff +0.158 [-0.925,+2.477] cont  25/ 26 n 4/327 SMALL-N
+EUR/USD     dev   gross H3  news +0.087 [-0.145,+0.343] ctrl -0.025 diff +0.112 [-0.155,+0.367] cont  46/ 39 n 56/471
+EUR/USD     dev   gross H6  news +0.160 [-0.122,+0.448] ctrl -0.050 diff +0.210 [-0.121,+0.508] cont  36/ 35 n 56/471
+EUR/USD     dev   gross H12 news +0.054 [-0.229,+0.339] ctrl -0.047 diff +0.101 [-0.207,+0.398] cont  34/ 28 n 56/471
+EUR/USD     dev   net   H3  news -0.087 [-0.322,+0.163] ctrl -0.136 diff +0.049 [-0.225,+0.305] cont  39/ 37 n 56/471
+EUR/USD     dev   net   H6  news +0.006 [-0.302,+0.290] ctrl -0.158 diff +0.164 [-0.154,+0.458] cont  34/ 31 n 56/471
+EUR/USD     dev   net   H12 news -0.099 [-0.383,+0.189] ctrl -0.170 diff +0.072 [-0.244,+0.369] cont  29/ 25 n 56/471
+EUR/USD     w2023 gross H3  news +0.031 [-0.272,+0.383] ctrl -0.048 diff +0.080 [-0.229,+0.433] cont  43/ 40 n 35/411
+EUR/USD     w2023 gross H6  news -0.002 [-0.343,+0.363] ctrl -0.030 diff +0.029 [-0.327,+0.429] cont  40/ 33 n 35/411
+EUR/USD     w2023 gross H12 news +0.047 [-0.342,+0.469] ctrl -0.015 diff +0.062 [-0.327,+0.512] cont  29/ 29 n 35/411
+EUR/USD     w2023 net   H3  news -0.057 [-0.361,+0.300] ctrl -0.147 diff +0.091 [-0.215,+0.446] cont  34/ 35 n 35/411
+EUR/USD     w2023 net   H6  news -0.109 [-0.416,+0.239] ctrl -0.108 diff -0.001 [-0.328,+0.387] cont  31/ 32 n 35/411
+EUR/USD     w2023 net   H12 news -0.056 [-0.398,+0.323] ctrl -0.091 diff +0.035 [-0.326,+0.457] cont  23/ 26 n 35/411
+SPX500/USD  dev   gross H3  news -0.187 [-0.468,+0.107] ctrl +0.153 diff -0.340 [-0.651,-0.030] cont  43/ 50 n 21/424 SMALL-N
+SPX500/USD  dev   gross H6  news -0.187 [-0.537,+0.187] ctrl +0.116 diff -0.304 [-0.655,+0.102] cont  33/ 38 n 21/424 SMALL-N
+SPX500/USD  dev   gross H12 news -0.006 [-0.460,+0.526] ctrl +0.134 diff -0.140 [-0.598,+0.391] cont  33/ 31 n 21/424 SMALL-N
+SPX500/USD  dev   net   H3  news -0.223 [-0.495,+0.057] ctrl +0.082 diff -0.305 [-0.607,-0.007] cont  38/ 45 n 21/424 SMALL-N
+SPX500/USD  dev   net   H6  news -0.179 [-0.498,+0.195] ctrl +0.036 diff -0.215 [-0.552,+0.170] cont  38/ 35 n 21/424 SMALL-N
+SPX500/USD  dev   net   H12 news -0.031 [-0.479,+0.504] ctrl +0.059 diff -0.090 [-0.548,+0.458] cont  33/ 28 n 21/424 SMALL-N
+SPX500/USD  w2023 gross H3  news +0.032 [-0.327,+0.400] ctrl -0.021 diff +0.053 [-0.321,+0.418] cont  62/ 43 n 16/419 SMALL-N
+SPX500/USD  w2023 gross H6  news -0.177 [-0.497,+0.230] ctrl -0.025 diff -0.152 [-0.514,+0.258] cont  25/ 36 n 16/419 SMALL-N
+SPX500/USD  w2023 gross H12 news -0.135 [-0.649,+0.474] ctrl -0.040 diff -0.095 [-0.671,+0.519] cont  25/ 28 n 16/419 SMALL-N
+SPX500/USD  w2023 net   H3  news +0.013 [-0.338,+0.380] ctrl -0.067 diff +0.080 [-0.287,+0.438] cont  62/ 41 n 16/419 SMALL-N
+SPX500/USD  w2023 net   H6  news -0.195 [-0.511,+0.210] ctrl -0.063 diff -0.132 [-0.485,+0.269] cont  25/ 34 n 16/419 SMALL-N
+SPX500/USD  w2023 net   H12 news -0.206 [-0.652,+0.282] ctrl -0.065 diff -0.141 [-0.636,+0.379] cont  19/ 28 n 16/419 SMALL-N
+NATGAS/USD  dev   gross H3  news +0.161 [-0.189,+0.618] ctrl +0.026 diff +0.134 [-0.255,+0.629] cont  60/ 39 n 5/206 SMALL-N
+NATGAS/USD  dev   gross H6  news -0.041 [-0.228,+0.134] ctrl +0.103 diff -0.143 [-0.379,+0.101] cont  20/ 39 n 5/206 SMALL-N
+NATGAS/USD  dev   gross H12 news -0.277 [-0.679,+0.000] ctrl +0.066 diff -0.343 [-0.760,+0.007] cont   0/ 31 n 5/206 SMALL-N
+NATGAS/USD  dev   net   H3  news -0.005 [-0.327,+0.420] ctrl -0.122 diff +0.117 [-0.235,+0.564] cont  20/ 34 n 5/206 SMALL-N
+NATGAS/USD  dev   net   H6  news +0.042 [-0.364,+0.570] ctrl -0.047 diff +0.089 [-0.335,+0.635] cont  40/ 34 n 5/206 SMALL-N
+NATGAS/USD  dev   net   H12 news -0.025 [-0.750,+0.998] ctrl -0.048 diff +0.023 [-0.696,+1.041] cont  20/ 26 n 5/206 SMALL-N
+NATGAS/USD  w2023 gross H3  news -0.320 [-0.809,+0.092] ctrl +0.142 diff -0.462 [-0.925,-0.028] cont  25/ 49 n 8/137 SMALL-N
+NATGAS/USD  w2023 gross H6  news -0.212 [-0.831,+0.439] ctrl +0.122 diff -0.334 [-0.930,+0.364] cont  25/ 42 n 8/137 SMALL-N
+NATGAS/USD  w2023 gross H12 news -0.343 [-1.000,+0.544] ctrl +0.110 diff -0.453 [-1.085,+0.459] cont  25/ 38 n 8/137 SMALL-N
+NATGAS/USD  w2023 net   H3  news -0.499 [-1.000,-0.091] ctrl -0.048 diff -0.451 [-0.945,+0.008] cont  12/ 39 n 8/137 SMALL-N
+NATGAS/USD  w2023 net   H6  news -0.553 [-1.000,-0.183] ctrl -0.028 diff -0.525 [-0.990,-0.097] cont  12/ 36 n 8/137 SMALL-N
+NATGAS/USD  w2023 net   H12 news -0.743 [-1.000,-0.474] ctrl -0.046 diff -0.697 [-1.032,-0.298] cont  12/ 34 n 8/137 SMALL-N
+
+== M1 ==  NEWS mean R [CI] | CONTROL mean R | NEWS-CONTROL [CI] | cont% news/ctrl | n news/ctrl
+WTICO/USD   dev   gross H3  news +0.115 [-0.130,+0.470] ctrl -0.032 diff +0.147 [-0.092,+0.503] cont  52/ 41 n 52/971
+WTICO/USD   dev   gross H6  news +0.154 [-0.137,+0.487] ctrl -0.007 diff +0.161 [-0.138,+0.495] cont  42/ 37 n 52/971
+WTICO/USD   dev   gross H12 news +0.098 [-0.208,+0.387] ctrl +0.003 diff +0.095 [-0.197,+0.402] cont  29/ 31 n 52/971
+WTICO/USD   dev   net   H3  news +0.007 [-0.238,+0.353] ctrl -0.183 diff +0.190 [-0.047,+0.547] cont  44/ 33 n 52/971
+WTICO/USD   dev   net   H6  news +0.036 [-0.252,+0.384] ctrl -0.165 diff +0.201 [-0.088,+0.549] cont  33/ 31 n 52/971
+WTICO/USD   dev   net   H12 news +0.000 [-0.280,+0.332] ctrl -0.189 diff +0.190 [-0.084,+0.531] cont  27/ 24 n 52/971
+WTICO/USD   w2023 gross H3  news +0.255 [-0.160,+0.723] ctrl +0.038 diff +0.217 [-0.221,+0.705] cont  65/ 45 n 17/806 SMALL-N
+WTICO/USD   w2023 gross H6  news +0.466 [-0.078,+1.060] ctrl +0.076 diff +0.390 [-0.172,+0.992] cont  65/ 39 n 17/806 SMALL-N
+WTICO/USD   w2023 gross H12 news +0.347 [-0.282,+1.001] ctrl +0.041 diff +0.306 [-0.342,+0.965] cont  53/ 30 n 17/806 SMALL-N
+WTICO/USD   w2023 net   H3  news +0.089 [-0.328,+0.561] ctrl -0.126 diff +0.215 [-0.224,+0.698] cont  41/ 37 n 17/806 SMALL-N
+WTICO/USD   w2023 net   H6  news +0.272 [-0.279,+0.880] ctrl -0.103 diff +0.375 [-0.188,+1.004] cont  59/ 34 n 17/806 SMALL-N
+WTICO/USD   w2023 net   H12 news +0.022 [-0.554,+0.559] ctrl -0.135 diff +0.157 [-0.425,+0.716] cont  47/ 25 n 17/806 SMALL-N
+XAU/USD     dev   gross H3  news +0.383 [-0.213,+0.526] ctrl +0.026 diff +0.357 [-0.183,+0.576] cont  43/ 42 n 14/350 SMALL-N
+XAU/USD     dev   gross H6  news +0.366 [-0.529,+0.602] ctrl +0.045 diff +0.321 [-0.541,+0.608] cont  29/ 35 n 14/350 SMALL-N
+XAU/USD     dev   gross H12 news +0.297 [-0.761,+0.553] ctrl +0.081 diff +0.216 [-0.759,+0.533] cont  29/ 34 n 14/350 SMALL-N
+XAU/USD     dev   net   H3  news +0.203 [-0.630,+0.365] ctrl -0.129 diff +0.332 [-0.425,+0.568] cont  50/ 37 n 14/350 SMALL-N
+XAU/USD     dev   net   H6  news +0.174 [-0.864,+0.483] ctrl -0.112 diff +0.286 [-0.740,+0.601] cont  29/ 32 n 14/350 SMALL-N
+XAU/USD     dev   net   H12 news +0.110 [-1.000,+0.436] ctrl -0.067 diff +0.177 [-0.945,+0.512] cont  29/ 30 n 14/350 SMALL-N
+XAU/USD     w2023 gross H3  news -0.276 [-1.000,+0.777] ctrl -0.031 diff -0.245 [-0.993,+0.802] cont  50/ 40 n 4/928 SMALL-N
+XAU/USD     w2023 gross H6  news -0.372 [-1.000,+1.102] ctrl +0.026 diff -0.399 [-1.060,+1.069] cont  25/ 36 n 4/928 SMALL-N
+XAU/USD     w2023 gross H12 news -0.621 [-1.000,+0.134] ctrl +0.011 diff -0.633 [-1.053,+0.106] cont  25/ 29 n 4/928 SMALL-N
+XAU/USD     w2023 net   H3  news -0.341 [-1.000,+0.637] ctrl -0.167 diff -0.175 [-0.851,+0.794] cont  25/ 33 n 4/928 SMALL-N
+XAU/USD     w2023 net   H6  news -0.428 [-1.000,+0.987] ctrl -0.123 diff -0.305 [-0.907,+1.094] cont  25/ 31 n 4/928 SMALL-N
+XAU/USD     w2023 net   H12 news -0.750 [-1.000,+0.000] ctrl -0.148 diff -0.602 [-0.912,+0.134] cont   0/ 24 n 4/928 SMALL-N
+XAG/USD     dev   gross H3  news -0.944       na        ctrl +0.006 diff    na        na        cont   0/ 39 n 1/18 SMALL-N
+XAG/USD     dev   gross H6  news -1.000       na        ctrl -0.085 diff    na        na        cont   0/ 33 n 1/18 SMALL-N
+XAG/USD     dev   gross H12 news -1.000       na        ctrl -0.139 diff    na        na        cont   0/ 28 n 1/18 SMALL-N
+XAG/USD     dev   net   H3  news -1.000       na        ctrl -0.161 diff    na        na        cont   0/ 33 n 1/18 SMALL-N
+XAG/USD     dev   net   H6  news -1.000       na        ctrl -0.241 diff    na        na        cont   0/ 22 n 1/18 SMALL-N
+XAG/USD     dev   net   H12 news -1.000       na        ctrl -0.412 diff    na        na        cont   0/ 17 n 1/18 SMALL-N
+XAG/USD     w2023 gross H3  news -0.363 [-1.000,+0.274] ctrl +0.078 diff -0.442 [-1.151,+0.273] cont  50/ 48 n 2/180 SMALL-N
+XAG/USD     w2023 gross H6  news -1.000 [-1.000,-1.000] ctrl -0.004 diff -0.996 [-1.112,-0.866] cont   0/ 37 n 2/180 SMALL-N
+XAG/USD     w2023 gross H12 news -1.000 [-1.000,-1.000] ctrl +0.004 diff -1.004 [-1.165,-0.853] cont   0/ 31 n 2/180 SMALL-N
+XAG/USD     w2023 net   H3  news -1.000 [-1.000,-1.000] ctrl -0.065 diff -0.935 [-1.045,-0.825] cont   0/ 41 n 2/180 SMALL-N
+XAG/USD     w2023 net   H6  news -1.000 [-1.000,-1.000] ctrl -0.135 diff -0.865 [-0.990,-0.737] cont   0/ 31 n 2/180 SMALL-N
+XAG/USD     w2023 net   H12 news -1.000 [-1.000,-1.000] ctrl -0.110 diff -0.890 [-1.082,-0.731] cont   0/ 28 n 2/180 SMALL-N
+EUR/USD     dev   gross H3  news +0.183 [-0.115,+0.564] ctrl -0.121 diff +0.304 [-0.020,+0.704] cont  50/ 31 n 26/129 SMALL-N
+EUR/USD     dev   gross H6  news +0.210 [-0.149,+0.680] ctrl -0.188 diff +0.398 [+0.014,+0.920] cont  38/ 29 n 26/129 SMALL-N
+EUR/USD     dev   gross H12 news +0.349 [-0.155,+0.969] ctrl -0.158 diff +0.507 [-0.035,+1.162] cont  46/ 21 n 26/129 SMALL-N
+EUR/USD     dev   net   H3  news +0.017 [-0.295,+0.403] ctrl -0.303 diff +0.320 [-0.015,+0.733] cont  38/ 28 n 26/129 SMALL-N
+EUR/USD     dev   net   H6  news +0.046 [-0.314,+0.524] ctrl -0.311 diff +0.357 [-0.039,+0.847] cont  31/ 24 n 26/129 SMALL-N
+EUR/USD     dev   net   H12 news +0.236 [-0.281,+0.843] ctrl -0.217 diff +0.453 [-0.069,+1.069] cont  38/ 21 n 26/129 SMALL-N
+EUR/USD     w2023 gross H3  news -0.189 [-0.514,+0.207] ctrl -0.043 diff -0.146 [-0.556,+0.284] cont  42/ 37 n 19/89 SMALL-N
+EUR/USD     w2023 gross H6  news -0.332 [-0.640,+0.015] ctrl -0.054 diff -0.277 [-0.704,+0.110] cont  21/ 36 n 19/89 SMALL-N
+EUR/USD     w2023 gross H12 news -0.345 [-0.772,+0.128] ctrl +0.005 diff -0.351 [-0.894,+0.156] cont  21/ 29 n 19/89 SMALL-N
+EUR/USD     w2023 net   H3  news -0.281 [-0.578,+0.074] ctrl -0.185 diff -0.096 [-0.469,+0.284] cont  32/ 33 n 19/89 SMALL-N
+EUR/USD     w2023 net   H6  news -0.414 [-0.705,-0.094] ctrl -0.234 diff -0.180 [-0.582,+0.193] cont  21/ 30 n 19/89 SMALL-N
+EUR/USD     w2023 net   H12 news -0.398 [-0.801,+0.042] ctrl -0.122 diff -0.276 [-0.766,+0.218] cont  21/ 27 n 19/89 SMALL-N
+SPX500/USD  dev   gross H3  news +0.228 [-0.001,+0.488] ctrl +0.018 diff +0.209 [-0.020,+0.483] cont  52/ 43 n 81/1371
+SPX500/USD  dev   gross H6  news +0.267 [+0.014,+0.555] ctrl +0.025 diff +0.242 [-0.019,+0.532] cont  46/ 39 n 81/1371
+SPX500/USD  dev   gross H12 news +0.365 [+0.092,+0.651] ctrl +0.055 diff +0.309 [+0.036,+0.604] cont  38/ 33 n 81/1371
+SPX500/USD  dev   net   H3  news +0.064 [-0.136,+0.322] ctrl -0.111 diff +0.175 [-0.035,+0.441] cont  41/ 38 n 81/1371
+SPX500/USD  dev   net   H6  news +0.092 [-0.137,+0.374] ctrl -0.103 diff +0.195 [-0.044,+0.488] cont  41/ 35 n 81/1371
+SPX500/USD  dev   net   H12 news +0.209 [-0.039,+0.502] ctrl -0.078 diff +0.288 [+0.033,+0.595] cont  33/ 29 n 81/1371
+SPX500/USD  w2023 gross H3  news -0.076 [-0.260,+0.107] ctrl -0.053 diff -0.024 [-0.223,+0.166] cont  42/ 40 n 62/1362
+SPX500/USD  w2023 gross H6  news -0.163 [-0.362,+0.053] ctrl -0.072 diff -0.091 [-0.312,+0.135] cont  37/ 34 n 62/1362
+SPX500/USD  w2023 gross H12 news -0.202 [-0.421,+0.055] ctrl -0.116 diff -0.086 [-0.310,+0.171] cont  26/ 25 n 62/1362
+SPX500/USD  w2023 net   H3  news -0.167 [-0.352,+0.021] ctrl -0.156 diff -0.011 [-0.206,+0.173] cont  37/ 35 n 62/1362
+SPX500/USD  w2023 net   H6  news -0.265 [-0.471,-0.054] ctrl -0.172 diff -0.093 [-0.311,+0.127] cont  31/ 30 n 62/1362
+SPX500/USD  w2023 net   H12 news -0.370 [-0.570,-0.133] ctrl -0.219 diff -0.151 [-0.360,+0.087] cont  18/ 22 n 62/1362
+NATGAS/USD  dev   gross H3  news    na        na        ctrl -0.074 diff    na        na        cont  na/ 28 n 0/54 SMALL-N
+NATGAS/USD  dev   gross H6  news    na        na        ctrl -0.018 diff    na        na        cont  na/ 30 n 0/54 SMALL-N
+NATGAS/USD  dev   gross H12 news    na        na        ctrl +0.051 diff    na        na        cont  na/ 31 n 0/54 SMALL-N
+NATGAS/USD  dev   net   H3  news    na        na        ctrl -0.291 diff    na        na        cont  na/ 22 n 0/54 SMALL-N
+NATGAS/USD  dev   net   H6  news    na        na        ctrl -0.246 diff    na        na        cont  na/ 26 n 0/54 SMALL-N
+NATGAS/USD  dev   net   H12 news    na        na        ctrl -0.164 diff    na        na        cont  na/ 24 n 0/54 SMALL-N
+NATGAS/USD  w2023 gross H3  news -0.388       na        ctrl +0.080 diff    na        na        cont   0/ 40 n 1/10 SMALL-N
+NATGAS/USD  w2023 gross H6  news +1.101       na        ctrl +0.030 diff    na        na        cont 100/ 40 n 1/10 SMALL-N
+NATGAS/USD  w2023 gross H12 news +0.000       na        ctrl -0.291 diff    na        na        cont   0/ 10 n 1/10 SMALL-N
+NATGAS/USD  w2023 net   H3  news -0.576       na        ctrl -0.051 diff    na        na        cont   0/ 40 n 1/10 SMALL-N
+NATGAS/USD  w2023 net   H6  news +0.901       na        ctrl -0.118 diff    na        na        cont 100/ 20 n 1/10 SMALL-N
+NATGAS/USD  w2023 net   H12 news +0.000       na        ctrl -0.513 diff    na        na        cont   0/ 10 n 1/10 SMALL-N

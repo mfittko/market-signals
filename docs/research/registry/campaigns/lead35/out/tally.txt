@@ -1,0 +1,5 @@
+cells 576 CI>0 62 CI<0 36
+CI>0 in both windows:
+('M1', 'SPX500/USD->WTICO/USD', 'k1|lag', 'h5|asia', 0.108, 0.064, -1.16, -1.87)
+('M1', 'EUR/USD->XAU/USD', 'k3|lag', 'h2', 0.038, 0.013, -1.13, -0.67)
+net CI>0 cells 0

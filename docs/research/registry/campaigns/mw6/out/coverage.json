@@ -1,0 +1,646 @@
+{
+ "WTICO/USD": {
+  "rows": 3002318,
+  "first": "2018-01-01T23:00",
+  "last": "2026-10-07T18:38",
+  "missing_weekday_sessions": [
+   "2018-03-30",
+   "2018-12-25",
+   "2019-01-01",
+   "2019-04-19",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-04-10",
+   "2020-12-25",
+   "2021-01-01",
+   "2021-04-02",
+   "2021-12-24",
+   "2022-04-15",
+   "2022-12-26",
+   "2023-01-02",
+   "2023-04-07",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-03-29",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-04-18",
+   "2025-12-25",
+   "2026-01-01",
+   "2026-04-03"
+  ],
+  "n_missing": 24,
+  "top_gaps": [
+   [
+    "2020-12-24T18:44",
+    4576
+   ],
+   [
+    "2024-03-28T20:58",
+    4382
+   ],
+   [
+    "2019-04-18T20:59",
+    4381
+   ],
+   [
+    "2023-12-22T21:59",
+    4381
+   ],
+   [
+    "2023-04-06T20:59",
+    4381
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 258,
+    "median_rows": 1272,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2019": {
+    "sessions": 258,
+    "median_rows": 1302,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2020": {
+    "sessions": 259,
+    "median_rows": 1347,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2021": {
+    "sessions": 258,
+    "median_rows": 1353,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2022": {
+    "sessions": 258,
+    "median_rows": 1379,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2023": {
+    "sessions": 257,
+    "median_rows": 1360,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2024": {
+    "sessions": 259,
+    "median_rows": 1333,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2025": {
+    "sessions": 258,
+    "median_rows": 1329,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2026": {
+    "sessions": 198,
+    "median_rows": 1378,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   }
+  }
+ },
+ "XAU/USD": {
+  "rows": 3060959,
+  "first": "2018-01-01T23:05",
+  "last": "2026-10-07T20:27",
+  "missing_weekday_sessions": [
+   "2018-03-30",
+   "2019-01-01",
+   "2019-04-19",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-04-10",
+   "2020-12-25",
+   "2021-01-01",
+   "2021-04-02",
+   "2021-12-24",
+   "2022-04-15",
+   "2022-12-26",
+   "2023-01-02",
+   "2023-04-07",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-03-29",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-04-18",
+   "2025-12-25",
+   "2026-01-01",
+   "2026-04-03"
+  ],
+  "n_missing": 23,
+  "top_gaps": [
+   [
+    "2020-12-24T18:44",
+    4576
+   ],
+   [
+    "2023-12-22T21:57",
+    4386
+   ],
+   [
+    "2023-12-29T21:57",
+    4386
+   ],
+   [
+    "2023-04-06T20:58",
+    4385
+   ],
+   [
+    "2022-04-14T20:58",
+    4385
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 259,
+    "median_rows": 1307,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 1
+   },
+   "2019": {
+    "sessions": 258,
+    "median_rows": 1316,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2020": {
+    "sessions": 259,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2021": {
+    "sessions": 258,
+    "median_rows": 1371,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2022": {
+    "sessions": 258,
+    "median_rows": 1375,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2023": {
+    "sessions": 257,
+    "median_rows": 1375,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2024": {
+    "sessions": 259,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2025": {
+    "sessions": 258,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2026": {
+    "sessions": 198,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   }
+  }
+ },
+ "XAG/USD": {
+  "rows": 2823959,
+  "first": "2018-01-01T23:05",
+  "last": "2026-10-07T20:59",
+  "missing_weekday_sessions": [
+   "2018-03-30",
+   "2019-01-01",
+   "2019-04-19",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-04-10",
+   "2020-12-25",
+   "2021-01-01",
+   "2021-04-02",
+   "2021-12-24",
+   "2022-04-15",
+   "2022-12-26",
+   "2023-01-02",
+   "2023-04-07",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-03-29",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-04-18",
+   "2025-12-25",
+   "2026-01-01",
+   "2026-04-03"
+  ],
+  "n_missing": 23,
+  "top_gaps": [
+   [
+    "2020-12-24T18:44",
+    4578
+   ],
+   [
+    "2023-12-22T21:57",
+    4401
+   ],
+   [
+    "2023-12-29T21:55",
+    4392
+   ],
+   [
+    "2023-04-06T20:58",
+    4385
+   ],
+   [
+    "2022-04-14T20:58",
+    4385
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 259,
+    "median_rows": 947,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 1
+   },
+   "2019": {
+    "sessions": 258,
+    "median_rows": 934,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2020": {
+    "sessions": 259,
+    "median_rows": 1335,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2021": {
+    "sessions": 258,
+    "median_rows": 1307,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2022": {
+    "sessions": 258,
+    "median_rows": 1343,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2023": {
+    "sessions": 257,
+    "median_rows": 1348,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2024": {
+    "sessions": 259,
+    "median_rows": 1369,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2025": {
+    "sessions": 258,
+    "median_rows": 1374,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2026": {
+    "sessions": 198,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   }
+  }
+ },
+ "NATGAS/USD": {
+  "rows": 2063563,
+  "first": "2018-01-01T23:00",
+  "last": "2026-10-07T23:07",
+  "missing_weekday_sessions": [
+   "2018-03-30",
+   "2018-12-25",
+   "2019-01-01",
+   "2019-04-19",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-04-10",
+   "2020-12-25",
+   "2021-01-01",
+   "2021-04-02",
+   "2021-12-24",
+   "2022-04-15",
+   "2022-12-26",
+   "2023-01-02",
+   "2023-04-07",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-03-29",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-04-18",
+   "2025-12-25",
+   "2026-01-01",
+   "2026-04-03"
+  ],
+  "n_missing": 24,
+  "top_gaps": [
+   [
+    "2020-12-24T18:44",
+    4576
+   ],
+   [
+    "2022-12-30T21:59",
+    4387
+   ],
+   [
+    "2024-03-28T20:55",
+    4385
+   ],
+   [
+    "2023-12-22T21:59",
+    4384
+   ],
+   [
+    "2023-12-29T21:59",
+    4383
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 258,
+    "median_rows": 599,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 2
+   },
+   "2019": {
+    "sessions": 258,
+    "median_rows": 688,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2020": {
+    "sessions": 259,
+    "median_rows": 939,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2021": {
+    "sessions": 258,
+    "median_rows": 951,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2022": {
+    "sessions": 258,
+    "median_rows": 1263,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2023": {
+    "sessions": 257,
+    "median_rows": 856,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2024": {
+    "sessions": 259,
+    "median_rows": 822,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2025": {
+    "sessions": 258,
+    "median_rows": 961,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2026": {
+    "sessions": 199,
+    "median_rows": 849,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 2
+   }
+  }
+ },
+ "SPX500/USD": {
+  "rows": 2938852,
+  "first": "2018-01-01T23:00",
+  "last": "2026-10-08T00:33",
+  "missing_weekday_sessions": [
+   "2018-03-30",
+   "2018-12-25",
+   "2019-01-01",
+   "2019-04-19",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-04-10",
+   "2020-12-25",
+   "2021-01-01",
+   "2021-12-24",
+   "2022-04-15",
+   "2022-12-26",
+   "2023-01-02",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-03-29",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-04-18",
+   "2025-12-25",
+   "2026-01-01"
+  ],
+  "n_missing": 21,
+  "top_gaps": [
+   [
+    "2020-12-24T18:14",
+    4606
+   ],
+   [
+    "2018-03-29T20:59",
+    4381
+   ],
+   [
+    "2023-12-22T21:59",
+    4381
+   ],
+   [
+    "2020-12-31T21:59",
+    4381
+   ],
+   [
+    "2022-12-23T21:59",
+    4381
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 258,
+    "median_rows": 1228,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2019": {
+    "sessions": 258,
+    "median_rows": 1251,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2020": {
+    "sessions": 259,
+    "median_rows": 1352,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2021": {
+    "sessions": 259,
+    "median_rows": 1344,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2022": {
+    "sessions": 258,
+    "median_rows": 1376,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2023": {
+    "sessions": 258,
+    "median_rows": 1321,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2024": {
+    "sessions": 259,
+    "median_rows": 1309,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2025": {
+    "sessions": 258,
+    "median_rows": 1365,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 3
+   },
+   "2026": {
+    "sessions": 200,
+    "median_rows": 1378,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 1
+   }
+  }
+ },
+ "EUR/USD": {
+  "rows": 3213370,
+  "first": "2018-01-01T22:00",
+  "last": "2026-10-08T02:11",
+  "missing_weekday_sessions": [
+   "2018-12-25",
+   "2019-01-01",
+   "2019-12-25",
+   "2020-01-01",
+   "2020-12-25",
+   "2021-01-01",
+   "2022-12-26",
+   "2023-12-25",
+   "2024-01-01",
+   "2024-12-25",
+   "2025-01-01",
+   "2025-12-25",
+   "2026-01-01"
+  ],
+  "n_missing": 13,
+  "top_gaps": [
+   [
+    "2023-12-29T21:57",
+    4326
+   ],
+   [
+    "2023-12-22T21:57",
+    4326
+   ],
+   [
+    "2022-12-23T21:58",
+    4323
+   ],
+   [
+    "2020-12-24T21:59",
+    4321
+   ],
+   [
+    "2020-12-31T21:59",
+    4321
+   ]
+  ],
+  "years": {
+   "2018": {
+    "sessions": 259,
+    "median_rows": 1417,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 1
+   },
+   "2019": {
+    "sessions": 259,
+    "median_rows": 1377,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2020": {
+    "sessions": 260,
+    "median_rows": 1398,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2021": {
+    "sessions": 260,
+    "median_rows": 1394,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 1
+   },
+   "2022": {
+    "sessions": 259,
+    "median_rows": 1427,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 1
+   },
+   "2023": {
+    "sessions": 259,
+    "median_rows": 1426,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 1
+   },
+   "2024": {
+    "sessions": 260,
+    "median_rows": 1428,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2025": {
+    "sessions": 259,
+    "median_rows": 1432,
+    "thin_sessions_lt300": 0,
+    "missing_weekdays": 2
+   },
+   "2026": {
+    "sessions": 200,
+    "median_rows": 1432,
+    "thin_sessions_lt300": 1,
+    "missing_weekdays": 1
+   }
+  }
+ }
+}

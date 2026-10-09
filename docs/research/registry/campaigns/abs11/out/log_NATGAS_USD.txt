@@ -1,0 +1,1 @@
+done NATGAS/USD secs 123 {"A1": false, "A2": false}

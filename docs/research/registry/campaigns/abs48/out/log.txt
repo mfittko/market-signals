@@ -1,0 +1,14 @@
+rows WTICO/USD 96391 noentry 1860 7
+rows XAU/USD 94319 noentry 1747 13
+rows XAG/USD 93709 noentry 1738 18
+rows NATGAS/USD 96762 noentry 1854 22
+rows SPX500/USD 97879 noentry 1909 28
+rows EUR/USD 101979 noentry 2009 34
+done pooled False 116
+done WTICO/USD True 131
+done XAU/USD False 145
+done XAG/USD False 160
+done NATGAS/USD False 174
+done SPX500/USD False 189
+done EUR/USD False 205
+PASS (pooled, primary): False

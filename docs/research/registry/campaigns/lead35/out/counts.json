@@ -1,0 +1,170 @@
+{
+ "M1 XAU/USD->XAG/USD": {
+  "dev": {
+   "k1|lag": 1893,
+   "k1|nolag": 25865,
+   "k3|lag": 7716,
+   "k3|nolag": 59776
+  },
+  "w2023": {
+   "k1|lag": 1766,
+   "k1|nolag": 16454,
+   "k3|lag": 9465,
+   "k3|nolag": 54665
+  }
+ },
+ "M1 XAG/USD->XAU/USD": {
+  "dev": {
+   "k1|lag": 5053,
+   "k1|nolag": 34123,
+   "k3|lag": 14824,
+   "k3|nolag": 71112
+  },
+  "w2023": {
+   "k1|lag": 3580,
+   "k1|nolag": 21274,
+   "k3|lag": 13312,
+   "k3|nolag": 59641
+  }
+ },
+ "M1 SPX500/USD->WTICO/USD": {
+  "dev": {
+   "k1|lag": 10651,
+   "k1|nolag": 21683,
+   "k3|lag": 36250,
+   "k3|nolag": 63399
+  },
+  "w2023": {
+   "k1|lag": 13119,
+   "k1|nolag": 19039,
+   "k3|lag": 39839,
+   "k3|nolag": 53724
+  }
+ },
+ "M1 WTICO/USD->SPX500/USD": {
+  "dev": {
+   "k1|lag": 12897,
+   "k1|nolag": 22854,
+   "k3|lag": 34283,
+   "k3|nolag": 59374
+  },
+  "w2023": {
+   "k1|lag": 14572,
+   "k1|nolag": 20056,
+   "k3|lag": 38524,
+   "k3|nolag": 52226
+  }
+ },
+ "M1 EUR/USD->XAU/USD": {
+  "dev": {
+   "k1|lag": 12364,
+   "k1|nolag": 26387,
+   "k3|lag": 38872,
+   "k3|nolag": 72830
+  },
+  "w2023": {
+   "k1|lag": 9545,
+   "k1|nolag": 19807,
+   "k3|lag": 34385,
+   "k3|nolag": 60488
+  }
+ },
+ "M1 WTICO/USD->NATGAS/USD": {
+  "dev": {
+   "k1|lag": 10297,
+   "k1|nolag": 15126,
+   "k3|lag": 24381,
+   "k3|nolag": 35520
+  },
+  "w2023": {
+   "k1|lag": 7489,
+   "k1|nolag": 11634,
+   "k3|lag": 17860,
+   "k3|nolag": 26838
+  }
+ },
+ "M5 XAU/USD->XAG/USD": {
+  "dev": {
+   "k1|lag": 177,
+   "k1|nolag": 5072,
+   "k3|lag": 1343,
+   "k3|nolag": 21237
+  },
+  "w2023": {
+   "k1|lag": 189,
+   "k1|nolag": 3087,
+   "k3|lag": 1697,
+   "k3|nolag": 16008
+  }
+ },
+ "M5 XAG/USD->XAU/USD": {
+  "dev": {
+   "k1|lag": 768,
+   "k1|nolag": 7805,
+   "k3|lag": 3011,
+   "k3|nolag": 27711
+  },
+  "w2023": {
+   "k1|lag": 419,
+   "k1|nolag": 3962,
+   "k3|lag": 2246,
+   "k3|nolag": 17522
+  }
+ },
+ "M5 SPX500/USD->WTICO/USD": {
+  "dev": {
+   "k1|lag": 2332,
+   "k1|nolag": 5374,
+   "k3|lag": 10293,
+   "k3|nolag": 23144
+  },
+  "w2023": {
+   "k1|lag": 2604,
+   "k1|nolag": 4110,
+   "k3|lag": 11314,
+   "k3|nolag": 18295
+  }
+ },
+ "M5 WTICO/USD->SPX500/USD": {
+  "dev": {
+   "k1|lag": 2825,
+   "k1|nolag": 5479,
+   "k3|lag": 9901,
+   "k3|nolag": 21704
+  },
+  "w2023": {
+   "k1|lag": 2848,
+   "k1|nolag": 4122,
+   "k3|lag": 11519,
+   "k3|nolag": 18025
+  }
+ },
+ "M5 EUR/USD->XAU/USD": {
+  "dev": {
+   "k1|lag": 1939,
+   "k1|nolag": 4961,
+   "k3|lag": 8645,
+   "k3|nolag": 21997
+  },
+  "w2023": {
+   "k1|lag": 1307,
+   "k1|nolag": 3299,
+   "k3|lag": 7145,
+   "k3|nolag": 17207
+  }
+ },
+ "M5 WTICO/USD->NATGAS/USD": {
+  "dev": {
+   "k1|lag": 3043,
+   "k1|nolag": 4776,
+   "k3|lag": 10318,
+   "k3|nolag": 17642
+  },
+  "w2023": {
+   "k1|lag": 2152,
+   "k1|nolag": 3576,
+   "k3|lag": 8211,
+   "k3|nolag": 14717
+  }
+ }
+}

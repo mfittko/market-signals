@@ -1,0 +1,86 @@
+{
+ "SPX500/USD": {
+  "dev": {
+   "weekdays": 1291,
+   "valid": 1207,
+   "skip_bars": 80,
+   "skip_prev": 4
+  },
+  "w2023": {
+   "weekdays": 972,
+   "valid": 930,
+   "skip_bars": 41,
+   "skip_prev": 1
+  }
+ },
+ "WTICO/USD": {
+  "dev": {
+   "weekdays": 1291,
+   "valid": 1256,
+   "skip_bars": 34,
+   "skip_prev": 1
+  },
+  "w2023": {
+   "weekdays": 972,
+   "valid": 957,
+   "skip_bars": 15,
+   "skip_prev": 0
+  }
+ },
+ "NATGAS/USD": {
+  "dev": {
+   "weekdays": 1291,
+   "valid": 733,
+   "skip_bars": 521,
+   "skip_prev": 37
+  },
+  "w2023": {
+   "weekdays": 972,
+   "valid": 522,
+   "skip_bars": 409,
+   "skip_prev": 41
+  }
+ },
+ "XAU/USD": {
+  "dev": {
+   "weekdays": 1291,
+   "valid": 1255,
+   "skip_bars": 35,
+   "skip_prev": 1
+  },
+  "w2023": {
+   "weekdays": 972,
+   "valid": 968,
+   "skip_bars": 4,
+   "skip_prev": 0
+  }
+ },
+ "XAG/USD": {
+  "dev": {
+   "weekdays": 1291,
+   "valid": 886,
+   "skip_bars": 371,
+   "skip_prev": 34
+  },
+  "w2023": {
+   "weekdays": 972,
+   "valid": 961,
+   "skip_bars": 11,
+   "skip_prev": 0
+  }
+ },
+ "EUR/USD": {
+  "dev": {
+   "weekdays": 1297,
+   "valid": 960,
+   "skip_bars": 336,
+   "skip_prev": 1
+  },
+  "w2023": {
+   "weekdays": 977,
+   "valid": 632,
+   "skip_bars": 342,
+   "skip_prev": 3
+  }
+ }
+}
