@@ -9,7 +9,7 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, udParts, udKeys, udTable, updown, udHeadline, percent100, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
+  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, cutoffMs, shieldState, shieldText, conditionsText, nowMotion, volumeRatio, SHIELD_LABEL, SIDE_DIFF_CALIBRATED, headline, newsInput, newsRelevant, A1_WINDOW_BARS,
 } from '../scripts/local-predict.mjs';
 import { baWindow, calibrate, clearBaWindows, fetchBaCandles, PP_HORIZONS, PP_TARGETS, ppAvailable, ppFeatures, ppModel, ppRow, ppScore, ppSeries } from '../scripts/pprofit.mjs';
 
@@ -193,12 +193,8 @@ test('localPredict: P(profit) per side from the closed bid/ask bar, Neutral head
   assert.deepEqual([base.detail.shield.long.decile, base.detail.shield.short.decile], [pp.long.decile, pp.short.decile]);
   assert.equal(base.state.state_both_sides, shieldText(base.detail.shield.both), 'WTI: one shared state');
   assert.equal(base.state.long_state, undefined);
-  // the run stores the up/down lookup per horizon, with the bucket, level, n and the headline
-  for (const N of [3, 6, 12]) {
-    const h = base.detail.updown.horizons[N];
-    assert.ok(['L0', 'L1', 'L2', 'L3', 'base'].includes(h.level) && h.n >= 300 && Math.abs(h.pL + h.pN + h.pS - 1) < 1e-9);
-    assert.equal(base.state[`updown_${N}_candles`].split(' · ')[0], h.label);
-  }
+  assert.equal(base.detail.updown, undefined, 'no direction lean is stored');
+  assert.ok(!Object.keys(base.state).some((k) => k.startsWith('updown_')));
   assert.deepEqual([base.probabilities.long, base.probabilities.short], [pp.long.p, pp.short.p]);
   assert.ok(pp.long.expectedR < 0.05 && pp.short.expectedR < 0.05);
   assert.deepEqual([base.action, base.detail.headline], ['no_trade', 'Neutral']);
@@ -450,56 +446,6 @@ test('nowMotion: run length, pace in ATR, direction, volume against the slot or 
   assert.equal(nowMotion(b, b.length - 1, null), null);
 });
 
-// ---- up / neutral / down lookup
-test('up/down parity: bars -> bucket keys -> table lookup match the Python builder (WTI M5, EUR/USD M1)', () => {
-  for (const name of ['WTICO_USD-M5', 'EUR_USD-M1']) {
-    const fx = JSON.parse(readFileSync(new URL(`./fixtures/updown-parity-${name}.json`, import.meta.url), 'utf8'));
-    const bars = fx.bars.map(([t, open, high, low, close, volume]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close, volume }));
-    const parts = udParts(bars, fx.timeframe);
-    assert.ok(fx.rows.length >= 300);
-    for (const r of fx.rows) {
-      const p = parts[r.index];
-      const where = `${name} ${bars[r.index].time}`;
-      assert.deepEqual(p ? udKeys(p) : { L0: '', L1: '', L2: '', L3: '' }, r.keys, `keys ${where}`);
-      if (r.ratio != null) assert.ok(Math.abs(p.volumeRatio - r.ratio) <= 1e-9, `volume ratio ${where}`);
-      const ud = updown(fx.instrument, fx.timeframe, p);
-      for (const [N, want] of Object.entries(r.lookup)) {
-        const h = ud.horizons[N];
-        assert.deepEqual([h.level, h.key, h.n, h.pL, h.pN, h.pS, h.label], [want.level, want.key, want.n, ...want.p, want.headline], `lookup N=${N} ${where}`);
-      }
-    }
-  }
-});
-
-test('up/down fallback: L0 -> L1 -> L2 -> L3 -> base by n >= 300 and missing parts', () => {
-  const ud = (p) => updown('WTICO/USD', 'M5', p).horizons[6];
-  const table = udTable('WTICO/USD', 'M5').horizons['6'];
-  const p = { direction: 'falling', pace: 'fast', volume: 'normal', h1: 'agrees' };
-  assert.deepEqual([ud(p).level, ud(p).key, ud(p).n], ['L0', 'falling|fast|normal|agrees', table.L0['falling|fast|normal|agrees'][0]]);
-  assert.equal(ud({ ...p, volume: null }).level, 'L1', 'no volume ratio: L1');
-  assert.equal(ud({ ...p, volume: null, h1: null }).level, 'L2', 'no H1: L2');
-  assert.equal(ud({ ...p, h1: null }).level, 'L2', 'L0 needs both volume and H1');
-  assert.equal(ud(null).level, 'base');
-  assert.deepEqual(ud(null).words, 'all moments');
-  assert.equal(ud(p).words, 'falling fast, normal volume, H1 agrees');
-  // every stored bucket has n >= 300
-  for (const lv of ['L0', 'L1', 'L2', 'L3']) for (const [k, row] of Object.entries(table[lv])) assert.ok(row[0] >= 300, `${lv} ${k}`);
-});
-
-test('up/down headline: Neutral below 3 pp whatever n, side from 3 pp, clear from 6 pp, tie Neutral; two bars sum to 100', () => {
-  const at = (pp) => udHeadline(0.42 + pp / 100, 0.42, 1000).label;
-  assert.deepEqual([at(2.9), at(3.0), at(5.9), at(6.0)], ['Neutral', 'Long', 'Long', 'Long, clear']);
-  assert.deepEqual([udHeadline(0.40, 0.429, 1e6).label, udHeadline(0.40, 0.43, 50).label, udHeadline(0.40, 0.46, 50).label], ['Neutral', 'Short', 'Short, clear'], 'n does not matter');
-  assert.equal(udHeadline(0.43, 0.43, 1e9).label, 'Neutral', 'tie');
-  const h = udHeadline(0.44, 0.42, 1000);
-  assert.ok(Math.abs(h.d - 0.02) < 1e-12 && Math.abs((h.ci[1] - h.d) - 1.96 * Math.sqrt((0.86 - 0.0004) / 1000)) < 1e-12, 'd and its interval stay for Details');
-  // the two bars: Long and Short of the moves that went somewhere, summing to 100
-  for (const [l, s] of [[0.436, 0.423], [0.5, 0.5], [0.461, 0.410], [0.01, 0.99], [1 / 3, 1 / 3]]) assert.equal(percent100([l / (l + s), s / (l + s)]).reduce((x, y) => x + y, 0), 100, `${l} ${s}`);
-  const u = updown('WTICO/USD', 'M5', { direction: 'falling', pace: 'fast', volume: 'normal', h1: 'agrees' }).horizons[6];
-  assert.deepEqual([u.bars.length, u.bars[0] + u.bars[1]], [2, 100]);
-  assert.equal(u.bars[0], Math.round((u.pL / (u.pL + u.pS)) * 100));
-});
-
 // ---- per-candle series for the chart tooltip
 test('localSeries: one pass over the window gives each candle what localPredict gave when it closed', () => {
   const ba = baBars(PP[0].bars);
@@ -558,7 +504,7 @@ test('predictionSeries: forming and unclosed candles are never scored, results a
   db.close();
   const pin = { model: row.model, shape: createHash('sha256').update(shape(JSON.parse(row.entry))).digest('hex').slice(0, 16) };
   // never update only the shape hash: a new hash needs a new model string
-  assert.deepEqual(pin, { model: 'local-stats-v5 (big day abs11 A1_nostress; P(profit) pprofit20 shield; up/down lookup, two bars)', shape: 'b8e13be408534c7d' }, 'stored series shape changed: bump LOCAL_MODEL');
+  assert.deepEqual(pin, { model: 'local-stats-v6 (big day abs11 A1_nostress; P(profit) pprofit20 shield; no direction lean)', shape: '9100e59e7a7d4fdf' }, 'stored series shape changed: bump LOCAL_MODEL');
   assert.equal(row.model, LOCAL_MODEL);
   // a window: from/to in ms, and the cap
   const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);
