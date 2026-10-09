@@ -17,7 +17,7 @@ Rules for this page:
 | A | 2 | F01, F13 |
 | B | 31 | F02 to F12, F14 to F33 |
 | C | 4 | F34 to F37 |
-| D | 2 | F38, F39 |
+| D | 3 | F38 to F40 |
 
 ## Direction
 
@@ -159,7 +159,8 @@ Grade B.
 
 - Financing is 70 to 95% of costs for metals, SPX500 and EUR/USD in the multi-week policies, about 1 R per year for XAU and 1.5 R per year for EUR/USD ([mw6]).
 - Diversified 12-month momentum on 33 markets earns gross Sharpe +0.25 [-0.18, +0.69] dev and +0.65 [-0.16, +1.73] 2023+, but net Sharpe is -0.28 and -0.07 under the assumed 3% financing on about 2.3x gross notional ([tsmom36]).
-- External: OANDA charges the basis rate plus 2.5% on longs and credits the basis minus 2.5% on shorts ([sources.md](sources.md#brokers-and-vehicles)). The flat 3% model is a sensitivity, not verified broker economics ([external-review.md](external-review.md#costs-and-vehicles)).
+- External: OANDA charges the basis rate plus 2.5% on longs and credits the basis minus 2.5% on shorts ([sources.md](sources.md#brokers-and-vehicles)). The flat 3% model of the earlier campaigns is a sensitivity, not verified broker economics ([external-review.md](external-review.md#costs-and-vehicles)).
+- trend49 models these long and short rates with the FRED DTB3 T-bill as the basis (2023 5.07%, 2024 4.97%, 2025 4.07%). A long CFD held all the time costs about 6 to 7% of notional a year in 2023-26. Over 2023-01-01 to 2026-10-08 that alone cut buy-and-hold NAS100 from +181% to +116% and XAU from +127% to +74%, and turned TS12 on NAS100 from +30% into +3%. A futures-style account without the markup keeps almost the whole gross result. Descriptive ([trend49]).
 
 ### F17. Risk overlays cannot rescue a losing baseline
 
@@ -194,6 +195,8 @@ Grade B for our tests. Time-series momentum on futures is externally replicated 
 
 - No multi-week policy meets the rule on any instrument. One 4-year window gives a Sharpe CI half-width of about +/-1.0, so effects of 0.3 to 0.5 need 15 to 40 years to detect ([mw6]).
 - MDE80 for the 33-market book is Sharpe 0.64 dev and 1.35 2023+ ([tsmom36]).
+- trend49 (descriptive, hindsight-selected episodes, grade D on its own): TS12, TS6 and SMA200 kept 88 to 100% of the 2025-26 gold and silver rallies gross (84 to 96% after CFD costs), because those rallies were already under way. They were still long at the 2026-01-28 top and gave back 40 to 53% in the next six months ([trend49]).
+- The same rules miss rallies that start right after a crash. On the NAS100 2023-26 rally TS12 and TS6 kept 24 to 30% gross and 2 to 9% net (TS12 2%). SMA200 kept 77% gross and 54% net. No rule kept clearly more than buy-and-hold after CFD costs; the closest case is SMA200 on XAU, +77% against +74% ([trend49]).
 
 ### F21. Volatility-managed exposure limits drawdowns but adds no Sharpe
 
@@ -335,6 +338,18 @@ Grade D (a lab test on 11 weeks of data, not preregistered).
 
 - Log loss was 42 to 54% worse than the base rate. Directional hit rate pooled 53% [49%, 57%]. As a big-move scorer Jev reached AUC 0.50 to 0.59 against about 0.60 for a local model ([topics/llm-in-trading.md](topics/llm-in-trading.md)).
 
+### F40. Above about 3x leverage, survival decides the result of a trend account
+
+Grade D (descriptive leverage simulation on hindsight-selected episodes and full windows; post-hoc, not a test).
+
+- trend49 amendment 2 simulated 1x, 3x, 10x and volatility-targeted sizing (VT20: 20% divided by 20-day realized volatility, capped at the ESMA limit) on six OANDA daily series. The simulation includes CFD spread and financing, close-out at 50% of required margin, negative balance protection and re-entry on the next signal ([trend49-lev]).
+- At 10x, all 12 TS12 and TS6 accounts ended 2018-22 at 0.06 or less of the starting equity. In 2023+, 11 of 12 ended below 0.5 ([trend49-lev]).
+- On XAG, WTI and NATGAS the ESMA cap is 10x. At 10x the whole equity is margin, so an adverse move of about 5% closes the position. The trend rules at 10x had up to 22 close-outs per window ([trend49-lev]).
+- The 10x accounts that grew in 2023+ were long-only on markets that rose without a deep fall: SMA200 NAS100 20.3x with a -60% drawdown, buy-and-hold NAS100 14.1x, XAU 9.4x and SPX500 7.3x. They paid financing of 285 to 890% of the starting equity ([trend49-lev]).
+- At 3x the trend rules had no close-out, but the TS12 and TS6 drawdowns were 54 to 99% ([trend49-lev]).
+- VT20 was never closed out. It ran at about 1x on gold and the indices and well below 1x on silver, oil and gas. Its results were close to 1x with lower drawdowns on the commodities ([trend49-lev]).
+- The rule decides whether an account is in a rally. Leverage decides whether it survives the drawdowns between rallies. See [topics/costs-and-vehicles.md](topics/costs-and-vehicles.md#leverage-and-survival) and the backlog item on volatility-based sizing and a leverage warning in [open-questions.md](open-questions.md).
+
 <!-- campaign link definitions -->
 [ablate4]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6050530948
 [abs11]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6053999202
@@ -374,6 +389,8 @@ Grade D (a lab test on 11 weeks of data, not preregistered).
 [swing43]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6082779550
 [swing44]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6082874730
 [swing45]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6084121700
+[trend49]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087457614
+[trend49-lev]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6087525298
 [tsmom36]: https://github.com/mfittko/market-signals/issues/310#issuecomment-6078272501
 [v1]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048120221
 [v2]: https://github.com/mfittko/market-signals/issues/308#issuecomment-6048905005
