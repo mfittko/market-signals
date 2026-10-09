@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,36 +9,9 @@ import { storeCandles } from '../scripts/supertrend.mjs';
 import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
 import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
 import {
-  bigDayFeatures, bigDayModel, score, noTradeReasons, localPredict, localSeries, LOCAL_MODEL, shieldState, shieldText, nowMotion, volumeRatio, SHIELD_LABEL, newsInput, newsRelevant, A1_WINDOW_BARS,
+  noTradeReasons, localPredict, localSeries, LOCAL_MODEL, shieldState, shieldText, nowMotion, volumeRatio, SHIELD_LABEL, newsInput, newsRelevant,
   baWindow, clearBaWindows, fetchBaCandles,
 } from '../scripts/local-predict.mjs';
-
-const FIX = JSON.parse(readFileSync(new URL('./fixtures/local-predict-a1-parity.json', import.meta.url), 'utf8'));
-const toBars = (rows) => rows.map(([t, open, high, low, close]) => ({ time: new Date(t * 60000).toISOString(), open, high, low, close }));
-
-test('parity: 30-min bars -> big-day features -> probability match the Python research export within 1e-9', () => {
-  for (const inst of FIX.instruments) {
-    const bars = toBars(inst.bars);
-    const model = bigDayModel(inst.instrument);
-    assert.ok(model, `artifact for ${inst.instrument}`);
-    assert.deepEqual(model.features, inst.features);
-    assert.equal(model.T1_pct, inst.T1_pct);
-    assert.ok(inst.cases.length >= 8);
-    for (const c of inst.cases) {
-      const f = bigDayFeatures(bars.slice(0, c.index + 1).slice(-A1_WINDOW_BARS), model.T1_pct);
-      assert.ok(f, `${inst.instrument} ${c.bar_open_utc} features`);
-      assert.equal(bars[c.index].time.slice(0, 16), c.bar_open_utc);
-      for (let j = 0; j < c.x.length; j++) assert.ok(Math.abs(f.x[j] - c.x[j]) <= 1e-9, `${inst.instrument} ${c.bar_open_utc} ${inst.features[j]}: ${f.x[j]} vs ${c.x[j]}`);
-      assert.ok(Math.abs(f.exc - c.exc_so) <= 1e-9);
-      const { z, p } = score(model, f.x);
-      assert.ok(Math.abs(z - c.z) <= 1e-9 && Math.abs(p - c.p) <= 1e-9, `${inst.instrument} ${c.bar_open_utc} p ${p} vs ${c.p}`);
-    }
-  }
-});
-
-test('bigDayFeatures refuses a window too short for the 22-session and slot norms', () => {
-  assert.equal(bigDayFeatures(toBars(FIX.instruments[0].bars.slice(-500)), 5), null);
-});
 
 test('no-trade reasons: spread over 0.2 R and thin UTC hour only', () => {
   const at = (h) => Date.UTC(2026, 9, 7, h, 0);
@@ -76,12 +49,6 @@ test('newsInput: newest headline stored unchanged, newest relevant one picked fo
   assert.deepEqual([n.relevant.title, n.relevant.escalation, n.relevant.availableAt], ['Crude jumps on Hormuz threat', 'escalation', new Date(now - 2 * 60000).toISOString()]);
 });
 
-// the fixture's 30-min bars re-timed back to back so the newest one has just closed
-function liveBars(now, stepMs = 1800000, rows = FIX.instruments[0].bars) {
-  const lastOpen = Math.floor(now / stepMs) * stepMs - stepMs;
-  return rows.map(([, open, high, low, close], k) => ({ time: new Date(lastOpen - (rows.length - 1 - k) * stepMs).toISOString(), open, high, low, close, volume: 1 }));
-}
-
 // ---- synthetic M5 bid/ask bars (a seeded random walk; spread far below the 0.2-of-stop limit)
 // rows: [t minutes UTC, bid o, h, l, c, ask o, h, l, c]; the newest bar starts at 2026-10-07 12:00 UTC.
 const BA_ROWS = (() => {
@@ -105,9 +72,8 @@ test('localPredict: cost shield from the measured reasons, Now line, no side nam
   const ba = baBars(BA_ROWS);
   const lastMs = Date.parse(ba.at(-1).time);
   const now = lastMs + 300000 + 1000;
-  const m30 = liveBars(now);
   const candles = midBars(ba).slice(-400);
-  const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba }, { now });
+  const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba }, { now });
   assert.equal(base.candleTime, ba.at(-1).time);
   assert.ok(base.detail.spreadR > 0 && base.detail.spreadR < 0.2);
   assert.deepEqual(base.detail.reasons, []);
@@ -116,43 +82,31 @@ test('localPredict: cost shield from the measured reasons, Now line, no side nam
   assert.deepEqual([base.action, base.probabilities], ['no_trade', { long: null, short: null, no_trade: null }], 'the local provider names no side');
   assert.equal(base.detail.pprofit, undefined);
   assert.match(base.detail.now.text, /^Now: /);
-  assert.equal(base.detail.bigDay.available, true);
+  assert.deepEqual([base.detail.bigDay, base.state.big_day_today], [undefined, undefined], 'the big-day line is held back');
   assert.match(base.detail.trend.text, /^supertrend (up|down), H1 (agrees|disagrees|not enough history)$/);
   // escalated relevant news is shown and stored but changes nothing
   const hit = { id: 7, title: 'Tanker hit near Hormuz', escalation: 'escalation', relevant: true, publishedAt: new Date(now - 60000).toISOString() };
-  const n = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba, news: { latest: hit, relevant: hit } }, { now });
+  const n = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba, news: { latest: hit, relevant: hit } }, { now });
   assert.deepEqual([n.action, n.detail.reasons, n.detail.shield], [base.action, base.detail.reasons, base.detail.shield]);
   assert.equal(n.detail.news.latest.id, 7);
   assert.match(n.state.news, /not used for direction or reasons/);
   // a wide spread on the closed bar turns the shield red with the reason
   const wide = [...ba.slice(0, -1), { ...ba.at(-1), ask_c: ba.at(-1).bid_c + 5 }];
-  const w = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, m30, ba: wide }, { now });
+  const w = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba: wide }, { now });
   assert.equal(w.detail.shield.state, 'red');
   assert.match(w.detail.shield.why, /^spread wide \(\d+\.\d\d of stop\)$/);
   assert.match(w.state.shield, /^Don't trade now · spread wide/);
 });
 
-test('localPredict: a session past T1 reads as reached, not as a probability', () => {
-  const now = Date.UTC(2026, 9, 7, 14, 2);
-  const m30 = liveBars(now);
-  const last = m30.at(-1);
-  m30[m30.length - 1] = { ...last, high: last.open * 1.2 };
-  const r = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles: m30.slice(-400), m30 }, { now });
-  assert.deepEqual([r.detail.bigDay.reached, r.detail.bigDay.p], [true, 1]);
-  assert.match(r.detail.bigDay.text, /already a big day/);
-});
-
-test('localPredict: no big-day artifact or no bid/ask is not an error', () => {
-  const now = Date.UTC(2026, 9, 7, 14, 2);
-  const m30 = liveBars(now);
-  const other = localPredict({ instrument: 'BCO/USD', granularity: 'M30', candles: m30.slice(-200), m30 }, { now });
-  assert.equal(other.detail.bigDay.available, false);
+test('localPredict: an instrument without thin-hour list or bid/ask is not an error', () => {
+  const ba = baBars(BA_ROWS);
+  const now = Date.parse(ba.at(-1).time) + 301000;
+  const candles = midBars(ba).slice(-200);
+  const other = localPredict({ instrument: 'BCO/USD', granularity: 'M5', candles }, { now });
   assert.equal(other.detail.shield.state, 'grey');
-  const noBa = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles: m30.slice(-200), m30 }, { now });
+  const noBa = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles }, { now });
   assert.equal(noBa.detail.spreadR, null);
   assert.equal(noBa.state.spread, 'unknown (no bid/ask for this bar)');
-  const stale = localPredict({ instrument: 'WTICO/USD', granularity: 'M30', candles: m30.slice(-200), m30: m30.slice(0, -10) }, { now });
-  assert.equal(stale.detail.bigDay.text, 'no current 30-minute data');
 });
 
 test('baWindow: one full bid/ask fetch, then only the newest bars', async () => {
@@ -181,7 +135,6 @@ async function withLocalServer(settings, fn) {
   const ba = baBars(rows, (Math.floor(now / 300000) - 1) * 5 - rows.at(-1)[0]);
   const m5 = midBars(ba).slice(-400);
   storeCandles(dbPath, 'WTICO/USD', 'M5', m5);
-  storeCandles(dbPath, 'WTICO/USD', 'M30', liveBars(now));
   writeFileSync(settingsPath, JSON.stringify(settings));
   clearBaWindows();
   const calls = [];
@@ -208,7 +161,6 @@ test('POST /api/predict: local is the default, needs no key, stores one run per 
     const { prediction: p } = await r.json();
     assert.equal(p.provider, 'local');
     assert.equal(p.candleTime, m5.at(-1).time);
-    assert.equal(p.detail.bigDay.available, true);
     assert.ok(['red', 'grey'].includes(p.detail.shield.state));
     assert.equal(p.action, 'no_trade');
     assert.equal(p.valid, true);
@@ -220,7 +172,7 @@ test('POST /api/predict: local is the default, needs no key, stores one run per 
     assert.equal(typesafeCalls(calls), 0);
     const list = (await (await fetch(`${base}/api/predictions?instrument=WTICO/USD&granularity=M5`)).json()).predictions;
     assert.equal(list.length, 1);
-    assert.equal(list[0].detail.bigDay.thresholdPct, bigDayModel('WTICO/USD').T1_pct);
+    assert.deepEqual(Object.keys(list[0].detail).sort(), ['news', 'now', 'reasons', 'shield', 'spreadR', 'trend']);
   });
 });
 
@@ -373,7 +325,7 @@ test('predictionSeries: forming and unclosed candles are never scored, results a
   db.close();
   const pin = { model: row.model, shape: createHash('sha256').update(shape(JSON.parse(row.entry))).digest('hex').slice(0, 16) };
   // never update only the shape hash: a new hash needs a new model string
-  assert.deepEqual(pin, { model: 'local-stats-v7 (big day abs11 A1_nostress; cost shield from no-trade reasons; Now line)', shape: '85e2ed413b08a2ad' }, 'stored series shape changed: bump LOCAL_MODEL');
+  assert.deepEqual(pin, { model: 'local-stats-v8 (cost shield from no-trade reasons; Now line; trend)', shape: '85e2ed413b08a2ad' }, 'stored series shape changed: bump LOCAL_MODEL');
   assert.equal(row.model, LOCAL_MODEL);
   // a window: from/to in ms, and the cap
   const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);

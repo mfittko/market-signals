@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, acquireWindow, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, loadRecentCandles, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, loadRecentCandles, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -36,7 +36,7 @@ import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
 import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionSeries, SERIES_MAX, predictionForTool, predictionProvider, PREDICTION_PROVIDERS } from './predictions.mjs';
-import { A1_WINDOW_BARS, baWindow, LOCAL_PROVIDER } from './local-predict.mjs';
+import { baWindow, LOCAL_PROVIDER } from './local-predict.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -741,16 +741,10 @@ const RATE_SLUGS = loadRateSlugs();
 const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
 // The candle window a prediction reads: enough bars to resample at least 13 H1
 // bars, so the H1 trend is known on M1 too, with the forming bar when live.
-// The local provider also reads a 30-min window long enough for the big-day features
-// (about 75 sessions). Storage rarely holds that many M30 bars, so the first run
-// backfills the window once and later runs fetch only the tail.
 function predictionInput(dbPath, instrument, granularity, cfg, fetcher) {
   const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
   const loadCandles = async () => (await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) })).candles;
-  const loadM30 = async () => (fetcher
-    ? (await acquireWindow({ instrument, granularity: 'M30', count: A1_WINDOW_BARS, db: dbPath }, { fetcher })).candles
-    : loadRecentCandles(dbPath, instrument, 'M30', A1_WINDOW_BARS));
-  return { instrument, granularity, loadCandles, loadM30 };
+  return { instrument, granularity, loadCandles };
 }
 
 // Engine cycle hook: one free local run per watched pair whose candle closed since its last run.
@@ -772,7 +766,7 @@ export async function refreshLocalPredictions(dbPath, combos, cfg, { fetcher = f
 export const CHAT_TOOLS = [
   {
     name: 'market_prediction',
-    description: 'Advisory prediction for the current candle of a timeframe. The default local provider returns the chance that today becomes a big day (a session move of a fixed % or more, side-free), a cost warning from evidenced no-trade reasons (wide spread, thin hour), a description of the closed bars and the trend as context, without naming a side; TypeSafe Jev, when selected, returns long, short or no trade over the next 3 candles with setup quality and trend confirmation. Reuses the latest prediction while it is still valid, otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
+    description: 'Advisory prediction for the current candle of a timeframe. The default local provider returns a cost warning from evidenced no-trade reasons (wide spread, thin hour), a description of the closed bars and the trend as context, without naming a side; TypeSafe Jev, when selected, returns long, short or no trade over the next 3 candles with setup quality and trend confirmation. Reuses the latest prediction while it is still valid, otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
     input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, granularity: { type: 'string', description: 'timeframe, e.g. M5; defaults to the current view' } }, additionalProperties: false },
     run: async (a, ctx) => {
       // copilot only: the paper-trading bot never receives a prediction

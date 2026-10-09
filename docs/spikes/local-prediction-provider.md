@@ -20,7 +20,7 @@ Branch `spike/local-prediction-provider`, run as a dev-loop local implementation
 The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13) is in commit 7f796cf. The second round removed it. The fixed direction constant (2023+ up share per instrument, `data/research/localpred/up_share.py`) is in commit 65feaa6. The fourth round removed it.
 
 1. Provider. `scripts/local-predict.mjs` is the provider `local`. It produces four parts for the newest closed candle of the viewed instrument and timeframe:
-   - **Big-day chance today (side-free).** This is the probability that today's session (22:00 UTC roll) moves T1 % or more from its open, from the abs11 A1 model ("is today becoming a big day").
+   - **Big-day chance today (side-free). HELD BACK on 2026-10-09 (see Findings, "Big-day line held back"); kept here as a record.** This is the probability that today's session (22:00 UTC roll) moves T1 % or more from its open, from the abs11 A1 model ("is today becoming a big day").
      - T1 is preregistered per instrument: WTI 5.38%, XAU 1.82%, XAG 3.53%, NATGAS 7.19%, SPX500 2.48%, EUR/USD 0.94%.
      - `data/research/localpred/export_a1.py` (gitignored) exports the latest quarterly fit, cutoff 2026-09-26. It uses the abs11 code (`build`, `walk`, `de.e2_lr_fit`) unchanged.
      - The six artifacts are in `config/prediction-models/artifact_<INST>_A1_nostress.json`. Each holds the feature order, scaler, coefficients, intercept, identity calibrator, T1, cutoff and code hashes.
@@ -161,6 +161,10 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 
 ## Findings
 
+- **Big-day line held back (operator decision after the external audit, 2026-10-09).** The abs11 A1 model failed its preregistered operating rule on every instrument. The auditor asked that no model be promoted to the card without the admission rules in https://github.com/mfittko/market-signals/issues/313. The audit is at https://github.com/mfittko/market-signals/issues/307#issuecomment-6053046878. The line stays out until a retest with an alert-time target passes.
+  - Deleted: the big-day line on the card, in Details, in the stored run text (`big_day_today`, `yesterday_volatility`, `range_so_far`) and in `detail.bigDay`; the A1 loader and scoring code (`bigDayModel`, `bigDayFeatures`, `score`, the 30-min window and its backfill); the six `config/prediction-models/artifact_*_A1_nostress.json` files (the directory is gone); `test/fixtures/local-predict-a1-parity.json` and the A1 tests. The `market_prediction` and `get_prediction` tool texts no longer mention a big day. Git history keeps all of it.
+  - Kept: the red/grey cost shield, the Now line, Trend, news display, stored runs, the series cache and auto-update. The cache key is `local-stats-v8 (cost shield from no-trade reasons; Now line; trend)`; the series shape is unchanged.
+  - The big-day findings below (parity, stress, calibration, skew, window) remain as the research record for the retest.
 - **Parity holds.**
   - Big day: Node features match the Python export to max |dx| 2.2e-16 (WTI) and 1.3e-15 (EUR/USD). p matches to max |dp| 1.5e-16 over 16 rows.
   - P(profit), A4 cells: features match to max |dx| 1.8e-13 (WTI M5 H12 up), 1.5e-12 (EUR/USD M5 H48 plan), 7.6e-14 (WTI M15 H48 plan) and 1.6e-13 (WTI M1 H12 up, isotonic). P matches to 2.5e-15 over 168 rows (exactly on the isotonic rows).
@@ -229,15 +233,16 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
   - Why it could go: no decile of any shipped cell had a positive avg R (see "No side clears costs"), so the decile states could only ever say "costly" or "no warning"; and P(profit) was close to a spread meter, which the spread reason already covers.
   - What stays: the cost shield from the two measured reasons (red "Don't trade now" with the reason, else grey "No warning"), the Now line, the big-day chance, Trend and news. The run names no side: `action` is `no_trade` and the probabilities are null. The agent tool `get_prediction` and the chat tool say so.
   - Stored runs from before still render: a run without a top-level shield state reads "No warning", and the series recomputes the shield from the stored reasons.
-- **Screenshots (current card, after P(profit) was removed; WTI M5, review setup with a copy of the engine database):**
-  - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (live, 2026-10-09 15:5x local: "No warning"; Now: rising steady · +0.6 ATR in 1 bar · volume 2.1× normal; Big-day chance today: 2% for ≥ 5.4% (usual 5%) · 1.4% so far; Trend: down, H1 agrees)
-  - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details open: the −0.1 R note, the run inputs with spread 0.06 of the stop distance, the candle footer, History)
+- **Screenshots (current card, after the big-day line was held back; WTI M5, review setup with a copy of the engine database, 2026-10-09 18:2x local):**
+  - `docs/spikes/local-prediction-provider/shield-card-desktop.png` and `shield-card-mobile.png` (live: "No warning"; Now: flat · +0.2 ATR in 1 bar · volume 1.0× normal; Trend: up, H1 agrees)
+  - `docs/spikes/local-prediction-provider/shield-card-details-desktop.png` and `shield-card-details-mobile.png` (Details open: the −0.1 R note, the latest relevant headline, the inputs trend, spread 0.09 of the stop distance and trading hour, the candle footer, History)
   - `docs/spikes/local-prediction-provider/shield-card-red-synth-desktop.png` and `shield-card-red-synth-mobile.png`: SYNTHESIZED. The latest stored run with a spread reason (0.27 of stop) injected into its detail, to show the red state: "Don't trade now · spread wide (0.27 of stop)".
-  - `docs/spikes/local-prediction-provider/shield-tooltip-desktop.png` (the real 14:55 local bar: "No warning", "Now: falling steady · −1.4 ATR in 1 bar · volume 2.0× normal")
+  - `docs/spikes/local-prediction-provider/shield-tooltip-desktop.png` (the real 17:30 local bar: "No warning", "Now: rising steady · +0.8 ATR in 2 bars · volume 2.2× normal")
   - The up/down and lean screenshots of the previous rounds are removed from the repository with the UI they showed.
   - `docs/spikes/local-prediction-provider/settings-prediction-desktop.png` (provider select, local default)
 - **Behavior change for existing users.** A settings file with `predictionEnabled: '1'` and no `predictionProvider` now runs local. Jev users must pick Jev again.
 - **Verification.**
+  - Since the big-day line was held back: `node --test test/local-predict.test.mjs`: 15 tests pass; `npm run verify`: 801 tests pass, plus the console typecheck; `go test ./...` in `platform`: pass. The A1 parity tests are deleted with the model.
   - Since P(profit) was removed: `node --test test/local-predict.test.mjs`: 18 tests pass; `npm run verify`: 804 tests pass, plus the console typecheck. The shield tests now cover red with the first reason, grey otherwise, and the exclusive 0.2 limit; the series shape pin is `local-stats-v7`. The P(profit), decile and per-side items below are removed.
   - Before that, `node --test test/local-predict.test.mjs`: 25 tests passed. They covered:
     - no direction lean in the run: no `updown` detail and no `updown_*` inputs (the up/down parity, fallback and headline tests were removed with the lookup)
@@ -268,26 +273,24 @@ The first round's 6h gauge (alert7 `_ns` artifacts, 12 M5 features, parity 1e-13
 Graduate with a narrowed scope. Make the local provider the default as a description layer, not a predictor:
 
 1. Keep the card as built:
-   - the big-day chance (absolute %, side-free, marked as a research preview)
    - the cost shield: red "Don't trade now" with the measured reason, otherwise grey "No warning"
    - the descriptive Now line
    - the same states and the Now line per closed candle in the chart tooltip
    - the two study-backed no-trade reasons
    - the trend as context
    - the news line, as display only, for relevant headlines that are not routine
-2. Treat the big-day number as unqualified until the silent shadow in https://github.com/mfittko/market-signals/issues/313 shows calibration and usefulness live. abs11 A1 failed its preregistered operating rule.
-3. Port the A1 features to Go in https://github.com/mfittko/market-signals/issues/312 against the same fixture format: bars, features, z and p. Keep the `A1_nostress` variant unless shadow shows that stress matters.
+2. Keep the big-day line off the card until a retest with an alert-time target passes the admission rules in https://github.com/mfittko/market-signals/issues/313. abs11 A1 failed its preregistered operating rule.
+3. If the retest passes, port the A1 features to Go in https://github.com/mfittko/market-signals/issues/312 against the same fixture format (bars, features, z and p), restored from git history.
 4. Evaluate the stored news inputs once enough history exists, before news can become a reason.
 5. Retire Jev or keep it hidden behind the setting.
 
 Open questions for https://github.com/mfittko/market-signals/issues/312:
 
-- Should the scorer read bid/ask M1 resampled to 30 minutes (exact research inputs), or OANDA mid M30? The measured drift is at most 0.002.
-- Should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
+- If the big-day line returns: should the scorer read bid/ask M1 resampled to 30 minutes (exact research inputs), or OANDA mid M30? The measured drift is at most 0.002.
+- If the big-day line returns: should the forming session score before it has 8 bars, or show "not yet" for the first 4 hours after 22:00 UTC?
 - Should P(profit) come back in Go at all? It was removed because no decile cleared costs and it tracked the spread. A spread-and-hour lookup would cover the same ground.
 - Should the series cache move into the Go store?
 - Should the bid/ask window be persisted, so that a restart does not refetch 700 bars per pair?
-- Should the thin-hour lists and T1 move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?
+- Should the thin-hour lists move into the artifact format of https://github.com/mfittko/market-signals/issues/310, with a version and an evidence reference?
 - Does a no-trade reason feed EntryGuard as a REJECTED reason code, or does it stay display-only until it is qualified?
-- Should the card show the big-day chance only above its usual rate, or always?
 - Should the news store tag relevance per instrument at ingest (replacing the fixed keyword lists), and should escalation get more than two levels?

@@ -74,7 +74,7 @@ const toRow = (r, now = Date.now()) => {
 // The prediction for the pair right now. With `reuse`, the latest stored run of
 // the selected provider is returned while it is still valid (no provider call);
 // otherwise `loadCandles` supplies the current window and a new run is made and
-// stored. The local provider also reads `loadM30` (the 30-min window for the big-day model).
+// stored.
 // Concurrent reuse callers for one pair share a single in-flight run, so they make one paid call.
 const inflight = new Map();
 
@@ -92,7 +92,7 @@ export async function currentPrediction(dbPath, settings, input, { reuse = false
   return run;
 }
 
-async function freshPrediction(dbPath, settings, { instrument, granularity, loadCandles, loadM30 }, now, opts) {
+async function freshPrediction(dbPath, settings, { instrument, granularity, loadCandles }, now, opts) {
   const candles = await loadCandles();
   if (!candles.length) throw Object.assign(new Error(`no candles for ${instrument} ${granularity}`), { status: 404 });
   // The chart serves stored candles when the live fetch fails. A window whose newest bar started more
@@ -103,7 +103,6 @@ async function freshPrediction(dbPath, settings, { instrument, granularity, load
   }
   const input = { instrument, granularity, candles };
   if (predictionProvider(settings) === LOCAL_PROVIDER) {
-    input.m30 = loadM30 ? await loadM30() : (granularity === 'M30' ? candles : []);
     // the newest bid/ask bars of the viewed timeframe, for the spread reason
     input.ba = await baWindow(instrument, granularity, 3, { fetchFn: opts.fetchFn }).catch(() => []);
   }
@@ -149,9 +148,9 @@ export function predictionForTool(p) {
   if (p.provider === LOCAL_PROVIDER) {
     const d = p.detail ?? {};
     return {
-      advisory: 'Advisory description only, no side and no forecast: the cost shield (red when a measured no-trade reason fires: wide spread or a thin hour), a description of the closed bars (now), the big-day chance and the trend. It never places or changes a trade; confirm with price action before any entry.',
+      advisory: 'Advisory description only, no side and no forecast: the cost shield (red when a measured no-trade reason fires: wide spread or a thin hour), a description of the closed bars (now) and the trend. It never places or changes a trade; confirm with price action before any entry.',
       provider: p.provider, instrument: p.instrument, granularity: p.granularity,
-      shield: d.shield ?? null, now: d.now?.text ?? null, bigDayToday: d.bigDay ?? null, noTradeReasons: d.reasons ?? [],
+      shield: d.shield ?? null, now: d.now?.text ?? null, noTradeReasons: d.reasons ?? [],
       trendContext: d.trend?.text ?? null, news: d.news ?? null,
       candleTime: p.candleTime, price: p.price, askedAt: p.askedAt, expiresAt: p.expiresAt, valid: p.valid, reused: p.reused ?? false, inputs: p.state,
     };

@@ -13,11 +13,9 @@ type Prediction = {
   provider?: string; detail?: LocalDetail | null;
 };
 // What the local provider stores in `detail` (scripts/local-predict.mjs)
-type BigDayPart = { available: boolean; reached?: boolean; p?: number; usual?: number; thresholdPct?: number; movedPct?: number; text: string };
 type LocalDetail = {
   shield?: Shield;
   now?: NowMotion | null;
-  bigDay?: BigDayPart;
   reasons: { code: string; text: string; untested?: boolean }[];
   trend: { text: string };
   news: { relevant?: { title: string; escalation: string; publishedAt: string } | null } | null;
@@ -32,13 +30,6 @@ function StateLine({ s }: { s: Partial<Shield> | null | undefined }) {
       <strong style={{ fontSize: 18, color }}>{stateText(s)}</strong>
     </p>
   );
-}
-// "26% for ≥ 5.4% (usual 5%) · 2.8% so far"; a session past the threshold is a fact, not a chance
-function BigDay({ b }: { b?: BigDayPart }) {
-  if (!b?.available || b.thresholdPct == null) return <>n/a ({b?.text ?? 'not computed'})</>;
-  const sofar = b.movedPct == null ? '' : ` · ${b.movedPct.toFixed(1)}% so far`;
-  if (b.reached) return <><strong>reached</strong> (≥ {b.thresholdPct.toFixed(1)}%){sofar}</>;
-  return <><strong>{pct(b.p)}</strong> for ≥ {b.thresholdPct.toFixed(1)}% (usual {pct(b.usual)}){sofar}</>;
 }
 const NEWS_SHOWN_MS = 6 * 3600000;
 
@@ -207,7 +198,6 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
           <StateLine s={shield} />
           {/* describes the closed bars only; no forecast */}
           {d.now && <p className="small" style={{ margin: '4px 0' }}>{d.now.text}</p>}
-          <p className="small" style={{ margin: '4px 0' }}>Big-day chance today: <BigDay b={d.bigDay} /></p>
           <p className="small" style={{ margin: '4px 0' }}>Trend: {d.trend.text.replace(/^supertrend /, '')}</p>
           {d.reasons.slice(isWarning(shield) ? 1 : 0).map((r) => <p key={r.code} className="small" style={{ margin: '4px 0', color: 'var(--warn)' }}>{r.text}</p>)}
           {news && <p className="small" style={{ margin: '4px 0' }}>News: {news.escalation} · {age(news.publishedAt, now)}: {clip(news.title)}</p>}
@@ -218,7 +208,7 @@ export function PredictionPanel({ symbol, granularity, liveCandleTime }: { symbo
             <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
               {Object.entries(p.state).filter(([k]) => !['instrument', 'news', 'now', 'shield'].includes(k)).map(([k, v]) => <li key={k}><span className="muted">{k.replace(/_/g, ' ')}:</span> {v}</li>)}
             </ul>
-            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · big day over the session · {age(p.askedAt, now)}</p>
+            <p className="muted" style={{ margin: '4px 0' }}>{p.granularity} candle {day(p.candleTime)} {hm(p.candleTime)} (closed) at {p.price} · {age(p.askedAt, now)}</p>
             {history}
           </details>
         </div>
