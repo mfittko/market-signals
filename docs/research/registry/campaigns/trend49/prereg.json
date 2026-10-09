@@ -1,0 +1,120 @@
+{
+ "created": "2026-10-09T21:04:02+0200",
+ "exp": "trend49",
+ "code_sha256": {
+  "trend49.py": "7bd16424428b6a6be1e931f9d384ec849181aac4e3ed0ef89d01a5bb098523b7",
+  "tsmom36.py": "74ba7bfd60076dc89b0348a28d03526eeab7cd5d1bc20e217fbfe35fbdd53e30"
+ },
+ "before_registration": "Only the synthetic check ran. No rule return on real data was computed for this campaign. The operator picked the episodes in hindsight after seeing the moves.",
+ "label": "descriptive, hindsight-selected episodes, not a test",
+ "question": "How much of the named rallies would a simple fixed trend rule have kept, net of real CFD costs?",
+ "data": "audit/tsmom36/daily.db (OANDA daily mid, read-only); trading date = bar open + 24 h; weekend-close stubs dropped",
+ "instruments": [
+  "XAG_USD",
+  "XAU_USD",
+  "NATGAS_USD",
+  "NAS100_USD",
+  "SPX500_USD",
+  "WTICO_USD"
+ ],
+ "windows": {
+  "2018-22": [
+   "2018-01-01",
+   "2022-12-31"
+  ],
+  "2023+": [
+   "2023-01-01",
+   "2100-01-01"
+  ]
+ },
+ "rules": {
+  "TS12": "sign of 252-bar return at the close; +1 long, -1 short",
+  "TS6": "sign of 126-bar return at the close",
+  "SMA200": "long 1 if close > 200-bar mean, else flat (long-only)",
+  "BH": "long 1 always (comparison)",
+  "timing": "decided at the daily close t, filled at the open of bar t+1, checked daily; the old position earns the gap close t -> open t+1",
+  "size": "1 unit notional, no volatility scaling; returns are % of price"
+ },
+ "costs": {
+  "gross": "mid, no costs",
+  "cfd": "half median M1 spread per side (history.db via tsmom36.spreads_bps, fallback 2 bps) on |position change|, plus financing on |position| per calendar day to the next bar: long basis+2.5%/yr, short 2.5%-basis per yr (negative = credit)",
+  "fut": "spread only, no financing"
+ },
+ "basis_proxy": {
+  "series": "US 3-month T-bill, FRED DTB3 annual average, percent (recalled, 2026 estimated)",
+  "values": {
+   "2003": 1.01,
+   "2004": 1.37,
+   "2005": 3.15,
+   "2006": 4.73,
+   "2007": 4.36,
+   "2008": 1.37,
+   "2009": 0.15,
+   "2010": 0.14,
+   "2011": 0.05,
+   "2012": 0.09,
+   "2013": 0.06,
+   "2014": 0.03,
+   "2015": 0.05,
+   "2016": 0.32,
+   "2017": 0.93,
+   "2018": 1.94,
+   "2019": 2.06,
+   "2020": 0.36,
+   "2021": 0.04,
+   "2022": 2.02,
+   "2023": 5.07,
+   "2024": 4.97,
+   "2025": 4.07,
+   "2026": 3.7
+  },
+  "caveat": "OANDA commodity CFD financing passes the futures term structure through; the flat proxy is approximate. Index CFD dividend adjustments are not modelled."
+ },
+ "metrics": "per instrument, rule, cost and window: total and annualised return (compounded daily), max drawdown, position changes, time in market; per episode: buy-and-hold log move, rule log P&L / B&H log move over the episode and from start to the episode price extreme, and rule P&L from the extreme to extreme + 126 bars as share of the start-to-extreme move (giveback)",
+ "episodes": [
+  [
+   "XAG rally 2025-03..2026-02",
+   "XAG_USD",
+   "2025-03-01",
+   "2026-02-28"
+  ],
+  [
+   "XAG fall 2026-03..2026-06",
+   "XAG_USD",
+   "2026-03-01",
+   "2026-06-30"
+  ],
+  [
+   "XAU rally 2025-03..2026-02",
+   "XAU_USD",
+   "2025-03-01",
+   "2026-02-28"
+  ],
+  [
+   "XAU fall 2026-03..2026-06",
+   "XAU_USD",
+   "2026-03-01",
+   "2026-06-30"
+  ],
+  [
+   "NAS100 AI rally 2023-01..2026-10",
+   "NAS100_USD",
+   "2023-01-01",
+   "2026-10-31"
+  ],
+  [
+   "NATGAS spike 2022-06..2022-09",
+   "NATGAS_USD",
+   "2022-06-01",
+   "2022-09-30"
+  ],
+  [
+   "NATGAS spike 2025-10..2026-02",
+   "NATGAS_USD",
+   "2025-10-01",
+   "2026-02-28"
+  ]
+ ],
+ "post_peak_bars": 126,
+ "window_start": "the position held at a window start is charged one entry spread"
+}

@@ -1,0 +1,22 @@
+{
+ "title": "pprofit20 amendment A1: the same study on M15 (registered after the M5 run, before any M15 outcome)",
+ "before_registration": "M5 results known (out/results_*.json). No M15 label, net R or fill computed before this file.",
+ "code_change": "pp20.py parameterised by PP_TF (M5 default). M5 rerun of WTI after the change reproduced the registered run byte for byte (out/results_WTICO_USD.registered_run.json vs out/results_WTICO_USD.json).",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "differences_from_M5": {
+  "bars": "M15 bid/ask from M1; H1 = M15 resampled on the hour; supertrend (ATR10, mult 3) on mid M15 for st_al, dst and the opposite-flip exit",
+  "trade": "entry next M15 open; 1R = 1.5 x Wilder ATR14 of mid M15; 72 M15 bars max (18 h); same breakeven / 3R / flip rules",
+  "population": "every M15 bar (cadence: start minute % 15 == 0), both sides",
+  "features": "same 18 definitions on M15 bars; minute-of-day and H1 completion use t + 15; burst = 3 M15 bars; ATR regime = 1440 M15 bars (15 days); tod slot = 15-minute slots",
+  "fixtures": "WTI and EUR/USD, last 6000 M15 bars, last 200 bars x 2 sides"
+ },
+ "unchanged": "model (LR with side interaction, C = 1), quarterly expanding refit, 182-day Platt window, HGB comparator, windows, validation rule (|gap| <= 0.03 every per-side decile with n >= 1000, both windows), statistics, export rule",
+ "created": "2026-10-08T09:54:12+0200",
+ "code_sha256": {
+  "pp20.py": "4bb14e5f408c3c99210826747c9862c16d8a8779475c43adc534a9869de1efee",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

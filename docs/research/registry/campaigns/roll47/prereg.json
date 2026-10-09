@@ -1,0 +1,22 @@
+{
+ "created": "2026-10-09T18:16:00+0200",
+ "code_sha256": {
+  "roll47.py": "6751af51d56495b2048bc571c8fc65298432800ec2fa046599c7e41b229efa93",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ },
+ "title": "roll47: rolling 1-hour window checked every 15 minutes; continue or revert after |r60| crosses a fixed-percent or volatility-scaled threshold",
+ "before_registration": "Only synthetic self-checks (roll47.py check) and signal counts (roll47.py counts: r60 and thresholds only, no forward return) ran. Prior knowledge: fade31 (fading 1.5 ATR fast moves loses gross in all 36 cells), the up/down tables (fast moves lean back 4-5 pp in frequency, no mean R), imom34 (intraday momentum fails), xvol9/xvol10 and lead35 (moves end inside the burst bar), scan46 (H1 N-bar momentum fails after DSR).",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or data after 2026-10-08.",
+ "data": "history.db candles_ba M1 bid/ask (read-only), time < 2026-10-09T00:00 UTC. Mid = (bid + ask) / 2. Instruments WTICO/USD (primary), XAU/USD, XAG/USD, NATGAS/USD, SPX500/USD, NAS100/USD, US30/USD, DE30/EUR, EUR/USD. Nothing fetched.",
+ "grid": "Decision times T on the UTC clock, T % 15 min == 0. Window = M1 bars starting in [T-60, T-1] (closed by T). Valid iff >= 50 of the 60 bars exist and bars T-60 and T-1 exist.",
+ "signal": "r60 = mid_c[T-1] / mid_o[T-60] - 1. Fixed thresholds |r60| >= 0.4%, 0.8%, 1.2%. Vol-scaled |r60| >= k x med20, k in {2, 3}, med20 = median |r60| over the previous 20 valid decisions at the same UTC clock slot (earlier days only, >= 15 required).",
+ "trade": "Entry at the open of the first M1 bar starting in [T, T+4] (mid for gross; ask for a long, bid for a short for net). Exit at the close of the latest bar starting in [e+h-5, e+h-1], h in {15, 30, 60, 120} min, no stop, no target. A trade without an exit bar is dropped and counted. CONTINUE trades sign(r60), REVERT trades -sign(r60).",
+ "overlap": "Per instrument, threshold and h: after an entry at e, decisions with T < e + h are skipped (no stacking). CONTINUE and REVERT share one trade list, so their gross means are exact mirror images; their net means differ by the spread.",
+ "units": "bps per trade: gross = s x (mid_c_exit / mid_o_entry - 1) x 1e4; net = long (bid_c_exit - ask_o_entry) / mid_o_entry, short (bid_o_entry - ask_c_exit) / mid_o_entry. Also gross / sig20, sig20 = RMS of r60 (bps) over all valid decisions in the previous 20 trading days (>= 10 days).",
+ "windows": {"dev": "trading days 2018-01-01 .. 2022-12-31", "w2023": "trading days 2023-01-01 .. 2026-10-08 (development window)"},
+ "inference": "validate.day_boot over all trading days (22:00 UTC rollover) with a valid decision in the window, block 5, 1000 reps, seed 47. SE = bootstrap SD of the mean. One-sided p = 1 - Phi(mean / SE) for mean > 0. Holm over the 40 primary cells, separately per window.",
+ "primary": "WTICO/USD, 5 thresholds x 2 directions x 4 horizons = 40 cells, gross mean bps.",
+ "decision_rule": "PASS iff some primary cell has Holm-adjusted p < 0.05 in BOTH windows (same sign by construction, mean > 0) AND its net mean bps > 0 in both windows. Otherwise FAIL.",
+ "secondary": "Never decide: the same 40-cell grid on the 8 other instruments; hit rate; signals and trades per day; spread share = mean(gross - net) / mean |gross|; time of day by T (Asia 22-07, London 07-13, NY 13-22 UTC); sigma-unit means with CIs; MDE80 = 2.8 x SE per cell; fixed-percent vs vol-scaled comparison. A news-burst split is not included.",
+ "signal_counts_per_day": "audit/roll47/out/counts.json"
+}

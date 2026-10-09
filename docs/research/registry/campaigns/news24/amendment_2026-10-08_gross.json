@@ -1,0 +1,25 @@
+{
+ "amendment": 1,
+ "created": "2026-10-08T15:40:00+0200",
+ "status": "PRE-OUTCOME: registered before any outcome was computed. The GKG fetch was in progress (663 of ~39.7k files, all baseline grid); no event was joined to news and no R was computed. out/ held only prereg_comment.md.",
+ "source": "Operator decision 2026-10-08, relayed by the coordinator: treat the spread as the operator's own risk.",
+ "amends": {"prereg.json": "f2244ff187d7d502ad6e04a727d0117b0873535afc26e439afcaaad59cf0fded"},
+ "changes": {
+  "primary_metric": "GROSS: the same simulation (labels_v2.simulate, same stop definition: R = 1.5 x ATR14 at the signal bar, stop -1 R, breakeven after +1 R, target +3 R, time exit at the close of bar H, no flip exit) run on mid prices (bid = ask = mid). Entry at the NEXT bar's mid open (latency kept; never measured from the event bar's close). Gross R at H = 3, 6, 12. Continuation rate = share of gross R > 0.",
+  "decision_rule": {
+   "PASS": "WTICO/USD M5 H6: GROSS NEWS mean R CI lower bound > 0 in BOTH dev and w2023, AND GROSS NEWS - CONTROL CI lower bound > 0 in BOTH windows",
+   "LEAD": "not PASS, but GROSS NEWS - CONTROL CI lower bound > 0 in at least one window for WTICO/USD M5 H6, or the same PASS pattern in another instrument (secondary)",
+   "REJECT": "anything else"
+  },
+  "secondary": "spread-inclusive results (bid/ask fills, the original prereg metric) reported side by side for every cell; never decision-eligible",
+  "unchanged": "events (including the spread <= 0.2 R event filter), relevance, lookahead guard, NEWS/CONTROL definition, windows, bootstrap, everything else"
+ },
+ "code_sha256": {
+  "news24.py": "48876a104c806129fe3974fde8f101072beb0c3f1e093ebfb6234ccbfe5d418e",
+  "events.py": "1e391e2b45f6e7b7dae4cc0ca06d47389d031016655c014a13f61f5b4b35225d",
+  "relevance.py": "55f5f1df1459f5750292379ff9fb8daa551ebaa7b1b23ed6c47c5c2dc3e39124",
+  "relevance.json": "09dab78662dc71d4932979f899fa43374d8819fd5f83f58aa792ae2e12db63f8",
+  "fetch.py": "81f94a7778ee86effd204c85760aea06401a984fc1ad0578dd15091959719761",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6"
+ }
+}

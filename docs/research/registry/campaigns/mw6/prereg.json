@@ -1,0 +1,164 @@
+{
+ "created": "2026-10-08T05:16:29+0200",
+ "title": "mw6: multi-week regime layer (#314, queue item 6): multi-day direction-bearing policies, big-week state, financing, gaps",
+ "question": "Does any deterministic multi-day policy (time-series momentum, D1/H4 supertrend, donchian), alone or conditioned on the big-week state, earn a positive net return after bid/ask, financing and gap fills, and beat matched nulls?",
+ "before_registration": "Computed only coverage (coverage.py) and the 2018 feature floors below. No policy outcome, label or null was computed before this file.",
+ "data": {
+  "source": "data/research/history.db candles_ba M1 bid/ask (read-only)",
+  "bars": "D1: UTC-midnight buckets (production resampleCandles alignment) with the Sunday 22:00-24:00 UTC open stub joined to Monday; H4: epoch-aligned UTC buckets. mid = (bid + ask) / 2 per field. Decision at the D1 close (00:00 UTC); H4 trend from the last H4 bar closed at that time.",
+  "primary": [
+   "WTICO/USD",
+   "XAU/USD"
+  ],
+  "attempts": [
+   "XAG/USD",
+   "NATGAS/USD",
+   "SPX500/USD",
+   "EUR/USD"
+  ],
+  "coverage": {
+   "WTICO/USD": {
+    "first": "2018-01-01T23:00",
+    "last": "2026-10-07T18:38",
+    "missing_weekday_sessions": 24
+   },
+   "XAU/USD": {
+    "first": "2018-01-01T23:05",
+    "last": "2026-10-07T20:27",
+    "missing_weekday_sessions": 23
+   },
+   "XAG/USD": {
+    "first": "2018-01-01T23:05",
+    "last": "2026-10-07T20:59",
+    "missing_weekday_sessions": 23
+   },
+   "NATGAS/USD": {
+    "first": "2018-01-01T23:00",
+    "last": "2026-10-07T23:07",
+    "missing_weekday_sessions": 24
+   },
+   "SPX500/USD": {
+    "first": "2018-01-01T23:00",
+    "last": "2026-10-08T00:33",
+    "missing_weekday_sessions": 21
+   },
+   "EUR/USD": {
+    "first": "2018-01-01T22:00",
+    "last": "2026-10-08T02:11",
+    "missing_weekday_sessions": 13
+   }
+  },
+  "coverage_note": "all six instruments: every year 2018-2026 has a full weekday session count; missing weekday sessions are exchange holidays (13-24 per instrument over 8.8 years); newest bar within 1 day of registration. XAG 2018-19 and NATGAS have thinner M1 (minutes without quotes), sessions present."
+ },
+ "risk_unit": "1R = 3 x ATR10(D1) (production supertrend Wilder ATR) at the decision bar; position N = 1/(3 ATR) cash per price unit (equal cash risk). Tranche policies use N/H per tranche, so a full position is 1R of risk.",
+ "execution": "enter at the next D1 open (buy ask / sell bid); exits at the next open after the exit decision or at the stop. Stops are checked on the exit-side D1 bar with fills.resolve: an open at or through the stop fills at the open (overnight and weekend gaps at full size; losses beyond 1R reported at full size). Daily P&L marks at the mid close.",
+ "financing": {
+  "rule": "charged on long AND short positions: notional (N x mid close) x rate / 365 x calendar nights to the next bar, for every bar the position is held at its close (Fri->Mon = 3 nights; this approximates OANDA's rollover-day multiple: the weekly total matches, the day the multiple lands may differ)",
+  "rates": [
+   0.0,
+   0.03,
+   0.06
+  ],
+  "base": 0.03,
+  "note": "OANDA CFD financing = benchmark rate +/- admin fee (about 2.5 %); 3 % is a mid approximation, 6 % conservative, 0 % the gross bound. Currency conversion costs: none (all instruments quote in USD; a USD account)."
+ },
+ "policies": {
+  "B1_tsmom60_h20": "daily tranche of 1/20 risk unit, side = sign(C_i - C_{i-60}), enter next open, exit open 20 bars later, no stop",
+  "B2_tsmom120_h20": "same with 120-day lookback",
+  "B3_tsmom20_h5": "daily tranche of 1/5 risk unit, side = sign(C_i - C_{i-20}), hold 5 bars, no stop",
+  "B4_st_d1": "always-in D1 supertrend(10,3) follower: reverse at next open after a D1 flip; no stop (gaps at full size)",
+  "B5_st_h4d1": "enter next open on the onset of H4 and D1 supertrend agreement, side = trend; initial stop 1R (3 ATR), trailing stop = max(initial, D1 supertrend line) updated at each close; exit next open on a D1 flip or after 20 bars",
+  "B6_donchian": "enter next open after a close beyond the prior 20-bar high/low; exit next open after a close beyond the prior 10-bar opposite extreme or after 20 bars; initial stop 1R",
+  "C1_st_h4d1_bigweek": "B5 entries taken only when the big-week state is ON at the decision bar",
+  "C2_tsmom60_bigweek": "B1 tranches taken only when the big-week state is ON at the decision bar"
+ },
+ "max_hold": 20,
+ "big_week_state": "ON at decision bar i when ex5_i or ex20_i (range of the last 5 / 20 bars over the close 5 / 20 bars before) >= the 90th percentile of the same measure over the 252 values whose windows ended before the current window started, OR >= the fixed per-instrument floor. Undefined (OFF) before 200 prior values. Consecutive ON days form one episode.",
+ "floors": {
+  "WTICO/USD": {
+   "floor5": 0.09748539415436147,
+   "floor20": 0.19772450932059737
+  },
+  "XAU/USD": {
+   "floor5": 0.03068081122090919,
+   "floor20": 0.050583798617832805
+  },
+  "XAG/USD": {
+   "floor5": 0.05049950163986263,
+   "floor20": 0.08637190981591171
+  },
+  "NATGAS/USD": {
+   "floor5": 0.14401436037348034,
+   "floor20": 0.2964075580021837
+  },
+  "SPX500/USD": {
+   "floor5": 0.061517946116316696,
+   "floor20": 0.11643730355892744
+  },
+  "EUR/USD": {
+   "floor5": 0.023638041964532695,
+   "floor20": 0.041074209600020194
+  }
+ },
+ "stress_index": "count of the 6 instruments whose big-week state is ON at the same D1 decision date (all D1 bars close at 00:00 UTC). Reported as a conditioning diagnostic only; no policy uses it (candidate budget).",
+ "labels": "per base signal (mom20/60/120, D1 trend, H4+D1 agreement trend): sign agreement with the 5-day and 20-day forward return (next open to open), first passage of +/- 2 ATR over 5 bars and +/- 4 ATR over 20 bars in the signal direction; split by big-week state. Diagnostics, not policies.",
+ "nulls": {
+  "random_side": "same entries and holding durations, random side, same stop rule re-simulated (200 reps)",
+  "random_timing": "entries circularly shifted by a random offset within the trade span, sides and durations kept, stops re-simulated (200 reps)",
+  "random_thinning": "for C1/C2: the ungated parent's trades randomly thinned to the gated count (200 reps)",
+  "pairing": "daily P&L minus the null's mean daily P&L, 20-day moving-block bootstrap CI of the annualized difference; and the share of null Sharpe ratios >= the policy's"
+ },
+ "windows": {
+  "dev": "2019-01-01..2022-12-31 (2018 is warm-up for the 120-day lookback and the 252-day percentile). Rules have no fitted parameters, so walk-forward refitting is void; the trailing percentiles are causal.",
+  "w2023": "2023-01-01..newest: DEVELOPMENT window (inspected before), never a holdout",
+  "crises": {
+   "2020H1": [
+    "2020-01-01",
+    "2020-07-01"
+   ],
+   "2022H1": [
+    "2022-01-01",
+    "2022-07-01"
+   ],
+   "2025Q4_26Q1": [
+    "2025-10-01",
+    "2026-04-01"
+   ]
+  }
+ },
+ "objective": {
+  "primary": "per policy and instrument (and the 6-instrument equal-risk pooled portfolio as a declared attempt): annualized Sharpe-like ratio of net daily cash P&L at 3 % financing, 20-day moving-block bootstrap 95 % CI",
+  "minimum_useful_effect": "Sharpe CI lower bound > 0 AND paired annualized difference vs the random-side null CI lower bound > 0, in dev2019_22 AND in w2023, at 3 % financing; for C1/C2 also vs random thinning",
+  "risk_constraints": "max drawdown <= 15 R per instrument (point); worst single trade at full size >= -2.5 R in every crisis window; loss-beyond-1R share reported",
+  "references": "no-trade (0), the always-on parent (C1 vs B5, C2 vs B1), random-side, random-timing, random-thinning",
+  "sample": "report effective episodes (trades; tranche days / H); a cell with < 30 effective episodes is underpowered",
+  "multiplicity": "no correction: every window is development data; any candidate goes to prospective shadow (#313) as the binding confirmation",
+  "verdict_scope": "development evidence only; nothing is qualified; at most 'worth registering for prospective shadow'",
+  "no_switch": "objective, MUE and constraints fixed here"
+ },
+ "budget": {
+  "candidates": 8,
+  "instruments": 6,
+  "financing_levels": 3,
+  "ml": "none (deterministic first; ML is skipped within this time box)",
+  "note": "every cell logged to trials.jsonl (exp mw6)"
+ },
+ "rules": "no test_ledger use; nothing marked qualified; development evidence only",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "mw6.py": "71e76cc0b3383a9f04f3d23af54cd16375bd205afd7f8833621b6911e0755d5c",
+  "coverage.py": "b2538cf6bea3ec4ecbae84a267ac9ae76480ea943f75d456550623b888227c45"
+ }
+}

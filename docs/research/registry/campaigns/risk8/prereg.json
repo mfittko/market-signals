@@ -1,0 +1,96 @@
+{
+ "created": "2026-10-08T05:04:58+0200",
+ "title": "risk8: T2-conditioned stop width, sizing and exposure gating on fixed entries (#311 queue item 8) + fixed vs scheduled refit of the T2 LR (queue item 5)",
+ "question": "Can the side-free big-move forecast (T2) improve the RISK of fixed entries through stop width and sizing, at non-inferior return, although it cannot pick direction?",
+ "before_registration": "Looked at entry-set sizes and UTC hours only (explore.py; no outcomes): WTI cfgX 4631 entries, 79 % inside 07:00-20:30 UTC; flipsA 7864, 85 %. Hence the T2 model is fitted on an ALL-HOURS cadence sample (P3 covers only 07:00-20:30). No overlay outcome or refit score was computed before this file.",
+ "entry_sets": {
+  "cfgX": "unselected D-nogate entries: de_v2.run_d cfg (none, h1, W 12), one entry per episode, no overlap, spread <= 0.2 R at the decision bar",
+  "flipsA": "every M5 supertrend flip bar with spread <= 0.2 R; side = flip; overlapping trades allowed (matched-entry diagnostic, not a capital replay)",
+  "common": "entries with an uncensored baseline outcome; identical entries for every variant"
+ },
+ "management": "308 baseline policy (labels_v2.simulate, POLICY k=1.5, m=1, T=3, H=72, flip exit, one-bar modification latency, conservative intrabar ordering, bid/ask fills). A variant changes only the stop distance (R = 1.5 x ATR x mult); arm (+1R), breakeven and the 3R target stay in R units of the variant. Labels (arm/runner/net R) are regenerated per variant by re-simulation (311 rule). The T2 label is side- and policy-free, so it is not regenerated.",
+ "spread_rule": "a variant stands aside when spread > 0.2 x its own R (only binds when mult < 1)",
+ "cash": "equal cash risk: 1 cash unit at the variant's stop, so cash return = net R of the variant; V2 scales cash risk by w (mean ~1); stood-aside entries return 0",
+ "t2_model": {
+  "name": "lr_todvol",
+  "features": [
+   "tod_s",
+   "tod_c",
+   "dow_s",
+   "dow_c",
+   "nday",
+   "rv12_288",
+   "rv48_288",
+   "rv288",
+   "atr_px",
+   "atr_ratio",
+   "range",
+   "range3"
+  ],
+  "learner": "de_v2.e2_lr_fit (standardized L2 LR, C=0.1), day weights 1/rows-per-day, 12 coefficients + intercept; probability = sigmoid(raw); no separate calibrator",
+  "label": "T2: mid high/low over bars i+1..i+72 reaches close_i +/- 6.0 ATR_i (ablate4 KX)",
+  "fit_rows": "all-hours cadence: every M5 bar closing on :00/:30 UTC, base_active, spread <= 0.2 R, finite features, uncensored; label end before cutoff - 5 days",
+  "vol_forecast": "ridge (alpha 1) of log(max(forward 72-bar max |excursion| / ATR, 0.1)) on the same 12 standardized features, same rows and weights; g = exp(prediction)",
+  "schedule": "overlays: walk-forward annual refit for test years 2019-2022 (expanding from 2018); one fixed fit on 2018-2022 for 2023+. Overlay parameters (quantiles, medians, normalizer) from the same set's entries BEFORE the test year, scored by that fold's model"
+ },
+ "variants": {
+  "V1_volstop": "stop mult = clip(g / median_prior(g), 0.67, 1.5); equal cash risk (vol-targeted 1R)",
+  "V2_volsize": "stop unchanged; cash weight w = clip(median_prior(g) / g, 0.67, 1.5) / mean_prior(same) (size down when forecast vol is high relative to ATR)",
+  "V3_t2stop": "stop mult 0.75 if p < q33_prior, 1.25 if p > q67_prior, else 1",
+  "V4_t2wide": "stop mult 1.25 if p > q67_prior, else 1",
+  "G1_gate33": "stand aside if p < q33_prior (changes the population; reported separately)",
+  "G2_gate50": "stand aside if p < median_prior (changes the population; reported separately)"
+ },
+ "budget": {
+  "variants": 6,
+  "entry_sets": 2,
+  "instruments": "WTI primary, XAU if time permits",
+  "models": "lr_todvol + ridge vol forecast, no tuning",
+  "clip": [
+   0.67,
+   1.5
+  ],
+  "thresholds": "terciles/median fixed in advance",
+  "refit_schedules": 2,
+  "note": "development windows only; no multiplicity correction; every cell logged (exp risk8)"
+ },
+ "objective": {
+  "kind": "risk-reduction overlay with predeclared return non-inferiority (#307 allows; it can never confer economic qualification: the baselines are not qualified against no-trade)",
+  "primary_risk": "daily CVaR 5 % of cash P&L over days with at least one entry of the set (paired, same days): variant minus baseline, 95 % 5-day moving-block bootstrap CI lower bound > 0",
+  "return_noninferiority": "paired mean cash return per entry, variant minus baseline: CI lower bound > -0.03 R",
+  "constraints": "max drawdown (day-level, cash) <= (1 + 0.1) x baseline (point); baseline runners retained >= 0.75 (point); gating variants: coverage >= 0.5",
+  "decision_window": "2023-01-01..newest DEVELOPMENT window (fixed 2018-2022 model). Consistency: in walk-forward 2019-2022 the risk-difference point estimate is > 0 and the return difference point estimate > -margin. Both required for 'meets the risk objective'. Evaluated per entry set and instrument.",
+  "no_switch": "objective, margin and constraints fixed here; not changed after results"
+ },
+ "report": "per variant and window: net R per entry (and per taken trade), net return under equal cash risk, max drawdown, per-trade CVaR 5 %, daily CVaR 5 %, share of entries losing beyond 1R (and 1.5R), winners and runners retained, coverage, exposure (cash-weighted bars held vs baseline), optimistic-ordering bound, cost sensitivity 0/0.02/0.05/0.10 base-R (price slippage, so x 1/mult in variant R); 1000-rep 5-day moving-block CIs; paired vs baseline on identical entries",
+ "item5": {
+  "question": "fixed lr_todvol (fit once on 2018-2022) vs frozen scheduled refits: AUC and calibration drift by year",
+  "schedules": {
+   "fixed": "one fit, cutoff 2023-01-01 - 5 days",
+   "refit_q_expanding": "refit at every calendar quarter start from 2023-01-01, on all rows with label end < quarter start - 5 days (expanding from 2018)",
+   "refit_q_rolling3y": "same, trailing 3 years only"
+  },
+  "populations": "all-hours cadence rows (fit population) and its P3 subset (07:00-20:30 UTC, comparable to fm2)",
+  "metrics": "AUC with day-bootstrap CI, paired AUC difference vs fixed, Brier, log loss, calibration-in-the-large, calibration slope/intercept, ECE (10 equal-frequency bins), per calendar year 2023-2026; every artifact recorded with its training cutoff"
+ },
+ "rules": "no test_ledger use; nothing is marked qualified; development evidence only",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "risk8.py": "1d11a84a202b2fa107c0c50afb56d5d16599e1c28222963969292665fab1ea6b",
+  "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+  "ablate4/run.py": "617d4d3ee9758ac862f79df8a06fa1f7052a26744bd3588e9c8ef32cfe305bbc",
+  "fm2/fm2.py": "3a2b0771268de1e0f15fdc2dc4a87df8022d3ddbd2fe9dd423b3a65f4ef4fc45"
+ }
+}

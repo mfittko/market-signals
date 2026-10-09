@@ -1,0 +1,56 @@
+{
+ "created": "2026-10-08T08:18:36+0200",
+ "title": "xvol10: M1 event study of cross-instrument activity bursts (gating diagnostic, #310 campaign)",
+ "purpose": "gating diagnostic for a possible follow-up policy test; no policy, no stops/targets, no optimization, no test_ledger, nothing marked qualified",
+ "before_registration": "No activity, burst or outcome statistic on M1 was computed before this file. The M5 results of xvol9 (issue 310 comment 6053439954) are known.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD",
+  "USD/JPY",
+  "BTC/USD"
+ ],
+ "data": "the same M1 bid/ask snapshot xvol9 used (engine/cache M1 npz named by the xvol9 cache row count and last time); history.db is not read. volume = OANDA price-update count. M5 bars from xvol9 cache.",
+ "data_files": {
+  "WTICO/USD": "WTICO_USD_3002318_2026-10-07T1838.npz",
+  "XAU/USD": "XAU_USD_3060959_2026-10-07T2027.npz",
+  "XAG/USD": "XAG_USD_2823959_2026-10-07T2059.npz",
+  "NATGAS/USD": "NATGAS_USD_2063563_2026-10-07T2307.npz",
+  "SPX500/USD": "SPX500_USD_2938852_2026-10-08T0033.npz",
+  "EUR/USD": "EUR_USD_3213370_2026-10-08T0211.npz",
+  "USD/JPY": "USD_JPY_3221681_2026-10-08T0351.npz",
+  "BTC/USD": "BTC_USD_3288972_2026-10-08T0528.npz"
+ },
+ "weekend": "Fri 21:00 .. Sun 22:00 UTC excluded from normalization, thresholds and detection (xvol9.weekend)",
+ "activity": "a = M1 tick count / median(tick count at the same UTC M1 slot over the prior 20 trading days, >= 10 obs, current day excluded; floor 1). Instrument above = a > its 95th percentile over the prior 20 trading days (xvol9.thresholds, all non-weekend M1 bars, >= 10 days)",
+ "burst": "M1 burst = at least K of 8 instruments above in the same M1 bar; K=3 primary, K=2 and 4 sensitivity; 60-minute cooldown (xvol9.events). t0 = first burst minute",
+ "atr": "ATR14 = Wilder ATR(14) of M5 mid bars (xvol9 cache), value of the last M5 bar completed at or before t0 (as-of t0 open). R = 1.5 x ATR14. Note: xvol9 used the production supertrend ATR(10)",
+ "lead": "lead = instrument above threshold in the t0 bar with the largest |mid close(t0) - mid close(previous M1 bar)| / ATR14 (xvol9.h1h3 on the M1 grid); direction = sign of that return",
+ "measurements": {
+  "path": "signed mid path of the lead, (mid close at t0 close + h minutes - mid close before t0) / ATR14, h in (0, 1, 2, 3, 5, 10, 30) (0 = t0 close); mean, se, 5-day block bootstrap 95% CI (validate.day_boot, 3000 reps); windows dev2018_22 and w2023 separately; all events and confirmed only",
+  "confirmation": "t0+1 M1 bar exists (contiguous) and its mid close is beyond the t0 bar mid high (long) / low (short); spread at the t0+1 close <= 0.2 R (queue spread rule); entry bar = M1 bar at t0+2 must exist",
+  "executable": "entry at t0+2 open, ask (long) / bid (short); mark at entry + (3, 5, 10, 30) minutes on the bid (long) / ask (short) close of the last M1 bar ending by then; in R; spread-inclusive; also reported for all events with an entry bar (unconfirmed)",
+  "spread": "(ask open - bid open) at the entry bar, in R",
+  "share_ahead": "total = max favourable mid excursion from the t0 open over bars t0 .. t0 close + 30 min; ahead = max favourable mid excursion after the entry open (entry bar .. same end); reported as sum(ahead)/sum(total) and the median per-event ratio",
+  "laggards": "xvol9 H2 leader map {'SPX500/USD': {'WTICO/USD': 1, 'EUR/USD': 1, 'USD/JPY': 1, 'XAG/USD': 1}, 'XAU/USD': {'XAG/USD': 1, 'EUR/USD': 1, 'USD/JPY': -1}}; on M1 leader |move| >= 0.5 ATR14 and laggard |move| < 0.25 ATR14 (xvol9 1.0/0.5 scaled by ~1/sqrt(5)); signed laggard mid path in laggard ATR14",
+  "counts": "events per year, lead per instrument"
+ },
+ "m5_row": "xvol9 M5 detection reproduced unchanged (K=3, its ATR10 move chooses the lead and direction; H2 with 1.0/0.5); the same measurements with the burst bar [t0, t0+5), confirmation bar [t0+5, t0+10), entry at the first M1 bar in [t0+10, t0+15), ATR14 as-of t0, path h measured from the M5 burst bar close",
+ "windows": {
+  "dev2018_22": "2018-01-01..2022-12-31",
+  "w2023": "2023-01-01..newest (DEVELOPMENT window, not a holdout)"
+ },
+ "go_no_go": "GO to a full policy test only if, in BOTH dev and 2023+, the mean executable spread-inclusive return at +5 or +10 minutes after the confirmed entry has a 95% CI lower bound above +0.05 R for K=3. Otherwise NO-GO and the line closes.",
+ "go_operational": "For K=3 M1 detection, confirmed events: window passes if the 95% day-block CI lower bound of the mean executable R at +5 or at +10 minutes after entry is > +0.05 R. GO iff dev2018_22 and w2023 both pass. Unadjusted 95% CI. Otherwise NO-GO.",
+ "rules": "no test_ledger; nothing marked qualified; trials logged to trials.jsonl with exp xvol10; development evidence only",
+ "code_sha256": {
+  "xvol10.py": "1bb859cfa09ce9b8f0672dcaf163d9515c11b3b5b5767961ab9acb74a8406999",
+  "xvol9.py": "bad44f29af6f631e88d66d3fb7566bfdd4af7650d7bcb52d0f1ee5577cd155a9",
+  "xvol9/prep.py": "e7561c5835fe1e4ffdbe54b8f609c078fda6c42e8f9f67f8e940254c40dee106",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

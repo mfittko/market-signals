@@ -1,0 +1,58 @@
+{
+ "created": "2026-10-09T21:09:15+0200",
+ "exp": "trend49",
+ "code_sha256": {
+  "trend49_lev.py": "4249b978fa7286f154a48d8edc69fe745e007b8b862cb7893f86662df25f9a9c",
+  "trend49.py": "7bd16424428b6a6be1e931f9d384ec849181aac4e3ed0ef89d01a5bb098523b7"
+ },
+ "basis_values": {
+  "2003": 1.01,
+  "2004": 1.37,
+  "2005": 3.15,
+  "2006": 4.73,
+  "2007": 4.36,
+  "2008": 1.37,
+  "2009": 0.15,
+  "2010": 0.14,
+  "2011": 0.05,
+  "2012": 0.09,
+  "2013": 0.06,
+  "2014": 0.03,
+  "2015": 0.05,
+  "2016": 0.32,
+  "2017": 0.93,
+  "2018": 1.94,
+  "2019": 2.06,
+  "2020": 0.35,
+  "2021": 0.05,
+  "2022": 2.02,
+  "2023": 5.07,
+  "2024": 4.97,
+  "2025": 4.07,
+  "2026": 3.68
+ },
+ "before_registration": "The registered trend49 run and amendment 1 (post-output episode legs, trend49_amend.py) were already computed and posted. No leveraged or margin result was computed before this file. Only the synthetic check ran.",
+ "label": "amendment 2, descriptive, hindsight-selected episodes, not a test; registered before any leveraged result was computed",
+ "cost_version": "CFD only: half median spread per side on every unit change (entry, exit, resize, close-out, window end); financing on full notional |units| x close per calendar day to the next bar, long basis+2.5%, short 2.5%-basis",
+ "leverage": {
+  "1x/3x/10x": "at each entry or direction change, units = L x equity at the fill / open price; units held fixed until the next change",
+  "VT20": "daily resize at the open to min(20% / rv20, ESMA cap) x equity; rv20 = std of the last 20 close-to-close returns up to the previous close, x sqrt(261); no position until 20 returns exist"
+ },
+ "esma_cap": {
+  "XAU_USD": 20,
+  "NAS100_USD": 20,
+  "SPX500_USD": 20,
+  "XAG_USD": 10,
+  "WTICO_USD": 10,
+  "NATGAS_USD": 10
+ },
+ "margin": "required margin = |units| x price / ESMA cap; close-out when equity <= 50% of required margin. Checked at the open (old position, fill at the open) and intraday on the low (long) or high (short), fill at the threshold price; equity floored at 0 (negative balance protection)",
+ "reentry": {
+  "with": "after a close-out the rule re-enters only when its target changes to a new non-zero direction and equity > 0; BH has no new signal and stays flat",
+  "without": "after the first close-out the account stays flat to the end of the run"
+ },
+ "runs": "each window and each episode leg is a fresh account with equity 1 at the first bar's open; window end charges the exit spread",
+ "episodes": "amendment 1 leg dates from out/episodes_amended.json: entry at the open of the bar after the leg start close, end at the leg extreme close",
+ "basis": "FRED DTB3 annual averages from out/DTB3.csv (public CSV fetched 2026-10-09, 2017-01-03..2026-10-07); trend49.TBILL for earlier years",
+ "metrics": "final equity multiple, CAGR (261 bars/yr), max drawdown of daily close equity, close-outs, financing paid (sum, % of starting equity); per episode equity multiple (operator window dates)"
+}

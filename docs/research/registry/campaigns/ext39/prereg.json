@@ -1,0 +1,30 @@
+{
+ "created": "2026-10-09T11:51:02+0200",
+ "code_sha256": {
+  "ext39.py": "ebe6e14ba1d6f2f2c537a9827a4bb126d4a23bc2076f6c0e5cb66c18dec591a2"
+ },
+ "title": "ext39: continuation or reversal after an extreme daily move, pooled over 33 OANDA daily mid series",
+ "before_registration": "Only synthetic fixtures (ext39.py check) and event counts per window/class/threshold (ext39.py describe, no forward return computed) ran. Prior knowledge: tsmom36 (slow momentum, FAIL, gross Sharpe +0.25 dev / +0.65 2023+), mw6 and rescan26 (multi-week continuation on 6 instruments, failed with 20-day blocks). Literature is mixed: short-term reversal in equities (Lehmann 1990, Jegadeesh 1990), continuation after large moves in some futures.",
+ "data": "audit/tsmom36/daily.db read-only (33 instruments: 10 FX, 8 indices, 11 commodities, 4 bonds; daily mid bars closing 17:00 New York; trading date = close date; Saturday/Sunday close dates dropped; last close 2026-10-08). Spreads: audit/tsmom36/out/spreads.json (median M1 close spread from history.db candles_ba, 2018+). Nothing fetched.",
+ "definitions": {
+  "return": "r_t = close[t] / close[t-1] - 1 on each instrument's own bars",
+  "sigma": "sigma_t = sample std (ddof 1) of r over the 60 own bars t-60..t-1 (excludes r_t); no event before 60 prior returns exist",
+  "event": "|r_t / sigma_t| >= 2.5 (PRIMARY); d = sign(r_t)",
+  "declustering": "one event per instrument per 5 own trading bars: after an event at t, candidates at t+1..t+4 are skipped; the next event can be t+5 or later. Re-applied separately for each threshold",
+  "outcome": "signed forward return d x (close[t+h] / close[t] - 1), reported in units of sigma_t and in bps; h in {1,3,5,10} own bars. An event whose exit bar does not exist yet is dropped for that h",
+  "entry": "PRIMARY: entry at the event bar's own close (assumes trading at 17:00 New York at the close mid). SECONDARY: entry at the next bar's close, outcome close[t+1+h] / close[t+1] - 1, still scaled by sigma_t",
+  "net": "net bps = gross bps - 2 x cost per side - 0.822 bps x calendar nights between entry and exit dates (3%/365 on notional; long and short both charged; a weekend counts 3 nights). Cost per side = half the median spread where spreads.json has the instrument (18 of 33 incl. FX majors EUR/GBP/USD_JPY, indices, WTI, BCO, NATGAS, XAU, XAG, XPT), else 2 bps",
+  "windows": "assigned by event date: dev 2005-01-01..2022-12-31; second window 2023-01-01..2026-10-08 (development window, inspected data, not a holdout)"
+ },
+ "primary": {
+  "cell": "threshold 2.5, h = 3, entry at the event close, all 33 instruments pooled, up and down events together, equal weight per event",
+  "statistic": "mean signed forward return in sigma_t units",
+  "ci": "cluster bootstrap by ISO calendar week of the event date (all events of a drawn week enter together), 1000 reps, seed 39, percentile 95% CI",
+  "pass": "CI excludes 0 in BOTH windows with the SAME sign: PASS continuation if both lower bounds > 0, PASS reversal if both upper bounds < 0, otherwise FAIL. One test, no multiplicity adjustment"
+ },
+ "secondary_never_decide": "h = 1, 5, 10; asset class (fx, index, commodity, bond); thresholds 2.0 and 3.0; up vs down events; entry at next close; gross and net bps with week-bootstrap CIs; hit rate (share of signed outcome > 0); event counts; MDE80 = 2.8 x bootstrap SD of the mean in sigma; per-instrument means of the primary cell. Full grid 3 thresholds x 4 h x 2 entries x 5 class sets x 3 direction sets x 2 windows = 720 cells, all logged to trials.jsonl",
+ "event_counts_primary": "threshold 2.5, h = 1 availability: dev 3,272 events in 763 weeks (FX 992, index 829, commodity 1,110, bond 341; up 1,466, down 1,806); 2023+ 625 events in 161 weeks (FX 200, index 133, commodity 228, bond 64; up 288, down 337). Threshold 2.0: 6,602 / 1,303. Threshold 3.0: 1,581 / 304",
+ "power_ex_ante": "Under a random walk the h = 3 outcome has SD about sqrt(3) = 1.7 sigma (more after events, as volatility clusters). MDE80 about 2.8 x 1.9 / sqrt(n): about 0.09 sigma dev and 0.21 sigma 2023+ before week clustering. The 2023+ window can only confirm an effect of about 0.2 sigma or more",
+ "known_limits": "Week clustering does not cover overlap between events in adjacent weeks for h = 10. Bad ticks in the daily series (tsmom36 describe lists abs returns > 20%) can create events; they are kept as registered. The 17:00 NY close is a thin-liquidity time for some markets (indices, bonds); the next-close entry is the check for that",
+ "confirmation": "Development evidence only. Any survivor needs prospective confirmation (https://github.com/mfittko/market-signals/issues/313) or data after 2026-10-07"
+}

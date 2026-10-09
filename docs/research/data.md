@@ -1,0 +1,76 @@
+# Data
+
+This page lists the data sources behind the research: what each holds, how it was fetched, what it cost and where it lives. Every database and raw file stays out of git. [registry/LOCAL-EVIDENCE.md](registry/LOCAL-EVIDENCE.md) is the detailed appendix with every local file, its size, sha256 and the command that wrote it. `registry/tools/local_evidence.py` regenerates it.
+
+All local paths are relative to the repository root on the operator machine. `data/` is gitignored.
+
+## Price data
+
+| Source | Holds | Fetch | Cost | Local path |
+|---|---|---|---|---|
+| OANDA M1 bid/ask candles through the FXEmpire proxy | 18 instruments, 2018-01-01 to the present, table `candles_ba` with a mid view `candles`; 50,989,791 rows at the 2026-10-09 snapshot | `data/research/pipeline/history.py`, pages of 5,000 candles, 4 to 10 s between requests, daily top-up LaunchAgent | none paid | `data/research/history.db` (9.9 GB) |
+| OANDA M1 mid (legacy) | WTICO/USD 2018-01 to 2020-06, 820,000 rows | fetched before the switch to bid/ask | none paid | `history.db`, table `candles_mid_legacy` |
+| Dukascopy M1 bid | EUR/USD 2018 to 2024, 2,600,497 rows | moved once by `pipeline/move_dukascopy.py` | none paid | `history.db`, table `candles_dukascopy` |
+| OANDA daily mid, 17:00 New York alignment | 33 markets (10 FX, 8 indices, 11 commodities, 4 bonds), 2002 to 2026-10-07, 209,421 rows | `registry/campaigns/tsmom36/fetch.py` | none paid | `data/research/engine/audit/tsmom36/daily.db` |
+| OANDA daily mid, index candidates | 12 indices, 49,934 rows; 6 kept by the swing44 rule; locked holdout of scan46 | `registry/campaigns/swing44/fetch.py` | none paid | `data/research/engine/audit/swing44/daily.db` |
+| Live engine candles and signals | M1/M5 candles and stored signal verdicts since 2026-07 | the live engine | none paid | `data/candles.db` (read-only for research) |
+
+Notes on OANDA data:
+
+- OANDA candle `volume` counts price updates. It is not exchange volume (xvol9, vol33).
+- Separately aggregated bid and ask highs and lows need not occur together. Their difference is not a spread path (external review).
+- Commodity CFD prices come from the next futures contract. The term-structure carry reaches the trader through financing, so these candles contain no roll yield ([topics/costs-and-vehicles.md](topics/costs-and-vehicles.md)).
+
+## Futures data (Databento GLBX.MDP3)
+
+| Campaign | Holds | Cost | Local path |
+|---|---|---|---|
+| flow29 | CL.v.0 trades 2025-10-01 to 2026-10-08 | $35.98 | `data/research/engine/audit/flow29/raw/` |
+| flow42 | CL.v.0 trades 2024-10-01 to 2025-10-01 | $28.27 | `data/research/engine/audit/flow42/raw/` |
+| cmd41 | ohlcv-1d, volume-ranked front month of HO, RB, PA, LE, HE, ZL, ZM, KE, ZO, GF, 2010-06 to 2026-10-08 | $0.43 | `data/research/engine/audit/cmd41/raw/` |
+
+Each campaign's `fetch.py` quotes the cost first and downloads in resumable chunks. The API key comes only from the `DATABENTO_API_KEY` environment variable. `registry/manifests/databento-raw.sha256` holds the sha256 of all 26 raw files. Costs are from the campaign records in the research queue.
+
+## News data
+
+| Source | Holds | Fetch | Cost | Local path |
+|---|---|---|---|---|
+| GDELT 2.0 GKG 15-minute files | rows relevant to 6 instruments, 2018-12-01 to 2026-10-08: 39,682 files, 11,688,459 rows, 6.7 GB | `registry/campaigns/news24/fetch.py`, a 4-hourly baseline grid plus event windows, filtered by the local `relevance.json` | free | `data/research/engine/audit/news24/news24.db` |
+| TypeSafe Jev labels | 6,000 seeded sample rows, 8,751 labels from 8,583 calls | `registry/campaigns/news28/label.py`, key from `TYPESAFE_API_KEY` | not recorded | `data/research/engine/audit/news28/labels.db` |
+| Live news providers (NewsAPI.ai, GNews, FXEmpire articles, sentinel) | about 73k timestamped headlines since 2026-07 at the time of the 2026-10-07 plan | the live engine | provider plans | `data/candles.db` and engine caches |
+
+A bulk Jev pass over 23.0M url-instrument pairs was estimated at about 32 hours at 2 requests per second. The operator closed news28 without it.
+
+Benzinga news access was researched on 2026-09-07 and not bought. Published prices then: Massive Benzinga dataset $99 per month, Alpaca Algo Trader Plus $99 per month, Interactive Brokers Benzinga feed $35 (retail) or $250 (institutional) per month, direct Benzinga API by quote. See [sources.md](sources.md#data-vendors).
+
+## Interest rates
+
+| Source | Holds | Fetch | Cost | Local path |
+|---|---|---|---|---|
+| FRED series DTB3 (US 3-month T-bill) | daily rates; annual averages used as the OANDA financing basis in trend49 (2023 5.07%, 2024 4.97%, 2025 4.07%) | plain HTTP fetch of the public FRED CSV during trend49 amendment 2 | free | `data/research/engine/audit/trend49/out/DTB3.csv` |
+
+## Calendars
+
+| Source | Holds | Local path |
+|---|---|---|
+| federalreserve.gov FOMC calendars | 175 scheduled statement dates | `data/research/engine/audit/cal37/fomc_dates.json` (generated by `fomc_parse.py`) |
+| EIA weekly petroleum schedule | not archived locally; orb15 used a fixed Wednesday window defined in its `prereg.json` | none |
+
+## Logs and summaries
+
+| File | Holds | Local path |
+|---|---|---|
+| `trials.jsonl` | every trial configuration, 42,810 rows through trend49 (18.7 MB) | `data/research/engine/trials.jsonl` |
+| `QUEUE.md` | the research queue with every verdict and comment URL | `data/research/engine/QUEUE.md` |
+| `registry/trials-summary.csv` | trial counts per campaign (in git) | `docs/research/registry/trials-summary.csv` |
+
+## Data gaps that block open questions
+
+- Commodity futures curves (front and second contract) for carry and curve work. Databento can supply them. See [open-questions.md](open-questions.md).
+- Consensus forecasts with as-of timestamps for EIA and macro releases.
+- Order-book data (Databento MBP-1) around the flow episodes.
+- Options data for put writing (Cboe PUT index is free).
+- A survivorship-free US stock universe and an earnings calendar for cross-sectional work.
+
+<!-- campaign link definitions -->
+

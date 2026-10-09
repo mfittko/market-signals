@@ -1,0 +1,107 @@
+{
+ "created": "2026-10-08T09:16:51+0200",
+ "title": "orb15: opening-range breakout, failed-breakout fade, first-hour -> last-hour momentum, EIA Wednesday conditional momentum; queue v2 item 15, issue 310",
+ "before_registration": "Nothing computed on market data before this file (synthetic self-checks only). Prior knowledge: notrade12, limit13, daytype14 (trend-follow and fades after 2/4 h lose -0.11 to -0.22 R; costs 0.11-0.13 R/trade), literature (Gao et al. 2018, Baltussen et al. 2021, Wen et al. 2023).",
+ "declared": "Development evidence only. No test ledger, nothing qualified. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "fills.resolve via dt14.range_sim, validate.day_boot imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5 bid/ask/mid by bars.resample; ATR(M5) from de_v2.supertrend",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "clock": {
+  "main_open": {
+   "WTICO/USD": "09:00 America/New_York",
+   "NATGAS/USD": "09:00 America/New_York",
+   "SPX500/USD": "09:30 America/New_York",
+   "XAU/USD": "08:20 America/New_York",
+   "XAG/USD": "08:20 America/New_York",
+   "EUR/USD": "08:00 Europe/London"
+  },
+  "main_close": {
+   "WTICO/USD": "14:30 America/New_York",
+   "NATGAS/USD": "14:30 America/New_York",
+   "SPX500/USD": "16:00 America/New_York",
+   "XAU/USD": "13:30 America/New_York",
+   "XAG/USD": "13:30 America/New_York",
+   "EUR/USD": "16:00 Europe/London"
+  },
+  "note": "DST-aware per calendar date (zoneinfo). Session valid iff Mon-Fri, the M5 bars at the main open and the main close exist, and >= 80% of the M5 bars in [open, close) exist."
+ },
+ "variants": {
+  "orb15": "Opening range = mid high/low of the first 15 min (3 M5 bars, contiguous) after the main open. Signal = first M5 bar whose mid close is above the range high (long) or below the range low (short), closing >= 60 min before the main close. Entry at the open of the next bar (long ask, short bid). Stop = the other side of the range (declared; 1R alternative not tested). No target. Exit at the open of the main-close bar (session end). R = |signal mid close - stop| for the spread rule; net R = (exit - entry) / (entry - stop) in long semantics (dt14.range_sim, stop first). One trade per instrument-day.",
+  "orb30": "as orb15 with a 30-min range (6 bars)",
+  "fade15": "Failed-breakout fade on the 15-min range: after the first breakout bar (as orb15), the first later bar whose mid close is back inside the range (before the 60-min deadline) -> enter the opposite side at the next bar open. Stop = breakout extreme (mid high/low from the breakout bar to the signal bar) +/- 0.25 ATR(M5) at the signal bar. Target = the other side of the range. Exit at the main close otherwise.",
+  "fade30": "as fade15 with the 30-min range",
+  "mom30": "Sign of the mid return from the main open to open + 30 min (open of bar at open+30 vs open of the first bar) -> position for the last hour [main close - 60 min, main close): entry at the open of the bar at close - 60 (long ask, short bid), exit at the open of the main-close bar (long bid, short ask). No stop. Equal cash risk unit R = 1.5 ATR(M5) of the bar before entry (labels_v2 POLICY k). Zero predictor return -> no trade.",
+  "mom60": "as mom30 with the open -> open + 60 min predictor",
+  "eia": "WTI only. Predictor = sign of the mid return over [EIA crude release, release + 30 min) (Wed 10:30 ET; Thu 11:00 ET when a US federal holiday falls Mon-Wed, nt12.eia_crude). Trade 14:00-14:30 ET on the release date (before the 14:30 NYMEX settle), fills and R as mom30."
+ },
+ "common": "Bid/ask fills. Spread rule: ask_c - bid_c at the signal bar (ORB/fade) or the bar before entry (mom/eia) <= 0.2 R. Equal cash risk; results in R. No thin-hour filter (all opens and closes lie outside nt12 thin hours).",
+ "nulls": {
+  "random_side": "per trade, the actual outcome or the mirror outcome (same entry bar; opposite side; stop/target reflected through the signal-bar mid close for orb/fade; opposite position for mom/eia) by a fair coin, 1000 draws; p = share of draws with mean R/trade >= actual",
+  "random_clock": "orb/fade/mom: the same rules with the main open replaced by a random start time per session (5-min grid, offset in [-120, +180] min from the main open, |offset| >= 30 min, start hour not a thin hour, start + range/predictor + 60 min <= main close), same exit at the main close, 200 draws per session; eia: the same clock rule (10:30-11:00 ET -> 14:00-14:30 ET) on Mon/Tue/Thu/Fri non-release days, random subsets of the same size as the release set (1000 draws). p = share of draws with mean R/trade >= actual",
+  "drift": "mom/eia: always long in the same holding window on the same days (unconditional drift); paired delta (bootstrap)"
+ },
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window)",
+  "crisis": "abs11 windows 2020H1, 2022H1, 2025Q4-26Q1 (stress tests, reported only)"
+ },
+ "metrics": "pooled over instruments and per instrument: trades, trades/year, net R/trade [95% CI], hit rate [CI], net R per session-day with a trade, gross (mid) R and cost, moving-block day bootstrap (block 5; 1000 reps pooled, 300 per instrument / crisis), random-side and random-clock null percentiles, drift delta (mom/eia), MDE = 2.8 x bootstrap SE",
+ "decision_rule": "A variant is SUPPORTED (development evidence only, eligible to propose a shadow registration under issue 313) iff in BOTH dev 2018-2022 and 2023+ (pooled): net R/trade 95% CI lower bound > 0; Holm-adjusted (7 variants) one-sided p (R/trade <= 0) < 0.05; Holm-adjusted p vs random side < 0.05; Holm-adjusted p vs random clock < 0.05; and for mom/eia Holm-adjusted (3 variants) p (delta vs always-long <= 0) < 0.05. REJECTED iff the net R/trade CI upper bound < 0 in both windows. Otherwise INCONCLUSIVE (with MDE). Per-instrument results are descriptive only.",
+ "budget": {
+  "policy_candidates": 7,
+  "variants": [
+   "orb15",
+   "orb30",
+   "fade15",
+   "fade30",
+   "mom30",
+   "mom60",
+   "eia"
+  ],
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "DEADLINE": 60,
+   "STOP_BUF": 0.25,
+   "LAST": 60,
+   "SPR_R": 0.2,
+   "RC": [
+    -120,
+    180,
+    30,
+    200
+   ],
+   "MIN_COVER": 0.8
+  }
+ },
+ "code_sha256": {
+  "orb15.py": "237569808d050835d587362782202b67bc53ec74d7421baf7aee9e76a0199e3e",
+  "dt14.py": "908eeb453cae910d14f6f7e36932caefea2393292c6b3917a5e99f0fb82f2e6f",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-08T09:16:57+0200",
+   "reason": "bug fix: ndarray .to_numpy() crash in build (no outcome computed before)",
+   "code_sha256": {
+    "orb15.py": "699b3e5947756a399e533752fe0efe7f8bff945e9f70904f0f3c3d843e4b3d87",
+    "dt14.py": "908eeb453cae910d14f6f7e36932caefea2393292c6b3917a5e99f0fb82f2e6f",
+    "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+    "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+   }
+  }
+ ]
+}
