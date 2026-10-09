@@ -1,0 +1,7 @@
+arch              8.0.0
+numpy             2.5.3
+pandas            3.0.6
+scikit-learn      1.9.1
+scipy             1.18.1
+v26.10.0
+Python 3.14.7

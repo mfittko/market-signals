@@ -1,0 +1,90 @@
+{
+ "created": "2026-10-08T16:12:43+0200",
+ "title": "legs27: H1 chop means no direction; H2 long leg then a longer counter-leg; issue 310",
+ "before_registration": "Nothing computed on market data before this file (synthetic self-checks only). Prior knowledge: notrade12 (spread and thin hours), daytype14 (trend-day probability is context only), de_v2 ER feature.",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout (inspected by earlier campaigns). Operator decision: judged GROSS (mid) with realistic latency (act at the next bar open after the condition is known); net (bid/ask) is secondary where it applies (H2 fade). Binding confirmation is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "validate.day_boot, de_v2.supertrend (via nt12.frame) imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5/M15 by bars.resample; mid = (bid+ask)/2",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "EUR/USD",
+  "SPX500/USD",
+  "NATGAS/USD"
+ ],
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31 (trading-day keys, validate.day_of 22:00 UTC rollover)",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window, not a holdout)"
+ },
+ "H1": {
+  "timeframes": "M5 primary; M1 and M15 secondary (same rules in bars of that timeframe)",
+  "measures": "at each closed bar t with bars t-12..t contiguous: ER = |c_t - c_(t-12)| / sum_(i=t-11..t) |c_i - c_(i-1)| (mid closes); wick share = mean over bars t-11..t of (h - l - |c - o|) / (h - l) (bars with h = l skipped); range-to-spread = median(h - l) / median(ask_c - bid_c) over bars t-11..t",
+  "buckets": "quintiles per instrument x timeframe x measure; edges from dev-window bars only (np.quantile 0.2/0.4/0.6/0.8); bucket = searchsorted(edges, x, right); the same edges apply to 2023+",
+  "atr": "production supertrend ATR (flips.mjs, Wilder ATR(10)) at bar t; the request said ATR14 and named the production ATR; the production ATR is used",
+  "outcome": "move = mid open of bar t+1+N minus mid open of bar t+1, N in [3, 6, 12], bars t+1..t+1+N contiguous; a = |move| / ATR_t; clear move iff a >= 0.5; no direction iff a < 0.25; continuation iff sign(move) = sign(c_t - c_(t-12)) (both non-zero); signed continuation = sign(c_t - c_(t-12)) x move / ATR_t",
+  "primary": "WTICO/USD M5 N=6, three separate tests: P(clear) in the chop quintile minus P(clear) in the clean quintile; chop/clean = ER lowest/highest, wick share highest/lowest, range-to-spread lowest/highest. Predicted < 0. A measure PASSES iff the 95% day-block CI upper bound < 0 in BOTH dev and 2023+. Each measure has its own verdict; no pooling across measures.",
+  "secondary": "P(no direction) chop minus clean (predicted > 0), mean |move|/ATR, continuation rate and mean signed continuation per quintile (does chop predict a reversal (P(cont) < 0.5, signed < 0) or only a lack of continuation); all instruments, M1, M15, N=3 and 12 descriptive."
+ },
+ "H2": {
+  "timeframe": "M5 only",
+  "session": "trading day = validate.day_of (22:00 UTC rollover), Mon-Fri keys; day open = mid open of its first bar; session end = mid close of its last bar in the data",
+  "daily_atr": "DATR = mean of (max mid high - min mid low) over the previous 14 trading days that have >= 50% of their M5 bars (strictly earlier days; no event without 14 such days)",
+  "leg": "causal, fixed: up-leg_t = c_t - min(mid low over the last 48 bars of the same trading day, bars max(day start, t-47)..t); down-leg_t = max(mid high over the same bars) - c_t",
+  "events": "for each L in [0.3, 0.6, 1.0] and each direction separately: the first closed bar per trading day with leg >= L x DATR, provided the next bar is in the same trading day. Leg size S = leg at that bar. Rough WTI scale: DATR ~ 2.5-3% of price, so L = 0.3/0.6/1.0 is about 0.75%/1.5%/2.5%.",
+  "outcomes": "from P0 = mid open of the next bar, on mid closes to the session end, rel = leg direction x (close - P0): race = 1 iff rel <= -0.5 S comes before rel >= +0.5 S (unresolved by session end -> excluded from the race); counter = 1 iff the drawdown from the running extreme in the leg direction (starting at P0) reaches S before session end; sess = rel at the last close / DATR; h12/h48 = signed move to the mid open of bar entry + 12/48 (contiguous) / DATR; fade_net (secondary) = opposite-side trade at bid/ask from the next bar open to the session-end close / DATR",
+  "null": "per event, 200 driftless paths of the same length from the event day's M5 mid-close increments (demeaned, resampled with replacement): null P(race) among resolved paths and null P(counter); signed-move null = 0. race_d = race - null race (resolved events), counter_d = counter - null counter",
+  "primary": "WTICO/USD M5 L=0.6: (a) mean race_d 95% day-block CI lower bound > 0 in BOTH windows; (b) mean sess 95% CI upper bound < 0 in BOTH windows. H2 PASS iff (a) and (b).",
+  "hindsight": "separately labelled: the same statistics restricted to days with |day close / day open - 1| <= 0.003 (selects on the day end; descriptive only, never a test)"
+ },
+ "bootstrap": "moving-block day bootstrap (validate.day_boot, block 5, 1000 reps, seed 27) over all trading days of the window",
+ "budget": {
+  "primary_tests": "H1: 3 (one per measure); H2: 2 (a, b) combined into one verdict",
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "W": 12,
+   "NS": [
+    3,
+    6,
+    12
+   ],
+   "CLEAR": 0.5,
+   "NODIR": 0.25,
+   "K": 48,
+   "LS": [
+    0.3,
+    0.6,
+    1.0
+   ],
+   "L_PRIMARY": 0.6,
+   "DATR_N": 14,
+   "RACE": 0.5,
+   "HINDSIGHT": 0.003,
+   "HS": [
+    12,
+    48
+   ],
+   "NNULL": 200,
+   "NBOOT": 1000,
+   "BLOCK": 5,
+   "SEED": 27
+  }
+ },
+ "code_sha256": {
+  "legs27.py": "fda8d73e55ffc169eae67d96e394639e8c7d5a8af186ac3636050000b903c58b",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "file_sha256": {
+  "legs27.py": "fda8d73e55ffc169eae67d96e394639e8c7d5a8af186ac3636050000b903c58b",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+  "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76"
+ }
+}

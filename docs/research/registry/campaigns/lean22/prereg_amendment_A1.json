@@ -1,0 +1,9 @@
+{
+ "created": "2026-10-08T14:43:08+0200",
+ "amends": "prereg.json (lean22, created 2026-10-08T14:40:04+0200)",
+ "timing": "POST-HOC: written after the registered outcomes were computed and inspected (out/report.txt run 1).",
+ "reason": "Registered primary 'lean right' (lean net R > other net R, strict) counts ties as wrong. For the 'plan' target ties are structural: a stop resolves at exactly -1 R and a managed breakeven stop at exactly 0 R, so both sides often realize the same net R. Run 1 showed every side rule (lean, always-long, supertrend) far below 50% on plan cells (down to 7-15% on M1 plan), which measures the tie share and not side skill.",
+ "change": "Add metrics tie (|net_long - net_short| < 1e-9) and st_tie; report tie share and the decisive hit rate = lean right / (bars - ties), with the same buckets, baselines (decisive), bootstrap, greying rule and monotonicity check. The registered primary is still reported unchanged. 'up' cells have no ties, so both metrics coincide there.",
+ "unchanged": "cells, predictions, lean rule, buckets, windows, bootstrap (block 5, 1000 reps, seed 22), greying rule, card window",
+ "code_sha256": {"lean22.py": "ff418a7e09b816c4528a6f9d378ef8479fc77c5c7cbd964dddeba8e32bc171e1", "pp20.py": "82fed00e65f7b6bc883326af19c7124db28e01d7939a2b2932ccfc21990020a1", "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"}
+}

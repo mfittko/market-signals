@@ -1,0 +1,65 @@
+{
+ "variant": "V4",
+ "selected_at": "2026-10-08T01:25:17+0200",
+ "rule": "Eligible: on the final seeds, supported (k=3) count is 0/40 for LR and for HGB on both null and null_hidden, and 0/40 for the oracle score on null (oracle on null_hidden sees the hidden driver: a true positive); this is the audit's level (0/40, Wilson upper 0.088). Among eligible variants: maximize the pooled LR+HGB supported rate in the [0.10, 0.20) economic-value bin; ties broken by oracle-score supported rate in [0.10, 0.20), then pooled LR+HGB in [0.20, 0.40), then in [0.40, inf), then the lower variant number. If no variant is eligible, no E-v2 is selected and E stays unavailable in evaluator v2.",
+ "prereg_created": "2026-10-08T00:39:13+0200",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "controls_v2.py": "62b85167b0acd1a05e79b739bcfd0aee59f0030fd30eca9ed9b5f89f2cde1cb5",
+  "fixtures_v2.py": "888af8a48947fe91407fbae10989c773218cbf5cdf7c9baac48b942e4cc3550a",
+  "register_v2.py": "02ec093a87a4110dc9c52ddd8eb76f351fdb4dc68012cd3439e12279b0f1100a"
+ },
+ "ineligible": {
+  "V1": [
+   "null_hidden/lr"
+  ],
+  "V2": [
+   "null_hidden/lr"
+  ],
+  "V3": [
+   "null_hidden/lr"
+  ]
+ },
+ "keys": {
+  "V1": [
+   0.0,
+   0.24731182795698925,
+   0.11513157894736842,
+   0.36363636363636365,
+   0
+  ],
+  "V2": [
+   0.0,
+   0.26881720430107525,
+   0.11513157894736842,
+   0.3609625668449198,
+   -1
+  ],
+  "V3": [
+   0.005376344086021506,
+   0.3655913978494624,
+   0.1611842105263158,
+   0.4197860962566845,
+   -2
+  ],
+  "V4": [
+   0.0,
+   0.21505376344086022,
+   0.05592105263157895,
+   0.28609625668449196,
+   -3
+  ]
+ }
+}

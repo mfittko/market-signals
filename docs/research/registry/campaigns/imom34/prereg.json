@@ -1,0 +1,84 @@
+{
+ "created": "2026-10-09T11:13:37+0200",
+ "code_sha256": {
+  "imom34.py": "726a7003aea5cf475c34b9b6f75b7065bfadfc58d29a5265277fe4b0ab92cb19",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ },
+ "title": "imom34: market intraday momentum (Gao, Han, Li and Zhou 2018, JFE): overnight + first half hour predicts the last half hour",
+ "before_registration": "Only synthetic self-checks (imom34.py check) and valid-day counts (imom34.py counts, no return read) ran on this design. Prior knowledge: orb15 mom30/mom60 (sign of the first 30/60 min from the main open -> position for the LAST HOUR, M5, net R, no overnight return) REJECTED; SPX mom30 gross -0.146 R dev, -0.033 R 2023+. rescan26 found no gross holder after Holm.",
+ "differs_from_orb15": "imom34 is the paper's rule, not orb15 mom30: (1) the predictor adds the overnight return (previous session close -> open); (2) the position is held only for the LAST HALF HOUR (orb15 held the last hour); (3) M1 prices at exact clock points instead of M5 bar opens; (4) primary is SPX500 alone, gross bps, no spread rule; (5) the 12th-half-hour predictor and the regression slopes are reported; (6) EUR/USD uses the NY session 08:00-17:00 ET (orb15 used London 08:00-16:00).",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or data after 2026-10-07.",
+ "data": "engine/cache M1 bid/ask npz (history.db candles_ba, newest cache per instrument), cut 2026-10-07T18:30 UTC. Mid = (bid_c + ask_c) / 2.",
+ "clock": "America/New_York with DST per calendar date. P(T) = mid close of the M1 bar starting at T-1 min.",
+ "sessions_et": {
+  "SPX500/USD": "09:30-16:00",
+  "WTICO/USD": "09:00-14:30",
+  "NATGAS/USD": "09:00-14:30",
+  "XAU/USD": "08:20-13:30",
+  "XAG/USD": "08:20-13:30",
+  "EUR/USD": "08:00-17:00"
+ },
+ "definitions": {
+  "r_on": "P(open) / P(close of the previous valid session) - 1; previous session at most 5 calendar days back",
+  "r1": "P(open+30) / P(open) - 1",
+  "r12": "P(close-30) / P(close-60) - 1 (the paper's 12th half hour for SPX; the second-to-last half hour elsewhere)",
+  "y": "P(close) / P(close-30) - 1, the traded last half hour",
+  "valid_day": "Mon-Fri ET; the bars at open-1, open+29, close-61, close-31, close-1 exist; >= 24 of 30 M1 bars in each of the first, second-to-last and last half hour (holidays and half days drop out by missing bars); a previous valid close exists",
+  "gross_bps": "s * y * 1e4 (mid entry at close-30, mid exit at close)",
+  "net_bps": "long: (bid_c exit - ask_c entry) / mid entry; short: (bid_c entry - ask_c exit) / mid entry; same M1 bars",
+  "R": "median |y| in bps over the previous 60 valid days of the instrument (>= 20 days); gross R = gross bps / R"
+ },
+ "signals": {
+  "on1": "sign(r_on + r1) PRIMARY",
+  "r1": "sign(r1)",
+  "r12": "sign(r12)",
+  "both": "sign(r_on + r1) only when sign(r12) agrees, else flat"
+ },
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window)"
+ },
+ "primary": "SPX500/USD, s = sign(r_on + r1), gross mean bps per day with a position. CI from validate.day_boot over all ET weekdays with session bars in the window (block 5, 1000 reps, seed 34).",
+ "decision_rule": "PASS iff the 95% CI lower bound of the primary gross mean is above 0 in BOTH windows. Otherwise FAIL. One test, no multiplicity adjustment.",
+ "secondary": "Never decide the verdict: gross R, net bps, hit rate, always-long drift; signals r1, r12, both; OLS slopes of y on (r_on, r1) and on (r_on, r1, r12) with day-block bootstrap CIs; conditioning on |r1| top tercile and on first-half-hour realized volatility (sqrt sum of squared M1 log returns) top tercile, both with tercile edges from the previous 250 valid days (>= 60); WTI, XAU, XAG, NATGAS, EUR/USD with their own sessions; MDE80 = 2.8 x bootstrap SD.",
+ "valid_day_counts_dev_w2023": {
+  "SPX500/USD": [
+   1207,
+   930
+  ],
+  "WTICO/USD": [
+   1256,
+   957
+  ],
+  "NATGAS/USD": [
+   733,
+   522
+  ],
+  "XAU/USD": [
+   1255,
+   968
+  ],
+  "XAG/USD": [
+   886,
+   961
+  ],
+  "EUR/USD": [
+   960,
+   632
+  ]
+ },
+ "budget": {
+  "signals": 4,
+  "instruments": 6,
+  "conditioning_cells": 4,
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "MIN_BARS": 24,
+   "ON_MAX_DAYS": 5,
+   "R_N": 60,
+   "R_MIN": 20,
+   "TERC_N": 250,
+   "TERC_MIN": 60
+  }
+ }
+}

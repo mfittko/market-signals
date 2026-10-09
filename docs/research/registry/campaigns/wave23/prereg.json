@@ -1,0 +1,91 @@
+{
+ "created": "2026-10-08T14:51:11+0200",
+ "title": "wave23: ride the wave on abs11 big-day alert days (tight stop, trailing exit, no target, up to 3 attempts)",
+ "motivation": "Operator hypothesis on 2026-10-08: on days the big-day model flags, take small-risk entries with a tight stop and a trailing exit (no fixed target), accept several small losses, and catch the big run. 2019-2022 and 2023+ have both been inspected for other questions (abs11, lean21, risk8, pprofit20, mw6 and others); both are development windows, not holdouts. Related negative results: Ladder D (https://github.com/mfittko/market-signals/issues/310), lean21 continuation on alert days (https://github.com/mfittko/market-signals/issues/310#issuecomment-6059927619), risk8 stop width / sizing (https://github.com/mfittko/market-signals/issues/311#issuecomment-6051369045). Related positive signal: mw6 trend followers gained inside crisis windows.",
+ "before_registration": "No outcome of this test computed. Code checked on synthetic fixtures; plumbing run on WTI printed session and trade counts only (no R).",
+ "declared": "Development evidence only. No test ledger, nothing qualified, no entries shipped.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "timeframes": [
+  "M5",
+  "M15"
+ ],
+ "alert": "abs11 A1 day-level intraday LR, out-of-sample walk-forward (lean21.alert_rows unchanged). A session is ARMED from the close of the first scored 30-min row with P(big day) >= 3.0 x trailing session base rate until the session end (22:00 UTC roll). Rows after the session already crossed T1 are not scored and cannot arm.",
+ "triggers": {
+  "primary": "flip: production supertrend (10, 3) flip of the entry TF on a bar whose close >= arm time; side = flip",
+  "variant_brk": "brk: entry-TF mid close beyond the session's prior high/low, >= 60 min into the session; side = break"
+ },
+ "filters": "spread rule: (ask_c - bid_c) at the signal bar <= 0.2 R; thin hours: no signal in the 4 UTC hours with the highest median M5 spread/(1.5 ATR14) in 2018-2022 per instrument (notrade12 R3 rule, recomputed). Filtered signals are not attempts.",
+ "entry": "open of the bar after the signal bar; long at the ask, short at the bid",
+ "stops": {
+  "k": [
+   0.5,
+   0.75,
+   1.0
+  ],
+  "initial": "entry fill - k x Wilder ATR14 (mid, entry TF, signal bar); 1 R = k x ATR14",
+  "trail_primary": "supertrend line of the entry TF from the completed bar; trend flips against the position -> exit at the next open",
+  "trail_variant": "chandelier: highest mid high (short: lowest low) since entry - 2.0 x ATR14, from completed bars",
+  "ratchet": "the stop only tightens; no intrabar update; no breakeven move; no target",
+  "time_cap": {
+   "M5": "288 bars (24 h), exit at the close",
+   "M15": "96 bars (24 h), exit at the close"
+  },
+  "session_exit_variant": "exit at the close of the signal session's last bar"
+ },
+ "attempts": "up to 3 per armed session per instrument per TF, one open at a time (next signal bar >= previous exit bar)",
+ "fills": "fills.resolve (labels_v2 semantics: gap through the stop fills at the open; exit side bid for long, ask for short)",
+ "comparisons": {
+  "C1": "same policy on non-armed scored sessions, from the first scored 30-min close",
+  "C2": "armed sessions, same triggers, random side (seeded). With the st trail a side against the supertrend exits at the next open (the line is on the other side); C2 under the chandelier trail is the cleaner side null (sensitivity).",
+  "C3": "all scored sessions, from the first scored 30-min close"
+ },
+ "metrics": "R per armed day (sum R / sessions in the cell, zero-trade sessions included), R per attempt, hit rate, payoff ratio, share of winning R from the top 10% of trades, max drawdown of cumulative R, daily CVaR 5%, median hold; crisis windows separately",
+ "windows": {
+  "dev": "2019-2022",
+  "w2023": "2023-01-01 .. 2026-10-07T18:30 (development window)",
+  "stress": {
+   "2020H1": [
+    "2020-01-01",
+    "2020-07-01"
+   ],
+   "2022H1": [
+    "2022-01-01",
+    "2022-07-01"
+   ],
+   "2025Q4_26Q1": [
+    "2025-10-01",
+    "2026-04-01"
+   ]
+  }
+ },
+ "stats": "moving-block bootstrap over calendar trading days (block 5, 1000 reps, seed 23); ratio estimator sum R / sum sessions; pooled clusters all instruments by calendar day; differences armed - C share the day draws; MDE80 = 2.486 x SD",
+ "decision_cells": "6 = POOLED x {M5, M15} x k {0.5, 0.75, 1.0}, primary trigger (flip) + primary trail (st) + no session exit",
+ "decision_rule": "SUPPORTED if in BOTH dev and w2023: armed R/day CI lower bound > 0, armed - C1 CI lower bound > 0, armed - C2 CI lower bound > 0, AND Holm (6 cells) of the intersection-union p (max of the six one-sided bootstrap p) < 0.05. REJECTED if armed R/day CI upper bound < 0 in both windows. Else INCONCLUSIVE. Per-instrument cells, brk trigger, chandelier trail, session exit, C3 and crisis windows are sensitivity only.",
+ "export": "If any decision cell is SUPPORTED, export its exact policy as JSON for bot vigilance mode (https://github.com/mfittko/market-signals/issues/321).",
+ "budget": {
+  "timeframes": 2,
+  "k": 3,
+  "triggers": 2,
+  "trails": 2,
+  "session_exit": 2,
+  "comparisons": 3,
+  "decision_cells": 6,
+  "tuned": 0
+ },
+ "code_sha256": {
+  "wave23.py": "99f469f6a306ff7656d92ce6e5ed2f4c9bd4c29b7bced7505c9f8c5041bc0e55",
+  "lean21.py": "a6978c636eadff62fea68e7c97630c8b38094f177474785725230ab4deecfd0e",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "pp20.py": "82fed00e65f7b6bc883326af19c7124db28e01d7939a2b2932ccfc21990020a1",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

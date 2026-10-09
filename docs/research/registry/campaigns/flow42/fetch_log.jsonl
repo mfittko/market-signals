@@ -1,0 +1,14 @@
+{"ts": "2026-10-09T13:17:13", "mode": "quote", "symbol": "CL.v.0", "start": "2024-10-01", "end": "2025-10-01", "cost_usd": 28.272377729416}
+{"ts": "2026-10-09T13:17:18", "mode": "quote", "symbol": "CL.v.0", "start": "2024-10-01", "end": "2025-10-01", "cost_usd": 28.272377729416}
+{"ts": "2026-10-09T13:17:59", "mode": "download", "symbol": "CL.v.0", "start": "2024-10-01", "end": "2024-11-01", "cost_usd": 3.584447443485, "bytes": 55739425, "file": "CL.v.0_2024-10.dbn.zst"}
+{"ts": "2026-10-09T13:18:31", "mode": "download", "symbol": "CL.v.0", "start": "2024-11-01", "end": "2024-12-01", "cost_usd": 2.211590588093, "bytes": 34664585, "file": "CL.v.0_2024-11.dbn.zst"}
+{"ts": "2026-10-09T13:18:52", "mode": "download", "symbol": "CL.v.0", "start": "2024-12-01", "end": "2025-01-01", "cost_usd": 1.824531912804, "bytes": 28472675, "file": "CL.v.0_2024-12.dbn.zst"}
+{"ts": "2026-10-09T13:19:06", "mode": "download", "symbol": "CL.v.0", "start": "2025-01-01", "end": "2025-02-01", "cost_usd": 2.704209923744, "bytes": 42254242, "file": "CL.v.0_2025-01.dbn.zst"}
+{"ts": "2026-10-09T13:19:20", "mode": "download", "symbol": "CL.v.0", "start": "2025-02-01", "end": "2025-03-01", "cost_usd": 2.016328275204, "bytes": 31546480, "file": "CL.v.0_2025-02.dbn.zst"}
+{"ts": "2026-10-09T13:19:29", "mode": "download", "symbol": "CL.v.0", "start": "2025-03-01", "end": "2025-04-01", "cost_usd": 1.951554179192, "bytes": 30539499, "file": "CL.v.0_2025-03.dbn.zst"}
+{"ts": "2026-10-09T13:19:45", "mode": "download", "symbol": "CL.v.0", "start": "2025-04-01", "end": "2025-05-01", "cost_usd": 3.040377080441, "bytes": 48282244, "file": "CL.v.0_2025-04.dbn.zst"}
+{"ts": "2026-10-09T13:19:54", "mode": "download", "symbol": "CL.v.0", "start": "2025-05-01", "end": "2025-06-01", "cost_usd": 2.113644003868, "bytes": 33238568, "file": "CL.v.0_2025-05.dbn.zst"}
+{"ts": "2026-10-09T13:20:07", "mode": "download", "symbol": "CL.v.0", "start": "2025-06-01", "end": "2025-07-01", "cost_usd": 3.297988951206, "bytes": 51931378, "file": "CL.v.0_2025-06.dbn.zst"}
+{"ts": "2026-10-09T13:20:21", "mode": "download", "symbol": "CL.v.0", "start": "2025-07-01", "end": "2025-08-01", "cost_usd": 1.919535756111, "bytes": 30333065, "file": "CL.v.0_2025-07.dbn.zst"}
+{"ts": "2026-10-09T13:20:31", "mode": "download", "symbol": "CL.v.0", "start": "2025-08-01", "end": "2025-09-01", "cost_usd": 1.799520492554, "bytes": 28067970, "file": "CL.v.0_2025-08.dbn.zst"}
+{"ts": "2026-10-09T13:21:25", "mode": "download", "symbol": "CL.v.0", "start": "2025-09-01", "end": "2025-10-01", "cost_usd": 1.808649122715, "bytes": 27930300, "file": "CL.v.0_2025-09.dbn.zst"}

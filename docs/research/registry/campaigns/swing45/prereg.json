@@ -1,0 +1,41 @@
+{
+ "created": "2026-10-09T17:31:14+0200",
+ "code_sha256": {
+  "swing45.py": "63f04ae293ffc5cfb31b992fa53f357885a9de7f311ed216adc14e2666f4fd8a",
+  "swing43.py": "52be7a2df33fe8d3b0fcaa45c8cea5b7c04c31bfd85ba770843cf59325148e75",
+  "ext39.py": "ebe6e14ba1d6f2f2c537a9827a4bb126d4a23bc2076f6c0e5cb66c18dec591a2"
+ },
+ "title": "swing45: the swing43 index pullback rule on intraday resolutions M1..H4 with variable dip triggers",
+ "before_registration": "Ran: swing45.py check (swing43 fixtures, sha pin, resampling, H4 17:00 NY alignment, daily-regime as-of, trigger/exit parity with swing43.trades, spread cost, Holm fixtures) and swing45.py describe (instruments, bar counts, trading days, trade counts per cell; entry/exit bars only, no return, drift, excess or spread computed). Prior knowledge: swing43 (daily, 8 indices) excess +16.9 bps dev 2005-22, +33.7 2023+; swing44 (6 new indices) +17.9 bps full; neither CI-significant on the primary; down3 and RSI<5 looked stronger.",
+ "data": "data/research/history.db candles_ba M1 bid_c/ask_c, read-only, 2018-01-01..2026-10-08 21:00 UTC (the last daily close in the daily dbs). Equity indices with M1 there: SPX500, NAS100, US30, DE30, UK100, JP225, AU200, EU50 (8). Not present: FR40, HK33 and other swing44 indices. Mid = (bid_c + ask_c) / 2 of the last M1 in each bar. Resampling: M5/M15/M30/H1 UTC floor; H4 on New York wall clock, bars start 17:00, 21:00, 01:00, 05:00, 09:00, 13:00 NY; M1 as stored. Bars exist only where M1 bars exist (no fill). Bar time = last M1 start + 1 min. Daily regime: audit/tsmom36/daily.db (SPX500, NAS100, US30, DE30, UK100, JP225, AU200, trading6) and audit/swing44/daily.db (EU50) via ext39.load(), read-only, 17:00 NY closes from 2003-2006.",
+ "rule": "Long only. Setup at the close of bar t of the tested resolution: trend filter AND dip trigger. Entry at that close (mid). Exit at the first close j > t above SMA(5 bars) or at t + 10 bars. One open trade per instrument (next entry needs t > previous exit bar). Trades without an exit bar dropped. swing43.rsi_wilder and swing43.MAX_HOLD imported; trigger, bar trend filter and exit loop are asserted equal to swing43.setup_mask/swing43.trades in check().",
+ "trend_filters": {
+  "bar": "close > SMA(200 bars of that resolution)",
+  "daily": "daily regime: the last daily close at or before the bar time > daily SMA(200) (replaces the bar filter in these cells)"
+ },
+ "triggers": {
+  "down2..down5": "N consecutive lower closes, N in 2,3,4,5",
+  "rsi5/rsi10/rsi25": "Wilder RSI(2) < 5, 10, 25"
+ },
+ "statistic": "excess = 1e4 x ln(exit/entry) - mu_w x bars held, mu_w = mean bar log return (that resolution, that instrument) over bars whose prior bar is in the cell's trend state, within the trade's window (swing43.drift logic per bar). Gross = 1e4 x ln(exit/entry). Net = gross - (spread_entry_bar + spread_exit_bar) / 2, spread in bps of mid from the bid/ask of the last M1 of each bar. CFD (reported) = net - 0.822 bps per NY trading-date roll crossed.",
+ "windows": {
+  "dev": "2018-01-01..2022-12-31 by entry time",
+  "w2023": "2023-01-01..2026-10-08 21:00 UTC (development window, already inspected for other rules; not a holdout)"
+ },
+ "primary": {
+  "family": "8 indices pooled, equal weight per trade; 6 resolutions x 7 triggers x 2 trend filters = 84 cells, separately per window",
+  "ci": "swing43.ci = ext39.week_boot, ISO week of entry, 1000 reps, seed 45, percentile 95%; SE = bootstrap SD = MDE80 / 2.8",
+  "test": "one-sided H0 excess <= 0, p = 1 - Phi(excess / SE); Holm step-down across the 84 cells at alpha 0.05, separately in dev and w2023. A cell clears in a window if its Holm-ordered p <= 0.05 / (84 - rank + 1) with all smaller-p cells clearing (equivalently excess - z(1 - alpha_k) x SE > 0)",
+  "pass": "at least one cell clears Holm in BOTH windows AND its mean net (after bid/ask spread) > 0 in both windows (point estimates). Otherwise FAIL",
+  "power": "the Holm bound needs about z 3.3-3.4 for the first cell, so MDE80 under Holm is about 4.2 x SE; SE per cell is reported after the run"
+ },
+ "secondary_never_decide": [
+  "per index (8) and the 5 non-index trading instruments (WTI, XAU, XAG, NATGAS, EUR/USD) per cell; trading6 pooled (WTI, XAU, XAG, NATGAS, SPX500, EUR/USD)",
+  "short mirror on indices: trend close < SMA200 (or daily regime down), RSI(2) > 100 - thr or N consecutive higher closes, exit first close < SMA5 or 10 bars, drift sign-flipped",
+  "hit rate (gross, excess, net), bars held, nights held, trades per day per instrument, spread cost and spread cost / mean |gross|, MDE80, CFD net",
+  "reference: swing43.build on the daily series of the same 8 indices, entries 2018-01-01..2026-10-08, same 7 triggers, drift from these windows, costs as swing43 (spreads.json medians)"
+ ],
+ "multiplicity": "trials.jsonl exp swing45: per resolution x trigger x filter x window, long indices / trading6 / 13 instruments and short indices, plus 14 daily reference rows. Only the 84 x 2 primary cells decide",
+ "trade_counts_dev_w2023": "M1 43k-794k, M5 10.6k-167k, M15 3.9k-57k, M30 2.0k-29k, H1 1.0k-14.6k, H4 236-4.1k per cell and window (out/describe.json)",
+ "confirmation": "development evidence only; a survivor needs prospective confirmation (issue 313) or data after 2026-10-08"
+}

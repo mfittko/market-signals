@@ -1,0 +1,43 @@
+{
+ "created": "2026-10-09T11:39:12+0200",
+ "sha256": {
+  "cal37.py": "8c678ec49413fd1b7e57bb325252b3f92dfa5aea657456d89ed1b78aa45eec74",
+  "fomc_parse.py": "00c4cc603d30f7f34cbc222a26c86e2166361abb77cacdeb095bc08b115bc933",
+  "fomc_dates.json": "a103a1ec1bbf3dbd950ff7153c18e34d6a7150c187b6bb6619dc52532d3ce5bb"
+ },
+ "title": "cal37: calendar effects in 8 stock-index CFDs (turn of the month, pre-FOMC drift, pre-holiday) on daily mid bars",
+ "before_registration": "Only fomc_parse.py (FOMC dates from saved Federal Reserve pages), synthetic fixtures (cal37.py check) and event counts (cal37.py describe: start dates, event counts per window, missing-bar check, side costs) ran. No return on real data was computed for any event or comparison. Prior knowledge: tsmom36 (daily trend following, positive but underpowered); all intraday campaigns 1-35 failed.",
+ "data": "audit/tsmom36/daily.db (read-only): OANDA daily mid candles, dailyAlignment 17:00 America/New_York, trading date = bar close date, Saturday/Sunday close dates dropped (as tsmom36). Daily return r_t = c_t / c_(t-1) - 1 on each index's own bars. 'Trading day' = a bar date in the index's own series (CFD bars exist on some exchange holidays, e.g. US July 4 and Thanksgiving; Christmas and New Year bars are absent). Data end 2026-10-08.",
+ "indices": [
+  "SPX500_USD",
+  "NAS100_USD",
+  "US30_USD",
+  "DE30_EUR",
+  "UK100_GBP",
+  "JP225_USD",
+  "AU200_AUD",
+  "HK33_HKD"
+ ],
+ "fomc": {
+  "file": "audit/cal37/fomc_dates.json (175 dates 2005-2026, of which the last two lie after the data end)",
+  "source": [
+   "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm (2021-2026)",
+   "https://www.federalreserve.gov/monetarypolicy/fomchistorical{YYYY}.htm (2005-2020)"
+  ],
+  "rule": "scheduled meetings only; statement date = last meeting day; unscheduled meetings (2020-03-03, 2020-03-15), conference calls (e.g. 2008-01-22, 2008-10-08), notation votes and the cancelled 2020-03-17/18 meeting excluded. 8 per year, 7 in 2020. Raw HTML kept in audit/cal37/fed_raw/."
+ },
+ "us_holidays": "Regular NYSE full-day holidays by rule (pandas holiday rules): New Year (Sunday -> Monday; Saturday not observed), MLK, Presidents, Good Friday, Memorial, Juneteenth (2022+), July 4 (nearest weekday), Labor, Thanksgiving, Christmas (nearest weekday). Special closures (2007-01-02, 2012-10-29/30, 2018-12-05, 2025-01-09) are excluded. Pre-holiday day = the last weekday before the holiday that is not itself a holiday. Local (non-US) exchange calendars are not available here, so H3 is US holidays only.",
+ "hypotheses": {
+  "H1_turn_of_month": "TOM days = last trading day of the month (-1) and the first three of the next (+1, +2, +3) on each index's own bars. The trade is long from the close of day -2 to the close of day +3, i.e. the four daily returns -1, +1, +2, +3. Statistic per index: mean daily return on TOM days minus mean daily return on all other days. PRIMARY: pooled equal-weight mean of this difference over the 8 indices.",
+  "H2_pre_FOMC": "Event day = the bar whose close date is the FOMC statement date D. With 17:00 New York bars this bar runs from 17:00 ET on D-1 to 17:00 ET on D. It contains 21 of the 24 hours of the Lucca-Moench window (14:00 ET D-1 to 14:00 ET D), misses 14:00-17:00 ET on D-1, and includes the statement (14:00 ET; 14:15 ET before 2013) and 3 hours of the reaction and press conference. The daily test is therefore a pre-plus-announcement-day test. PRIMARY: SPX500 event-day mean minus mean of all other days. SECONDARY (exact window, 2018+): SPX500 M1 from history.db (read-only), pre window = mid open of the M1 bar at 14:00 ET on the previous NYSE trading day to mid open of the bar at 13:59 ET on D; the same window on all other NYSE trading days is the comparison; post window 13:59 -> 16:59 ET reported.",
+  "H3_pre_holiday": "Event day = the bar whose close date is a US pre-holiday day (close 17:00 ET on the prior bar to close 17:00 ET on the pre-holiday day). PRIMARY: SPX500 event-day mean minus mean of all other days."
+ },
+ "windows": {
+  "dev": "2005-01-01..2022-12-31 (return dates)",
+  "w2023": "2023-01-01..2026-10-08, a second development window, not a holdout"
+ },
+ "statistics": "Block bootstrap by month: resample blocks with replacement (K blocks per rep), 1000 reps, seed 37, the same block draw for all indices in a pooled statistic. H1 block = the turn month (day -1 of month m belongs to the block of month m+1, so each TOM window stays in one block); H2 and H3 block = calendar month. Percentile CIs. Two-sided bootstrap p = 2 x (min(#draws <= 0, #draws >= 0) + 1) / (B + 1). Holm over the three primaries within each window; the CI of the hypothesis at Holm rank k (k = 0 for the smallest p) is the percentile CI at level 1 - 0.05 / (3 - k).",
+ "decision": "A hypothesis PASSES if, in BOTH windows, its Holm-adjusted p < 0.05 with a positive difference, i.e. its Holm-level CI lower bound is above 0. Otherwise FAIL. Only the three primaries decide.",
+ "net_secondary": "Per event: compound gross return over the held days minus a round trip (2 x half the median M1 close spread from history.db candles_ba, all hours 2018+, as tsmom36 spreads.json; HK33 has no candles_ba and gets 2 bps per side) minus financing of 3%/yr per calendar night held (TOM ~6 nights, H2/H3 1 night or 3 over a weekend). Annualized contribution if traded alone = mean net per event x events per year.",
+ "secondary": "Each index alone for H1, H2, H3 (H2/H3 on non-US indices use the US dates); H1 by TOM day position; yearly differences and count of positive years; power MDE80 = 2.8 x bootstrap sd of the difference; SPX500 intraday pre-FOMC window (2018+). Secondaries never decide the verdict. All cells are logged to trials.jsonl with exp cal37."
+}
