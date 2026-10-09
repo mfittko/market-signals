@@ -1,0 +1,34 @@
+{
+ "created": "2026-10-09T10:54:14+0200",
+ "title": "fade31: fade fast moves without a news burst (gross mid R); issue 310",
+ "before_registration": "No outcome computed. Before this file: synthetic self-checks and signal/coverage counts only (no prices after the signal bar). WTI M5 fast-move signals since 2019: 55,040; with both GDELT files present: 6,680 (219 news). Prior knowledge: updown tables (fast moves lean back ~4-5 pp over 6 M5 bars), flow29 (heavy order flow reverses 5.1 pp, -0.16 ATR), news24 (news-backed strong candles tended to continue, within noise).",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout.",
+ "code_sha256": {
+  "fade31.py": "84b4457a784869c9d5b7f5c2f5c4f5b476df4fe6eb4fdee86516956e8c732153",
+  "updown.py": "55326c3a837d2789225ac0fb4357a3f8483db59feda2e3befc06ca224e1b7c57",
+  "news24.py": "48876a104c806129fe3974fde8f101072beb0c3f1e093ebfb6234ccbfe5d418e",
+  "events.py": "1e391e2b45f6e7b7dae4cc0ca06d47389d031016655c014a13f61f5b4b35225d",
+  "relevance.json": "09dab78662dc71d4932979f899fa43374d8819fd5f83f58aa792ae2e12db63f8",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ },
+ "data": "news24 cache (engine history.db M1 bid/ask, resampled; production supertrend ATR 10), 2019-01-01 .. 2026-10-07 18:30 UTC; news24.db read-only.",
+ "fast_move": "updown.features on mid bars (nowMotion port): run of same-sign closed bars capped at 6, move = (close - open of run start) / ATR(10), fast = |move| >= 1.5. Signal = first fast bar of each same-sign streak (zero-body bar = own streak).",
+ "news": "news24.news_features + classify at the signal bar close: NEWS = share z >= 2.0 and >= 5 relevant articles (two newest 15-min files <= close, 14-day 4-hourly baseline >= 40 files). Missing files or baseline -> EXCLUDED from both groups, counted.",
+ "coverage_caveat": "GDELT files exist only on the news24 4-hourly grid and around news24 candidate events, so the covered subset (~12% of WTI M5 signals) is selected toward bars near strong high-volume candles. Reported as is.",
+ "trade": "entry against the move at the next bar open; labels_v2.simulate with k=1.0 (R = 1 ATR), m=T=0.5 (target +0.5 R), stop -1 R, H=6 (time exit at the close of bar 6), no flip exit. Gross = mid bars (primary); net = bid/ask (secondary). Trades kept where both are uncensored. One open trade per instrument: signals in time order over all groups, a signal is skipped while the previous kept trade (its gross exit bar) is open.",
+ "windows": {
+  "dev": "2019-01-01 .. 2022-12-31",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window, not a holdout)"
+ },
+ "primary": "WTICO/USD M5, NO-NEWS fades, gross mean R per trade. validate.day_boot over all trading days of the window, block 5, 1000 reps, seed 31, percentile 95% CI.",
+ "pass_rule": "PASS iff the CI lower bound is above 0 in BOTH windows. Otherwise FAIL.",
+ "key_secondary": "news-backed minus no-news fades, gross mean R difference with day-block CI, per window (operator rule 'don't fade news': supported if the difference is negative with CI upper bound < 0).",
+ "secondary": "net (bid/ask); target 1.0 R (k=1, m=T=1.0); time exit only (close of bar 6 minus next open, no stop or target); M1 and M15; XAU, XAG, NATGAS, SPX500, EUR/USD; hit rate (R > 0); trades per day; MDE80 = 2.8 x bootstrap SD; all signals including EXCLUDED (coverage-free context). Never decide the verdict. No multiplicity correction claimed.",
+ "bootstrap": {
+  "fn": "validate.day_boot",
+  "reps": 1000,
+  "block": 5,
+  "seed": 31
+ }
+}

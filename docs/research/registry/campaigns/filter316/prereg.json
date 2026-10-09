@@ -1,0 +1,127 @@
+{
+ "created": "2026-10-08T09:39:49+0200",
+ "title": "filter316: score the live LLM alert filter's verdicts against realized outcomes (issue 316)",
+ "before_registration": "explore mode only: verdict/model/stream counts, reason-category tag counts and examples, live-vs-research flip agreement, 315 gate block shares (out/explore.json). No outcome (net R, fill, label) computed before this file.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "labels_v2.simulate, validate.day_boot, de_v2.supertrend unchanged"
+ },
+ "data": {
+  "verdicts": "data/candles.db read-only: signals (kind supertrend-flip, verdict alert|suppress) left-joined to signal_snapshots (filter_model, prompt version). Impulse alerts are never LLM-filtered and are excluded.",
+  "outcomes": "engine/cache M1 bid/ask npz (newest per instrument, from history.db), sliced from 2026-04-01; M5/M15/H1 by bars.resample; production supertrend (flips.mjs) per timeframe on that slice"
+ },
+ "population": "LLM-judged flips: verdict alert|suppress, reason not 'filter error...' (fail-open, no judgment), instrument with bid/ask history (DE30/EUR has none: excluded and counted), live signal time equal to a research bar start of the same timeframe; signals whose outcome is censored at the data end are dropped and counted. Side = live signal (buy/sell). Rows refiltered by refilter-signals.mjs cannot be told apart and are kept (signals.verdict is the verdict of record).",
+ "management": "308 baseline: labels_v2.simulate POLICY (k=1.5 ATR stop = 1R, breakeven after +1R, 3R target, opposite research flip of the same timeframe exits, H=72 bars), entry at the next bar open on ask (buy) / bid (sell), research ATR at the signal bar, equal cash risk (1 unit per trade, cash = net R); matched-entry, overlap allowed",
+ "taxonomy": {
+  "verdicts": "allow (signals.verdict='alert') / suppress (signals.verdict='suppress')",
+  "categories": {
+   "late_chasing": "\\blate\\b|chas|extended|stretch|exhaust|blow-?off|overbought|oversold|\\brsi\\b|wrong[- ]extreme|range[- ]extreme|session (high|low|top|bottom|floor|extreme)|day('s)? (high|low)|(at|near|into|to) (the |a )?(session |day |local |recent |range |window |new )?(highs?|lows?|top|bottom|floor|ceiling|extremes?)\\b|atr (above|below|from|past) (vwap|ema)|far (above|below|from)|already (moved|ran|run)|after (an? )?(extended|big|sharp|large)",
+   "against_trend": "counter|against|opposite|htf (down|up|bear|bull)|vs\\.? (bull|bear|m15|m5|h1|h4|htf|ema)|(m15|h1|htf) (still )?(up|down)trend",
+   "low_volume": "thin|low[- ]vol|weak[- ]vol|sub-?average|below[- ]av(era)?ge?|light vol|avg vol|average vol|\\b0?\\.\\d+ ?[x\u00d7]|\\(0\\.\\d+\\)|ratio 0|vol(ume)? (only |of )?(0|1\\.[0-4])\\d*|no volume|volume not",
+   "chop_weak_setup": "chop|ranging|range-?bound|\\badx\\b|conviction|impulse|flip-?flop|whipsaw|mid-?range|mid-?bar|indecis|follow[- ]?through|reject|wick|failure|decisive|no (lower low|higher high|break)|backtest|win ?rate|% ?wr|\\bwr\\b|rapid|\\d(rd|th|nd) flip",
+   "news_event": "news|headline|\\beia\\b|\\bnfp\\b|fomc|\\bcpi\\b|release|sentinel|inventor|opec|\\bfed\\b|event|tariff|geopolit"
+  },
+  "rule": "multi-label, case-insensitive regex search on the suppression reason; a suppression can carry several categories; 'primary' = category whose first match appears earliest in the text (display/counts only); no match -> other. Allowed signals carry no category."
+ },
+ "gate315": {
+  "spread": "(ask_c - bid_c)/(1.5 ATR) at the signal bar > 0.2",
+  "thin_hours": {
+   "WTICO/USD": [
+    4,
+    5,
+    22,
+    23
+   ],
+   "XAU/USD": [
+    4,
+    21,
+    22,
+    23
+   ],
+   "XAG/USD": [
+    0,
+    21,
+    22,
+    23
+   ],
+   "NATGAS/USD": [
+    3,
+    4,
+    22,
+    23
+   ],
+   "SPX500/USD": [
+    3,
+    4,
+    5,
+    6
+   ],
+   "EUR/USD": [
+    4,
+    21,
+    22,
+    23
+   ]
+  },
+  "note": "hour of the signal close (UTC); instruments without a list: spread rule only (issue 315)"
+ },
+ "metrics": {
+  "blocking_rule": "for each rule (overall LLM suppress; each category's tagged suppressions; untagged 'other'; 315 gate, its spread and thin parts; 315 OR LLM): delta = mean net R of kept minus mean net R of all scored signals; blocked-minus-all (better/worse than average); kept-minus-blocked; kept mean with CI; losses avoided vs winners missed",
+  "ci": "5-day moving-block bootstrap over trading days (validate.day_boot, 1000 reps)",
+  "null": "random thinning: 500 uniform draws of the same blocked count; percentile of the observed delta",
+  "power": "bootstrap SE of delta and MDE80 = 2.8 SE",
+  "breakdowns": "by model, instrument/timeframe, M1 vs M5+, month, week (counts, suppress share, allowed/suppressed mean R with CI)",
+  "incremental": "LLM suppress and late_chasing among 315-gate-kept signals"
+ },
+ "decision_rule": {
+  "per_rule": "keep iff blocked >= 30, delta CI lower > 0, delta above null q97.5 and Holm-adjusted one-sided p < 0.05 (Holm over overall + the 5 categories); drop iff blocked >= MIN_N and (delta CI upper < 0 or delta below null q2.5); else insufficient evidence",
+  "late_chasing_vs_average": "blocked-minus-all CI lower > 0: blocks better-than-average signals; upper < 0: worse; else not distinguishable from average (point estimate reported)",
+  "role": "LLM stays a judge iff overall verdict is 'keep' AND its delta among 315-gate-kept signals has CI lower > 0; otherwise it becomes an annotator (alert everything that passes the deterministic gate, show the reason)",
+  "caveat": "live log covers ~2.5 months: development evidence; any 'keep' needs prospective confirmation (313)"
+ },
+ "explore_summary": {
+  "population": 5458,
+  "verdict_counts": {
+   "suppress": 4451,
+   "alert": 1007
+  },
+  "fail_open": 582,
+  "unmatched_bar": 335,
+  "no_bidask_history": {
+   "DE30/EUR": 317
+  },
+  "research_flip_same_side_at_bar": 0.9706852326859655,
+  "cat_tag_counts": {
+   "late_chasing": 2754,
+   "against_trend": 1823,
+   "low_volume": 3935,
+   "chop_weak_setup": 4234,
+   "news_event": 80
+  },
+  "primary_counts": {
+   "late_chasing": 1782,
+   "low_volume": 1439,
+   "chop_weak_setup": 629,
+   "against_trend": 601
+  },
+  "gate315_share": 0.4941370465371931
+ },
+ "rules": "QUEUE.md shared rules; no git-tracked edits, no commits, no GitHub posts; trials logged with exp filter316",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "f316.py": "179f3fc72e8664c3ffae3f39749afeed516468aa81c85e3543a26ff442b288d7"
+ }
+}

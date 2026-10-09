@@ -1,0 +1,35 @@
+{
+ "created": "2026-10-09T16:24:14+0200",
+ "code_sha256": {
+  "swing44.py": "b4cc06dc5041a4477f9a1981b56eef777a1a73dabc156716aaca759a6b5bab70",
+  "fetch.py": "75cb7fa86efbe74e383653f43092c8524f50189b235eddf2eac283f47cee0576",
+  "swing43.py": "52be7a2df33fe8d3b0fcaa45c8cea5b7c04c31bfd85ba770843cf59325148e75",
+  "ext39.py": "ebe6e14ba1d6f2f2c537a9827a4bb126d4a23bc2076f6c0e5cb66c18dec591a2"
+ },
+ "data_sha256": {
+  "daily.db": "a9dd8347fc6e562cf48befd1b18e88891148bdac073d669492a1c8156d6320c5"
+ },
+ "title": "swing44: out-of-sample replication of swing43 (RSI(2) pullback in a long-term uptrend, held for days) on 6 equity indices that were not in swing43",
+ "before_registration": "Ran: fetch.py (12 candidates), swing43 fixtures plus swing44 universe fixtures (swing44.py check), and swing44.py describe (history start/end, daily return correlation with the 8 swing43 indices, trade counts; entry and exit bars only, no return, drift or excess computed). Prior knowledge: swing43 FAIL on the dev CI only (indices excess +16.9 bps [-6.0,+36.4] dev, +33.7 [+6.7,+59.8] 2023+; down3 and RSI<5 stronger, unregistered).",
+ "data": "audit/swing44/daily.db (new file, fetch.py: same FXEmpire proxy, URL, headers and 3 s throttle as audit/tsmom36/fetch.py; daily mid, bars close 17:00 New York; read through ext39.load(), weekend stubs dropped, last close 2026-10-08). Candidates FR40_EUR, EU50_EUR, NL25_EUR, CH20_CHF, ESPIX_EUR, SG30_SGD, CN50_USD, IN50_USD, TWIX_USD, US2000_USD, CHINAH_HKD, JP225Y_JPY: all served. swing43 indices from audit/tsmom36/daily.db read-only (correlation and the not-independent pooled view only). Spreads: audit/tsmom36/out/spreads.json (history.db M1 medians; only EU50_EUR present, 2.82 bps), ext39 2 bps per side fallback for the other five.",
+ "universe_rule": "keep a candidate if its first close is on or before 2010-12-31 AND its maximum daily simple-return correlation (common dates from 2005) with any swing43 index is <= 0.95. Kept: FR40_EUR (max corr 0.921 with DE30), EU50_EUR (0.934 DE30), NL25_EUR (0.823 DE30, starts 2008-01-21), CH20_CHF (0.691 DE30), SG30_SGD (0.496 HK33), US2000_USD (0.895 SPX500). Dropped for history after 2010: ESPIX (2016-12), CN50 (2011-08), IN50 (2011-08, ends 2022-07), TWIX (2011-08, ends 2023-10), CHINAH (2020-11, corr 0.966 HK33), JP225Y (2020-04, corr 0.999 JP225: also a near copy). Caveat: FR40 and EU50 are 0.92-0.93 correlated with DE30 and all trades share calendar weeks with swing43 trades, so the replication is independent in instruments, not in market episodes.",
+ "rule": "swing43.py imported unchanged (sha256 pinned in code): setup close > SMA200 and Wilder RSI(2) < 10 at the 17:00 NY close, long at that close, exit first close > SMA5 or 10 trading bars, one open trade per instrument, trades without an exit bar dropped. Statistic: excess = ln(exit/entry) - mu_w x bars held, mu_w = mean daily log return on days with prior close > SMA200 in the trade's window (dev 2005-22 or 2023+), exactly as swing43.build. Costs (reported only): futures-style = gross - 2 x half median spread; CFD = futures-style - 0.822 bps per calendar night.",
+ "primary": {
+  "universe": "6 new indices pooled, equal weight per trade",
+  "window": "full 2005-01-01..2026-10-08 by entry date (dev and 2023+ trades together, each with its own window drift as in swing43)",
+  "statistic": "mean excess, bps per trade",
+  "ci": "swing43.ci = ext39.week_boot, ISO week of entry date, 1000 reps, seed 44, percentile 95%",
+  "pass": "full-period pooled excess > 0 with CI lower bound > 0, AND point estimate of pooled excess > 0 in 2005-2022 AND in 2023+. Otherwise FAIL. One test",
+  "trade_counts": "full 902 (FR40 156, EU50 153, NL25 144, CH20 148, SG30 131, US2000 170); dev 704; 2023+ 198",
+  "power_ex_ante": "swing43 realised MDE80 30 bps for 1,043 dev index trades; with 902 trades MDE80 about 30-33 bps. The swing43 point estimates (+17 dev, +34 2023+) sit at or below this, so a true effect of swing43 size has well under 80% power; a FAIL is weak evidence against a small effect"
+ },
+ "secondary_never_decide": [
+  "3 consecutive down closes (swing43 variant down3) and RSI(2) < 5 (rsi5), first clean test since they were not registered in swing43: full, dev, 2023+",
+  "per index, per window (full, dev, 2023+)",
+  "gross, matched drift, futures-style and CFD net with CIs, hit rate, days and nights held, trades per year, MDE80",
+  "per year, crash years 2008/2011/2015/2018/2020/2022, 10 worst trades (primary)",
+  "pooled swing43 8 + new 6 (14 indices), labelled NOT independent"
+ ],
+ "multiplicity": "3 variants x (new pooled + pooled14 + 6 indices) x 3 windows = 72 cells, all in trials.jsonl (exp swing44). Only primary_new_full decides",
+ "confirmation": "development evidence (2023+ already inspected through swing43 on other indices); a survivor still needs prospective confirmation (issue 313) or data after 2026-10-07"
+}

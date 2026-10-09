@@ -1,0 +1,33 @@
+{
+ "created": "2026-10-09T12:13:41+0200",
+ "code_sha256": {
+  "cmd41.py": "888f56fbb6246e50efff1979258f1534e5f23db07ae1e702e52148a0d2c3d704",
+  "ext39.py": "ebe6e14ba1d6f2f2c537a9827a4bb126d4a23bc2076f6c0e5cb66c18dec591a2",
+  "raw/ohlcv1d_10.dbn.zst": "f465d5cc2258c77ce171cb02e51578715edc578ab6be791fe6adc0e65da00d01"
+ },
+ "title": "cmd41: out-of-sample check of the ext39 commodity continuation lead on 10 CME commodities not in ext39",
+ "before_registration": "Ran: synthetic fixtures (cmd41.py check), bar/contract/roll counts and event counts per window, market and group, and roll-drop counts per h and entry (cmd41.py describe). No forward return was inspected. Prior: ext39 (FAIL overall) found post hoc (1 of 720 cells) that commodities continued at h = 5 in both windows: +0.255 sigma [+0.022, +0.466] dev, +0.451 [+0.018, +0.853] 2023+ (11 OANDA commodity CFDs). cmd41 fixes that rule in advance and tests it on commodities that were not in ext39's data.",
+ "data": "Databento GLBX.MDP3 ohlcv-1d, stype_in continuous, volume-ranked front month HO.v.0, RB.v.0, PA.v.0, LE.v.0, HE.v.0, ZL.v.0, ZM.v.0, KE.v.0, ZO.v.0, GF.v.0, 2010-06-06 to 2026-10-08 (end exclusive 2026-10-09), one billed request of $0.4304, stored at audit/cmd41/raw/ohlcv1d_10.dbn.zst with the continuous-to-contract mapping in raw/symbology.json. Every bar carries instrument_id (the underlying contract). KE starts 2013-12-16 in this dataset. Databento daily bars are UTC-day aggregates of trades, not exchange settlements: the bar dated D covers D 00:00..24:00 UTC and its close is the last trade before D+1 00:00 UTC. For HO, RB, PA that is the evening Globex session (about 20:00 New York); for the grains and livestock the last trade of the UTC day is near the day-session close (13:20 / 13:05 Chicago). Saturday and Sunday UTC bars (thin Sunday-evening stubs, median HO volume 221 vs 28,795 on weekdays) are dropped, as ext39 drops weekend stubs; Monday's return then runs from Friday's close. Bad ticks and degraded Databento days (2014-06-11..13 flagged) are kept as registered.",
+ "definitions": {
+  "return": "r_t = close[t] / close[t-1] - 1 on each market's own weekday bars. A roll return (instrument_id[t] != instrument_id[t-1]) is set to missing: it is excluded from sigma and is never an event",
+  "sigma": "sigma_t = sample std (ddof 1) of the last 60 non-roll returns before t (r_t excluded); no event before 60 such returns exist",
+  "event": "|r_t / sigma_t| >= 2.5 (PRIMARY); d = sign(r_t)",
+  "declustering": "as ext39: one event per market per 5 own bars (after an event at t, candidates t+1..t+4 are skipped). Roll bars are not candidates",
+  "outcome": "d x (close[t+h] / close[t] - 1) in sigma_t units and bps, h in {1, 3, 5, 10} own bars (ext39 definition). An outcome whose window from entry bar to exit bar contains a roll (any instrument_id change, or an entry contract different from the event contract) is dropped and counted as a roll drop. An event whose exit bar does not exist yet is dropped for that h",
+  "entry": "PRIMARY: at the event bar's own close (the last trade before 00:00 UTC). SECONDARY: at the next bar's close, outcome close[t+1+h] / close[t+1] - 1, still scaled by sigma_t",
+  "net": "CFD-style: gross bps - 2 x 2 bps (assumed cost per side) - 0.822 bps x calendar nights from entry to exit (3%/365; long and short both charged). Futures-style: gross bps - 2 x 2 bps, no financing. Assumed costs, not measured spreads",
+  "groups": "energy HO, RB; grains/oilseeds ZL, ZM, KE, ZO; livestock LE, HE, GF; metal PA",
+  "windows": "assigned by event date: dev 2010-06-06..2022-12-31; second window 2023-01-01..2026-10-08 (development window, not a holdout)"
+ },
+ "primary": {
+  "cell": "threshold 2.5, h = 5, entry at the event bar's close, all 10 markets pooled, up and down events together, equal weight per event",
+  "statistic": "mean signed forward return in sigma_t units (d x return, so continuation is positive)",
+  "ci": "ext39 week-clustered bootstrap (ext39.week_boot via ext39.stats, imported unchanged): resample ISO calendar weeks of the event date, 1000 reps, seed 39, percentile 95% CI",
+  "pass": "One-sided, continuation pre-specified by ext39: PASS if the CI lower bound is above 0 in BOTH windows; otherwise FAIL. One test, no multiplicity adjustment. A reversal result does not pass"
+ },
+ "secondary_never_decide": "h = 1, 3, 10; thresholds 2.0 and 3.0; per market; groups energy / grains / livestock / metal; up vs down events; next-close entry; gross bps, CFD-style net and futures-style net with week-bootstrap CIs; hit rate; MDE80 = 2.8 x bootstrap SD of the mean; roll-drop counts; a combined view pooling these events with ext39's 11 commodity events (threshold 2.5, h 5, close; labelled NOT independent, since ext39 selected that cell post hoc). Grid 3 thresholds x 4 h x 2 entries x 15 units (all, 4 groups, 10 markets) x 3 direction sets x 2 windows = 2,160 cells, all logged to trials.jsonl",
+ "event_counts": "threshold 2.5 events before roll drops: dev 595 in 345 weeks (energy 137, grains 221, livestock 167, metal 70; up 327, down 268), 2023+ 183 in 106 weeks (energy 40, grains 68, livestock 56, metal 19; up 87, down 96). h = 5 close, both windows together: 778 events, 123 roll drops, 655 kept (per market drops: GF 11, HE 8, HO 16, KE 11, LE 16, PA 4, RB 24, ZL 11, ZM 12, ZO 10). h = 10 drops 214 of 778. Threshold 2.0: 1,277 / 393 events; 3.0: 267 / 77",
+ "power_ex_ante": "ext39's h = 3 outcome SD was 2.5-2.7 sigma; at h = 5 expect about 3 sigma. With about 500 dev and 155 2023+ outcomes after roll drops, MDE80 is about 2.8 x 3 / sqrt(n): about 0.38 sigma dev and 0.67 sigma 2023+ before week clustering. ext39's commodity estimate (+0.255 dev, +0.451 2023+) is below both. A PASS needs an effect larger than ext39's point estimates; a FAIL is weak evidence against an effect of ext39's size",
+ "known_limits": "UTC-day closes are not settlements; the event close is assumed tradable at that last trade. Volume-ranked front-month mapping flips back and forth near rolls for some markets (GF 244 roll bars, RB 254, ZO 224), so roll drops are not random with respect to time to expiry. Week clustering does not cover overlap between events in adjacent weeks for h = 10. Costs are assumptions",
+ "confirmation": "Development evidence only. Any survivor needs prospective confirmation (https://github.com/mfittko/market-signals/issues/313) or data after 2026-10-07"
+}

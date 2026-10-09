@@ -1,0 +1,176 @@
+{
+ "created": "2026-10-08T09:03:50+0200",
+ "title": "daytype14: day-type classifier (trend / range, side-free) with a regime-conditional policy; queue v2 item 14, issue 310",
+ "before_registration": "Computed before this file: only the 2018-2022 main-window range-% distribution (q60) per instrument and the 2018-2022 label base rates (out/thresholds.json), to fix the label. No feature, model, score, trade or post-2022 outcome was computed. Prior knowledge: abs11 (A1 day level learnable), notrade12 (spread/thin filters), limit13 (passive entries fail on adverse selection), risk8, and the general finding that direction is at chance.",
+ "declared": "Development evidence only. No test ledger, nothing qualified. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "labels_v2.simulate, fills.resolve, validate.day_boot imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5 bid/ask/mid by bars.resample; production supertrend (de_v2.supertrend) on M5 mid",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "windows": {
+  "main_open": {
+   "WTICO/USD": "09:00 America/New_York (DST-aware)",
+   "NATGAS/USD": "09:00 America/New_York (DST-aware)",
+   "SPX500/USD": "09:30 America/New_York (DST-aware)",
+   "XAU/USD": "08:20 America/New_York (DST-aware)",
+   "XAG/USD": "08:20 America/New_York (DST-aware)",
+   "EUR/USD": "08:00 Europe/London (DST-aware)"
+  },
+  "end": "21:00 UTC on the same calendar date (session day key = (t+120)//1440, 22:00 UTC roll)",
+  "valid": ">= 80% of the expected M5 bars in [main open, 21:00 UTC); Mon-Fri dates only"
+ },
+ "labels": {
+  "definition": "eff = |C-O|/(H-L), range% = 100 (H-L)/O on mid M5 bars of the main window. TREND: eff >= 0.6 AND range% >= q60 of 2018-2022 valid windows (per instrument, fixed). RANGE: eff <= 0.3. MIXED: otherwise.",
+  "range_q60_pct": {
+   "WTICO/USD": 2.7481249548430973,
+   "XAU/USD": 0.9476867289078438,
+   "XAG/USD": 1.7979622620030244,
+   "NATGAS/USD": 3.7133091084760785,
+   "SPX500/USD": 1.2522923899941218,
+   "EUR/USD": 0.6337094656669693
+  },
+  "base_rates_2018_22": {
+   "WTICO/USD": {
+    "trend": 0.17172523961661343,
+    "range": 0.3306709265175719,
+    "mixed": 0.4976038338658147
+   },
+   "XAU/USD": {
+    "trend": 0.17131474103585656,
+    "range": 0.3051792828685259,
+    "mixed": 0.5235059760956176
+   },
+   "XAG/USD": {
+    "trend": 0.15907274180655476,
+    "range": 0.3149480415667466,
+    "mixed": 0.5259792166266987
+   },
+   "NATGAS/USD": {
+    "trend": 0.18203688853247796,
+    "range": 0.29190056134723336,
+    "mixed": 0.5260625501202887
+   },
+   "SPX500/USD": {
+    "trend": 0.188951160928743,
+    "range": 0.28182546036829464,
+    "mixed": 0.5292233787029623
+   },
+   "EUR/USD": {
+    "trend": 0.19352351580570548,
+    "range": 0.3091750192752506,
+    "mixed": 0.4973014649190439
+   }
+  }
+ },
+ "features": {
+  "list": [
+   "rv1",
+   "rv5",
+   "rv22",
+   "gap",
+   "stress",
+   "dow_s",
+   "dow_c",
+   "pre_rng_norm",
+   "pre_eff",
+   "so_rng_norm",
+   "so_rv_norm",
+   "so_eff",
+   "so_peff",
+   "so_disp",
+   "so_loc"
+  ],
+  "definitions": {
+   "rv1/rv5/rv22, gap, stress": "abs11 definitions (30-min HAR realized vol of previous sessions, |session open - prev close| %, cross-instrument stress share), known at the 22:00 UTC open",
+   "dow_s/dow_c": "abs11 day of week",
+   "pre_rng_norm": "log(range % of 22:00 UTC .. main open / trailing 60-day (min 20) median of the same)",
+   "pre_eff": "|C-O|/(H-L) of 22:00 UTC .. main open",
+   "so_rng_norm": "log(range % main open .. checkpoint / trailing 60-day median at the same checkpoint)",
+   "so_rv_norm": "log(M5 realized vol main open .. checkpoint / trailing 60-day median at the same checkpoint)",
+   "so_eff": "|c - O| / (h - l) so far (directional efficiency, side-free)",
+   "so_peff": "|c - O| / sum |dclose| so far (path efficiency)",
+   "so_disp": "log(|c - O| % / trailing 60-day median full-window range %)",
+   "so_loc": "|2 (c - l)/(h - l) - 1| (close at an extreme of the range so far)"
+  }
+ },
+ "checkpoints_min": [
+  60,
+  120,
+  240
+ ],
+ "policy_checkpoints_min": [
+  120,
+  240
+ ],
+ "models": {
+  "lr": "de_v2.e2_lr_fit (standardized L2 LR, C=0.1), one row per day, exportable; one binary model per type (trend vs rest, range vs rest) per checkpoint",
+  "hgb": "HistGradientBoosting comparator (150 iter, lr 0.05, 15 leaves, min leaf 50, l2 1.0)",
+  "baselines": "rv LR (rv1, rv5, rv22, so_rv_norm); naive efficiency so far (trend: so_eff; range: -so_eff)",
+  "refit": "quarterly expanding from 2019-01-01, training rows with day < quarter start - 5 days, from data start (2018)",
+  "prediction": "predicted TREND if p_trend >= the (1 - training trend base rate) quantile of the current model's p_trend over the trailing 365 days (no labels); same for RANGE; both -> the larger p/base ratio; neither -> MIXED (no trade)"
+ },
+ "policies": {
+  "common": "entry at the open of the bar after the signal bar (long ask, short bid); signal bar starts at or after the checkpoint and closes >= 60 min before 21:00 UTC; signal hour not in the instrument's 4 thin hours (nt12.thin_hours); spread (ask_c - bid_c) at the signal bar <= 0.2 R; one trade per day per policy (first qualifying bar); equal cash risk (results in R); session-end exit at the open of the first M5 bar with t >= 20:55 UTC",
+  "trend": "P-trend: direction d = sign(close at checkpoint - main open). Signal: M5 supertrend trend == d, previous bar closed against d (pullback), signal bar closes beyond the previous bar's high (long) / low (short) (price confirmation). Management: labels_v2 POLICY (stop 1.5 ATR, arm +1R -> breakeven, target 3R, opposite flip exit, 72 bars) + session-end exit. R = 1.5 ATR",
+  "range": "P-range: checkpoint range [L0, H0] of the main window. Short signal: bar high >= H0 - 0.1 (H0-L0), bar closes down (mid c < o) and below H0; long mirrored. Stop = running extreme since the checkpoint (incl. H0/L0) +/- 0.25 ATR(M5) at the signal bar; target = midpoint (H0+L0)/2 (rmid) or the session VWAP at the signal bar (rvwap); the target must be on the profit side of the signal-bar quote; R = |entry - stop|; exits: stop, target, session end (fills.resolve, stop first when both touch)",
+  "switch": "P-switch: P-trend on predicted trend days, P-range (midpoint) on predicted range days, no trade on predicted mixed days",
+  "variants": [
+   "trend_120",
+   "trend_240",
+   "rmid_120",
+   "rmid_240",
+   "rvwap_120",
+   "rvwap_240",
+   "switch_120",
+   "switch_240"
+  ]
+ },
+ "baselines": {
+  "alldays": "the same entry rules on ALL scoreable days (no classifier)",
+  "random": "random day assignment at the same predicted rates: predicted types permuted within instrument x quarter (1000 draws)",
+  "no_trade": "0 R",
+  "oracle": "true-label assignment (upper bound for classifier skill, uses the outcome window; diagnosis only)"
+ },
+ "metrics": {
+  "net": "net R per trade and per scoreable instrument-day, moving-block day bootstrap (block 5, 1000 reps), pooled over instruments",
+  "paired": "delta net R/trade vs the all-days rule (same bootstrap); percentile of actual vs random assignment",
+  "bounds": "intrabar ordering: pessimistic (stop first, decision) and optimistic (target first) R/trade",
+  "layers": "classifier skill (AUC, calibration, precision of the predicted type), policy conversion (all-days net and gross R by actual day type; oracle), costs (gross mid fills vs net bid/ask)",
+  "classifier": "AUC with day-cluster bootstrap CI (200) per instrument, checkpoint, type; calibration-in-the-large per dev year; Brier vs base",
+  "crisis": "abs11 windows 2020H1, 2022H1, 2025Q4-26Q1: stress tests, reported only",
+  "power": "MDE = 2.8 x bootstrap SE of net R/trade"
+ },
+ "decision_rule": "A policy variant is SUPPORTED (development evidence only, eligible to propose a shadow registration under issue 313) iff in BOTH dev 2019-2022 and 2023+: net R/trade 95% CI lower bound > 0; Holm-adjusted (8 variants) one-sided p (R/trade <= 0) < 0.05; Holm-adjusted p vs random assignment < 0.05; and delta vs the all-days rule CI lower bound > 0. REJECTED iff the net R/trade CI upper bound < 0 in both windows. Otherwise INCONCLUSIVE (with MDE). Classifier skill alone qualifies nothing.",
+ "budget": {
+  "policy_candidates": 8,
+  "checkpoints": 3,
+  "models": 2,
+  "baselines_classifier": 2,
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "EFF_TREND": 0.6,
+   "EFF_RANGE": 0.3,
+   "RNG_Q": 0.6,
+   "FADE_ZONE": 0.1,
+   "STOP_BUF": 0.25,
+   "DEADLINE": 60
+  }
+ },
+ "code_sha256": {
+  "dt14.py": "908eeb453cae910d14f6f7e36932caefea2393292c6b3917a5e99f0fb82f2e6f",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "lim13.py": "9ddb1689b8d97617fe9c81d34b478ba0d2cd7b0fdb3d4beef45ea8b4aa8d06e5",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

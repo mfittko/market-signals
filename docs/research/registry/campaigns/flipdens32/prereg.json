@@ -1,0 +1,36 @@
+{
+ "created": "2026-10-09T10:56:02+0200",
+ "title": "flipdens32: causal rolling flip density in the H hours before each supertrend flip; do low-density flips earn more (gross); issue 310",
+ "before_registration": "Nothing computed on market data for this design before this file (synthetic self-checks only). Prior knowledge: flipday30 (07:00 day-level prediction FAIL; HINDSIGHT realized few-flip days +0.20..+0.43 R gross, many-flip days lose), notrade12, rescan26.",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout. Binding confirmation is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "code_sha256": {
+   "fd32.py": "7ec8df7a71ea304a7f28eb1496ea1a3d84d89d563bc408dbc5829e1066ee2468",
+   "fd30.py": "743e5097aa3af3b8094912fddaceedfe29612ef35042bd12519634236089c1ba",
+   "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+   "x_recompute.py": "7d6fb03c99db8961ccfb3e84bb2ef354c6b563f9a15b168b383a58f201b27e19",
+   "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+  }
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5/M15 by bars.resample; mid = (bid+ask)/2. Frames rebuilt with flipday30's functions (its pickles keep only post-07:00 trades without timestamps); build asserts the post-07:00 subset equals flipday30's trades exactly.",
+ "trade_rule": "flipday30 trade unchanged, every flip at all hours: production supertrend (ATR 10) via nt12.frame; every flip bar with finite ATR > 0; labels_v2.simulate POLICY k=1.5 m=1.0 T=3.0 H=72 (entry next bar open, stop 1 R, breakeven at +1 R, target 3 R, exit at the next open after an opposite flip, time stop 72 bars). Gross on mid bars (primary); net on bid/ask. Trades kept where both are uncensored. Only flips on flipday30 valid days.",
+ "day": "flipday30: trading day = validate.day_of (22:00 UTC rollover); valid day = bar count >= 50% of the median per-day bar count and >= 1 bar closing after 07:00 UTC.",
+ "feature": "For flip bar i opening at t_i: c_H = number of flip bars (flip != 0) that opened in [t_i - 60H min, t_i), i.e. closed bars strictly before bar i, H in {1, 3, 6} hours. NORMALIZED (chosen, used for every row): x_H = (c_H + 1) / (m_H + 1), where m_H = median over the previous 20 open occurrences of the same UTC clock hour as t_i (an hour is open if any bar opens in it; ~20 trading days) of the count of flips in the H hours before that hour's start; current occurrence excluded. Where fewer than 20 earlier occurrences exist, x_H is missing and the flip is not scored (falls inside the 250-day quintile burn-in anyway). The raw count is not used as a fallback.",
+ "quintiles": "For a flip on valid day d: edges = 20/40/60/80% quantiles of x_H over all scored flips on the previous 250 valid days (strictly before d); quintile = searchsorted(edges, x_H, side='left') (0 = lowest density; a tie at an edge goes to the lower bin, so the bin shares can deviate from 20%; counts are reported). Needs 250 earlier valid days (data start 2018 -> dev scoring starts in late 2018/2019).",
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31 (effective start after the burn-in)",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window, not a holdout)"
+ },
+ "primary": "WTICO/USD M5, scheme 'all'. For each H: D_low = gross mean R of flips in the lowest-density quintile minus gross mean R of all scored flips, per window. Day-block bootstrap validate.day_boot over the window's valid days from the first scored day, block 5, 1000 reps, seed 32. One-sided p = (1 + #reps with D_low <= 0) / (1 + reps). Holm over the three H values per window.",
+ "pass_rule": "PASS iff for at least one H, in BOTH dev and 2023+: Holm-adjusted one-sided p(D_low > 0) < 0.025 (equivalent to the Holm-adjusted two-sided 95% CI excluding 0 upward) AND the lowest-quintile gross mean R > 0. Otherwise FAIL.",
+ "key_secondary": "D_high = gross mean R of the highest-density quintile minus all, as a 'chop, skip this flip' veto candidate: point estimate, 95% CI, Bonferroni-3 CI, one-sided p(D_high < 0) with Holm over H, both windows. Not part of the verdict.",
+ "secondary": "net (bid/ask) per quintile and overall; trade counts and gross per quintile; the other five instruments; M15 (M1: no flipday30 frames exist, not run); time-of-day confound check = the primary repeated with edges computed within UTC hour-of-day buckets of the flip bar (scheme 'tod', same 250-day trailing rule); power MDE80 = 2.8 x bootstrap SD of D. Descriptive, never decides the verdict.",
+ "bootstrap": {
+  "fn": "validate.day_boot",
+  "reps": 1000,
+  "block": 5,
+  "seed": 32
+ }
+}

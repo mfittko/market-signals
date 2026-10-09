@@ -1,0 +1,162 @@
+{
+ "created": "2026-10-08T08:30:05+0200",
+ "title": "abs11: absolute (% of price) big-move attention alert, day level (A1) and next-6h (A2); issue 310, epic 307",
+ "before_registration": "Computed before this file: only the 2018-2022 distributions of daily max |excursion| from the 22:00 UTC open and of next-6h max |excursion| (out/thresholds.json), to fix T1/T2 as instructed. No feature, model, score, alert or post-2022 outcome was computed. Prior knowledge: alert7 (ATR-relative T2) results and spike 4 summary.",
+ "declared": "Attention only. No entries, no direction, no test ledger, nothing qualified (silent shadow under issue 313 decides). 2023+ is a development window (inspected data), not a holdout.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "thresholds": {
+  "WTICO/USD": {
+   "T1": 5.381623413887647,
+   "T2": 2.811143341055547,
+   "A1_floor": 3.0,
+   "A1_q90_2018_22": 5.381623413887647,
+   "A2_q90_2018_22": 2.811143341055547
+  },
+  "XAU/USD": {
+   "T1": 1.8236711967876844,
+   "T2": 0.9166638323785993,
+   "A1_floor": 1.5,
+   "A1_q90_2018_22": 1.8236711967876844,
+   "A2_q90_2018_22": 0.9166638323785993
+  },
+  "XAG/USD": {
+   "T1": 3.531907142423434,
+   "T2": 1.78932737311896,
+   "A1_floor": 3.0,
+   "A1_q90_2018_22": 3.531907142423434,
+   "A2_q90_2018_22": 1.78932737311896
+  },
+  "NATGAS/USD": {
+   "T1": 7.190040650406506,
+   "T2": 3.6744451183689977,
+   "A1_floor": 5.0,
+   "A1_q90_2018_22": 7.190040650406506,
+   "A2_q90_2018_22": 3.6744451183689977
+  },
+  "SPX500/USD": {
+   "T1": 2.4827744556928693,
+   "T2": 1.2599810414924413,
+   "A1_floor": 1.5,
+   "A1_q90_2018_22": 2.4827744556928693,
+   "A2_q90_2018_22": 1.2599810414924413
+  },
+  "EUR/USD": {
+   "T1": 0.9383776473480195,
+   "T2": 0.4879951647356838,
+   "A1_floor": 0.8,
+   "A1_q90_2018_22": 0.9383776473480195,
+   "A2_q90_2018_22": 0.4879951647356838
+  }
+ },
+ "threshold_rule": "T1 = max(declared floor, q90 of 2018-2022 valid-session max |excursion| % from the 22:00 UTC open); T2 = q90 of 2018-2022 next-6h max |excursion| % from 30-min closes (uncensored rows on valid sessions). Fixed for all years.",
+ "targets": {
+  "A1": "session is big: max |excursion| from open >= T1 (evaluated at the open and at every 30-min close while the session excursion so far < T1)",
+  "A2": "max(high - close, close - low) over bars opening within the next 360 min >= T2 % of the close"
+ },
+ "features": {
+  "open": [
+   "rv1",
+   "rv5",
+   "rv22",
+   "gap",
+   "dow_s",
+   "dow_c",
+   "stress"
+  ],
+  "intraday": [
+   "rv1",
+   "rv5",
+   "rv22",
+   "rv_so",
+   "rv6h",
+   "exc_so",
+   "share",
+   "move_so",
+   "rng_norm",
+   "tod_s",
+   "tod_c",
+   "tod_s2",
+   "tod_c2",
+   "dow_s",
+   "dow_c",
+   "gap",
+   "stress"
+  ],
+  "definitions": {
+   "session": "day key = floor((t_min + 120) / 1440): sessions roll at 22:00 UTC; 30-min mid bars ((bid+ask)/2 per field) from M1; valid session >= 8 bars",
+   "rv1/rv5/rv22": "log(mean over the previous 1/5/22 valid sessions of RV_d + 1e-4), RV_d = 100*sqrt(sum of squared 30-min log returns in session d; first bar uses log(c/o))",
+   "rv_so": "log(100*sqrt(sum of squared 30-min log returns so far in the session) + 1e-4)",
+   "rv6h": "log(100*sqrt(sum of squared 30-min log returns of bars opening in the last 360 min) + 1e-4)",
+   "exc_so": "100*max(high_so - open, open - low_so)/open, session so far",
+   "share": "exc_so / T1",
+   "move_so": "100*|close - open|/open",
+   "rng_norm": "log((range_so% + 1e-4)/(median range_so% at the same 30-min slot over the previous 60 valid sessions (min 20) + 1e-4))",
+   "tod_*": "sin/cos(2*pi*k*f), k=1,2, f = (slot+1)/48, slot = ((t_open+120) mod 1440)//30",
+   "dow_*": "sin/cos(2*pi*((day+3) mod 7)/7)",
+   "gap": "100*|session open - previous valid session close| / previous close",
+   "stress": "share of WTI, XAU, XAG, NATGAS, SPX500, EUR/USD whose rv5 (as of the session open) exceeds the 80th percentile of its own previous 252 sessions (min 60); instrument last value carried <= 3 sessions; needs >= 4 instruments"
+  }
+ },
+ "models": {
+  "lr": "de_v2.e2_lr_fit: standardized L2 LR C=0.1, weights 1/rows-per-session (open model: weight 1); identity calibrator; exported model",
+  "hgb": "HistGradientBoosting comparator (max_iter 150, lr 0.05, 15 leaves, min leaf 200, l2 1.0), same weights",
+  "baselines": {
+   "rv": "LR on rv1, rv5, rv22, rv_so, rv6h (open: rv1, rv5, rv22)",
+   "tod": "LR on time of day + day of week (open: day of week)",
+   "naive_A1": "score = exc_so / T1 (move so far as share of threshold)",
+   "naive_A2": "score = trailing-6h range % / T2"
+  },
+  "refit": "quarterly expanding from 2019-01-01, training rows with session day < quarter start - 5 days, from data start (2018)"
+ },
+ "metrics": {
+  "auc": "per year 2019-2026; pooled dev 2019-2022 and 2023+ with day-cluster bootstrap 95% CI (200 reps)",
+  "calibration": "calibration-in-the-large (mean p - observed) and Brier vs base, per year"
+ },
+ "alerts": {
+  "A1": "one alert per session: first 30-min close with p >= threshold; per quarter the threshold is the (rate*12*years)-th largest per-session max score over the trailing 365 days (no labels); rates (1, 2, 4)/month",
+  "A2": "p >= threshold and no alert in the previous 360 min; per quarter the threshold whose trailing 365-day alert count is closest to rate*weeks; rates (1, 2, 4)/week",
+  "naive": "the same threshold procedure applied to the naive score (matched rate), plus fixed A1 naive rules share >= 0.5 and >= 0.8",
+  "metrics": "precision (vs base rate, Wilson CI), recall of big days (A1, all valid sessions incl. days that crossed before any evaluation) / of big-move episodes (A2, runs of positive rows <= 60 min apart), median lead time to the threshold crossing, median share of the move still ahead (A1: 1 - exc_so/final excursion; A2: fwd/(fwd+back 6h)), false alarms per calm week (session-week range % below the 2018-2022 median)"
+ },
+ "crisis": {
+  "windows": {
+   "2020H1": [
+    "2020-01-01",
+    "2020-07-01"
+   ],
+   "2022H1": [
+    "2022-01-01",
+    "2022-07-01"
+   ],
+   "2025Q4_26Q1": [
+    "2025-10-01",
+    "2026-04-01"
+   ]
+  },
+  "metrics": "first-alert lag (days from window start), recall of big days / episodes, alerts per week / month, precision"
+ },
+ "clock_check": "alert hour (UTC) histograms vs crossing / positive hours; median forward % move at alerts vs all rows; A1 remaining excursion at alerts vs all rows",
+ "decision_rule": "Per instrument and target, the LR model PASSES for silent shadow logging if, in BOTH dev 2019-2022 and 2023+: AUC day-bootstrap CI lower bound > the best baseline's point AUC (rv, tod, naive); calibration-in-the-large within +/-0.05 in >= 3 of 4 dev years; and at the 2/month (A1) or 2/week (A2) operating point recall >= 0.5 and precision >= 2 x base rate (A1 base = share of valid sessions that are big; A2 base = share of positive rows). A1 is the primary product target (as specified); A2 uses the same rule at 2/week as a declared extension. Otherwise FAIL. Six instruments, no multiplicity correction.",
+ "artifact": "for PASS targets only: latest quarterly LR (feature order, scaler, coefficients, intercept, identity calibrator, cutoff, latest thresholds, drift band, code hashes) + parity fixture of the 40 latest scoreable rows",
+ "drift": "proposal: rolling 20/60-session calibration-in-the-large; band = 2.5/97.5% of the 2019-2022 OOS values; report share outside per year",
+ "budget": {
+  "instruments": 6,
+  "targets": 3,
+  "models": 2,
+  "baselines": 3,
+  "alert_rates": 3,
+  "tuned_hyperparameters": 0
+ },
+ "code_sha256": {
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

@@ -1,0 +1,21 @@
+{
+ "title": "pprofit20 amendment A3: M1 with an isotonic calibrator instead of Platt (operator-approved)",
+ "disclosure": "POST-HOC MOTIVATED. The isotonic choice was made after seeing the A2 M1 Platt results (pass XAU and NATGAS only; WTI, EUR/USD, XAG, SPX500 failed by 0.031-0.051 max decile gap) and the post-hoc isotonic diagnostic in out/diag_M1.json (isotonic max gaps 0.004-0.019 on the four failing instruments, with a tie-breaking jitter in the decile assignment). This amendment is therefore not an independent test of the calibrator; the binding confirmation stays prospective / post-2026-10-07 data.",
+ "before_registration": "All A2 M1 outcomes known (out/results_*_M1.json, diag_M1.json). No A3 isotonic walk-forward was computed under this code before this file; the diag isotonic run used diag.py, not this code path.",
+ "code_change": "pp20.py: PP_CAL=iso (M1 only, asserted): fit() replaces Platt with sklearn IsotonicRegression(out_of_bounds='clip') fitted on the raw LR score of the same calibration rows; prob() = numpy.interp over the knots (linear interpolation between knots, clip outside; equals sklearn predict, verify_iso.py self); artifact calibrator = {type: isotonic, x, y, out_of_bounds: clip, interpolation}; an empty decile exports null for meanR/meanR_ci; passing artifacts with median out-of-sample P < 1% get status 'degenerate: not for display'. Output suffix _M1_iso. Platt paths unchanged.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "design": "identical to A2 (prereg_m1.json): every 5th M1 bar (minute % 5 == 4), both sides, 18 features, LR with side interaction C = 1, quarterly expanding refit, 360-bar time exit, labels_v2.POLICY otherwise, bid/ask fills, 1R = 1.5 x Wilder ATR14 mid M1",
+ "calibrator": "isotonic regression of y on the raw LR score, rows starting in the 182 days before the quarter start with exit before the quarter start (same purge as Platt); final model: the 182 days before the cutoff",
+ "deciles": "unchanged function: edges = quantiles of P per side, tied P values fall in the same (upper) bin. Isotonic plateaus can make bins unequal or empty; the pass rule still applies to every per-side bin with n >= 1000 and the artifact lookup uses the same edges, so the live lookup matches the evaluation. No tie-breaking jitter (the diag.py jitter is not used)",
+ "pass_rule": "unchanged: |mean P - observed| <= 0.03 in every per-side decile with n >= 1000, dev 2019-2022 and 2023+, all six instruments",
+ "exports": "artifact_<INST>_M1_iso_pprofit20.json for passing instruments (status 'degenerate: not for display' if median P < 1%); parity_{WTICO_USD,EUR_USD}_M1_iso_pprofit20.json (2000 M1 bars, 80 rows, raw score and calibrated P; their artifacts are written as parity references marked NOT calibrated if they fail)",
+ "status": "development evidence; no test_ledger; nothing qualified",
+ "created": "2026-10-08T11:04:29+0200",
+ "code_sha256": {
+  "pp20.py": "e7d7076f88a26bf25e0cafd1c7276495880c4f8d4444084c67e1c1a7ac222a6c",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

@@ -1,0 +1,26 @@
+{
+ "title": "pprofit20 amendment A4: operator horizons (12 and 48 bars of the viewed timeframe) and a second target (price better after costs)",
+ "disclosure": "Follows operator feedback on A1-A3: the 72-bar (M5/M15) and 360-bar (M1) time exits were a research default, not the operator's choice. A1 (M15), A2 (M1 Platt) and A3 (M1 isotonic) outcomes are known, including that no decile anywhere met expected R >= +0.05 R with CI above 0. The horizons and the T_up target were set by the operator after those results.",
+ "before_registration": "No A4 label, net R, fill or fit computed. verify_a4.py ran the T_up label on synthetic bars only.",
+ "code_change": "pp20.py: PP_H in {12, 48} and PP_TGT in {plan, up} switch A4 on: POL = POLICY with H = PP_H; calibrator fixed per timeframe (isotonic M1, Platt M5/M15; PP_CAL not allowed); suffix _<TF>_H<H>_<tgt>; T_up label in rows(); results gain auc_spread_only per window and side; artifacts gain horizon_bars, target, target_definition; degenerate rule (median OOS P < 1%) applies to every A4 artifact.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "grid": "TF in {M1, M5, M15} x H in {12, 48} bars x 6 instruments (WTICO/USD, XAU/USD, XAG/USD, NATGAS/USD, SPX500/USD, EUR/USD) x targets {plan, up} = 72 cells",
+ "targets": {
+  "plan": "net R > 0 under labels_v2.POLICY (stop 1.5 x Wilder ATR14 of mid bars of TF, breakeven after +1R with one-bar latency, 3R target, opposite TF supertrend flip exit at the next open) with time exit H bars of TF; expected R = net R",
+  "up": "entry at the open of bar i + 1 (long ask / short bid); long y = 1 if bid close of bar i + H > entry ask; short y = 1 if ask close of bar i + H < entry bid; net R = (exit - entry, signed by side) / (1.5 x ATR14 of bar i); expected R = mean net R; exit time for the purge = end of bar i + H; rows with i + H beyond the data are dropped"
+ },
+ "population_features_model": "as registered per timeframe: M1 every 5th bar (A2), M5 every 3rd bar (prereg.json), M15 every bar (A1); same 18 features; LR with side interaction C = 1; quarterly expanding refit; 182-day purged calibration window; HGB comparator kept",
+ "calibrator": "isotonic for M1 (A3), Platt for M5 and M15 (A1). A failing Platt cell is recorded as FAIL; no calibrator switch inside A4",
+ "pass_rule": "unchanged: |mean P - observed| <= 0.03 in every per-side decile with n >= 1000, dev 2019-2022 and 2023+",
+ "exports": "artifact_<INST>_<TF>_H<12|48>_<plan|up>_pprofit20.json for passing cells (status 'degenerate: not for display' if median OOS P < 1%); parity fixtures parity_{WTICO_USD,EUR_USD}_<TF>_H<H>_<tgt>_pprofit20.json for every WTI/EUR cell (M1 2000 bars x 80 rows, M5/M15 6000 bars x 400 rows as registered per TF); a failing WTI/EUR cell's artifact is written as a parity reference marked NOT calibrated",
+ "order": "M5 and M1 first, M15 last (time box)",
+ "status": "development evidence; no test_ledger; nothing qualified",
+ "created": "2026-10-08T11:27:45+0200",
+ "code_sha256": {
+  "pp20.py": "82fed00e65f7b6bc883326af19c7124db28e01d7939a2b2932ccfc21990020a1",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

@@ -1,0 +1,49 @@
+campaign,exp_tags,rows,primary_rows,evaluator_v2_rows,first_ts,last_ts,decision
+ladder (pre-audit),ladder-de ladder-wti-m5,2186,0,0,2026-10-07T20:01:57,2026-10-07T23:02:14,Superseded by the evaluator audit (v1) and evaluator v2
+bench1,bench1,56,0,56,2026-10-08T01:41:45,2026-10-08T02:03:21,Negative
+fm2,fm2,196,0,196,2026-10-08T04:35:08,2026-10-08T04:56:34,Negative
+ablate4,ablate4 ablate4-posthoc,856,0,856,2026-10-08T03:35:27,2026-10-08T03:50:22,"Label is the dead end; T2 ranks, direction at chance"
+mw6,mw6 mw6-label mw6-pooled,1128,0,1128,2026-10-08T05:16:35,2026-10-08T05:20:05,No qualifying policy
+alert7,alert7,1090,0,1090,2026-10-08T05:28:17,2026-10-08T05:32:42,Replicates (AUC 0.76-0.87) but T2 is a session clock
+risk8,risk8 risk8-refit,104,0,104,2026-10-08T05:05:12,2026-10-08T05:07:27,Negative for product use
+xvol9,xvol9,36,0,36,2026-10-08T07:56:51,2026-10-08T07:57:12,Negative
+xvol10,xvol10,8,0,8,2026-10-08T08:18:53,2026-10-08T08:19:05,NO-GO
+abs11,abs11,1223,0,1223,2026-10-08T08:30:18,2026-10-08T08:34:19,Registered FAIL; A1 day-level signal real
+notrade12,notrade12,56,0,56,2026-10-08T08:44:29,2026-10-08T08:46:29,"2 of 6 reasons PASS (spread > 0.2 R, thin hours)"
+limit13,limit13 limit13-nullfix,48,0,48,2026-10-08T08:53:49,2026-10-08T08:56:01,All 8 variants FAIL
+daytype14,daytype14,760,0,760,2026-10-08T09:04:28,2026-10-08T09:11:36,All 8 variants REJECTED
+orb15,orb15,34,0,34,2026-10-08T09:19:57,2026-10-08T09:20:07,None supported
+pairs16,pairs16,51,0,51,2026-10-08T09:28:38,2026-10-08T09:30:35,None supported
+filter316,filter316,6,0,6,2026-10-08T09:39:54,2026-10-08T09:39:54,No better than random thinning
+season17,season17,523,0,523,2026-10-08T09:42:35,2026-10-08T09:42:46,Nothing supported
+pprofit20,pprofit20,194,0,194,2026-10-08T09:48:52,2026-10-08T11:40:50,Calibration passes on some pairs; no expected-R decile above 0
+lean21,lean21,28,0,0,2026-10-08T14:31:00,2026-10-08T14:31:01,Not supported
+wave23,wave23,96,0,0,2026-10-08T14:51:57,2026-10-08T14:52:21,Not supported
+news24,news24,217,0,0,2026-10-09T03:04:25,2026-10-09T03:20:00,REJECT
+sess25,sess25,96,0,96,2026-10-08T15:41:10,2026-10-08T15:41:20,FAIL
+rescan26,rescan26,857,0,857,2026-10-08T15:40:09,2026-10-08T15:40:09,0 rows hold gross after Holm
+legs27,legs27,390,0,390,2026-10-08T16:14:15,2026-10-08T16:14:35,"H1 FAIL, H2 FAIL"
+news28,news28,4,0,0,2026-10-09T09:45:47,2026-10-09T09:49:45,Closed by operator decision; no rerun
+flow29,flow29,11,2,0,2026-10-09T09:22:33,2026-10-09T09:22:33,PASS REVERSAL (single year; did not replicate in flow42)
+flipday30,flipday30,25,0,0,2026-10-09T10:47:20,2026-10-09T10:47:34,FAIL
+fade31,fade31,109,0,0,2026-10-09T10:54:37,2026-10-09T10:55:37,FAIL
+flipdens32,flipdens32,73,0,0,2026-10-09T10:56:31,2026-10-09T10:57:10,FAIL
+vol33,vol33,307,0,0,2026-10-09T11:04:56,2026-10-09T11:07:43,FAIL
+imom34,imom34,96,0,0,2026-10-09T11:14:01,2026-10-09T11:14:06,FAIL
+lead35,lead35,576,0,0,2026-10-09T11:18:59,2026-10-09T11:19:42,FAIL
+tsmom36,tsmom36,48,0,0,2026-10-09T11:31:46,2026-10-09T11:31:47,FAIL
+cal37,cal37,56,0,0,2026-10-09T11:39:40,2026-10-09T11:39:40,FAIL (all three)
+night38,night38,36,0,0,2026-10-09T11:45:49,2026-10-09T11:47:20,FAIL
+ext39,ext39,720,0,0,2026-10-09T11:51:21,2026-10-09T11:51:21,FAIL
+vm40,vm40,440,0,0,2026-10-09T11:56:58,2026-10-09T11:59:15,FAIL
+cmd41,cmd41,2160,0,0,2026-10-09T12:14:05,2026-10-09T12:14:05,FAIL
+flow42,flow42,23,4,0,2026-10-09T13:22:00,2026-10-09T13:22:08,FAIL (both primaries)
+swing43,swing43,546,2,0,2026-10-09T16:18:53,2026-10-09T16:18:53,FAIL
+swing44,swing44,72,1,0,2026-10-09T16:24:35,2026-10-09T16:24:35,"FAIL (positive, CI touches 0)"
+swing45,swing45,2702,168,0,2026-10-09T17:31:37,2026-10-09T17:31:37,FAIL
+scan46,scan46,23331,0,0,2026-10-09T17:59:54,2026-10-09T17:59:54,FAIL; 0 finalists; locked holdout not opened
+roll47,roll47,720,80,0,2026-10-09T18:17:00,2026-10-09T18:17:00,FAIL
+abs48,abs48,56,0,56,2026-10-09T18:36:25,2026-10-09T18:38:55,FAIL (dev recall 0.454 < 0.5); AUC 0.86 both windows
+v1,,0,0,0,,,Defects D1-D4 found; development diagnostics only
+v2,,0,0,0,,,V4 selected; evaluator v2 digest 1b66053d
+lean22,,0,0,0,,,Descriptive only; no pass rule
