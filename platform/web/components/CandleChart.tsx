@@ -50,6 +50,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   const box = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(0); // 0 until measured, so the first paint is already at the real width
   const [hover, setHover] = useState<{ i: number; py: number } | null>(null);
+  const [span, setSpan] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = box.current;
     if (el) setW(Math.max(280, Math.round(el.clientWidth)));
@@ -64,7 +65,10 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   // run pages, so other charts use a narrow margin and give the plot the space.
   const longLabels = price != null || !!agent || !!engine;
   const PAD = { l: 8, r: longLabels ? (narrow ? 104 : 150) : (narrow ? 80 : 88), t: 14, b: 32 };
-  const fit = Math.max(10, Math.floor((W - PAD.l - PAD.r) / MIN_BAR));
+  const fitW = Math.max(10, Math.floor((W - PAD.l - PAD.r) / MIN_BAR));
+  // x-axis zoom: null fits the width at MIN_BAR px per candle; a number shows that many candles (at most the loaded ones)
+  const fit = Math.min(all.length, span ?? fitW);
+  const zoom = (f: number) => { setHover(null); setSpan(Math.max(20, Math.min(all.length, Math.round(fit * f)))); };
   const candles = useMemo(() => all.slice(-fit), [all, fit]);
 
   // The bar a moment falls into: the last bar starting at or before it, within one bar length of the end.
@@ -147,6 +151,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setHover(null); return; }
+    if (e.key === '-' || e.key === '+' || e.key === '=') { e.preventDefault(); zoom(e.key === '-' ? 1.5 : 1 / 1.5); return; }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const cur = hover?.i ?? candles.length - 1;
@@ -162,12 +167,17 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   const summary = `Candle chart of ${candles.length} bars from ${hm(candles[0].time)} to ${hm(last.time)}.`
     + (agent?.action === 'open' ? ` Agent proposes ${agent.side} with stop ${agent.stop}${agent.target ? ` and target ${agent.target}` : ''}.` : agent ? ` Agent proposes ${agent.action}.` : '')
     + (engine?.action === 'open' ? ` Engine opened ${engine.side} with stop ${engine.stop}.` : engine ? ` Engine decided ${engine.action}.` : '')
-    + ' Use the arrow keys to read single bars.';
+    + ' Use the arrow keys to read single bars, minus and plus to show more or fewer bars.';
   const hvText = hv ? `${stamp(hv.time)}: open ${hv.open}, high ${hv.high}, low ${hv.low}, close ${hv.close}, volume ${hv.volume}${hv.complete === false ? ', still forming' : ''}` : '';
 
   if (!W) return <div ref={box} style={{ minHeight: 300 }} />; // reserves the space until the width is measured
   return (
     <div ref={box} style={{ position: 'relative' }}>
+      {/* bottom-right corner: the price-label margin is free below the last tick */}
+      <div className="seg" style={{ position: 'absolute', right: 4, bottom: 4, zIndex: 1 }}>
+        <button type="button" onClick={() => zoom(1.5)} disabled={fit >= all.length} aria-label="Show more candles" title="Show more candles (−)">−</button>
+        <button type="button" onClick={() => zoom(1 / 1.5)} disabled={fit <= 20} aria-label="Show fewer candles" title="Show fewer candles (+)">+</button>
+      </div>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary} tabIndex={0}
         style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'pan-y', outline: 'none' }}
         onPointerMove={setFromEvent} onPointerDown={setFromEvent}

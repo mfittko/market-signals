@@ -16,6 +16,8 @@ func (s *Server) lookupSymbol(r *http.Request) (string, bool) {
 	return s.symbolForSlug(r.Context(), r.PathValue("slug"))
 }
 
+const liveWindow = 480 // candles in the live chart window
+
 type liveCandle struct {
 	Time     string  `json:"time"`
 	Open     float64 `json:"open"`
@@ -62,7 +64,8 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 		Signals []liveSignal   `json:"signals"`
 		Quote   map[string]any `json:"quote"`
 	}
-	q := url.Values{"instrument": {symbol}, "granularity": {gran}}
+	// liveWindow candles leave the chart room to zoom out beyond the ~120 that fit a laptop width
+	q := url.Values{"instrument": {symbol}, "granularity": {gran}, "count": {strconv.Itoa(liveWindow)}}
 	if err := s.eng.GetCached(r.Context(), 5*time.Second, "/api/chart", q, &raw); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "the engine is not reachable; showing imported history only"})
 		return
@@ -72,8 +75,8 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 		c.liveCandle.Complete = c.CompleteP == nil || *c.CompleteP // complete unless the engine says otherwise
 		candles = append(candles, c.liveCandle)
 	}
-	if len(candles) > 150 {
-		candles = candles[len(candles)-150:]
+	if len(candles) > liveWindow {
+		candles = candles[len(candles)-liveWindow:]
 	}
 	first := ""
 	if len(candles) > 0 {
@@ -96,6 +99,23 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request) {
 		"source": "engine", "symbol": symbol, "granularity": gran, "fetchedAt": time.Now().UTC().Format(time.RFC3339),
 		"candles": candles, "supertrend": st, "signals": sigs, "quote": raw.Quote,
 	})
+}
+
+// price proxies the engine's near-live bid/ask for one instrument. The console
+// polls it every 2 s while the instrument page is visible.
+func (s *Server) price(w http.ResponseWriter, r *http.Request) {
+	symbol, ok := s.lookupSymbol(r)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "unknown instrument"})
+		return
+	}
+	var out json.RawMessage
+	if err := s.eng.GetCached(r.Context(), time.Second, "/api/price", url.Values{"instrument": {symbol}}, &out); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+		return
+	}
+	w.Header().Set("content-type", "application/json")
+	_, _ = w.Write(out)
 }
 
 // news proxies the engine's cached headlines for one instrument.
