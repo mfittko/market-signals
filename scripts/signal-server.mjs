@@ -19,7 +19,7 @@ import { tmpdir, homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { transcribe } from './stt.mjs';
-import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
+import { ANTHROPIC_THINKING_MODES, LOCAL_TZ, PROVIDERS, PROVIDER_DEFAULT_MODEL, computeSupertrend, detectFlips, detectHistoricalImpulses, filterHealth, impulseSettings, effectiveModel, fetchCandles, findGaps, granularityMs, isGranularity, llmChat, loadRecentCandles, localTimeFormatters, readSettings, recheckSignal, recordSignal, repairGap, resolveFilterSystem, resolveProvider, resolveRecheckSystem, signalOutcomes, storeCandles, withDb } from './supertrend.mjs';
 import { startKeepFresh } from './keep-fresh.mjs';
 import { botConfig, instrumentLeverage, portfolioView, tradeTimeline } from './portfolio.mjs';
 import { resolveNewsApiAiSource, isSentinelFootnotesOn } from './lib/newsapi-ai-source.mjs';
@@ -35,7 +35,8 @@ import { baselines, botPerformanceSummary, comboOf, decisionAudit, decisionRailB
 import { axisSnapshot, axisExpectancy } from './axis-snapshot.mjs';
 import { ema, rsi, macd, bollinger, vwap } from './indicators.mjs';
 import { indicatorSummary } from './lib/indicator-summary.mjs';
-import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionForTool } from './predictions.mjs';
+import { currentPrediction, isPredictionGranularity, listPredictions, predictionActive, predictionSeries, SERIES_MAX, predictionForTool, predictionProvider, PREDICTION_PROVIDERS } from './predictions.mjs';
+import { baWindow, LOCAL_PROVIDER } from './local-predict.mjs';
 export { resolveProvider };
 
 const USAGE = `signal-server — local chart + watcher config UI over the alert db.
@@ -56,7 +57,7 @@ try {
 } catch { /* no catalog in cwd: single-instrument fallback */ }
 
 // Keys the config page may read/write; API keys are write-only (masked on read).
-const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'predictionEnabled', ...PUSHOVER_SETTING_KEYS];
+const SETTINGS_KEYS = ['provider', 'model', 'models', 'notesFile', 'piBin', 'claudeBin', 'notifierBin', 'port', 'instrument', 'instruments', 'granularity', 'watchers', 'freshBars', 'maxCompletionTokens', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'ANTHROPIC_API_KEY', 'bot', 'snapshotContext', 'ind', 'info', 'keepFresh', 'NEWSAPI_AI_KEY', 'NEWSAPI_AI_MODE', 'NEWSAPI_AI_INSTRUMENTS', 'NEWSAPI_AI_REQUEST_BUDGET', 'NEWSAPI_AI_BACKGROUND', 'GNEWS_KEY', 'GNEWS_MODE', 'GNEWS_INSTRUMENTS', 'GNEWS_REQUEST_BUDGET', 'GNEWS_BACKGROUND', 'sentinelSourceFootnotes', 'sttMode', 'sttBin', 'sttModel', 'sttOpenaiKey', 'sttOpenaiBaseUrl', 'cycleMinutes', 'uiRefreshSeconds', 'impulseVolMult', 'impulseVolWindow', 'filterMaxCompletionTokens', 'llmFallbackProvider', 'anthropicThinking', 'impulseCooldownBars', 'TYPESAFE_API_KEY', 'predictionEnabled', 'predictionProvider', ...PUSHOVER_SETTING_KEYS];
 // #199: keys retired from SETTINGS_KEYS whose stale value should be scrubbed
 // from settings.json on the next write, wherever it came from.
 const RETIRED_KEYS = ['watcherOwner'];
@@ -186,6 +187,9 @@ export function writeSettings(settingsPath, patch) {
   }
   if (patch.predictionEnabled !== undefined && patch.predictionEnabled !== null && patch.predictionEnabled !== '' && !['0', '1', true, false].includes(patch.predictionEnabled)) {
     throw new Error("predictionEnabled must be '0', '1', or a boolean");
+  }
+  if (patch.predictionProvider !== undefined && patch.predictionProvider !== null && patch.predictionProvider !== '' && !PREDICTION_PROVIDERS.includes(patch.predictionProvider)) {
+    throw new Error(`predictionProvider must be one of ${PREDICTION_PROVIDERS.join(', ')}`);
   }
   // #195: cycleMinutes (decision-cycle cadence, minutes) and uiRefreshSeconds
   // (chart/quote poll interval, seconds) — both per-granularity maps.
@@ -737,15 +741,32 @@ const RATE_SLUGS = loadRateSlugs();
 const RATE_SLUGS_HINT = Object.entries(RATE_SLUGS).map(([m, sl]) => `${m}: ${sl.join(', ')}`).join(' | ');
 // The candle window a prediction reads: enough bars to resample at least 13 H1
 // bars, so the H1 trend is known on M1 too, with the forming bar when live.
-async function predictionCandles(dbPath, instrument, granularity, cfg, fetcher) {
+function predictionInput(dbPath, instrument, granularity, cfg, fetcher) {
   const count = Math.max(400, Math.ceil((13 * 3600000) / granularityMs(granularity)));
-  return (await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) })).candles;
+  const loadCandles = async () => (await chartData(dbPath, instrument, { granularity, fetcher, count, impulse: impulseSettings(cfg) })).candles;
+  return { instrument, granularity, loadCandles };
+}
+
+// Engine cycle hook: one free local run per watched pair whose candle closed since its last run.
+// Jev runs stay on demand only (each is a paid call). Failures are logged and never reach alerts.
+export async function refreshLocalPredictions(dbPath, combos, cfg, { fetcher = fetchCandles, fetchFn = fetch, log = console.error } = {}) {
+  if (!predictionActive(cfg) || predictionProvider(cfg) !== LOCAL_PROVIDER) return [];
+  const out = [];
+  for (const { instrument, granularity } of combos) {
+    if (!isPredictionGranularity(granularity)) continue;
+    try {
+      out.push(await currentPrediction(dbPath, cfg, predictionInput(dbPath, instrument, granularity, cfg, fetcher), { reuse: true, fetchFn }));
+    } catch (err) {
+      log(`[prediction] local run for ${instrument} ${granularity} failed: ${err.message}`);
+    }
+  }
+  return out;
 }
 
 export const CHAT_TOOLS = [
   {
     name: 'market_prediction',
-    description: 'Advisory prediction for the current candle: whether to enter long, short or not at all over the next 3 candles of a timeframe, with calibrated probabilities, setup quality (0-4), trend confirmation and the inputs it was based on. Reuses the latest prediction while it is still valid (one candle duration), otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
+    description: 'Advisory prediction for the current candle of a timeframe. The default local provider returns a cost warning from evidenced no-trade reasons (wide spread, thin hour), a description of the closed bars and the trend as context, without naming a side; TypeSafe Jev, when selected, returns long, short or no trade over the next 3 candles with setup quality and trend confirmation. Reuses the latest prediction while it is still valid, otherwise makes a new one. It never places a trade; treat it as one input and confirm with price action. Defaults to the currently viewed instrument and timeframe.',
     input_schema: { type: 'object', properties: { instrument: { type: 'string', description: 'candle symbol, e.g. WTICO/USD; defaults to the current view' }, granularity: { type: 'string', description: 'timeframe, e.g. M5; defaults to the current view' } }, additionalProperties: false },
     run: async (a, ctx) => {
       // copilot only: the paper-trading bot never receives a prediction
@@ -757,8 +778,7 @@ export const CHAT_TOOLS = [
       const instrument = a?.instrument ?? ctx.view?.instrument;
       const granularity = a?.granularity ?? ctx.view?.granularity;
       if (!instrument || !isPredictionGranularity(granularity)) throw new Error('instrument and granularity are required');
-      const loadCandles = () => predictionCandles(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher);
-      return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, { instrument, granularity, loadCandles }, { reuse: true, fetchFn: ctx.providerFetch })));
+      return JSON.stringify(predictionForTool(await currentPrediction(ctx.dbPath, ctx.settings, predictionInput(ctx.dbPath, instrument, granularity, ctx.settings, ctx.fetcher), { reuse: true, fetchFn: ctx.providerFetch })));
     },
   },
   {
@@ -1297,21 +1317,44 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         const signals = signalOutcomes(dbPath, instrument, granularity, before ? { before, limit, kinds: 'all' } : { limit, kinds: 'all' });
         return json(res, 200, { ok: true, signals });
       }
-      // Live prediction for the current candle. POST because every call is a
+      // Live prediction for the current candle. POST because a Jev call is a
       // paid provider request; each run is stored for restore, and nothing in
       // the trading paths reads it.
       if (url.pathname === '/api/predict' && req.method === 'POST') {
         const body = await readJson(req, res);
         if (body === undefined) return;
         const cfg = readSettings(settingsPath);
-        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: store the API key and turn predictions on in settings' });
+        if (!predictionActive(cfg)) return json(res, 409, { ok: false, error: 'Predictions are off: turn predictions on in settings (TypeSafe Jev also needs its API key)' });
         const instrument = typeof body?.instrument === 'string' && /^[A-Za-z0-9/]{3,20}$/.test(body.instrument) ? body.instrument : null;
         const granularity = isPredictionGranularity(body?.granularity) ? body.granularity : null;
         if (!instrument || !granularity) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
         try {
-          const loadCandles = () => predictionCandles(dbPath, instrument, granularity, cfg, fetcher);
-          const prediction = await currentPrediction(dbPath, cfg, { instrument, granularity, loadCandles }, { reuse: body?.reuse === true, fetchFn: providerFetch });
+          const prediction = await currentPrediction(dbPath, cfg, predictionInput(dbPath, instrument, granularity, cfg, fetcher), { reuse: body?.reuse === true, fetchFn: providerFetch });
           return json(res, 200, { ok: true, prediction });
+        } catch (err) {
+          return json(res, err.status ?? 502, { ok: false, error: err.message });
+        }
+      }
+      // Local scores per closed candle for the chart tooltip, newest SERIES_MAX candles of
+      // [from, to]. Free: stored local runs are reused, other candles are scored locally and
+      // cached; the paid provider is never called and the forming candle is never scored.
+      if (url.pathname === '/api/predictions/series' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') ?? '';
+        const granularity = url.searchParams.get('granularity') ?? '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument) || !isPredictionGranularity(granularity)) return json(res, 400, { ok: false, error: 'instrument and granularity are required' });
+        const at = (k) => { const v = url.searchParams.get(k); return v ? Date.parse(v) : null; };
+        const from = at('from'), to = at('to');
+        if (Number.isNaN(from) || Number.isNaN(to)) return json(res, 400, { ok: false, error: 'from and to must be ISO times' });
+        const cfg = readSettings(settingsPath);
+        if (!['1', true].includes(cfg.predictionEnabled)) return json(res, 409, { ok: false, error: 'Predictions are off: turn predictions on in settings' });
+        try {
+          const series = await predictionSeries(dbPath, {
+            instrument, granularity, from, to,
+            // a supertrend warm-up ahead of the oldest scored candle, so its ATR has settled
+            loadCandles: async () => (await chartData(dbPath, instrument, { granularity, fetcher, count: SERIES_MAX + 200 })).candles,
+            loadBa: () => baWindow(instrument, granularity, SERIES_MAX + 200, { fetchFn: providerFetch }),
+          });
+          return json(res, 200, { ok: true, ...series });
         } catch (err) {
           return json(res, err.status ?? 502, { ok: false, error: err.message });
         }

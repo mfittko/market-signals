@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
+import { isWarning, STATE_COLOR, type SeriesEntry } from '@/lib/prediction';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -22,6 +23,8 @@ type Props = {
   signals?: SignalMark[];
   trades?: TradeMark[];
   news?: NewsMark[];
+  // local prediction per closed candle, shown in the tooltip for the card's chosen cell
+  predictions?: { entries: SeriesEntry[] };
 };
 
 const MIN_BAR = 7; // px per candle slot: fewer bars are drawn on narrow screens
@@ -45,7 +48,7 @@ function levels(d: Decision | undefined) {
   return out;
 }
 
-export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent, engine, supertrend, signals, trades, news }: Props) {
+export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent, engine, supertrend, signals, trades, news, predictions }: Props) {
   // Draw at the real pixel width so text stays 11px on a phone instead of scaling down.
   const box = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(0); // 0 until measured, so the first paint is already at the real width
@@ -96,6 +99,8 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
     return byBar;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signals, trades, news, candles, barMs]);
+
+  const predByMs = useMemo(() => new Map((predictions?.entries ?? []).map((e) => [ms(e.candleTime), e])), [predictions?.entries]);
 
   if (candles.length < 2) return <div ref={box}><p className="muted">Not enough candles to draw a chart.</p></div>;
 
@@ -157,6 +162,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   const hv = hover ? candles[hover.i] : null;
   const hvMarks = hover ? marks.get(hover.i) : undefined;
   const hvSt = hover ? stByBar.get(hover.i) : undefined;
+  const hvPred = hv ? predByMs.get(ms(hv.time)) : undefined;
   const last = candles[candles.length - 1];
 
   const summary = `Candle chart of ${candles.length} bars from ${hm(candles[0].time)} to ${hm(last.time)}.`
@@ -264,7 +270,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
       </svg>
 
       {hover && hv && (
-        <div className="chart-tip" role="status" style={{ left: Math.min(Math.max(x(hover.i), 0), W), transform: `translateX(${x(hover.i) > W * 0.55 ? 'calc(-100% - 14px)' : '14px'})` }}>
+        <div className="chart-tip" role="status" style={narrow ? { left: 8, right: 8, maxWidth: 'none' } /* a phone has no room beside the cursor: full width */ : { left: Math.min(Math.max(x(hover.i), 0), W), transform: `translateX(${x(hover.i) > W * 0.55 ? 'calc(-100% - 14px)' : '14px'})` }}>
           <div className="tip-h">{stamp(hv.time)}{hv.complete === false && <span className="tip-live">forming</span>}</div>
           <div className="tip-grid num">
             <span>O</span><span>{hv.open}</span><span>H</span><span>{hv.high}</span>
@@ -273,6 +279,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
           <div className="small muted num">
             {(((hv.close - hv.open) / hv.open) * 100).toFixed(2)}% · range {(hv.high - hv.low).toFixed(3)} · vol {hv.volume}
           </div>
+          {hvPred && <PredictionLine e={hvPred} />}
           {hvSt && <div className="small">Supertrend <span className="num">{fmt(hvSt.value)}</span> <span className={hvSt.trend === 'up' ? 'good-t' : 'bad-t'}>{hvSt.trend}</span></div>}
           {hvMarks?.signals.map((g, k) => (
             <div key={`g${k}`} className="tip-sec"><strong className={g.signal === 'buy' ? 'good-t' : 'bad-t'}>{g.signal} flip</strong>{g.kind && g.kind !== 'supertrend-flip' ? ` · ${g.kind.replace('supertrend-', '')}` : ''}{g.verdict ? ` · ${g.verdict}` : ''}{g.price ? ` @ ${g.price}` : ''}{g.reason && <div className="small">{g.reason.length > 160 ? `${g.reason.slice(0, 160)}…` : g.reason}</div>}</div>
@@ -294,6 +301,18 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
         {maxVol > 0 && <span>shaded bars: volume</span>}
         {last.complete === false && <span>dashed candle: still forming</span>}
       </div>
+    </div>
+  );
+}
+
+// "● Don't trade now" with the reason, or a plain "No warning"; then the Now line
+function PredictionLine({ e }: { e: SeriesEntry }) {
+  const warn = isWarning(e.shield);
+  return (
+    <div className="tip-sec small">
+      <div>{warn && <span aria-hidden style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: STATE_COLOR.red, marginRight: 4 }} />}{warn ? <strong>{e.shield.label}</strong> : 'No warning'}</div>
+      {warn && e.shield.why && <div style={{ color: 'var(--warn)' }}>{e.shield.why.replace(/^./, (x) => x.toUpperCase())}</div>}
+      {e.now && <div>{e.now.text}</div>}
     </div>
   );
 }

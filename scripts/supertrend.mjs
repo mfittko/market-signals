@@ -2125,6 +2125,16 @@ export async function runWatcherCycle(opts, cfg) {
       dbg(`news cache refresh failed: ${err.message}`);
     }
   }
+  // Free local predictions for the watched pairs, after the alert path like the caches above.
+  // A pair whose stored run is still valid (its next candle has not closed) is skipped.
+  if (opts.db) {
+    try {
+      const { refreshLocalPredictions } = await import('./signal-server.mjs');
+      await refreshLocalPredictions(opts.db, combos, cfg, { log: dbg });
+    } catch (err) {
+      dbg(`local prediction refresh failed: ${err.message}`);
+    }
+  }
   return results;
 }
 

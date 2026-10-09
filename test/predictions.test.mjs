@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { jevState, jevDecide, jevPredict, jevQuestions } from '../scripts/jev.mjs';
-import { predictionActive, listPredictions, currentPrediction } from '../scripts/predictions.mjs';
+import { predictionActive, predictionProvider, listPredictions, currentPrediction } from '../scripts/predictions.mjs';
 import { indicatorSummary } from '../scripts/lib/indicator-summary.mjs';
 import { storeCandles } from '../scripts/supertrend.mjs';
 import { buildServer, botToolDefs, chatToolDefs, execChatTool } from '../scripts/signal-server.mjs';
@@ -31,15 +31,22 @@ const okFetch = (calls, body = answer()) => async (url, init) => {
   calls.push({ url, init });
   return { ok: true, status: 200, json: async () => body };
 };
-const KEYED = { TYPESAFE_API_KEY: 'k', predictionEnabled: '1' };
+const JEV = 'typesafe-jev';
+const KEYED = { TYPESAFE_API_KEY: 'k', predictionEnabled: '1', predictionProvider: JEV };
 
-test('predictionActive needs a non-blank provider key and the toggle', () => {
+test('predictionActive: the toggle always; a non-blank key only for Jev; local is the default provider', () => {
   assert.equal(predictionActive({}), false);
-  assert.equal(predictionActive({ predictionEnabled: '1' }), false);
-  assert.equal(predictionActive({ TYPESAFE_API_KEY: '  ', predictionEnabled: '1' }), false);
   assert.equal(predictionActive({ TYPESAFE_API_KEY: 'k', predictionEnabled: '0' }), false);
+  assert.equal(predictionActive({ predictionEnabled: '1', predictionProvider: JEV }), false);
+  assert.equal(predictionActive({ TYPESAFE_API_KEY: '  ', predictionEnabled: '1', predictionProvider: JEV }), false);
   assert.equal(predictionActive(KEYED), true);
-  assert.equal(predictionActive({ TYPESAFE_API_KEY: 'k', predictionEnabled: true }), true);
+  assert.equal(predictionActive({ ...KEYED, predictionEnabled: true }), true);
+  // local needs no key
+  assert.equal(predictionActive({ predictionEnabled: '1' }), true);
+  assert.equal(predictionActive({ predictionEnabled: '1', predictionProvider: 'local' }), true);
+  assert.equal(predictionProvider({}), 'local');
+  assert.equal(predictionProvider({ predictionProvider: 'bogus' }), 'local');
+  assert.equal(predictionProvider(KEYED), JEV);
 });
 
 test('jevState buckets values into words and leaks no price numbers', () => {
@@ -148,7 +155,7 @@ async function withServer(settings, fn) {
 const post = (base, body) => fetch(`${base}/api/predict`, { method: 'POST', body: JSON.stringify(body) });
 
 test('POST /api/predict refuses with 409 and no TypeSafe call while off', async () => {
-  for (const s of [{}, { predictionEnabled: '1' }, { TYPESAFE_API_KEY: ' ', predictionEnabled: '1' }, { TYPESAFE_API_KEY: 'k', predictionEnabled: '0' }]) {
+  for (const s of [{}, { predictionEnabled: '1', predictionProvider: JEV }, { TYPESAFE_API_KEY: ' ', predictionEnabled: '1', predictionProvider: JEV }, { TYPESAFE_API_KEY: 'k', predictionEnabled: '0' }, { predictionEnabled: '0' }]) {
     await withServer(s, async ({ base, calls }) => {
       const r = await post(base, { instrument: 'WTICO/USD', granularity: 'M5' });
       assert.equal(r.status, 409);

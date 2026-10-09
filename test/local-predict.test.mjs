@@ -1,0 +1,365 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { storeCandles } from '../scripts/supertrend.mjs';
+import { listPredictions, predictionSeries, SERIES_MAX } from '../scripts/predictions.mjs';
+import { buildServer, refreshLocalPredictions } from '../scripts/signal-server.mjs';
+import {
+  noTradeReasons, localPredict, localSeries, LOCAL_MODEL, shieldState, shieldText, nowMotion, volumeRatio, SHIELD_LABEL, newsInput, newsRelevant,
+  baWindow, clearBaWindows, fetchBaCandles,
+} from '../scripts/local-predict.mjs';
+
+test('no-trade reasons: spread over 0.2 R and thin UTC hour only', () => {
+  const at = (h) => Date.UTC(2026, 9, 7, h, 0);
+  assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.2, closeMs: at(12) }), []);
+  assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.21, closeMs: at(12) }).map((r) => r.code), ['spread']);
+  assert.deepEqual(noTradeReasons({ instrument: 'WTICO/USD', spreadR: null, closeMs: at(22) }).map((r) => r.code), ['thin_hour']);
+  assert.deepEqual(noTradeReasons({ instrument: 'SPX500/USD', spreadR: null, closeMs: at(22) }), []);
+  assert.deepEqual(noTradeReasons({ instrument: 'BCO/USD', spreadR: null, closeMs: at(22) }), [], 'no thin-hour list');
+  const r = noTradeReasons({ instrument: 'EUR/USD', spreadR: 0.5, closeMs: at(4) });
+  assert.deepEqual(r.map((x) => x.text), ['Spread wide (0.50 of the stop distance, limit 0.2)', 'Thin trading hour (04:00 UTC)']);
+});
+
+test('newsRelevant: per-instrument keywords on whole words, nothing for unlisted instruments', () => {
+  assert.equal(newsRelevant('WTICO/USD', 'Oil prices climb as OPEC+ holds output'), true);
+  assert.equal(newsRelevant('WTICO/USD', 'Cristiano Ronaldo pays tribute to Lionel Messi'), false);
+  assert.equal(newsRelevant('WTICO/USD', 'Turmoil in the boardroom'), false, 'no match inside a word');
+  assert.equal(newsRelevant('SPX500/USD', 'S&P 500 hits a record as earnings beat'), true);
+  assert.equal(newsRelevant('EUR/USD', 'ECB holds rates'), true);
+  assert.equal(newsRelevant('JP225/USD', 'Oil and gold rally'), false);
+});
+
+test('newsInput: newest headline stored unchanged, newest relevant one picked for display', () => {
+  const db = new DatabaseSync(':memory:');
+  const now = Date.UTC(2026, 9, 7, 12, 0);
+  assert.equal(newsInput(db, 'WTICO/USD', now), null, 'no news table');
+  db.exec('CREATE TABLE news (instrument TEXT, title TEXT, time TEXT, fetched_at TEXT, escalation INTEGER)');
+  const add = (min, title, esc, fetchedMin = min) => db.prepare('INSERT INTO news VALUES (?,?,?,?,?)')
+    .run('WTICO/USD', title, new Date(now - min * 60000).toISOString(), new Date(now - fetchedMin * 60000).toISOString(), esc);
+  add(400, 'Crude falls', 1);
+  assert.equal(newsInput(db, 'WTICO/USD', now), null, 'older than 6h');
+  add(30, 'Crude jumps on Hormuz threat', 1, 2); // published 30 min ago, stored 2 min ago
+  add(10, 'Cristiano Ronaldo pays tribute to Lionel Messi', 0);
+  const n = newsInput(db, 'WTICO/USD', now);
+  assert.deepEqual([n.latest.title, n.latest.relevant, n.latest.escalation], ['Cristiano Ronaldo pays tribute to Lionel Messi', false, 'routine']);
+  assert.deepEqual([n.relevant.title, n.relevant.escalation, n.relevant.availableAt], ['Crude jumps on Hormuz threat', 'escalation', new Date(now - 2 * 60000).toISOString()]);
+});
+
+// ---- synthetic M5 bid/ask bars (a seeded random walk; spread far below the 0.2-of-stop limit)
+// rows: [t minutes UTC, bid o, h, l, c, ask o, h, l, c]; the newest bar starts at 2026-10-07 12:00 UTC.
+const BA_ROWS = (() => {
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const n = 600, end = Date.UTC(2026, 9, 7, 12) / 60000, half = 0.002;
+  let mid = 90;
+  return Array.from({ length: n }, (_, i) => {
+    const o = mid;
+    const c = o + (rnd() - 0.5) * 0.12;
+    const h = Math.max(o, c) + rnd() * 0.04, l = Math.min(o, c) - rnd() * 0.04;
+    mid = c;
+    return [end - (n - 1 - i) * 5, o - half, h - half, l - half, c - half, o + half, h + half, l + half, c + half];
+  });
+})();
+const baBars = (rows, shiftMin = 0) => rows.map(([t, bo, bh, bl, bc, ao, ah, al, ac]) => ({ time: new Date((t + shiftMin) * 60000).toISOString(), bid_o: bo, bid_h: bh, bid_l: bl, bid_c: bc, ask_o: ao, ask_h: ah, ask_l: al, ask_c: ac }));
+// mid bars with a varying tick volume
+const midBars = (ba) => ba.map((b, i) => ({ time: b.time, open: (b.bid_o + b.ask_o) / 2, high: (b.bid_h + b.ask_h) / 2, low: (b.bid_l + b.ask_l) / 2, close: (b.bid_c + b.ask_c) / 2, volume: 100 + (i * 37) % 90 }));
+
+test('localPredict: cost shield from the measured reasons, Now line, no side named, news never moves anything', () => {
+  const ba = baBars(BA_ROWS);
+  const lastMs = Date.parse(ba.at(-1).time);
+  const now = lastMs + 300000 + 1000;
+  const candles = midBars(ba).slice(-400);
+  const base = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba }, { now });
+  assert.equal(base.candleTime, ba.at(-1).time);
+  assert.ok(base.detail.spreadR > 0 && base.detail.spreadR < 0.2);
+  assert.deepEqual(base.detail.reasons, []);
+  assert.deepEqual(base.detail.shield, { state: 'grey', label: 'No warning', why: null, reason: null });
+  assert.equal(base.state.shield, 'No warning');
+  assert.deepEqual([base.action, base.probabilities], ['no_trade', { long: null, short: null, no_trade: null }], 'the local provider names no side');
+  assert.equal(base.detail.pprofit, undefined);
+  assert.match(base.detail.now.text, /^Now: /);
+  assert.deepEqual([base.detail.bigDay, base.state.big_day_today], [undefined, undefined], 'the big-day line is held back');
+  assert.match(base.detail.trend.text, /^supertrend (up|down), H1 (agrees|disagrees|not enough history)$/);
+  // escalated relevant news is shown and stored but changes nothing
+  const hit = { id: 7, title: 'Tanker hit near Hormuz', escalation: 'escalation', relevant: true, publishedAt: new Date(now - 60000).toISOString() };
+  const n = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba, news: { latest: hit, relevant: hit } }, { now });
+  assert.deepEqual([n.action, n.detail.reasons, n.detail.shield], [base.action, base.detail.reasons, base.detail.shield]);
+  assert.equal(n.detail.news.latest.id, 7);
+  assert.match(n.state.news, /not used for direction or reasons/);
+  // a wide spread on the closed bar turns the shield red with the reason
+  const wide = [...ba.slice(0, -1), { ...ba.at(-1), ask_c: ba.at(-1).bid_c + 5 }];
+  const w = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba: wide }, { now });
+  assert.equal(w.detail.shield.state, 'red');
+  assert.match(w.detail.shield.why, /^spread wide \(\d+\.\d\d of stop\)$/);
+  assert.match(w.state.shield, /^Don't trade now · spread wide/);
+});
+
+test('localPredict: an instrument without thin-hour list or bid/ask is not an error', () => {
+  const ba = baBars(BA_ROWS);
+  const now = Date.parse(ba.at(-1).time) + 301000;
+  const candles = midBars(ba).slice(-200);
+  const other = localPredict({ instrument: 'BCO/USD', granularity: 'M5', candles }, { now });
+  assert.equal(other.detail.shield.state, 'grey');
+  const noBa = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles }, { now });
+  assert.equal(noBa.detail.spreadR, null);
+  assert.equal(noBa.state.spread, 'unknown (no bid/ask for this bar)');
+});
+
+test('baWindow: one full bid/ask fetch, then only the newest bars', async () => {
+  clearBaWindows();
+  const ba = baBars(BA_ROWS).slice(-100);
+  const feed = (rows) => ({ candles: rows.map((b) => ({ complete: true, time: b.time, bid: { o: b.bid_o, h: b.bid_h, l: b.bid_l, c: b.bid_c }, ask: { o: b.ask_o, h: b.ask_h, l: b.ask_l, c: b.ask_c } })) });
+  const asked = [];
+  let upto = 98;
+  const fetchFn = async (u) => { const n = Number(new URL(String(u)).searchParams.get('count')); asked.push(n); return { ok: true, json: async () => feed(ba.slice(0, upto).slice(-n)) }; };
+  assert.equal((await baWindow('WTICO/USD', 'M5', 50, { fetchFn })).length, 50);
+  upto = 100;
+  const w = await baWindow('WTICO/USD', 'M5', 50, { fetchFn });
+  assert.deepEqual([w.length, w.at(-1).time, asked], [50, ba.at(-1).time, [50, 10]]);
+  await assert.rejects(fetchBaCandles('X', 'M5', 3, { fetchFn: async () => ({ ok: false, status: 500 }) }), /HTTP 500/);
+  clearBaWindows();
+});
+
+// ---- engine routes with the local provider
+async function withLocalServer(settings, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'local-pred-'));
+  const dbPath = join(dir, 'db.sqlite');
+  const settingsPath = join(dir, 'settings.json');
+  const now = Date.now();
+  // the synthetic M5 bid/ask bars, shifted so the newest bar is the one that just closed
+  const rows = BA_ROWS;
+  const ba = baBars(rows, (Math.floor(now / 300000) - 1) * 5 - rows.at(-1)[0]);
+  const m5 = midBars(ba).slice(-400);
+  storeCandles(dbPath, 'WTICO/USD', 'M5', m5);
+  writeFileSync(settingsPath, JSON.stringify(settings));
+  clearBaWindows();
+  const calls = [];
+  const providerFetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('price=BA')) {
+      const n = Number(new URL(String(url)).searchParams.get('count'));
+      return { ok: true, json: async () => ({ candles: ba.slice(-n).map((b) => ({ complete: true, time: b.time, bid: { o: b.bid_o, h: b.bid_h, l: b.bid_l, c: b.bid_c }, ask: { o: b.ask_o, h: b.ask_h, l: b.ask_l, c: b.ask_c } })) }) };
+    }
+    return { ok: true, json: async () => ({ model: 'jev', answers: { action: { type: 'choice', choice: 'long', probabilities: { long: 0.7, short: 0.1, no_trade: 0.2 } }, setup_quality: { type: 'score', score: 2 }, trend_confirmed: { type: 'noul', noul: 0.9 } } }) };
+  };
+  const server = buildServer({ dbPath, settingsPath, fetcher: null, providerFetch });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try { await fn({ base, calls, dbPath, settingsPath, m5 }); } finally { server.close(); }
+}
+const post = (base, body) => fetch(`${base}/api/predict`, { method: 'POST', body: JSON.stringify(body) });
+const typesafeCalls = (calls) => calls.filter((u) => u.includes('typesafe')).length;
+
+test('POST /api/predict: local is the default, needs no key, stores one run per closed candle', async () => {
+  await withLocalServer({ predictionEnabled: '1' }, async ({ base, calls, m5 }) => {
+    const r = await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true });
+    assert.equal(r.status, 200);
+    const { prediction: p } = await r.json();
+    assert.equal(p.provider, 'local');
+    assert.equal(p.candleTime, m5.at(-1).time);
+    assert.ok(['red', 'grey'].includes(p.detail.shield.state));
+    assert.equal(p.action, 'no_trade');
+    assert.equal(p.valid, true);
+    assert.equal(Date.parse(p.expiresAt), Date.parse(m5.at(-1).time) + 600000, 'valid until the next candle closes');
+    const again = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    assert.deepEqual([again.id, again.reused], [p.id, true]);
+    const forced = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5' })).json()).prediction;
+    assert.equal(forced.id, p.id, 'same candle: no duplicate row');
+    assert.equal(typesafeCalls(calls), 0);
+    const list = (await (await fetch(`${base}/api/predictions?instrument=WTICO/USD&granularity=M5`)).json()).predictions;
+    assert.equal(list.length, 1);
+    assert.deepEqual(Object.keys(list[0].detail).sort(), ['news', 'now', 'reasons', 'shield', 'spreadR', 'trend']);
+  });
+});
+
+test('POST /api/predict: Jev when selected and keyed; a local run is never reused for Jev', async () => {
+  await withLocalServer({ predictionEnabled: '1' }, async ({ base, calls, settingsPath }) => {
+    const local = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    writeFileSync(settingsPath, JSON.stringify({ predictionEnabled: '1', predictionProvider: 'typesafe-jev' }));
+    assert.equal((await post(base, { instrument: 'WTICO/USD', granularity: 'M5' })).status, 409, 'Jev without a key is off');
+    writeFileSync(settingsPath, JSON.stringify({ predictionEnabled: '1', predictionProvider: 'typesafe-jev', TYPESAFE_API_KEY: 'k' }));
+    const jev = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    assert.equal(jev.provider, 'typesafe-jev');
+    assert.notEqual(jev.id, local.id);
+    assert.equal(typesafeCalls(calls), 1);
+    const bad = await (await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ predictionProvider: 'oracle' }) })).json();
+    assert.match(bad.error, /predictionProvider/);
+    const ok = await fetch(`${base}/api/settings`, { method: 'POST', body: JSON.stringify({ predictionProvider: 'local' }) });
+    assert.equal(ok.status, 200);
+  });
+});
+
+test('refreshLocalPredictions: one free run per watched pair, nothing while off or on Jev', async () => {
+  await withLocalServer({}, async ({ dbPath, calls }) => {
+    const combos = [{ instrument: 'WTICO/USD', granularity: 'M5' }, { instrument: 'WTICO/USD', granularity: 'D' }];
+    const opts = { fetcher: null, fetchFn: async () => ({ ok: false }), log: () => {} };
+    assert.deepEqual(await refreshLocalPredictions(dbPath, combos, {}, opts), []);
+    assert.deepEqual(await refreshLocalPredictions(dbPath, combos, { predictionEnabled: '1', predictionProvider: 'typesafe-jev', TYPESAFE_API_KEY: 'k' }, opts), []);
+    const runs = await refreshLocalPredictions(dbPath, combos, { predictionEnabled: '1' }, opts);
+    assert.deepEqual(runs.map((r) => [r.granularity, r.provider, r.reused]), [['M5', 'local', false]]);
+    const again = await refreshLocalPredictions(dbPath, combos, { predictionEnabled: '1' }, opts);
+    assert.equal(again[0].reused, true);
+    assert.equal(listPredictions(dbPath, 'WTICO/USD', 'M5').length, 1);
+    assert.equal(calls.length, 0);
+  });
+});
+
+test('a predictions table from before the detail column is migrated in place', () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-mig-')), 'db.sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE predictions (id INTEGER PRIMARY KEY AUTOINCREMENT, instrument TEXT NOT NULL, granularity TEXT NOT NULL, candle_time TEXT NOT NULL,
+    forming INTEGER NOT NULL, price REAL, horizon_bars INTEGER NOT NULL, asked_at TEXT NOT NULL, provider TEXT NOT NULL, model TEXT, action TEXT NOT NULL,
+    probabilities TEXT NOT NULL, confidence REAL, quality REAL, trend_confirmed REAL, latency_ms INTEGER, state TEXT NOT NULL)`);
+  db.prepare(`INSERT INTO predictions (instrument, granularity, candle_time, forming, horizon_bars, asked_at, provider, action, probabilities, state)
+    VALUES ('WTICO/USD', 'M5', '2026-10-07T10:00:00Z', 1, 3, '2026-10-07T10:01:00Z', 'typesafe-jev', 'long', '{}', '{}')`).run();
+  db.close();
+  const [row] = listPredictions(dbPath, 'WTICO/USD', 'M5');
+  assert.equal(row.detail, null);
+  assert.equal(row.provider, 'typesafe-jev');
+});
+
+// ---- shield
+test('shieldState: red with the first measured reason, else grey "No warning"; one state for both sides', () => {
+  assert.deepEqual(shieldState({ reasons: [] }), { state: 'grey', label: 'No warning', why: null, reason: null });
+  const spread = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.27, closeMs: Date.UTC(2026, 9, 7, 12) });
+  assert.deepEqual(shieldState({ reasons: spread }), { state: 'red', label: "Don't trade now", why: 'spread wide (0.27 of stop)', reason: { code: 'spread', why: 'spread wide (0.27 of stop)' } });
+  assert.equal(shieldText(shieldState({ reasons: spread })), "Don't trade now · spread wide (0.27 of stop)");
+  // the limit is exclusive: 0.2 of stop is no warning
+  assert.equal(shieldState({ reasons: noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.2, closeMs: Date.UTC(2026, 9, 7, 12) }) }).state, 'grey');
+  const thin = noTradeReasons({ instrument: 'WTICO/USD', spreadR: 0.3, closeMs: Date.UTC(2026, 9, 7, 4) });
+  assert.deepEqual([thin.map((r) => r.code), shieldState({ reasons: thin }).why], [['spread', 'thin_hour'], 'spread wide (0.30 of stop)'], 'the first reason is named');
+  assert.equal(shieldState({ reasons: noTradeReasons({ instrument: 'EUR/USD', spreadR: null, closeMs: Date.UTC(2026, 9, 7, 4) }) }).why, 'thin trading hour (04:00 UTC)');
+  assert.deepEqual(Object.keys(SHIELD_LABEL).sort(), ['grey', 'red']);
+});
+
+test('nowMotion: run length, pace in ATR, direction, volume against the slot or the recent median', () => {
+  const t0 = Date.UTC(2026, 9, 8, 0, 0);
+  // flat filler with alternating bars, then a falling run; volume 100 everywhere except the last bar
+  const mk = (n, f) => Array.from({ length: n }, (_, i) => ({ time: new Date(t0 + i * 300000).toISOString(), ...f(i) }));
+  const base = mk(300, (i) => (i % 2 ? { open: 100, close: 100.01, volume: 100 } : { open: 100.01, close: 100, volume: 100 }));
+  const fall = (step, n, vol) => {
+    const bars = base.map((b) => ({ ...b }));
+    bars[bars.length - n - 1] = { ...bars[bars.length - n - 1], open: 99.99, close: 100 }; // a rising bar ends the run
+    let p = 100;
+    for (let j = 0; j < n; j++) { const k = bars.length - n + j; bars[k] = { ...bars[k], open: p, close: p - step, volume: j === n - 1 ? vol : 100 }; p -= step; }
+    return bars;
+  };
+  const atr = 1;
+  // fast: 8 falling bars of 0.5 -> the run is capped at 6 bars, move -3.0 ATR
+  let b = fall(0.5, 8, 250);
+  let m = nowMotion(b, b.length - 1, atr);
+  assert.deepEqual([m.bars, m.pace, m.direction, m.continuationRate], [6, 'fast', 'falling', null]);
+  assert.ok(Math.abs(m.moveAtr - -3) < 1e-9);
+  assert.equal(m.text, 'Now: falling fast · −3.0 ATR in 6 bars · volume 2.5× normal');
+  assert.equal(m.volumeBase, 'prior 288 bars', 'one day of M5 bars: no slot history, recent median');
+  // steady: 3 bars of 0.3 -> -0.9 ATR
+  b = fall(0.3, 3, 100);
+  m = nowMotion(b, b.length - 1, atr);
+  assert.equal(m.text, 'Now: falling steady · −0.9 ATR in 3 bars · volume 1.0× normal');
+  // flat: 2 bars of 0.1 -> no direction word
+  b = fall(0.1, 2, 100);
+  m = nowMotion(b, b.length - 1, atr);
+  assert.deepEqual([m.pace, m.direction, m.text], ['flat', null, 'Now: flat · −0.2 ATR in 2 bars · volume 1.0× normal']);
+  // volume omitted: no volume on the last bar, or too little history
+  b = fall(0.5, 4, 0);
+  assert.equal(nowMotion(b, b.length - 1, atr).text, 'Now: falling fast · −2.0 ATR in 4 bars');
+  const short = fall(0.5, 4, 300).slice(-10);
+  assert.equal(nowMotion(short, short.length - 1, atr).volumeRatio, null);
+  // the same time-of-day slot over 20 days wins when there are at least 10 such bars
+  const days = Array.from({ length: 12 }, (_, d) => ({ time: new Date(t0 + d * 86400000).toISOString(), open: 1, close: 1.1, volume: d < 11 ? 50 : 150 }));
+  assert.deepEqual(volumeRatio(days, 11), { ratio: 3, base: 'time-of-day slot, 20 days' });
+  // no ATR: no Now line
+  assert.equal(nowMotion(b, b.length - 1, null), null);
+});
+
+// ---- per-candle series for the chart tooltip
+test('localSeries: one pass over the window gives each candle what localPredict gave when it closed', () => {
+  const ba = baBars(BA_ROWS);
+  const candles = midBars(ba).slice(-400);
+  for (const k of [150, 399]) {
+    const t = candles[k].time;
+    const i = ba.findIndex((b) => b.time === t);
+    const [e] = localSeries({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba }, [t]);
+    const p = localPredict({ instrument: 'WTICO/USD', granularity: 'M5', candles: candles.slice(0, k + 1), ba: ba.slice(0, i + 1) }, { now: Date.parse(t) + 301000 });
+    assert.equal(e.spreadR, p.detail.spreadR, `spread at ${t}`);
+    assert.deepEqual(e.now, p.detail.now, `Now line at ${t}`);
+    assert.deepEqual(e.reasons, p.detail.reasons);
+  }
+  const [none] = localSeries({ instrument: 'WTICO/USD', granularity: 'M5', candles, ba: [] }, [candles[10].time]);
+  assert.deepEqual([none.spreadR, none.hasBidAsk], [null, false]);
+});
+
+test('predictionSeries: forming and unclosed candles are never scored, results are cached', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'pred-series-')), 'db.sqlite');
+  const ba = baBars(BA_ROWS);
+  const closed = midBars(ba).slice(-60);
+  const lastMs = Date.parse(closed.at(-1).time);
+  const now = lastMs + 300000 + 1000;
+  // a forming bar after the last closed one, and a bar marked complete that has not closed yet
+  const candles = [...closed, { ...closed.at(-1), time: new Date(lastMs + 300000).toISOString(), complete: false }];
+  let baReads = 0;
+  const input = { instrument: 'WTICO/USD', granularity: 'M5', loadCandles: async () => candles, loadBa: async () => { baReads++; return ba; } };
+  const first = await predictionSeries(dbPath, input, now);
+  assert.equal(first.entries.length, 60);
+  assert.equal(first.entries.at(-1).candleTime, closed.at(-1).time, 'the forming candle is excluded');
+  assert.ok(first.entries.every((e) => e.source === 'computed' && e.computedAt === new Date(now).toISOString()));
+  assert.equal(baReads, 1);
+  const e = first.entries.at(-1);
+  assert.ok(typeof e.spreadR === 'number');
+  assert.deepEqual(Object.keys(e).sort(), ['candleTime', 'computedAt', 'now', 'reasons', 'shield', 'source', 'spreadR']);
+  assert.ok(first.entries.every((x) => ['red', 'grey'].includes(x.shield.state)));
+  // a second read is served from the cache: no bid/ask read, same computed_at
+  const again = await predictionSeries(dbPath, input, now + 60000);
+  assert.equal(baReads, 1);
+  assert.deepEqual(again.entries, first.entries);
+  // The cached row shape is pinned to LOCAL_MODEL (the cache key): a shape change without a version bump
+  // would serve old rows in the old shape. On a failure: bump LOCAL_MODEL, then update both pins here.
+  const shape = (v) => (Array.isArray(v) ? (v.every((x) => typeof x === 'number') ? `number[${v.length}]` : `[${v.length ? shape(v[0]) : ''}]`)
+    : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${k}:${shape(v[k])}`).join(',')}}` : typeof v);
+  const db = new DatabaseSync(dbPath);
+  const row = db.prepare('SELECT model, entry FROM prediction_series ORDER BY candle_ms DESC LIMIT 1').get();
+  db.close();
+  const pin = { model: row.model, shape: createHash('sha256').update(shape(JSON.parse(row.entry))).digest('hex').slice(0, 16) };
+  // never update only the shape hash: a new hash needs a new model string
+  assert.deepEqual(pin, { model: 'local-stats-v8 (cost shield from no-trade reasons; Now line; trend)', shape: '85e2ed413b08a2ad' }, 'stored series shape changed: bump LOCAL_MODEL');
+  assert.equal(row.model, LOCAL_MODEL);
+  // a window: from/to in ms, and the cap
+  const part = await predictionSeries(dbPath, { ...input, from: Date.parse(closed[50].time), to: Date.parse(closed[54].time) }, now);
+  assert.deepEqual(part.entries.map((x) => x.candleTime), closed.slice(50, 55).map((c) => c.time));
+  // the newest closed candle is not scored before it closes
+  const early = await predictionSeries(dbPath, input, lastMs + 299000);
+  assert.equal(early.entries.at(-1).candleTime, closed.at(-2).time);
+  assert.equal(SERIES_MAX, 500);
+});
+
+test('GET /api/predictions/series: stored live run for its candle, computed and cached for the rest, off when predictions are off', async () => {
+  await withLocalServer({ predictionEnabled: '1' }, async ({ base, calls, m5 }) => {
+    const series = (q = '') => fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M5${q}`);
+    const live = (await (await post(base, { instrument: 'WTICO/USD', granularity: 'M5', reuse: true })).json()).prediction;
+    const r = await series();
+    assert.equal(r.status, 200);
+    const body = await r.json();
+    assert.deepEqual([body.max, body.capped, body.entries.length], [500, false, m5.length]);
+    const last = body.entries.at(-1);
+    assert.deepEqual([last.candleTime, last.source, last.computedAt], [live.candleTime, 'live', live.askedAt]);
+    assert.deepEqual(last.shield, live.detail.shield, 'the series returns the stored shield');
+    assert.deepEqual(last.now, live.detail.now);
+    assert.ok(body.entries.slice(0, -1).every((e) => e.source === 'computed'));
+    const baCalls = calls.filter((u) => u.includes('price=BA')).length;
+    const again = await (await series()).json();
+    assert.deepEqual(again.entries, body.entries, 'cached');
+    assert.equal(calls.filter((u) => u.includes('price=BA')).length, baCalls, 'no bid/ask fetch for a cached window');
+    assert.equal(typesafeCalls(calls), 0);
+    const win = await (await series(`&from=${encodeURIComponent(m5[10].time)}&to=${encodeURIComponent(m5[12].time)}`)).json();
+    assert.deepEqual(win.entries.map((e) => e.candleTime), m5.slice(10, 13).map((c) => c.time));
+    assert.equal((await series('&from=yesterday')).status, 400);
+    assert.equal((await fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M7`)).status, 400);
+  });
+  await withLocalServer({ predictionEnabled: '0' }, async ({ base }) => {
+    assert.equal((await fetch(`${base}/api/predictions/series?instrument=WTICO/USD&granularity=M5`)).status, 409);
+  });
+});
