@@ -1009,12 +1009,15 @@ test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rou
   };
   try {
     let captured = null;
+    const deltas = [];
     const reply = await llmChat({ provider: 'anthropic', ANTHROPIC_API_KEY: 'k' }, 'sys', 'user', {
       toolDefs: [{ name: 'noop', description: 'no-op', input_schema: { type: 'object' } }],
       execTool: async () => 'done',
       onUsage: (info) => { captured = info; },
+      onDelta: (d) => deltas.push(d),
     });
     assert.equal(reply, 'final answer');
+    assert.deepEqual(deltas, ['final answer'], 'the tool round streams no [name…] marker, only the answer');
     assert.equal(call, 2, 'two rounds ran');
     assert.deepEqual(captured, { provider: 'anthropic', model: 'claude-sonnet-5', usage: { inputTokens: 300, outputTokens: 30 } }, 'usage summed across both rounds, reported once');
   } finally { globalThis.fetch = realFetch; }
