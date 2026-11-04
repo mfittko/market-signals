@@ -516,6 +516,31 @@ export function assessArticleFeed({ rawCount, emittedCount, newestRawTs, cutoffT
   };
 }
 
+// The untagged forecasts hub is the live source: one global fetch, articles
+// attributed to slugs by tag match. The /news page and the news hub froze at
+// 2026-08-04, and tagged hub queries return nothing. A per-instrument SSR page
+// and the tagged hub stay as fallbacks for slugs the global feed missed.
+export async function selectSlugArticles(tagsUsed, { fetchHub, fetchSsrPage, pause = () => delay(120) }) {
+  const globalFeed = await fetchHub('forecasts', '');
+  const hubArticles = [];
+  for (const { slug, tag } of tagsUsed) {
+    let batch = globalFeed.filter((a) => articleMatchesSlug(a, slug));
+    if (!batch.length) {
+      batch = (await fetchSsrPage(`/${slugMarket(slug)}/${slug}/news`)).filter((a) => articleMatchesSlug(a, slug));
+      await pause();
+    }
+    if (batch.length) {
+      batch = batch.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news', _tag: `ssr:${slug}` }));
+    } else {
+      const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
+      batch = [...n, ...f];
+    }
+    for (const a of batch) a._slug = slug;
+    hubArticles.push(...batch);
+  }
+  return hubArticles;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -614,27 +639,7 @@ Options:
     }
   }
 
-  // SSR news pages are the live source (issue #28): one global fetch, articles
-  // attributed to slugs by tag match; a per-instrument page is fetched only for
-  // slugs the global mix missed; the frozen hub API is the last-resort fallback
-  // so a markup change degrades instead of breaking.
-  const globalSsr = await fetchSsrPage('/news');
-  let hubArticles = [];
-  for (const { slug, tag } of tagsUsed) {
-    let batch = globalSsr.filter((a) => articleMatchesSlug(a, slug));
-    if (!batch.length) {
-      batch = (await fetchSsrPage(`/${slugMarket(slug)}/${slug}/news`)).filter((a) => articleMatchesSlug(a, slug));
-      await delay(120);
-    }
-    if (batch.length) {
-      batch = batch.map((a) => ({ ...a, _type: String(a.articleUrl || '').startsWith('/forecasts/') ? 'forecasts' : 'news', _tag: `ssr:${slug}` }));
-    } else {
-      const [n, f] = await Promise.all([fetchHub('news', tag), fetchHub('forecasts', tag)]);
-      batch = [...n, ...f];
-    }
-    for (const a of batch) a._slug = slug;
-    hubArticles.push(...batch);
-  }
+  const hubArticles = await selectSlugArticles(tagsUsed, { fetchHub, fetchSsrPage });
 
   const cutoffTs = cutoff.getTime();
   const nowTs = now.getTime();

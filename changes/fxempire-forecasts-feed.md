@@ -1,0 +1,1 @@
+- FXEmpire articles: read the live untagged forecasts feed again; the news feed has been frozen since 2026-08-04 (#328)
