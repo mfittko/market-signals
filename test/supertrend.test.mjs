@@ -1023,6 +1023,30 @@ test('llmChat tool-loop onUsage (#93): aggregates input/output tokens across rou
   } finally { globalThis.fetch = realFetch; }
 });
 
+test('llmChat tool-loop (openai): a tool_calls round streams no [name…] marker, only the answer', async () => {
+  const { llmChat } = await import('../scripts/supertrend.mjs');
+  const realFetch = globalThis.fetch;
+  let call = 0;
+  globalThis.fetch = async () => {
+    call += 1;
+    const message = call === 1
+      ? { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'noop', arguments: '{}' } }] }
+      : { role: 'assistant', content: 'final answer' };
+    return new Response(JSON.stringify({ choices: [{ finish_reason: call === 1 ? 'tool_calls' : 'stop', message }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const deltas = [];
+    const reply = await llmChat({ provider: 'openai', OPENAI_API_KEY: 'k' }, 'sys', 'user', {
+      toolDefs: [{ name: 'noop', description: 'no-op', input_schema: { type: 'object' } }],
+      execTool: async () => 'done',
+      onDelta: (d) => deltas.push(d),
+    });
+    assert.equal(reply, 'final answer');
+    assert.equal(call, 2, 'two rounds ran');
+    assert.deepEqual(deltas, ['final answer']);
+  } finally { globalThis.fetch = realFetch; }
+});
+
 test('recordRecheck rejects a bad row shape (invalid verdict / empty reason) from any caller (#70)', async () => {
   const { recordRecheck } = await import('../scripts/signal-rechecks.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'rc-'));
