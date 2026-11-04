@@ -165,3 +165,42 @@ test('archiveArticles: creates table, dedups on (id,type), survives re-run', asy
   assert.equal(rows[0].fetched_at, 999, 'first-seen fetched_at preserved');
   assert.equal(rows[2].slug, 'crude-oil');
 });
+
+test('selectSlugArticles: one untagged forecasts-hub request feeds every slug; SSR then tagged hub are fallbacks', async () => {
+  const { selectSlugArticles } = await import('../skills/fxempire-analysis/scripts/fxempire_articles.mjs');
+  const hubCalls = [];
+  const ssrCalls = [];
+  const globalFeed = [
+    { id: 10, tags: ['co-gold'], articleUrl: '/forecasts/article/gold-10' },
+    { id: 11, tags: ['co-wti-crude-oil'], articleUrl: '/news/article/wti-11' },
+  ];
+  const fetchHub = async (type, tag) => {
+    hubCalls.push([type, tag]);
+    if (type === 'forecasts' && tag === '') return globalFeed;
+    if (type === 'news' && tag === 'bitcoin') return [{ id: 30, _type: type, _tag: tag }];
+    return [];
+  };
+  const fetchSsrPage = async (p) => {
+    ssrCalls.push(p);
+    return p === '/indices/spx/news' ? [{ id: 20, tags: ['i-spx'], articleUrl: '/news/article/spx-20' }] : [];
+  };
+  const tagsUsed = [
+    { slug: 'gold', tag: 'gold' },
+    { slug: 'wti-crude-oil', tag: 'wti' },
+    { slug: 'spx', tag: 'spx' },
+    { slug: 'bitcoin', tag: 'bitcoin' },
+  ];
+  const out = await selectSlugArticles(tagsUsed, { fetchHub, fetchSsrPage, pause: async () => {} });
+
+  assert.deepEqual(hubCalls[0], ['forecasts', ''], 'global request is the untagged forecasts hub');
+  assert.equal(hubCalls.filter(([, t]) => t === '').length, 1, 'global hub fetched once');
+  assert.deepEqual(ssrCalls, ['/indices/spx/news', '/crypto/bitcoin/news'], 'SSR only for slugs the global feed missed');
+  assert.deepEqual(hubCalls.slice(1).sort(), [['forecasts', 'bitcoin'], ['news', 'bitcoin']], 'tagged hub only as last resort');
+
+  const by = (id) => out.find((a) => a.id === id);
+  assert.deepEqual([by(10)._slug, by(10)._type], ['gold', 'forecasts']);
+  assert.deepEqual([by(11)._slug, by(11)._type], ['wti-crude-oil', 'news']);
+  assert.equal(by(20)._slug, 'spx');
+  assert.equal(by(30)._slug, 'bitcoin');
+  assert.equal(out.length, 4, 'no cross-slug leakage');
+});
