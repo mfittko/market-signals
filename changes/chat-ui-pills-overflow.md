@@ -1,1 +1,1 @@
-- Console chat: each tool call shows once, as a pill, and the chat log no longer scrolls horizontally.
+- Console chat: each tool call shows once, as a pill, and the chat log no longer scrolls horizontally (#327)
