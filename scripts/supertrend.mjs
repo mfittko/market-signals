@@ -711,7 +711,6 @@ async function anthropicToolLoop(settings, system, user, { maxTokens, timeoutMs,
       messages.push({ role: 'assistant', content: data.content });
       const results = [];
       for (const block of data.content.filter((b) => b.type === 'tool_use')) {
-        if (onDelta) onDelta(`[${block.name}…]\n`);
         let out;
         let isError = false;
         try { out = await execTool(block.name, block.input); } catch (err) { out = err.message; isError = true; }
@@ -760,7 +759,6 @@ async function openaiToolLoop(settings, system, user, { maxTokens, timeoutMs, on
     if (msg.tool_calls?.length) {
       messages.push(msg);
       for (const call of msg.tool_calls) {
-        if (onDelta) onDelta(`[${call.function.name}…]\n`);
         let out;
         try { out = await execTool(call.function.name, JSON.parse(call.function.arguments || '{}')); } catch (err) { out = `error: ${err.message}`; }
         messages.push({ role: 'tool', tool_call_id: call.id, content: String(out).slice(0, 8000) });
