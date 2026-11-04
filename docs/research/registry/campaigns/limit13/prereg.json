@@ -1,0 +1,155 @@
+{
+  "created": "2026-10-08T08:52:28+0200",
+  "title": "limit13: passive limit-order entries on the live signal types vs market entry (queue v2 item 13)",
+  "before_registration": "No outcome of any limit variant was computed before this file. `check` ran synthetic fixtures and a parity test of manage() vs labels_v2.simulate on WTI market entries (equality only, no statistics). Known before: notrade12 results (spread-filtered sets average about -0.12 R).",
+  "evaluator": {
+    "version": "v2",
+    "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+    "note": "labels_v2.simulate (market baseline), fills.resolve, validate.day_boot unchanged; manage() = simulate with entry bar/price/first bar as parameters, parity-checked"
+  },
+  "data": "engine/cache M1 bid/ask npz via nt12.load_m1c, cut 2026-10-07T18:30 UTC; M5/M15/H1 by bars.resample; production supertrend",
+  "signals": {
+    "types": "supertrend flips and volume impulses (nt12 definitions) on M5 and M15",
+    "instruments": [
+      "WTICO/USD",
+      "XAU/USD",
+      "XAG/USD",
+      "NATGAS/USD",
+      "SPX500/USD",
+      "EUR/USD"
+    ],
+    "filters": "passing no-trade filters of notrade12: spread (ask_c-bid_c)/(1.5 ATR) at the signal bar <= 0.2 AND entry hour (signal close, UTC) not in the instrument's 4 thin hours (nt12.thin_hours, 2018-2022 spread only)",
+    "thin_hours": {
+      "WTICO/USD/M5/flip": [
+        4,
+        5,
+        22,
+        23
+      ],
+      "XAU/USD/M5/flip": [
+        4,
+        21,
+        22,
+        23
+      ],
+      "XAG/USD/M5/flip": [
+        0,
+        21,
+        22,
+        23
+      ],
+      "NATGAS/USD/M5/flip": [
+        3,
+        4,
+        22,
+        23
+      ],
+      "SPX500/USD/M5/flip": [
+        3,
+        4,
+        5,
+        6
+      ],
+      "EUR/USD/M5/flip": [
+        4,
+        21,
+        22,
+        23
+      ]
+    },
+    "guard": "signals in the last 4 days before the cut dropped; a signal is dropped from ALL arms when the market or any limit/null outcome is censored (paired sample)"
+  },
+  "baseline": "market entry at the open of the next bar on ask (buy) / bid (sell), labels_v2.simulate POLICY (308 baseline: k=1.5, stop -1R, breakeven after +1R with one-bar latency, 3R target, opposite flip exits, H=72 bars)",
+  "variants": [
+    {
+      "name": "J0_x3",
+      "level": "ref",
+      "d_atr": 0.0,
+      "expiry_bars": 3
+    },
+    {
+      "name": "J0_x12",
+      "level": "ref",
+      "d_atr": 0.0,
+      "expiry_bars": 12
+    },
+    {
+      "name": "D25_x3",
+      "level": "ref",
+      "d_atr": 0.25,
+      "expiry_bars": 3
+    },
+    {
+      "name": "D25_x12",
+      "level": "ref",
+      "d_atr": 0.25,
+      "expiry_bars": 12
+    },
+    {
+      "name": "D50_x3",
+      "level": "ref",
+      "d_atr": 0.5,
+      "expiry_bars": 3
+    },
+    {
+      "name": "D50_x12",
+      "level": "ref",
+      "d_atr": 0.5,
+      "expiry_bars": 12
+    },
+    {
+      "name": "ST_x12",
+      "level": "st",
+      "d_atr": 0.0,
+      "expiry_bars": 12
+    },
+    {
+      "name": "VWAP_x12",
+      "level": "vwap",
+      "d_atr": 0.0,
+      "expiry_bars": 12
+    }
+  ],
+  "variant_rules": {
+    "placement": "order placed at the signal bar close. ref: buy limit at bid_c - d*ATR_tf, sell limit at ask_c + d*ATR_tf (d=0: join the bid/ask). st: the supertrend line at the signal bar. vwap: session VWAP (22:00 UTC day, M1 mid typical price x tick volume) at the signal close. A level on the marketable side is capped at the bid (buy) / ask (sell)",
+    "life": "live for TF bars k+1..k+expiry; cancelled after the close of the first opposite same-timeframe flip in that window",
+    "fill": "conservative: buy fills in the first M1 bar whose ASK low < limit (sell: BID high > limit), at the limit price (no price improvement on gaps). optimistic bound: touch (<=, >=) + optimistic management",
+    "management": "308 baseline in R of the original stop distance (R = 1.5 ATR at the signal bar), stop/arm/target from the fill price; management bar 0 = the remaining M1 minutes of the fill bar after the fill minute; H=72 TF bars counted from the fill bar; conservative: a fill-minute exit-side low at or through the stop exits at the stop"
+  },
+  "candidate_budget": 8,
+  "family": "primary: M5 + M15, all 6 instruments, flips + impulses pooled, signal-weighted. Breakdowns by TF x kind (4 signal families) and by stream (24) are exploratory",
+  "objective": "net R per signal (unfilled = 0) and per filled trade, vs (i) market entry on the same signals, (ii) random thinning of market entries at the fill rate (fill_rate x market mean; and the filled subset's market mean vs 500 random subsets of the same size), (iii) a random-timing limit null: same variant, side, distance rule and expiry placed at a random TF bar in the same UTC clock hour of the same day (20 draws, mean)",
+  "adverse_selection": "market-entry R of filled vs unfilled signals (mkt_f - mkt_all), and the execution difference on filled signals (limit R - market R)",
+  "statistics": "5-day moving-block day bootstrap (validate.day_boot, 1000 reps primary, 500 per family); one-sided bootstrap p; Holm across the 8 variants per test",
+  "decision_rule": "CANDIDATE (for shadow registration consideration, never 'qualified') iff (a) dev 2018-2022 Holm p < 0.05 for per-filled-trade mean net R > 0, (b) dev Holm p < 0.05 for d_thin = net R per signal - fill_rate x market mean > 0 AND dev 95% CI of d_null (minus random-timing null) above 0, (c) 2023+ development window: per-filled mean > 0, d_thin > 0 and d_null > 0. IMPROVES_EXECUTION_ONLY iff (b) and the 2023+ part of (c) on d_thin/d_null hold but (a) fails. Else FAIL. Conservative fills and management decide; touch/optimistic reported as an upper bound",
+  "windows": {
+    "dev2018_22": "signal time < 2023-01-01",
+    "w2023": "2023-01-01..cut: DEVELOPMENT window, never a holdout"
+  },
+  "rules": "no test_ledger; nothing marked qualified; development evidence only; trials logged with exp limit13",
+  "code_sha256": {
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+    "evaluator_files": {
+      "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+      "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+      "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+      "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+      "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+      "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+      "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+      "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+      "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+      "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+    },
+    "lim13.py": "9ddb1689b8d97617fe9c81d34b478ba0d2cd7b0fdb3d4beef45ea8b4aa8d06e5",
+    "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498"
+  },
+  "amendments": [
+    {
+      "ts": "2026-10-08T08:56:20+0200",
+      "kind": "post-hoc, after run 1, reporting only (no decision rule, variant or metric changed)",
+      "reason": "registered random-timing null drew bars anywhere in the signal clock hour incl. bars BEFORE the signal with the signal side = look-ahead (null_ps about +0.15 R). Added two lookahead-free nulls via nullfix13.py (lim13.py unchanged): after (random bar at/after the signal in its hour) and otherday (same clock time, random other day +-1..20, same side). Outputs out_null_after/, out_null_otherday/. Verdicts unchanged (criterion a fails for every variant).",
+      "nullfix13_sha256": "352b35118ebbab62cfe71e6b3a017ec763e0191e9842768e001b8dcd7124b448"
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+ "created": "2026-10-08T15:25:00+0200",
+ "title": "news24: does a strong high-volume candle continue when it coincides with a burst of relevant news, compared with the same candle without news?",
+ "motivation": "Operator hypothesis 2026-10-08: when a strong candle with a volume spike coincides with a burst of relevant news, the move continues for more than 2-3 bars. Candle-only tests (lean21, wave23, xvol9, xvol10, daytype14) averaged all big moves and found chance. The hypothesis is that news-backed moves continue and moves without news revert, so the average hides both. Issue: https://github.com/mfittko/market-signals/issues/310",
+ "before_registration": "No outcome of this test computed. Computed before this file: GDELT file sizes from masterfilelist.txt; event candidate counts per instrument/TF/window (price and volume only, count.py); GKG theme names in one sample file (themes_probe.py); per-file relevant-row counts of the first ~70 fetched GKG files (no link to prices). Self-checks on synthetic data only.",
+ "declared": "Development evidence only. 2019-2022 and 2023+ have both been inspected by earlier campaigns for other questions. 2023+ is a development window, not a holdout. No test ledger, nothing qualified, nothing shipped.",
+ "feasibility": {
+  "source": "GDELT 2.0 GKG 15-minute files (V1 Themes, V1 Locations, V1 Organizations, V1 Persons, DocumentIdentifier)",
+  "sizes_2019_on": "GKG 1541 GB compressed in ~268k files; Events export 22.4 GB (no themes); Mentions 35.2 GB (no themes). DOC 2.0 API gives 15-min timelines only for spans <= 1 day (hourly for 1 week) and rate-limits at ~1 request per 5-20 s, so ~17k requests (~2-4 days) for 6 instruments.",
+  "choice": "GKG, streamed and filtered in memory, fetched only for (a) a 4-hourly baseline grid (file timestamps 00,04,08,12,16,20 UTC, from 2018-12-01) and (b) the two files each event candidate needs. ~39.7k files, ~200 GB transferred, ~15 h serial at ~1.4 s per file (0.5 s polite delay, md5 checked, resume-safe via news24.db). Filtered store: per-file totals and per-instrument counts plus the matched rows (truncated URL and themes), estimated ~9 GB, below the 30 GB cap.",
+  "rejected": "Full GKG download (~1.5 TB, ~5-7 days serial); Events export (no themes, ~90 h serial for the full series); BigQuery (bills a GCP project, needs operator consent)."
+ },
+ "instruments": ["WTICO/USD", "XAU/USD", "XAG/USD", "EUR/USD", "SPX500/USD", "NATGAS/USD"],
+ "timeframes": {"primary": "M5", "secondary": ["M1", "M15"]},
+ "relevance": "relevance.json (frozen by its hash below): an article is relevant to an instrument if any rule matches (GKG themes, organizations, persons, URL substrings, optional country filter on V1 Locations).",
+ "lookahead_guard": "A GDELT file may be used for a bar only if its file timestamp is <= the bar's close time (bar start + TF). The two news windows of an event are the newest file with timestamp <= close (e1 = floor(close / 15 min)) and the file before it (e1 - 15 min). All baseline grid files are strictly older than e1 - 15 min. Asserted in news24.news_features; boundary fixture in news24.selfcheck. Caveat: GDELT publishes a file a few minutes after its timestamp, so live availability lags this rule by a few minutes.",
+ "event": {
+  "price": "|mid close - mid open| >= 1.5 x production ATR14 (entry TF) of the previous bar; side = sign of the body",
+  "volume": "z of log(1 + tick volume) vs the same UTC slot over the prior 20 non-weekend observations (>= 10), weekend bars (Fri 21:00 - Sun 22:00 UTC) excluded; z >= 2.0",
+  "cooldown": "next event of the same instrument/TF >= 60 min after the previous qualifying bar",
+  "spread_rule": "ask close - bid close at the signal bar <= 0.2 R (R = 1.5 x ATR14 at the signal bar); filtered events are dropped",
+  "start": "2019-01-01"
+ },
+ "news_burst": {
+  "measure": "share = relevant rows / all rows, summed over the two news windows",
+  "baseline": "single-file shares of the 4-hourly grid files in the 14 days before the older window, >= 40 files; z = (share - mean) / sd",
+  "NEWS": "z >= 2.0 AND >= 5 relevant articles in the two windows",
+  "CONTROL": "same price/volume event, not NEWS",
+  "no_data": "either news window missing or the baseline has < 40 files: excluded from both groups, counted"
+ },
+ "outcome": {
+  "entry": "open of the bar after the event bar, in the event direction; long at the ask, short at the bid (labels_v2.simulate, fills.resolve)",
+  "management": "harness stop definition: R = 1.5 x ATR14 at the signal bar, stop -1 R, stop to breakeven-plus-costs after +1 R (one-bar latency), target +3 R, time exit at the close of bar H; the opposite-supertrend-flip exit is disabled (pure continuation test)",
+  "horizons": [3, 6, 12],
+  "metrics": "mean net R (bid/ask), continuation rate = share of net R > 0, mid gross move over 6 bars (diagnostic)"
+ },
+ "windows": {"dev": "2019-01-01 .. 2022-12-31", "w2023": "2023-01-01 .. newest data (development window, not a holdout)"},
+ "stats": "moving-block bootstrap over trading days (validate.day_boot; day = 22:00 UTC roll), block 5, 1000 reps, seed 24, 95% percentile CI; NEWS - CONTROL from the same day draws",
+ "primary_metric": "mean net R NEWS - CONTROL at H = 6, WTICO/USD M5",
+ "decision_rule": {
+  "PASS": "WTICO/USD M5 H6: NEWS mean net R CI lower bound > 0 in BOTH dev and w2023, AND NEWS - CONTROL CI lower bound > 0 in BOTH windows",
+  "LEAD": "not PASS, but NEWS - CONTROL CI lower bound > 0 in at least one window for WTICO/USD M5 H6, or the same PASS pattern in another instrument (secondary, no multiplicity correction, needs its own registration)",
+  "REJECT": "anything else",
+  "small_n": "a cell with fewer than 30 NEWS events is flagged as underpowered"
+ },
+ "secondary": "the other 5 instruments, M1 and M15, H3 and H12: reported, never decision-eligible",
+ "budget": {"instruments": 6, "timeframes": 3, "horizons": 3, "windows": 2, "decision_cells": 1, "tuned": 0},
+ "code_sha256": {
+  "news24.py": "acf6d0277a1651c60089f6bb8e460ec63e031a6b78ec7ccd5163d30b21b7b641",
+  "events.py": "1e391e2b45f6e7b7dae4cc0ca06d47389d031016655c014a13f61f5b4b35225d",
+  "relevance.py": "55f5f1df1459f5750292379ff9fb8daa551ebaa7b1b23ed6c47c5c2dc3e39124",
+  "relevance.json": "09dab78662dc71d4932979f899fa43374d8819fd5f83f58aa792ae2e12db63f8",
+  "fetch.py": "81f94a7778ee86effd204c85760aea06401a984fc1ad0578dd15091959719761",
+  "prep.py": "f3f96f65226d093f7fbbe24810800779eb65f8605af8732551491b3305fdbe3c",
+  "count.py": "f8a9c4daaf915d2678b41f21df3903c08621b37250172318f52f14cccac5b3de",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+  "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "amendments": []
+}

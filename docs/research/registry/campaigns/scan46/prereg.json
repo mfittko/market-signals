@@ -1,0 +1,2267 @@
+{
+ "created": "2026-10-09T17:59:32+0200",
+ "code_sha256": "de490de68c2e506751a9e879777cb31ea75c7f716b96a1992a4009ffe08ce268",
+ "grid": [
+  [
+   "sma_cross",
+   {
+    "fast": 5,
+    "slow": 30
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 5,
+    "slow": 50
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 5,
+    "slow": 100
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 5,
+    "slow": 200
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 10,
+    "slow": 30
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 10,
+    "slow": 50
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 10,
+    "slow": 100
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 10,
+    "slow": 200
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 20,
+    "slow": 30
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 20,
+    "slow": 50
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 20,
+    "slow": 100
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 20,
+    "slow": 200
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 50,
+    "slow": 100
+   }
+  ],
+  [
+   "sma_cross",
+   {
+    "fast": 50,
+    "slow": 200
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 5,
+    "slow": 30
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 5,
+    "slow": 50
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 5,
+    "slow": 100
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 5,
+    "slow": 200
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 10,
+    "slow": 30
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 10,
+    "slow": 50
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 10,
+    "slow": 100
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 10,
+    "slow": 200
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 20,
+    "slow": 30
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 20,
+    "slow": 50
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 20,
+    "slow": 100
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 20,
+    "slow": 200
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 50,
+    "slow": 100
+   }
+  ],
+  [
+   "ema_cross",
+   {
+    "fast": 50,
+    "slow": 200
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 20
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 50
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 100
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 150
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 200
+   }
+  ],
+  [
+   "price_sma",
+   {
+    "n": 250
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 10,
+    "exit_frac": 0.25
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 10,
+    "exit_frac": 0.5
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 10,
+    "exit_frac": 1.0
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 20,
+    "exit_frac": 0.25
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 20,
+    "exit_frac": 0.5
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 20,
+    "exit_frac": 1.0
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 40,
+    "exit_frac": 0.25
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 40,
+    "exit_frac": 0.5
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 40,
+    "exit_frac": 1.0
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 55,
+    "exit_frac": 0.25
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 55,
+    "exit_frac": 0.5
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 55,
+    "exit_frac": 1.0
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 100,
+    "exit_frac": 0.25
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 100,
+    "exit_frac": 0.5
+   }
+  ],
+  [
+   "donchian",
+   {
+    "n": 100,
+    "exit_frac": 1.0
+   }
+  ],
+  [
+   "turtle",
+   {
+    "entry": 20,
+    "exit": 10,
+    "stop_atr": 0
+   }
+  ],
+  [
+   "turtle",
+   {
+    "entry": 20,
+    "exit": 10,
+    "stop_atr": 2
+   }
+  ],
+  [
+   "turtle",
+   {
+    "entry": 55,
+    "exit": 20,
+    "stop_atr": 0
+   }
+  ],
+  [
+   "turtle",
+   {
+    "entry": 55,
+    "exit": 20,
+    "stop_atr": 2
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 1.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 1.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 2.0,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 2.0,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 2.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 10,
+    "k": 2.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 1.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 1.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 2.0,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 2.0,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 2.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 20,
+    "k": 2.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 1.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 1.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 2.0,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 2.0,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 2.5,
+    "exit": "mid"
+   }
+  ],
+  [
+   "bb_breakout",
+   {
+    "n": 50,
+    "k": 2.5,
+    "exit": "opposite"
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 14,
+    "k": 1.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 14,
+    "k": 2.0
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 14,
+    "k": 2.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 14,
+    "k": 3.0
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 20,
+    "k": 1.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 20,
+    "k": 2.0
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 20,
+    "k": 2.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 20,
+    "k": 3.0
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 50,
+    "k": 1.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 50,
+    "k": 2.0
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 50,
+    "k": 2.5
+   }
+  ],
+  [
+   "bb_meanrev",
+   {
+    "n": 50,
+    "k": 3.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 10,
+    "mult": 1.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 10,
+    "mult": 1.5
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 10,
+    "mult": 2.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 10,
+    "mult": 2.5
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 20,
+    "mult": 1.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 20,
+    "mult": 1.5
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 20,
+    "mult": 2.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 20,
+    "mult": 2.5
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 50,
+    "mult": 1.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 50,
+    "mult": 1.5
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 50,
+    "mult": 2.0
+   }
+  ],
+  [
+   "keltner_breakout",
+   {
+    "n": 50,
+    "mult": 2.5
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 2,
+    "lo": 5
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 2,
+    "lo": 10
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 2,
+    "lo": 20
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 2,
+    "lo": 30
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 3,
+    "lo": 5
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 3,
+    "lo": 10
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 3,
+    "lo": 20
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 3,
+    "lo": 30
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 5,
+    "lo": 10
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 5,
+    "lo": 15
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 5,
+    "lo": 20
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 5,
+    "lo": 30
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 14,
+    "lo": 20
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 14,
+    "lo": 25
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 14,
+    "lo": 30
+   }
+  ],
+  [
+   "rsi_meanrev",
+   {
+    "n": 14,
+    "lo": 35
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 5,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 5,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 10,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 10,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 15,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 15,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 25,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 100,
+    "thr": 25,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 5,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 5,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 10,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 10,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 15,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 15,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 25,
+    "exit": "sma5"
+   }
+  ],
+  [
+   "rsi2_pullback",
+   {
+    "trend": 200,
+    "thr": 25,
+    "exit": "rsi70"
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 17,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 17,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 26,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 26,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 39,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 6,
+    "slow": 39,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 17,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 17,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 26,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 26,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 39,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 8,
+    "slow": 39,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 17,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 17,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 26,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 26,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 39,
+    "signal": 5
+   }
+  ],
+  [
+   "macd_signal",
+   {
+    "fast": 12,
+    "slow": 39,
+    "signal": 9
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 6,
+    "slow": 17
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 6,
+    "slow": 26
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 6,
+    "slow": 39
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 8,
+    "slow": 17
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 8,
+    "slow": 26
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 8,
+    "slow": 39
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 12,
+    "slow": 17
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 12,
+    "slow": 26
+   }
+  ],
+  [
+   "macd_zero",
+   {
+    "fast": 12,
+    "slow": 39
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 5,
+    "lo": 10
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 5,
+    "lo": 20
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 5,
+    "lo": 30
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 14,
+    "lo": 10
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 14,
+    "lo": 20
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 14,
+    "lo": 30
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 21,
+    "lo": 10
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 21,
+    "lo": 20
+   }
+  ],
+  [
+   "stoch_meanrev",
+   {
+    "n": 21,
+    "lo": 30
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 5,
+    "smooth": 3
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 5,
+    "smooth": 5
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 14,
+    "smooth": 3
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 14,
+    "smooth": 5
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 21,
+    "smooth": 3
+   }
+  ],
+  [
+   "stoch_cross",
+   {
+    "n": 21,
+    "smooth": 5
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 5,
+    "lo": 5
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 5,
+    "lo": 10
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 5,
+    "lo": 20
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 10,
+    "lo": 5
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 10,
+    "lo": 10
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 10,
+    "lo": 20
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 14,
+    "lo": 5
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 14,
+    "lo": 10
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 14,
+    "lo": 20
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 20,
+    "lo": 5
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 20,
+    "lo": 10
+   }
+  ],
+  [
+   "williams_r",
+   {
+    "n": 20,
+    "lo": 20
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 100,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 100,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 150,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 150,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 200,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 14,
+    "thr": 200,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 100,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 100,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 150,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 150,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 200,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 20,
+    "thr": 200,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 100,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 100,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 150,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 150,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 200,
+    "mode": "trend"
+   }
+  ],
+  [
+   "cci",
+   {
+    "n": 40,
+    "thr": 200,
+    "mode": "meanrev"
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 7,
+    "adx_min": 0
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 7,
+    "adx_min": 15
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 7,
+    "adx_min": 20
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 7,
+    "adx_min": 25
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 7,
+    "adx_min": 30
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 14,
+    "adx_min": 0
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 14,
+    "adx_min": 15
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 14,
+    "adx_min": 20
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 14,
+    "adx_min": 25
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 14,
+    "adx_min": 30
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 28,
+    "adx_min": 0
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 28,
+    "adx_min": 15
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 28,
+    "adx_min": 20
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 28,
+    "adx_min": 25
+   }
+  ],
+  [
+   "adx_di",
+   {
+    "n": 28,
+    "adx_min": 30
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 7,
+    "mult": 1.5
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 7,
+    "mult": 2.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 7,
+    "mult": 3.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 7,
+    "mult": 4.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 10,
+    "mult": 1.5
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 10,
+    "mult": 2.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 10,
+    "mult": 3.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 10,
+    "mult": 4.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 14,
+    "mult": 1.5
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 14,
+    "mult": 2.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 14,
+    "mult": 3.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 14,
+    "mult": 4.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 20,
+    "mult": 1.5
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 20,
+    "mult": 2.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 20,
+    "mult": 3.0
+   }
+  ],
+  [
+   "supertrend",
+   {
+    "atr": 20,
+    "mult": 4.0
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.01,
+    "max": 0.1
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.01,
+    "max": 0.2
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.01,
+    "max": 0.3
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.02,
+    "max": 0.1
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.02,
+    "max": 0.2
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.02,
+    "max": 0.3
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.03,
+    "max": 0.1
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.03,
+    "max": 0.2
+   }
+  ],
+  [
+   "psar",
+   {
+    "step": 0.03,
+    "max": 0.3
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 9,
+    "kijun": 26,
+    "senkou": 52,
+    "cloud": 1
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 9,
+    "kijun": 26,
+    "senkou": 52,
+    "cloud": 0
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 7,
+    "kijun": 22,
+    "senkou": 44,
+    "cloud": 1
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 7,
+    "kijun": 22,
+    "senkou": 44,
+    "cloud": 0
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 20,
+    "kijun": 60,
+    "senkou": 120,
+    "cloud": 1
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 20,
+    "kijun": 60,
+    "senkou": 120,
+    "cloud": 0
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 5,
+    "kijun": 15,
+    "senkou": 30,
+    "cloud": 1
+   }
+  ],
+  [
+   "ichimoku",
+   {
+    "tenkan": 5,
+    "kijun": 15,
+    "senkou": 30,
+    "cloud": 0
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 1,
+    "smooth": 0
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 1,
+    "smooth": 5
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 1,
+    "smooth": 10
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 2,
+    "smooth": 0
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 2,
+    "smooth": 5
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 2,
+    "smooth": 10
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 3,
+    "smooth": 0
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 3,
+    "smooth": 5
+   }
+  ],
+  [
+   "heikin_ashi",
+   {
+    "confirm": 3,
+    "smooth": 10
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 5
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 10
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 20
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 40
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 60
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 120
+   }
+  ],
+  [
+   "nbar_mom",
+   {
+    "n": 250
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 21,
+    "vol": 20
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 21,
+    "vol": 60
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 63,
+    "vol": 20
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 63,
+    "vol": 60
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 126,
+    "vol": 20
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 126,
+    "vol": 60
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 252,
+    "vol": 20
+   }
+  ],
+  [
+   "tsmom_vol",
+   {
+    "lookback": 252,
+    "vol": 60
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 14,
+    "thr": 0
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 14,
+    "thr": 40
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 14,
+    "thr": 70
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 25,
+    "thr": 0
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 25,
+    "thr": 40
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 25,
+    "thr": 70
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 50,
+    "thr": 0
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 50,
+    "thr": 40
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 50,
+    "thr": 70
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 100,
+    "thr": 0
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 100,
+    "thr": 40
+   }
+  ],
+  [
+   "aroon",
+   {
+    "n": 100,
+    "thr": 70
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 1,
+    "filter": "none"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 1,
+    "filter": "sma200"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 3,
+    "filter": "none"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 3,
+    "filter": "sma200"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 5,
+    "filter": "none"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 5,
+    "filter": "sma200"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 10,
+    "filter": "none"
+   }
+  ],
+  [
+   "inside_bar",
+   {
+    "hold": 10,
+    "filter": "sma200"
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 4,
+    "hold": 1
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 4,
+    "hold": 3
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 4,
+    "hold": 5
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 4,
+    "hold": 10
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 7,
+    "hold": 1
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 7,
+    "hold": 3
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 7,
+    "hold": 5
+   }
+  ],
+  [
+   "nr_breakout",
+   {
+    "k": 7,
+    "hold": 10
+   }
+  ],
+  [
+   "consec_pullback",
+   {
+    "down": 2
+   }
+  ],
+  [
+   "consec_pullback",
+   {
+    "down": 3
+   }
+  ],
+  [
+   "consec_pullback",
+   {
+    "down": 4
+   }
+  ],
+  [
+   "consec_pullback",
+   {
+    "down": 5
+   }
+  ]
+ ],
+ "exp": "scan46",
+ "issue": "https://github.com/mfittko/market-signals/issues/310",
+ "question": "Does any strategy in a fixed library of classic chart strategies (TradingView kind) earn a positive net Sharpe that survives a trial-count correction (Deflated Sharpe Ratio), a validation window and a locked holdout touched once?",
+ "data": {
+  "daily": "audit/tsmom36/daily.db, 33 markets (10 fx, 8 index, 11 commodity, 4 bond), OANDA mid daily candles closing 17:00 New York; trading date = bar open + 1 day, weekend stubs dropped (ext39 rule)",
+  "intraday": "history.db candles_ba M1 bid/ask, mid = (bid + ask) / 2; H1 = UTC hour buckets, H4 = buckets anchored at 17:00 New York (swing45); open = first M1 open, high/low = max/min of M1 mid high/low, close = last M1 close; bars exist only where M1 exists",
+  "intraday_instruments": {
+   "fx": [
+    "EUR/USD",
+    "GBP/USD",
+    "USD/JPY"
+   ],
+   "index": [
+    "SPX500/USD",
+    "NAS100/USD",
+    "US30/USD",
+    "DE30/EUR",
+    "UK100/GBP",
+    "JP225/USD",
+    "AU200/AUD",
+    "EU50/EUR"
+   ],
+   "commodity": [
+    "WTICO/USD",
+    "BCO/USD",
+    "NATGAS/USD",
+    "XAU/USD",
+    "XAG/USD",
+    "XPT/USD"
+   ],
+   "bond": []
+  },
+  "excluded": "BTC/USD has M1 data but no asset class in this design; no bond has M1 data",
+  "locked_daily": "audit/swing44/daily.db, only FR40, EU50, NL25, CH20, SG30, US2000, full period; opened only by `scan46.py locked` after the finalists comment is posted"
+ },
+ "windows": {
+  "D": {
+   "discovery": "2005-01-01..2018-12-31",
+   "validation": "2019-01-01..2022-12-31",
+   "second_check_context": "2023-01-01..2026-10-08 (seen by earlier campaigns; reported, never decides)"
+  },
+  "H4_H1": {
+   "discovery": "2018-01-01..2021-12-31",
+   "validation": "2022-01-01..2023-12-31",
+   "locked": "2024-01-01..2026-10-08 (the scan builds no intraday bar after 2023-12-31; not used by any selection step in this campaign; earlier campaigns did see this M1 history)"
+  }
+ },
+ "execution": "position +1/0/-1 (tsmom_vol continuous in [-2, 2]) decided at the bar close from bars <= t, held from the next bar open to the following bar open; returns open-to-open (mid); asserted by a no-lookahead fixture for every parameter set",
+ "costs": "per side: half the median bid/ask spread from audit/tsmom36/out/spreads.json (history.db M1 medians) when the instrument has one, else 2 bps (ext39); charged on |change in position|; financing 0.822 bps (3%/365) per held night on |position|, nights = trading-date gap between consecutive bars (3 over weekends); all selection on NET returns",
+ "pooling": "per asset class, per trading day: mean over instruments with a bar that day of w_i,t x net daily return_i,t, w = 1% / std of the instrument's last 60 daily open-to-open returns ending the day before (inverse-vol, causal); intraday bar returns summed per trading date (17:00 NY roll)",
+ "statistic": "Sharpe of the pooled daily net series; annualized by sqrt(observed days per year)",
+ "selection": [
+  "1. every parameter set x timeframe x asset class = one trial cell; discovery net Sharpe per cell",
+  "2. DSR per timeframe: N = number of class cells in that timeframe (D 303 x 4 = 1212, H4 303 x 3 = 909, H1 303 x 3 = 909); V = sample variance of the per-day discovery Sharpe across those cells; SR0 = sqrt(V) x ((1 - g) x Phi^-1(1 - 1/N) + g x Phi^-1(1 - 1/(N e))), g = Euler-Mascheroni; DSR = Phi((SR - SR0) x sqrt(T - 1) / sqrt(1 - skew x SR + (kurt - 1)/4 x SR^2)) with the cell's own T, skew, kurtosis; keep DSR > 0.95",
+  "3. keep cells whose pooled net Sharpe on validation is > 0 in the same class (same sign as discovery)",
+  "4. rank by min(discovery, validation) annualized net Sharpe; freeze at most 5 finalists; no de-duplication of near-identical cells; post them before the locked data is opened; zero survivors = FAIL with no locked test",
+  "5. locked test: daily index finalists on the 6 swing44 indices pooled (same rule, same pooling, costs: EU50 half median spread, others 2 bps per side); daily finalists of other classes: no locked data exists, prospective paper tracking only; H4/H1 finalists: 2024-01-01..2026-10-08 on the same class instruments",
+  "6. PASS per finalist: locked net Sharpe > 0 and moving-block bootstrap (20-day blocks, 1000 reps, seed 46) 95% CI lower bound > 0"
+ ],
+ "report_never_decides": [
+  "count of class cells with naive one-sided PSR(0) > 0.95 (p < 0.05) vs DSR > 0.95, per timeframe; approximate naive count per instrument cell",
+  "shrinkage: Spearman rho of discovery vs validation Sharpe, validation Sharpe of the discovery top 10 and top 1%",
+  "rank of consec_pullback(down=3) on daily indices (the swing44 reference rule, here with next-open fill and net Sharpe)",
+  "finalists: discovery / validation / 2023+ (daily) / locked net Sharpe with CIs, trades per year per instrument, max drawdown at 10% annualized vol"
+ ],
+ "trials_log": "trials.jsonl: one row per parameter set x timeframe x instrument (Sharpe per window) and one per parameter set x timeframe x class (with DSR), plus locked rows",
+ "power": "with T about 3,500 discovery days (daily) the DSR hurdle SR0 depends on V; reported after the run. 1 year of daily data has a Sharpe SE of about 1, so the 2.8-year locked intraday window can only confirm an annual Sharpe above about 1.2"
+}

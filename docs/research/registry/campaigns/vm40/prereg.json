@@ -1,0 +1,31 @@
+{
+ "created": "2026-10-09T11:56:38+0200",
+ "code_sha256": {
+  "vm40.py": "b14418a64ab8f8803e85a7fe53d6f16cf257b59c409b975fd361fa3029086d1c"
+ },
+ "title": "vm40: volatility-managed long-only index exposure (Moreira and Muir 2017) vs buy-and-hold, 8 OANDA index CFD daily mid series",
+ "before_registration": "Only synthetic fixtures (vm40.py check) and day counts per window plus the list of |daily return| > 10% dates (vm40.py describe; all are 2008, 2020, 2022 or 2025 crisis days, kept) ran. No strategy return, Sharpe ratio or weight average was computed on real data. Prior knowledge: Moreira and Muir 2017 (Journal of Finance) report higher Sharpe ratios for variance-scaled market exposure; Cederburg, O'Doherty, Wang and Yan 2020 (Journal of Financial Economics) find the out-of-sample gains unreliable. tsmom36 and ext39 used the same daily.db; neither computed a variance-scaled strategy.",
+ "data": "audit/tsmom36/daily.db read-only. Indices SPX500_USD (PRIMARY), NAS100_USD, US30_USD, DE30_EUR, UK100_GBP, JP225_USD, AU200_AUD, HK33_HKD. Daily mid closes at 17:00 New York; trading date = close date; Saturday/Sunday close dates dropped; first bars 2003-02..2004-03, last close 2026-10-08. Returns in each index's own currency, no FX conversion. Nothing fetched.",
+ "definitions": {
+  "return": "r_t = close[t] / close[t-1] - 1 on each index's own bars",
+  "realized_variance": "RV for day t = mean of r^2 over the n own bars t-n..t-1 (r_t excluded, no demeaning); known at the close of t-1. PRIMARY n = 21",
+  "buy_and_hold": "weight 1 every day; return r_t",
+  "managed": "w_t = min(c / RV_t, cap); return w_t x r_t (rebalanced daily at the 17:00 NY close, next-day return applied). PRIMARY cap 2.0; secondary cap 1.0 (no leverage, ETF-like). The uninvested share earns nothing (no cash rate) and the leveraged share pays nothing (no financing); both strategies get the same zero cash rate",
+  "c_causal": "PRIMARY. c_t solves mean over all known values s <= t of min(c / RV_s, cap) = 1, expanding from each index's first RV value (2003/2004 history included), solved by bisection every day. Uses only RVs known at the close of t-1. A day enters only after 250 RV values exist",
+  "c_full": "SECONDARY. One c per index, cap and n solves the same equation over all days 2005-01-01..2026-10-08 (both windows). This uses future data (as in the paper)",
+  "net": "managed net = gross - 1 bp x |w_t - w_{t-1}| per day (turnover in units of notional; the drift of the weight between rebalances is ignored). Buy-and-hold has no turnover cost",
+  "sharpe": "annualized mean / std (ddof 1) x sqrt(252) of daily returns, no risk-free rate subtracted",
+  "windows": "by return date t: dev 2005-01-01..2022-12-31; second window 2023-01-01..2026-10-08 (development window, inspected data, not a holdout). Both strategies use the same days (days with a managed weight)"
+ },
+ "primary": {
+  "cell": "SPX500_USD, n = 21, cap 2.0, causal c, gross on mid",
+  "statistic": "Sharpe(managed) - Sharpe(buy-and-hold), annualized",
+  "ci": "paired moving-block bootstrap of the daily return pairs, block 20 days, 1000 reps, seed 40, percentile 95% CI",
+  "pass": "PASS if the CI lower bound is above 0 in BOTH windows, otherwise FAIL. One test, no multiplicity adjustment"
+ },
+ "secondary_never_decide": "alpha of managed on buy-and-hold (OLS of managed on buy-and-hold daily returns, intercept x 252, same bootstrap CI) and beta; annualized return, vol, max drawdown (on compounded daily returns) for both; turnover per year; cap 1.0; c_full; n = 10 and 63; net of 1 bp turnover cost; the other 7 indices; POOL8 = per-date mean of the 8 index strategies (managed vs buy-and-hold; indices without a bar that date omitted); yearly Sharpe differences for the primary cell; mean managed weight per window; MDE80 = 2.8 x bootstrap SD of the Sharpe difference. Grid: 9 units x 3 n x 2 caps x 2 c modes x 2 gross/net x 2 windows = 432 rows, all logged to trials.jsonl",
+ "day_counts": "PRIMARY cell days: SPX500 dev 4,651, 2023+ 975. Other indices dev 4,446-4,651, 2023+ 926-975",
+ "power_ex_ante": "SE of a Sharpe difference between two correlated strategies is about sqrt(2 (1 - rho) / years). With rho 0.7-0.8: dev 18 years SE about 0.15-0.18, MDE80 about 0.45-0.5; 2023+ 3.8 years SE about 0.32-0.40, MDE80 about 0.9-1.1. The published market-level gain is far smaller (alpha about 4-5% a year, Sharpe gain about 0.1-0.2). The 2023+ window can confirm only a very large effect. A FAIL is the expected outcome even if the published effect is real; the report will state the observed difference against MDE80",
+ "known_limits": "CFD mid index levels, which include dividends only through the index definition (price indices for SPX/NAS/US30/UK100/JP225/AU200/HK33, total-return for DE30). Daily rebalancing at the 17:00 NY close is not tradable at the mid for European and Asian indices whose cash markets are closed. The 20-day block may not cover volatility-regime persistence",
+ "confirmation": "Development evidence only. Any survivor needs prospective confirmation (https://github.com/mfittko/market-signals/issues/313) or data after 2026-10-07"
+}

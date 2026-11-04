@@ -1,0 +1,52 @@
+{
+ "created": "2026-10-09T10:46:31+0200",
+ "title": "flipday30: predicted flips per day at 07:00 UTC; do flips on predicted low-flip days earn more (gross); issue 310",
+ "before_registration": "Nothing computed on market data before this file (synthetic self-checks only). Prior knowledge: notrade12 flip population (all flips about -0.1 R net), rescan26 gross re-scoring, wave23 (flips on A1-armed days, rejected), daytype14 (trend/range day classifier, rejected).",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout. Binding confirmation is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "code_sha256": {
+   "fd30.py": "743e5097aa3af3b8094912fddaceedfe29612ef35042bd12519634236089c1ba",
+   "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+   "x_recompute.py": "7d6fb03c99db8961ccfb3e84bb2ef354c6b563f9a15b168b383a58f201b27e19",
+   "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+  }
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5/M15 by bars.resample; mid = (bid+ask)/2",
+ "trade_rule": "unchanged notrade12/rescan26 flip trade: production supertrend (de_v2.supertrend = flips.mjs, ATR 10) via nt12.frame; every flip bar with finite ATR; labels_v2.simulate POLICY k=1.5 m=1.0 T=3.0 H=72 (entry next bar open, stop 1 R, breakeven at +1 R, target 3 R, exit at the next open after an opposite flip, time stop 72 bars). Gross = the same trade on mid bars (x_recompute.mid); net = bid/ask. Trades kept where both are uncensored.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "timeframes": "M5 primary, M15 secondary",
+ "day": "trading day = validate.day_of (22:00 UTC rollover). Valid day: bar count >= 50% of the median per-day bar count of this instrument/timeframe and >= 1 bar closing after 07:00 UTC.",
+ "decision": "07:00 UTC (540 min after the 22:00 UTC session start). Flips on bars that close at or before 07:00 are features; flips on bars that close after 07:00 (to the end of the trading day) are counted for the outcome and traded.",
+ "outcome_count": "post = number of flips after 07:00 in the trading day",
+ "features": {
+  "l_yday": "log1p(full-day flip count of the previous valid day)",
+  "l_pre": "log1p(flips at or before 07:00 today)",
+  "l_med20": "log1p(median full-day flip count of the previous 20 valid days)",
+  "a1_logit": "logit of abs11 A1 P(big day) (lean21.alert_rows, walk-forward OOS) at the latest 30-min close <= 07:00 of the same session; state 2 (day already crossed T1) -> P = 1; clipped to [1e-4, 1-1e-4]; missing -> day not scored by M1"
+ },
+ "model": "M0 (primary): Poisson GLM (sklearn PoissonRegressor, alpha 0, log link) on l_yday, l_pre, l_med20 (4 coefficients). M1 (secondary): M0 + a1_logit. Refit at the first valid day of each calendar month on all strictly earlier valid days (expanding); first fit needs >= 250 training days; the fitted model predicts that month's days.",
+ "quintiles": "at each refit, edges = 20/40/60/80% quantiles of the new model's fitted values on the last 250 training days; predicted quintile = searchsorted(edges, pred, right) (0 = lowest predicted flip count). Past days only.",
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31 (effective start after the 250-day burn-in)",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window, not a holdout)"
+ },
+ "step1": "descriptive: Spearman rank correlation of pred vs post per window (also each single feature). HINDSIGHT (not a policy): gross mean R per flip by realized post-count quintile (edges from that window's own days).",
+ "step2_primary": "WTICO/USD M5 M0: D = gross mean R per flip on lowest-predicted-quintile days minus gross mean R of all scored post-07:00 flips, per window. Day-block bootstrap: validate.day_boot over scored days, block 5, 1000 reps, seed 30, percentile 95% CI.",
+ "pass_rule": "PASS iff in BOTH dev and 2023+: CI(D) lower bound > 0, AND the lowest-quintile gross mean R > 0 with its CI lower bound > 0. Otherwise FAIL.",
+ "secondary": "highest predicted quintile (Q5) mean and Q5 minus all (does predicted chop lose more?); gross and net by predicted quintile; net (bid/ask) mean R; trades per day; MDE80 = 2.8 x bootstrap SD of D; all six instruments, M15, M1 model with A1. Descriptive, no multiplicity correction claimed.",
+ "bootstrap": {
+  "fn": "validate.day_boot",
+  "reps": 1000,
+  "block": 5,
+  "seed": 30
+ }
+}

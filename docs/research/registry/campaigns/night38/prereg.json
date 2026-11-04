@@ -1,0 +1,84 @@
+{
+ "created": "2026-10-09T11:45:28+0200",
+ "code_sha256": {
+  "night38.py": "b362b1e39957a2f35fd51f2adea1eaed9e5653d4b63ccfe8717f7aa1ae00d669",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ },
+ "title": "night38: overnight drift in US stock index CFDs (Cliff, Cooper and Gulen 2008; Kelly and Clark 2011; Lou, Polk and Skouras 2019)",
+ "before_registration": "Only synthetic self-checks (night38.py check) and availability counts (night38.py counts, no return computed) ran on this design. Prior knowledge: imom34 found the overnight return partly reverses in the last half hour of the next session (r_on slope -0.058 [-0.107,-0.009] dev, SPX500); cal37 found no calendar effect in daily index bars (pre-holiday positive but underpowered). No 16:00/09:30 split of SPX500 returns was computed before this registration.",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or data after 2026-10-07.",
+ "data": "history.db candles_ba M1 (read-only), mid = (bid_c + ask_c) / 2, bars with UTC hour 13-20. SPX500/USD, NAS100/USD, US30/USD all present from 2018-01-01 23:00 UTC to 2026-10-09 04:18 UTC. Nothing fetched.",
+ "clock": "America/New_York, DST per calendar date. P(T) = mid close of the latest M1 bar that starts in [T-3, T-1] min (the bar ending at T, at most 2 minutes stale), else missing.",
+ "calendar": "Trading days: NYSE weekdays minus full-day holidays (New Year, MLK, Presidents, Good Friday, Memorial, Juneteenth from 2022, July 4, Labor, Thanksgiving, Christmas with NYSE observance; plus closures 2018-12-05 and 2025-01-09). Cash close 16:00 ET; 13:00 ET on early-close days (day after Thanksgiving, Dec 24 and Jul 3 when they are trading days). Open 09:30 ET.",
+ "definitions": {
+  "day": "P(close_d) / P(open_d) - 1, bps",
+  "night": "P(open of the next trading day) / P(close_d) - 1, bps; the row is keyed by the close date d; weekends and holidays span to the next trading open",
+  "skip": "a day return needs both points of day d; a night needs close_d and the next open; a missing point drops that return only (no fallback further back)",
+  "span": "calendar days from d to the next trading day; weekday night span = 1, weekend/holiday night span > 1",
+  "net_night": "night - (median spread at close + median spread at the next open) / 2 (window medians over valid nights, spread = (ask_c - bid_c) / mid of the bar used for P) - 3%/365 x span x 1e4",
+  "annualized": "mean x 252 / 100 (% per year)"
+ },
+ "windows": {
+  "dev": "close dates 2018-01-02 .. 2022-12-31",
+  "w2023": "close dates 2023-01-01 .. 2026-10-08 (development window)"
+ },
+ "primary": "SPX500/USD all nights: mean night bps, mean day bps, mean night - mean day. Day-block bootstrap validate.day_boot over all trading days in the window (block 5, 1000 reps, seed 38), percentile 95% CI.",
+ "decision_rule": "PASS iff the night-mean CI lower bound is above 0 in BOTH windows AND the night-minus-day point estimate is above 0 in BOTH windows. Otherwise FAIL. One test, no multiplicity adjustment.",
+ "secondary": "Never decide the verdict: net night bps and annualized; hit rate; NAS100/USD and US30/USD; weekday vs weekend/holiday nights; nights after an up day vs a down day (sign of day_d); yearly night and day means; MDE80 = 2.8 x bootstrap SD for the night mean and the difference. Long-history check on audit/tsmom36/daily.db is impossible for the 16:00/09:30 split because the daily bars close at 17:00 ET.",
+ "availability_counts": {
+  "SPX500/USD": {
+   "dev": {
+    "trading_days": 1259,
+    "night_valid": 1253,
+    "day_valid": 1252,
+    "skip_open": 6,
+    "skip_close": 1,
+    "weekend_nights": 273
+   },
+   "w2023": {
+    "trading_days": 944,
+    "night_valid": 944,
+    "day_valid": 944,
+    "skip_open": 0,
+    "skip_close": 0,
+    "weekend_nights": 208
+   }
+  },
+  "NAS100/USD": {
+   "dev": [
+    1259,
+    1253,
+    1253
+   ],
+   "w2023": [
+    944,
+    943,
+    943
+   ]
+  },
+  "US30/USD": {
+   "dev": [
+    1259,
+    1253,
+    1252
+   ],
+   "w2023": [
+    944,
+    944,
+    944
+   ]
+  }
+ },
+ "budget": {
+  "instruments": 3,
+  "cells": 5,
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "STALE_MIN": 2,
+   "FIN": 0.03,
+   "BLOCK": 5,
+   "REPS": 1000,
+   "SEED": 38
+  }
+ }
+}

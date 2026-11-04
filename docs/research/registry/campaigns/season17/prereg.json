@@ -1,0 +1,119 @@
+{
+ "created": "2026-10-08T09:41:08+0200",
+ "title": "season17: directional intraday return seasonality (hour-of-day, day-of-week, named calendar effects) after costs; queue v2 item 17, issue 310",
+ "before_registration": "Nothing computed on market returns before this file (coverage counts only: out/coverage.json; synthetic self-checks). Prior knowledge: orb15 (always-long last hour negative after costs; costs 0.11-0.13 R/trade for intraday holds), pairs16, mw6 (financing dominant for multi-day holds). Literature: overnight vs intraday split (Cliff, Cooper & Gulen 2008; Kelly & Clark 2011), turn-of-month (Lakonishok & Smidt 1988), weekend/Monday effect (French 1980), gold Asia/NY pattern (practitioner literature, e.g. Bloomberg 2015-2020 'gold falls in NY hours'), gotobi (Bessho, Ikeda, Kakushadze et al.).",
+ "declared": "Development evidence only. No test ledger, nothing qualified. 2023+ is a development window (inspected for other questions before), not a holdout. Binding confirmation for any survivor is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "validate.day_boot/year_start_day/day_of, de_v2.log_trial, labels_v2.POLICY imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5 bid/ask/mid by bars.resample; ATR(M5) from de_v2.supertrend (nt12.frame)",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD",
+  "USD/JPY",
+  "NAS100/USD",
+  "BTC/USD"
+ ],
+ "coverage": "All 9 instruments have M1 bid/ask from 2018-01-01 to 2026-10-07 (out/coverage.json). XAG and NATGAS have ~25-45% fewer bars in 2018-2019. BTC/USD (OANDA CFD) has only 4% weekend bars, so BTC is treated like the others: Mon-Fri windows only; weekend bars are excluded (declared; BTC weekend seasonality not tested).",
+ "scan_candidates": {
+  "U": "U00..U23: one UTC hour [h:00, h+1:00), Mon-Fri by UTC date",
+  "L": "L00..L23: one local-clock hour, DST-aware (America/New_York for all instruments except EUR/USD: Europe/London), Mon-Fri by local date",
+  "D": "D0..D4: trading day Mon..Fri = [17:00 ET of the previous calendar day, 17:00 ET), i.e. the CFD trading day between financing rolls",
+  "count": "51 per instrument x 9 = 459 nominal; the registered scan size is the number with >= 100 selection-period trades (reported)",
+  "note": "U and L hours coincide for half the year (ET is UTC-4/-5); de-duplication below removes near-identical picks"
+ },
+ "trading_rule": "Side = sign of the selection-period mean gross return. Entry at the open of the first M5 bar in [start, start + tol_in) (long ask, short bid); exit at the close of the last M5 bar with t < end and t >= end - tol_out (long bid, short ask). tol_in/tol_out = 10/15 min for 1-hour windows, 90/90 for D windows, 15/15 for named sessions, 30/30 for overnight and turn-of-month, 10/10 for gotobi. Equal cash risk: 1R = 1.5 ATR(M5) of the bar before entry (labels_v2 POLICY k); results in R. No stop (time exit only). Spread rule: ask_c - bid_c of the bar before entry <= 0.2 R (applied before selection). Financing (mw6): 3% p.a. of notional (mid at entry) on long and short per 17:00 ET roll held, Friday roll x3; sensitivity 0% and 6%. Scan windows (U/L/D) never span a roll except a U/L hour that contains 17:00 ET.",
+ "selection": {
+  "period": "2018-01-01 .. 2020-12-31 (trading-day key, 22:00 UTC rollover)",
+  "statistic": "t = mean / sd * sqrt(n) of the per-trade gross mid return in R (iid t, declared), per candidate; eligible iff n >= 100",
+  "procedure": "per instrument, order eligible candidates by |t| descending; greedily take the next candidate unless its per-day gross series (2018-2020) correlates |r| > 0.5 with an already chosen one (pairwise, >= 100 common days); stop at K = 3",
+  "validation": "2021-01-01 .. 2022-12-31: survivor iff gross mean (side-signed) > 0 AND net mean R/trade > 0 (point estimates), n >= 20. Survivors are frozen (window, side). 2023+ is reported as a development window."
+ },
+ "named_effects": {
+  "N01_XAU_asia_long": "XAU long 19:00 ET (previous evening) -> 03:00 ET, Mon-Fri sessions (gold Asian-session drift)",
+  "N02_XAU_ny_short": "XAU short 08:20 -> 13:30 ET (COMEX day session), Mon-Fri (gold New York-session decline)",
+  "N03_SPX_overnight_long": "SPX500 long 16:00 ET -> 09:30 ET next weekday (overnight drift), financing charged",
+  "N04_NAS_overnight_long": "NAS100 long 16:00 ET -> 09:30 ET next weekday, financing charged",
+  "N05_SPX_intraday_long": "SPX500 long 09:30 -> 16:00 ET, Mon-Fri (intraday half of the split)",
+  "N06_NAS_intraday_long": "NAS100 long 09:30 -> 16:00 ET, Mon-Fri",
+  "N07_SPX_monday_short": "SPX500 short Monday 09:30 -> 16:00 ET (Monday effect)",
+  "N08_SPX_friday_long": "SPX500 long Friday 09:30 -> 16:00 ET (Friday effect)",
+  "N09_SPX_tom_long": "SPX500 long 16:00 ET on the 2nd-to-last trading day -> 16:00 ET on the 3rd trading day of the next month (days -1..+3), financing charged",
+  "N10_NAS_tom_long": "NAS100 turn-of-month long as N09",
+  "N11_JPY_gotobi_long": "USD/JPY long 09:00 -> 09:55 JST (00:00 -> 00:55 UTC) on gotobi days (5/10/15/20/25/month end, moved to the previous business day)",
+  "N12_NAS_monday_short": "NAS100 short Monday 09:30 -> 16:00 ET",
+  "N13_NAS_friday_long": "NAS100 long Friday 09:30 -> 16:00 ET"
+ },
+ "named_comparators": {
+  "N01_XAU_asia_long": "Dall",
+  "N02_XAU_ny_short": "Dall",
+  "N03_SPX_overnight_long": "Dall",
+  "N04_NAS_overnight_long": "Dall",
+  "N05_SPX_intraday_long": "Dall",
+  "N06_NAS_intraday_long": "Dall",
+  "N07_SPX_monday_short": "N05_SPX_intraday_long",
+  "N08_SPX_friday_long": "N05_SPX_intraday_long",
+  "N09_SPX_tom_long": "Dall",
+  "N10_NAS_tom_long": "Dall",
+  "N11_JPY_gotobi_long": "X11_JPY_nongotobi",
+  "N12_NAS_monday_short": "N06_NAS_intraday_long",
+  "N13_NAS_friday_long": "N06_NAS_intraday_long"
+ },
+ "nulls": {
+  "selection_adjusted": "(a) procedure level: 1000 draws of the same procedure with a random candidate order instead of |t| order (same eligibility, de-dup, K, side rule and validation filter); compared statistics: pooled 2021-22 net R/trade of all selected windows and pooled 2023+ net R/trade of survivors; p = share of draws >= actual. (b) per window: the 2023+ net R/trade of all eligible candidates (all instruments) that pass the same validation filter; p = share >= this window's.",
+  "random_side": "per trade, the actual or the opposite-side net outcome by a fair coin, 1000 draws; p = share with mean >= actual",
+  "always_long": "unpaired comparator, same instrument and evaluation window: U/L windows vs the per-day mean long net over all 24 hourly windows of the same clock; D windows vs long net over all D windows; named effects per named_comparators. Delta bootstrapped jointly by day; p = share of replicates with delta <= 0."
+ },
+ "windows": {
+  "selection": "2018-2020",
+  "validation": "2021-2022",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window)",
+  "named_dev": "2018-2022",
+  "crisis": "abs11 windows 2020H1, 2022H1, 2025Q4-26Q1 (stress, reported only)"
+ },
+ "metrics": "trades, trades/year, net R/trade [95% CI], hit rate, gross, spread cost, financing cost, net at 0%/6% financing and at 1.5x spread, moving-block day bootstrap (validate.day_boot, block 5; 1000 reps pooled and named dev/2023+, 300 per selected window, crisis, year), MDE = 2.8 x bootstrap SE, per-year net R/trade with CIs",
+ "decision_rule": {
+  "selected_windows": "DROPPED iff it fails validation. A frozen window is SUPPORTED (development evidence only, eligible to propose a shadow registration under issue 313) iff in 2023+: net R/trade 95% CI lower bound > 0 AND Holm-adjusted (over all selected windows) p < 0.05 for each of: R/trade <= 0, random side, per-window selection null, always-long comparator. REJECTED iff the 2023+ CI upper bound < 0. Otherwise INCONCLUSIVE (with MDE).",
+  "named": "As orb15: SUPPORTED iff in BOTH dev 2018-2022 and 2023+: CI lower bound > 0, Holm-adjusted (13 named) p < 0.05 for R/trade <= 0, random side and always-long comparator. REJECTED iff CI upper bound < 0 in both. Otherwise INCONCLUSIVE.",
+  "procedure": "The procedure-level selection null is reported; a procedure p_w23 >= 0.05 means the |t| ranking adds nothing over random picks."
+ },
+ "budget": {
+  "scan_candidates_nominal": 459,
+  "K": 3,
+  "max_selected": 27,
+  "named": 13,
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "K": 3,
+   "CORR_MAX": 0.5,
+   "MIN_N": 100,
+   "SPR_R": 0.2,
+   "FIN_BASE": 0.03,
+   "R_k": 1.5
+  }
+ },
+ "code_sha256": {
+  "season17.py": "835d3158c93e2a50d923f15f00a201cce5ae560b204b380eda8fe14712226ba5",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-08T09:42:16+0200",
+   "reason": "Design amendment before any return was computed (only trade counts, spread-rule pass rates and financing nights inspected, inspect_counts.py). (1) With 1R = 1.5 ATR(M5) the 0.2 R spread rule removed 60-99% of trades (EUR/USD D windows 0.4% pass, BTC 16%) because the R unit ignored the holding length; 1R is now 1.5 ATR(M5) of the bar before entry x sqrt(window length in min / 5) (equal risk per expected window range; declared fixed scaling, no tuning). (2) The spread rule now uses the entry bar's own open quotes (ask_o - bid_o), since the bar before a D-window entry is the 16:55 ET rollover bar. (3) A 17:00 ET roll exactly at the exit time is not held (D windows had 1 night each). (4) Correction: 53 scan candidates per instrument (24 U + 24 L + 5 D), 477 nominal, not 51/459. Everything else unchanged.",
+   "code_sha256": {
+    "season17.py": "fcabbd14d427a710c4ec0b3778406b51fb2e8f2091ade5e7f39eafe78e2bd979",
+    "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+    "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+   }
+  }
+ ]
+}

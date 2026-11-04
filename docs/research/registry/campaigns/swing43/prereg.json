@@ -1,0 +1,42 @@
+{
+ "created": "2026-10-09T16:18:33+0200",
+ "code_sha256": {
+  "swing43.py": "52be7a2df33fe8d3b0fcaa45c8cea5b7c04c31bfd85ba770843cf59325148e75",
+  "ext39.py": "ebe6e14ba1d6f2f2c537a9827a4bb126d4a23bc2076f6c0e5cb66c18dec591a2"
+ },
+ "title": "swing43: RSI(2) pullback in a long-term uptrend (Connors-style), held for days, 8 equity indices primary, 33 daily markets",
+ "before_registration": "Only synthetic fixtures (swing43.py check) and trade counts per window/group/variant (swing43.py describe; entry and exit bars are computed but no return, drift or excess is computed or printed) ran. Prior knowledge: tsmom36 FAIL, cal37 FAIL, ext39 FAIL (indices lean to reversal in 2023+ only), vm40 FAIL. Published claim (Connors and Alvarez 2008, short-term pullbacks in an uptrend, strongest on equity indices).",
+ "data": "audit/tsmom36/daily.db read-only via ext39.load() (33 OANDA daily mid series, bars close 17:00 New York, trading date = close date, weekend stubs dropped, last close 2026-10-08). Spreads: audit/tsmom36/out/spreads.json (median M1 spread from history.db candles_ba). Nothing fetched.",
+ "definitions": {
+  "trend": "close[t] > SMA200[t] (simple mean of the 200 closes t-199..t); no setup before 200 bars",
+  "rsi": "Wilder RSI(2) on closes: seed = mean of the first 2 gains/losses, then avg = (avg + x) / 2; RSI 100 when the average loss is 0",
+  "setup": "close[t] > SMA200[t] and RSI2[t] < 10, at the close of day t. Long only",
+  "entry": "close of day t (17:00 New York mid)",
+  "exit": "first close j > t with close[j] > SMA5[j] (mean of closes j-4..j), else close of t+10 trading bars, whichever first",
+  "one_trade": "one open trade per instrument; the next entry needs a setup bar strictly after the previous exit bar. Trades without an exit bar in the data are dropped",
+  "trade_return": "ln(close[exit] / close[entry]) in bps",
+  "matched_drift": "mu_w = mean of daily log returns ln(c_d / c_{d-1}) over all days d in window w whose prior close c_{d-1} was above SMA200 (same instrument); matched drift of a trade = mu_w x trading bars held. This is a window-level benchmark, it is not causal",
+  "excess": "trade log return minus matched drift",
+  "window": "by entry date: dev 2005-01-01..2022-12-31; second 2023-01-01..2026-10-08 (development window, not a holdout)",
+  "costs": "futures-style net = gross - 2 x half median spread (2 bps per side where no spread exists: HK33 and the instruments not in spreads.json). CFD net = futures-style net - 0.822 bps (3%/365) per calendar night held. Costs are reported, never decide the verdict"
+ },
+ "primary": {
+  "universe": "SPX500_USD, NAS100_USD, US30_USD, DE30_EUR, UK100_GBP, JP225_USD, HK33_HKD, AU200_AUD pooled, equal weight per trade",
+  "statistic": "mean excess (bps per trade)",
+  "ci": "cluster bootstrap by ISO calendar week of the entry date, 1000 reps, seed 43, percentile 95% (ext39.week_boot)",
+  "pass": "pooled index mean excess > 0 with CI lower bound > 0 in BOTH windows; otherwise FAIL. One test",
+  "trade_counts": "dev 1,043 trades in 410 weeks (AU200 128, DE30 141, HK33 120, JP225 108, NAS100 151, SPX500 139, UK100 120, US30 136); 2023+ 304 in 113 weeks (35, 40, 31, 38, 37, 45, 33, 45)",
+  "power_ex_ante": "assumed trade SD about 220 bps (1.2% daily vol, about 3-4 days held): MDE80 about 19 bps dev and 35 bps 2023+"
+ },
+ "secondary_never_decide": [
+  "RSI2 < 5 and < 25",
+  "2 and 3 consecutive down closes instead of RSI (with the trend filter)",
+  "fixed 5-day exit (RSI2 < 10 setup)",
+  "short mirror: close < SMA200 and RSI2 > 90, exit at first close < SMA5 or 10 bars, drift matched on days with prior close < SMA200, financing charged on shorts too",
+  "groups: indices, commodities, FX, bonds, trading6 (WTI, XAU, XAG, NATGAS, SPX500, EUR/USD), all 33",
+  "per instrument, per year (primary, indices)",
+  "gross mean, matched drift, futures-style and CFD net (each with CI), hit rate (gross > 0 and excess > 0), average trading days and calendar nights held, trades per year, MDE80 of the excess"
+ ],
+ "multiplicity": "7 variants x 6 groups x 2 windows = 84 group cells plus per-instrument cells, all logged to trials.jsonl (exp swing43). Only the primary cell decides",
+ "confirmation": "development evidence only; any survivor needs prospective confirmation (issue 313) or data after 2026-10-07"
+}

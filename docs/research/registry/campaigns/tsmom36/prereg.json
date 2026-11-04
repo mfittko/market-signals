@@ -1,0 +1,70 @@
+{
+ "created": "2026-10-09T11:31:21+0200",
+ "code_sha256": {
+  "tsmom36.py": "74ba7bfd60076dc89b0348a28d03526eeab7cd5d1bc20e217fbfe35fbdd53e30",
+  "fetch.py": "087880eac46e0936e8d4eb70fac92c3a4703b311e44a2a9b1bd05b5b7ee4872b"
+ },
+ "title": "tsmom36: diversified slow time-series momentum (MOP 2012, Hurst-Ooi-Pedersen 2017) on 33 OANDA daily mid series",
+ "before_registration": "Only the fetch, synthetic fixtures (tsmom36.py check) and a data description (tsmom36.py describe: start dates, bar counts, weekend-stub check, eligible-instrument counts per year, median M1 spreads from history.db) ran. No strategy return was computed on real data. Prior knowledge: mw6 (row 6) and rescan26 (row 26): 120-day momentum on 6 instruments, pooled gross about +0.07-0.08 R in both windows, failed with the 20-day block bootstrap.",
+ "data": "audit/tsmom36/daily.db, OANDA daily mid candles (price=M, granularity D, dailyAlignment 17 America/New_York) via the FXEmpire proxy used by pipeline/history.py, fetched 2026-10-09; 33 of 33 requested instruments served. Trading date = bar close date (bar open + 24 h). Bars that close on Saturday/Sunday (early-year weekend stubs) are dropped. Last close 2026-10-08.",
+ "universe": {
+  "fx": [
+   "EUR_USD",
+   "GBP_USD",
+   "USD_JPY",
+   "AUD_USD",
+   "USD_CAD",
+   "USD_CHF",
+   "NZD_USD",
+   "EUR_JPY",
+   "EUR_GBP",
+   "AUD_JPY"
+  ],
+  "index": [
+   "SPX500_USD",
+   "NAS100_USD",
+   "US30_USD",
+   "DE30_EUR",
+   "UK100_GBP",
+   "JP225_USD",
+   "AU200_AUD",
+   "HK33_HKD"
+  ],
+  "commodity": [
+   "WTICO_USD",
+   "BCO_USD",
+   "NATGAS_USD",
+   "XAU_USD",
+   "XAG_USD",
+   "XCU_USD",
+   "XPT_USD",
+   "CORN_USD",
+   "WHEAT_USD",
+   "SOYBN_USD",
+   "SUGAR_USD"
+  ],
+  "bond": [
+   "USB10Y_USD",
+   "USB30Y_USD",
+   "DE10YB_EUR",
+   "UK10YB_GBP"
+  ]
+ },
+ "strategy": {
+  "returns": "simple close-to-close mid return on each instrument's own bars; on the union calendar a missing day carries return 0 and the next present day spans the gap",
+  "signal": "at the last union trading date m of each month: s = sign(close[m] / close[m - 252 own bars] - 1) (PRIMARY lookback 252)",
+  "vol": "ex-ante vol = sqrt(261 x EW variance of daily returns, center of mass 60 days (MOP 2012), min 60 obs), closes <= m",
+  "size": "w = s x min(0.40 / vol, 3)",
+  "eligibility": ">= 300 own bars at m, vol available",
+  "portfolio": "portfolio weight = w / N_m (N_m = eligible count at m); decision at close m, trade at the close of the next union date m+1, so the first return earned is date m+2; weights held constant through the month (no intramonth rebalancing)",
+  "daily_return": "sum_i W_i x r_i (= average of positions times next-day returns)"
+ },
+ "windows": {
+  "dev": "2005-01-01..2022-12-31 (2005 = first full year with >= 10 eligible instruments; min 28 eligible in 2005, 33 from 2008)",
+  "w2023": "2023-01-01..2026-10-08 (development window, not a holdout)"
+ },
+ "primary": "all 33 instruments, lookback 252, gross annualized Sharpe = mean/sd x sqrt(261) of daily portfolio returns; moving-block bootstrap of daily returns, block 20, 1000 reps, seed 36 (arch MovingBlockBootstrap), percentile 95% CI. PASS if the CI lower bound > 0 in BOTH windows; otherwise FAIL.",
+ "net_secondary": "cost per side = half the median M1 close spread (ask - bid) / mid, all hours 2018+, from history.db candles_ba for the 16 instruments there (EUR_USD, GBP_USD, USD_JPY, SPX500, NAS100, US30, DE30, UK100, JP225, AU200, WTICO, BCO, NATGAS, XAU, XAG, XPT); flat 2 bps per side otherwise; charged on |change in portfolio weight| at each rebalance (and the initial build). Financing: ASSUMED 3% per year of |notional| for long and short alike, charged per trading day as sum |W| x 0.03 / 261. No roll costs modeled for commodity/bond CFDs beyond this.",
+ "secondary": "lookbacks 63 and 126; equal-weight blend of the 63/126/252 position vectors (Hurst et al.); per asset class (fx, index, commodity, bond); our 6 trading instruments (WTICO, XAU, XAG, NATGAS, SPX500, EUR_USD) alone vs mw6; net Sharpe; max drawdown (compounded); correlation with buy-and-hold SPX500 daily returns; yearly gross returns; power MDE80 = 2.8 x bootstrap sd of Sharpe. All cells logged to trials.jsonl with exp tsmom36. Secondary cells never decide the verdict.",
+ "deviations_from_literature": "OANDA CFD mid prices (not futures/excess returns); USD-denominated return of non-USD indices is NOT used (local-currency CFD price change); CFD prices of commodities follow OANDA's rolled reference and may embed roll effects; monthly rebalance at the next day's close instead of the month-end close"
+}

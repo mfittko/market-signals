@@ -1,0 +1,48 @@
+{
+ "created": "2026-10-09T11:04:31+0200",
+ "code_sha256": {
+  "vol33.py": "6130aa9732ab993e3b0af798477e29b6751097df73186f5a8a30f316fa702152",
+  "updown.py": "55326c3a837d2789225ac0fb4357a3f8483db59feda2e3befc06ca224e1b7c57",
+  "events.py": "1e391e2b45f6e7b7dae4cc0ca06d47389d031016655c014a13f61f5b4b35225d",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+  "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ },
+ "title": "vol33: extreme tick volume as climax (fade) or absorption (wick rejection), gross mid R; issue 310",
+ "before_registration": "No outcome computed. Before this file: synthetic self-checks and signal counts only (no prices after the signal bar). WTI M5 signals before the one-trade filter, dev / 2023+: H1 top 1% 1,326 / 1,318; H2 top 2% 1,083 / 1,526; all fast bars 59,129 / 50,190. Prior knowledge: fade31 (plain fades of fast moves lose before spread everywhere; reversals slightly more frequent, continuations larger), sess25 (volume adds nothing on breakouts), news24 control group (strong candle plus volume spike about 0 R), flow29 (CL order flow over 3 M5 bars reverses).",
+ "declared": "Development evidence only. 2023+ is a development window, not a holdout.",
+ "data": "news24 cache (engine history.db M1 bid/ask = candles_ba, resampled; production supertrend ATR 10), 2018-01-01 .. 2026-10-07/08 (last cached bar). Volume = OANDA tick count. history.db read-only.",
+ "volume_ratio": "v = bar tick volume / median tick volume of the same UTC time-of-day slot over the prior 20 trading days (trading day = validate.day_of, 22:00 UTC session start); >= 10 such bars present, else the bar has no v and is skipped.",
+ "thresholds": "Per trading day: percentiles of v over all bars of the previous 250 trading days (the bar's own day excluded). At least 60 trading days of history and 100 valid v values, else skipped; so 2018 signals before ~April use a shorter expanding window (60..250 days). Top 1% = 99th pct, top 2% = 98th pct.",
+ "H1_climax": "Fast move = updown.features on mid bars (nowMotion port): run of same-sign closed bars capped at 6, move = (close - open of run start) / ATR(10), |move| >= 1.5. Signal = any fast bar whose own v >= trailing 99th pct. Trade AGAINST the run at the next bar open.",
+ "H2_absorption": "v >= trailing 98th pct, mid range > 0, |mid close - mid open| <= 0.25 x range, upper wick = high - max(open, close), lower wick = min(open, close) - low; skip if |upper - lower| <= 0.10 x the longer wick. Long if the lower wick is longer, short if the upper wick is longer. Entry at the next bar open.",
+ "trade": "labels_v2.simulate k=1.0 (stop 1.0 ATR(10) at the signal bar = 1 R), m=T=1.0 (target +1 R), H=12 (time exit at the close of bar 12, entry bar = bar 1), no flip exit; fills.resolve takes the stop first when both touch. Gross = mid bars (primary), net = bid/ask (secondary). Trades kept where both are uncensored. One open trade per instrument per strategy: signals in time order, a signal is skipped while the previous kept trade (gross exit bar) is open. No spread filter.",
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31",
+  "w2023": "2023-01-01 .. last cached bar (development window, not a holdout)"
+ },
+ "primary": "WTICO/USD M5, gross mean R per trade for H1 (top 1%) and H2 (top 2%). validate.day_boot over all trading days of the window, block 5, 1000 reps, seed 33. One-sided p = share of replicates <= 0. Holm over the two hypotheses within each window.",
+ "pass_rule": "PASS if, for at least one hypothesis, the Holm-adjusted CI lower bound is above 0 in BOTH windows: Holm-adjusted one-sided p < 0.025 and the lower bound at the Holm level of its rank (1.25th percentile for the smaller p, 2.5th for the other) > 0, in dev and in 2023+. Otherwise FAIL.",
+ "secondary": "Never decide the verdict, no multiplicity correction claimed: net R with bid/ask; hit rate (gross R > 0); trades per day; median spread / R; M1 and M15; XAU, XAG, NATGAS, SPX500, EUR/USD; H1 minus all fast-move fades (every fast bar, same trade, own one-at-a-time sequence; difference of gross means with a pooled day-block CI); thresholds top 0.5% and top 5% for H1 and H2; MDE80 = 2.8 x bootstrap SD; event counts before and after the one-trade filter.",
+ "H3_side_free": "Range12 = (max mid high - min mid low over bars i+1..i+12) / ATR(10) at bar i, only when those 12 bars are contiguous. Spike = v >= trailing 98th pct; normal = v between the trailing 25th and 75th pct. Ratio = sum of spike Range12 / sum over spikes of the mean normal Range12 at the same UTC hour in the same window. Day-block CI on per-day aggregates (same bootstrap settings). Also at 99.5th and 95th pct. Reported, never decides the verdict.",
+ "bootstrap": {
+  "fn": "validate.day_boot",
+  "reps": 1000,
+  "block": 5,
+  "seed": 33
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-09T11:06:06+0200",
+   "reason": "Post-outcome serialization fix only: strip() now recurses into lists (results.json failed to write; the verdict FAIL and all trial rows were already logged by the first run). Rerun with VOL33_NOLOG=1 to write results.json without duplicate trial rows. No definition, threshold, trade or statistic changed.",
+   "code_sha256": {
+    "vol33.py": "ff009643b919359d47a841fc22e286eba4392f9fa77679053f055770d7c3ac3e",
+    "updown.py": "55326c3a837d2789225ac0fb4357a3f8483db59feda2e3befc06ca224e1b7c57",
+    "events.py": "1e391e2b45f6e7b7dae4cc0ca06d47389d031016655c014a13f61f5b4b35225d",
+    "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+    "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+    "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+   }
+  }
+ ]
+}

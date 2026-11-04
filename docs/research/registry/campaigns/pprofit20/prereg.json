@@ -1,0 +1,67 @@
+{
+ "title": "pprofit20: calibrated probability that a long / short entered NOW is profitable after costs, per instrument, M5",
+ "before_registration": "check mode only: feature quantiles and row counts on 2018-2022 (out/explore.json). No label, net R or fill was computed before this file.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "labels_v2.simulate, fills.resolve, validate.day_boot imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask npz (newest per instrument), cut at 2026-10-07T18:30 UTC; M5 by bars.resample; H1 = M5 resampled on the hour; production supertrend (flips.mjs, ATR10, mult 3) on mid M5 and mid H1",
+ "trade": {
+  "entry": "open of the M5 bar after the decision bar; long at the ask, short at the bid",
+  "stop": "1R = 1.5 x Wilder ATR14 of mid M5 at the decision bar (operator spec; the 308 policy otherwise used the supertrend ATR10 as the R base)",
+  "management": "labels_v2.POLICY: breakeven after +1R (one-bar latency), 3R target, exit at the next open after an opposite M5 supertrend flip, time exit after 72 bars; bid/ask exits",
+  "label": "y = 1 if net R > 0 (a breakeven exit at exactly 0 R is y = 0); net R stored for the expected-R readout",
+  "censoring": "rows whose trade is still open at the data cut are dropped"
+ },
+ "population": "every M5 bar whose start minute % 15 == 10 (every 3rd bar, the M15 close), all hours incl. thin hours and session opens; two rows per bar (long, short); rows need finite ATR14, the 1440-bar ATR mean, nonzero M5 and completed-H1 supertrend trend",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "timeframes": "M5 only; M15 declared skipped (time box)",
+ "features": {
+  "side_free": {
+   "spr": "(ask_c - bid_c) / (1.5 ATR14), clip [0, 2]",
+   "h_s1..h_c3": "sin/cos of K x 2pi x minute-of-day of the decision bar close, K = 1, 2, 3",
+   "mon, fri": "trading-day (22:00 UTC roll) Monday / Friday flags",
+   "lrv12, lrv72": "log(RMS of mid close changes over 12 / 72 bars / ATR14), clip [-3, 3]",
+   "latr": "log(ATR14 / mean ATR14 over the last 1440 bars), clip [-3, 3]",
+   "lrng": "log(range so far today / ATR14) clip [-5, 5] minus the per-5-minute-slot median of the same quantity on the fit rows (time-of-day norm, refitted per fold)"
+  },
+  "side_signed (x side)": {
+   "mv": "(close - trading-day open) / ATR14, clip [-20, 20]",
+   "st_al": "M5 supertrend trend",
+   "h1_al": "last completed H1 supertrend trend",
+   "dst": "(close - M5 supertrend line) / ATR14, clip [-10, 10]",
+   "burst": "sign of the 3-bar close change if |change| / ATR14 > 2.5, else 0"
+  },
+  "causality": "all features use bars <= the decision bar; H1 bars only when completed"
+ },
+ "model": {
+  "primary": "per instrument L2 logistic regression (sklearn, C = 1.0) on x = [z(18 features), side, side x z(18 features)], z = standardisation on the fit rows",
+  "comparator": "HistGradientBoosting (200 iter, lr 0.05, 31 leaves, min leaf 200, l2 1.0) on the 18 features + slot + side, yearly refit, raw probabilities; AUC and CITL only",
+  "refit": "quarterly expanding: for quarter start Qs, fit rows = trade exit < Qs - 182 days; calibration rows = start in [Qs - 182 d, Qs) and exit < Qs; predict rows starting in the quarter. First quarter 2019Q1",
+  "calibration": "Platt (logistic on the raw score) fitted on the calibration window only"
+ },
+ "windows": {
+  "dev2019_22": "walk-forward predictions for rows starting 2019-01-01..2022-12-31",
+  "w2023": "2023-01-01..cut, DEVELOPMENT window (inspected by earlier campaigns), same procedure continued"
+ },
+ "validation_rule": {
+  "primary_calibration": "PASS per instrument iff, in BOTH windows and for EACH side, every decile of predicted P (equal-count, per side and window) with n >= 1000 has |mean P - observed frequency| <= 0.03",
+  "reported": "AUC per side and window (and per year); P10/P50/P90 of P per side; P by 4-hour UTC block and by spread bucket with observed rate and mean R; CITL by year; HGB AUC; long-minus-short distribution, its decile table and slope of observed (y_long - y_short) on predicted difference with 5-day block-bootstrap CI (500 reps); mean net R, avg win, avg loss by decile with 5-day moving-block day-bootstrap CI (1000 reps)",
+  "edge_rule": "never claimed; report deciles whose mean net R CI lies above 0 (expected R > 0 is equivalent to P x avg win > (1 - P) x |avg loss|)"
+ },
+ "export": "if an instrument passes: out/artifact_<INST>_pprofit20.json (feature order and definitions, tod_norm table, scaler, coefficients incl. side interaction, intercept, Platt a/b, training cutoff, code hash, validity statement, expected-R lookup by out-of-sample P decile per side). Final model = the same scheme with Qs = cut. Parity fixtures for WTI and EUR/USD (out/parity_<INST>_pprofit20.json): last 6000 M5 bid/ask bars, the last 200 cadence bars x 2 sides with features computed from those bars only, raw score and P; tolerance 1e-9. For a failing instrument the fixture artifact is written and marked do-not-ship.",
+ "rules": "no test ledger; nothing marked qualified; trials logged to trials.jsonl with exp pprofit20",
+ "created": "2026-10-08T09:48:20+0200",
+ "code_sha256": {
+  "pp20.py": "53bf3324be9e5299b07bc40e52dc8758d994cd64997e573bf30be8e97490a2cb",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

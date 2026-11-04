@@ -1,0 +1,227 @@
+{
+ "created": "2026-10-08T01:41:14+0200",
+ "title": "bench1: representation benchmark on the frozen D population, evaluator v2 (V4) unchanged (#310 item 1)",
+ "before_registration": "Plumbing only: bench check (causality) and one control probe (linear 0.16, dev seed 1001) to time the pipeline and confirm that lr_base reproduces the v2 V4 record exactly (same cut, slope CI, trades, mean R, verdict). After the probe the LR-head C grid was widened from (1e-3, 1e-2, 1e-1) to (1e-4 .. 1e-1) because validation picked the grid edge; nothing else changed. No real-data scoring before this file.",
+ "evaluator": "de_v2.py + labels_v2.py, E stage V4 (audit/v2/selected.json): one model fit on rows exiting before test - 6 months - 5 days; Platt calibration with episode-clustered slope CI guard (unavailable unless CI > 0) and coverage-quantile threshold (q in 0.5/0.35/0.2/0.1, >= 30 policy trades, gate vs unselected D) pooled over the last 6 months; support guard fit >= 200, cal >= 100",
+ "population": "identical candidates for every learner: de_v2.candidates of the D configuration (confirmed, spread <= 0.2 R, inside the window), restricted to rows where every representation is finite (shared ok mask)",
+ "labels": "y = arm (+1R before the stop within H, 308 contract), episode weights 1/n_rows_in_episode, bid/ask fills, POLICY k=1.5 m=1 T=3 H=72",
+ "learners": {
+  "lr_base": "frozen E learner (standardized L2 LR C=0.1, episode weights) on BASEF+VOLF (reproduction)",
+  "lr_eng": "same LR (C=0.1, no tuning) on ENG",
+  "hgb_eng": "HistGradientBoostingClassifier on ENG: {\"learning_rate\": 0.05, \"max_leaf_nodes\": 15, \"min_samples_leaf\": 100, \"l2_regularization\": 1.0, \"early_stopping\": false, \"random_state\": 0}, max_iter 300; iteration count = argmin weighted log loss on the chronologically last 20% of fit-row days (5-day embargo), then refit on all fit rows; no estimator-internal random split",
+  "mr_lr": "aeon MiniRocket {\"n_kernels\": 10000, \"max_dilations_per_kernel\": 32, \"random_state\": 0} on the side-signed ATR-normalized M5 return window (L=64) + CTX; LR head, C chosen from (0.0001, 0.001, 0.01, 0.1) on the same chronological validation split, refit on all fit rows",
+  "ts_lr": "official TS2Vec (commit b0088e14a99706c05451316dc6db8d3da9351163), CPU, {\"output_dims\": 320, \"hidden_dims\": 64, \"depth\": 10, \"lr\": 0.001, \"batch_size\": 16}, n_iters by the official default rule, torch/numpy seed 0; input = 4-channel trailing window (return, range, spread, activity), L=64, per-channel scaler and encoder fitted on the fit-row windows only; embedding = encode(window, encoding_window='full_series') of the trailing window that ends at the decision bar; head LR (C grid as mr_lr) on embedding + CTX",
+  "tscomb_lr": "TS2Vec embedding + ENG, LR head (C grid)",
+  "tscomb_hgb": "TS2Vec embedding + ENG, HGB head (as hgb_eng)",
+  "oracle": "controls only: the planted driver g as raw score"
+ },
+ "features": {
+  "ENG": [
+   "r1",
+   "r3",
+   "r6",
+   "r12",
+   "r36",
+   "r72",
+   "body",
+   "wick_with",
+   "wick_against",
+   "range",
+   "range3",
+   "rv12_288",
+   "rv48_288",
+   "rv288",
+   "atr_px",
+   "atr_ratio",
+   "spr",
+   "spr_chg",
+   "act1",
+   "act12",
+   "tod_s",
+   "tod_c",
+   "dow_s",
+   "dow_c",
+   "nday",
+   "daymv",
+   "dpos"
+  ],
+  "CTX": [
+   "spr",
+   "atr_ratio",
+   "atr_px",
+   "tod_s",
+   "tod_c"
+  ],
+  "controls_extra": [
+   "c1",
+   "c2"
+  ],
+  "ENG_definition": "r_k = side x (close_t - close_{t-k}) / ATR_t, k in 1,3,6,12,36,72; body, with-side and against-side wick, range, 3-bar mean range (/ATR); log ratios of 12- and 48-bar to 288-bar realized vol (std of absolute M5 close changes, 0.01 ATR floor), log 288-bar vol / ATR, log ATR/max(abs(price), 1), ATR ratio; spread (R units) and its change vs the 12-bar mean; log volume (1 and 12-bar mean) minus the median at the same time of day over the prior 20 sessions; time-of-day and weekday sin/cos, log bars since session open, side x (close - session open)/ATR, side x position in the prior session range"
+ },
+ "augmentation_note": "TS2Vec uses its official random cropping and timestamp masking; both keep temporal order and sign (no reversal or permutation); windows are side-signed so 'with trend' has one direction",
+ "leakage": "bench.py check: ENG and windows unchanged under post-cut perturbation, planted next-bar leak detected, TS2Vec embeddings of pre-cut windows unchanged and later windows change them; every scaler/transform/encoder/head is fitted inside fitter(mask) on the V4 fit rows only (rows exiting before test - 6 months - 5 days)",
+ "budget": {
+  "learners": 7,
+  "oracle": 1,
+  "feature_sets": [
+   "BASEF+VOLF",
+   "ENG",
+   "MiniRocket+CTX",
+   "TS2Vec+CTX",
+   "TS2Vec+ENG"
+  ],
+  "lookbacks": [
+   64
+  ],
+  "lookback_count": 1,
+  "engineered_lags": "fixed (1,3,6,12,36,72), vol scales (12,48,288)",
+  "seeds": {
+   "minirocket": 1,
+   "ts2vec": 1,
+   "hgb": 1
+  },
+  "hyperparameters": {
+   "lr_head_C": [
+    0.0001,
+    0.001,
+    0.01,
+    0.1
+   ],
+   "hgb": "fixed params, iterations chosen chronologically (1..300)",
+   "ts2vec": "official defaults, not tuned",
+   "minirocket": "official defaults, not tuned"
+  },
+  "thresholds": "V4 coverage grid (4 values) inside the evaluator, unchanged",
+  "instruments": [
+   "WTICO/USD"
+  ],
+  "xau": "scoped comparison only if time permits; not registered as a result"
+ },
+ "controls": {
+  "harness": "audit/v1/controls.py plant() and grid (19 cells), CFG_X population, calendar test 2020-01-01..2022-12-30, V4 only; every record carries evaluator and bench SHA-256",
+  "seeds": {
+   "dev": [
+    1001,
+    1002,
+    1003
+   ],
+   "final": [
+    2001,
+    2002,
+    2003,
+    2004,
+    2005,
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020
+   ],
+   "final_note": "A1: 2001..2020 (was 2001..2040), fixed before any final seed ran"
+  },
+  "dev_use": "plumbing and gross failure only; amendments only before the final run",
+  "tables": "supported rate (k=3) per realized economic-value bin vs the oracle score and the oracle-policy ceiling; false qualification on null and null_hidden (Wilson); first failing stage; unconditional test AUC per learner per bin"
+ },
+ "real": {
+  "inst": "WTICO/USD",
+  "populations": {
+   "frozenD": "WTI frozen D (fired 0.9, brk, 48)",
+   "cfgX": "XAU frozen D on WTI (none, h1, 12) = control population"
+  },
+  "folds": "purged walk-forward test years 2020, 2021, 2022 (gate and learners fitted before each year) + 2023-01-01..newest as a DEVELOPMENT window (inspected 13+ times; never a holdout); no test ledger, no verdicts",
+  "report": "raw AUC by window and side, calibration with support, risk-vs-coverage at the V4 quantile cuts, registered D+E net R with 5-day moving-block day bootstrap CIs, cost sensitivity (extra cost 0/0.02/0.05/0.10 R per trade), paired differences vs unselected D and vs LR on the same features"
+ },
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "selected_json": "3882d9343779af5512d4425c9d7b4885082711682e80dc73293904061c18074b",
+  "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+  "real.py": "99469c894708aef548242e75b4924c4f1b90d746927ad0ec4b7bebdd653129ae",
+  "register.py": "46825560c5342eda4e09b008e10c548535925b75fa0f1f36e1a6769b2905fad4",
+  "summarize.py": "aed2a0918bfe19ccf0b1dd8610be5eb5e3bf4cd3e5d20a709235576b2f580619",
+  "ts2vec_src_commit": "b0088e14a99706c05451316dc6db8d3da9351163"
+ },
+ "versions": [
+  "aeon==1.6.0",
+  "arch==8.0.0",
+  "cloudpickle==3.1.2",
+  "Deprecated==3.0.0",
+  "filelock==4.0.12",
+  "formulaic==1.2.2",
+  "fsspec==2026.9.0",
+  "interface_meta==2.0.1",
+  "Jinja2==3.1.6",
+  "joblib==1.6.0",
+  "llvmlite==0.46.0",
+  "MarkupSafe==3.0.4",
+  "mpmath==1.3.0",
+  "narwhals==2.26.0",
+  "networkx==3.7",
+  "numba==0.63.1",
+  "numpy==2.3.5",
+  "packaging==26.3",
+  "pandas==3.0.6",
+  "patsy==1.0.3",
+  "python-dateutil==2.9.0.post0",
+  "scikit-learn==1.9.1",
+  "scipy==1.17.1",
+  "setuptools==84.0.0",
+  "six==1.17.0",
+  "statsmodels==0.15.0",
+  "sympy==1.14.0",
+  "threadpoolctl==3.7.0",
+  "torch==2.14.1",
+  "typing_extensions==4.16.0",
+  "wrapt==2.5.0",
+  ""
+ ],
+ "environment_note": "separate venv audit/bench1/.venv (numpy 2.3.5, scipy 1.17.1: numba/aeon require numpy < 2.4; the engine venv stays on numpy 2.5.3). Reproduction check: lr_base equals the v2 V4 control record bit for bit on the probe.",
+ "amendments": [
+  {
+   "ts": "2026-10-08T02:14:55+0200",
+   "reason": "A1 (after dev seeds, before final): the worker pool no longer recycles workers (maxtasksperchild removed): re-forked workers deadlocked at start (0 CPU) and one dev job (subset 0.25) was lost; performance-only. Final seeds reduced from 2001..2040 to 2001..2020 (20 per cell, 380 realizations) for the time box (about 175 s per realization at 14-17 workers); the seed set is fixed here, before any final seed ran.",
+   "code_sha256": {
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+    "evaluator_files": {
+     "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+     "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+     "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+     "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+     "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+     "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+     "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+     "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+     "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+     "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+    },
+    "selected_json": "3882d9343779af5512d4425c9d7b4885082711682e80dc73293904061c18074b",
+    "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+    "real.py": "99469c894708aef548242e75b4924c4f1b90d746927ad0ec4b7bebdd653129ae",
+    "register.py": "46825560c5342eda4e09b008e10c548535925b75fa0f1f36e1a6769b2905fad4",
+    "summarize.py": "aed2a0918bfe19ccf0b1dd8610be5eb5e3bf4cd3e5d20a709235576b2f580619",
+    "ts2vec_src_commit": "b0088e14a99706c05451316dc6db8d3da9351163"
+   }
+  }
+ ]
+}

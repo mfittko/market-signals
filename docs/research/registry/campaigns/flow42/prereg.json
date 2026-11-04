@@ -1,0 +1,40 @@
+{
+ "created": "2026-10-09T13:40:00+0200",
+ "title": "flow42: replicate flow29 (CL M5 aggressor imbalance reversal) on the independent year 2024-10 .. 2025-10, plus an incremental test of flow beyond the price move; issue 310",
+ "before_registration": "No outcome computed on 2024-10 .. 2025-10. Before this file: Databento cost quote ($28.27 for the full window), the monthly trade download, and synthetic self-checks (flow29.selfcheck unchanged; H2 on a price-only model gives D_inc about 0 while H1 is negative: 20 seeds mean -0.3 pp, SE 0.3 pp; H2 on a flow-driven model gives D_inc < 0 with CI below 0; bin edges causal). The flow29 year (2025-10 .. 2026-10) outcomes are known from flow29 (H1 k=3 D -5.1 pp); H2 has never been computed on either year.",
+ "data": {
+  "source": "Databento GLBX.MDP3, schema trades, stype_in continuous, symbol CL.v.0 (same as flow29)",
+  "window": "start 2024-10-01, end 2025-10-01 exclusive; monthly chunks raw/CL.v.0_YYYY-MM.dbn.zst, downloaded once",
+  "flow29_year": "audit/flow29/out/bars_m1.parquet (read-only) for H2 pooling",
+  "side": "as flow29: B = buy aggressor, A = sell aggressor, N excluded from the imbalance"
+ },
+ "code": "All bar building, imbalance, trailing thresholds, outcome, roll guard, OANDA alignment and bootstrap are imported from audit/flow29/flow29.py (sha256 55d85d483ce36dadcdb6b81cd7134307cff4203ccb02b592fe3f1183e48f4f85, unchanged). flow42.py adds only the H2 matching and the OANDA spread net.",
+ "H1_replication_primary": {
+  "test": "flow29 k=3 test unchanged on 2024-10 .. 2025-10: M5 bars, I_3 = (buy - sell) / (buy + sell) over bars t-2..t, event iff |I_3| >= 95th pct of |I_3| over the previous 20 trading days, first 20 trading days skipped, outcome close[t+6] - close[t] (CL trade prices, gross), ties dropped, every window open and on one contract (no roll), baseline p_up (buy) / 1 - p_up (sell) over all valid bars, D = P(continue | event) - matched baseline, moving-block day bootstrap block 5, 1000 reps, seed 29",
+  "pass_rule": "PASS iff D < 0 AND the 95% CI upper bound < 0 (direction pre-specified: reversal, as flow29). Also reported: |D| >= 3 pp (the card's display bar), not part of the pass."
+ },
+ "H2_incremental_primary": {
+  "question": "Does heavy flow add information beyond the 3-bar price move? Decides whether a live flow feed is worth paying for.",
+  "heavy": "the H1 event set (k=3, |I_3| >= trailing 95th pct), restricted to bars with a defined move bin",
+  "move": "x = (close[t] - close[t-3]) / ATR(10)[t], signed (raw price direction), bars t-3..t open and on one contract; ATR = flow29.wilder_atr (Wilder, M5 grid, true range reset at a contract change)",
+  "bins": "10 fixed bins per trading day from the deciles of x over all valid bars in the previous 20 trading days (flow29 trailing rule with q = 0.1 .. 0.9, causal); bin = number of edges <= x",
+  "control": "bars with a valid outcome window that are not events and have |I_3| < the trailing-20-day median of |I_3| (flow29 trailing rule with q = 0.5), with a defined bin",
+  "cell": "(year, move bin, UTC hour of the bar start)",
+  "statistic": "D_inc = mean over heavy events with >= 1 control in their cell of (continue - control rate), control rate = control share of up moves in the cell (buy event) or of down moves (sell event). Weighting is by heavy-event count per cell. Heavy events with no control in their cell are dropped and counted.",
+  "windows": "y2024 = 2024-10 .. 2025-10 (new), y2025 = 2025-10 .. 2026-10 (flow29 bars), pooled = both years, cells within year. Pooling is allowed because H2 is new on both years; the flow29 year was used to find the H1 effect, so the pooled H2 is not fully independent of that selection.",
+  "inference": "flow29 moving-block day bootstrap (validate.day_boot, block 5, 1000 reps, seed 42), control rates recomputed per replicate",
+  "pass_rule": "PASS iff pooled D_inc < 0 AND pooled 95% CI upper bound < 0 AND the point estimate D_inc < 0 in y2024 and in y2025 separately"
+ },
+ "secondary": {
+  "note": "reported only, never decide",
+  "items": ["k=1 (flow29 test)", "N = 3 and 12 (H1 and H2)", "M1 bars, k 1 and 3, N 6", "OANDA WTICO/USD mid on the same event times (flow29.oanda_rows, history.db read-only)", "buy vs sell events (H1 and pooled H2)", "absorption split (flow29 rule, 0.25 ATR)", "fade trade against the flow at OANDA mid, close t to close t+6, net of half the spread at entry and half at exit (bid/ask M1 closes), USD, bps, ATR", "mean flow-signed move in ATR", "MDE80 = (2.2414 + 0.8416) x bootstrap SE", "H2 with 20 bins", "H2 heavy-event mean flow-signed x and share in extreme bins"],
+  "flow29_run": "flow29.run() is executed unchanged on the new bars for the secondary block; its own Holm/3 pp verdict is reported as 'flow29 rule repeat' and does not decide flow42"
+ },
+ "budget": {"primary_tests": 2, "tuned_hyperparameters": 0, "fixed_constants": {"K": 3, "N": 6, "N_BINS": 10, "MEDIAN_Q": 0.5, "SEED_H2": 42, "SEED_H1": 29, "REPS": 1000, "BLOCK": 5}},
+ "file_sha256": {
+  "flow42.py": "ab4ceb4414e1f8a30f4b282683f91b966fefee0c1ad5f611af5786dec98122f3",
+  "fetch.py": "f78470c053f81a9ed618679366f067ebcaa39e8e85c8ad456b0f2ff548b724e2",
+  "flow29.py": "55d85d483ce36dadcdb6b81cd7134307cff4203ccb02b592fe3f1183e48f4f85",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ }
+}

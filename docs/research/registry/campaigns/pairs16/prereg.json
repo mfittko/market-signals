@@ -1,0 +1,224 @@
+{
+ "created": "2026-10-08T09:28:27+0200",
+ "title": "pairs16: mean reversion of relative-value log-price spreads (queue v2 item 16, issue 310)",
+ "before_registration": "Nothing computed on outcomes before this file (synthetic self-checks and bar coverage only). Prior knowledge: notrade12 (spread/thin hours), limit13 (passive fills suffer adverse selection, so market bid/ask entries only), orb15, mw6 (financing dominant on multi-day holds).",
+ "declared": "Development evidence only. No test ledger, nothing qualified. 2023+ is a development window, not a holdout. Binding confirmation for any survivor is prospective (issue 313) or post-2026-10-07 data.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "bars.resample, validate.day_boot/log_trial, mw6.d1_bars, nt12.load_m1c/holm imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask npz via nt12.load_m1c (cut 2026-10-07T18:30 UTC); NAS100 cache built read-only from history.db",
+ "pairs": {
+  "XAUXAG": "XAU/USD vs XAG/USD (gold-silver ratio; common precious-metals factor)",
+  "SPXNAS": "SPX500/USD vs NAS100/USD (NAS100 backfill complete 2018-01-01..2026-10-08, ~345-355k M1 rows/year)",
+  "EURXAU": "EUR/USD vs XAU/USD (declared rationale: both are priced against USD and load on the broad USD factor; the residual is EUR-specific vs gold-specific risk; weakest prior of the three)"
+ },
+ "skipped": {
+  "WTI vs BCO": "BCO/USD not in history.db (no rows in candles_ba)"
+ },
+ "hedge_ratio": "beta = OLS slope (with intercept) of log A on log B over the trailing 60 calendar days of H1 mid closes (min 700 H1 bars), taken from the last H1 bar closed at or before the bar start. Never full-sample. Beta updates hourly; the z-score applies the current beta to the whole lookback window.",
+ "spread": "s = ln(mid_c A) - beta * ln(mid_c B) on the common bar grid (inner join of bar start times)",
+ "horizons": {
+  "M15": "M15 bars, lookback 460 bars (~5 trading days, min 400), hold <= 24 h clock time (exit at the first bar open >= entry + 24 h), bootstrap block 5 trading days",
+  "D1": "D1 bars (mw6.d1_bars: UTC-midnight, weekend stub joined to Monday), lookback 60 bars, hold <= 20 bars, bootstrap block 20 trading days"
+ },
+ "rules": {
+  "signal": "z at the close of bar i; entry iff |z_i| crosses 2 from below (|z_{i-1}| < 2 <= |z_i| < 4), beta finite, cost rule; side = -sign(z) (+1 = long A, short beta B)",
+  "entry": "open of bar i+1, both legs bid/ask (buy at ask, sell at bid)",
+  "exit": "at the close of each later bar j: target when z crosses back through the 0.5 band (long: z >= -0.5, short: z <= 0.5); stop when z reaches the adverse 4 (long: z <= -4; short: z >= 4); time-out; all exits at the open of bar j+1 with bid/ask (two spreads per round trip). Close-based stop: gaps can lose more than 1R. One position per pair and horizon; a new entry needs a fresh crossing after the exit.",
+  "sizing": "equal cash risk: leg notionals A = side, B = -side*beta per unit; 1R = 2 sd of the spread at the signal bar (the distance from z = 2 to z = 4); results in R",
+  "cost_rule": "round-trip quoted cost of both legs at the signal bar ((ask-bid)/mid of A + |beta| (ask-bid)/mid of B) <= 0.2 R; no thin-hour filter",
+  "financing": "fin/365 * (|nA| + |nB|) per calendar night held (22:00 UTC roll for M15; calendar days between D1 bars), primary 3%/yr, sensitivity 0%"
+ },
+ "nulls": {
+  "random_time": "per trade, 200 random entry bars in the same calendar year with the same side and the same holding length in bars (signal bar must have finite beta/sd and pass the cost rule); p = share of draws with mean R/trade >= actual",
+  "random_side": "per trade, actual or mirror outcome (same bars, opposite legs: -gross - cost) by a fair coin, 1000 draws",
+  "cointegration_free": "the same rules on all 25 other pairs of the 8-instrument pool ['WTICO/USD', 'XAU/USD', 'XAG/USD', 'NATGAS/USD', 'SPX500/USD', 'NAS100/USD', 'EUR/USD', 'USD/JPY'] (randomly paired instruments); per pair p = (1 + #controls with R/trade >= actual) / (1 + #controls); pooled: 1000 draws of 3 distinct control pairs pooled"
+ },
+ "windows": {
+  "dev": "trades entered 2018-01-01..2022-12-31 (effective after ~60-day beta/z warm-up)",
+  "w2023": "2023-01-01..cut (development window)",
+  "crisis": "2020H1, 2022H1, 2025Q4-26Q1 (stress; the metals period matters for XAU/XAG), reported only"
+ },
+ "metrics": "per pair and pooled per horizon: trades, trades/year, net R/trade [day-block bootstrap 95% CI, 1000 reps], net R/year, hit rate, max drawdown (R, by exit time), gross (mid) R, cost, net at 0% financing, random-time / random-side / control p and deltas, MDE = 2.8 x bootstrap SE, exit mix; spread half-life per year (D1: AR(1) with the year-start as-of beta, days; M15: AR(1) of the deviation from the 5-day mean, hours); yearly net R",
+ "objective": "net R per trade at 3% financing",
+ "decision_rule": "A variant is SUPPORTED (development evidence only; eligible to propose a shadow registration under issue 313) iff in BOTH dev and 2023+: net R/trade 95% CI lower bound > 0; Holm-adjusted (8 candidates) one-sided p (R/trade <= 0) < 0.05; Holm-adjusted p vs random side < 0.05; Holm-adjusted p vs random time < 0.05; control p < 0.05 (unadjusted; minimum attainable 1/26 per pair). REJECTED iff the net R/trade CI upper bound < 0 in both windows. Otherwise INCONCLUSIVE (with MDE). Crisis windows and per-year results are descriptive only.",
+ "budget": {
+  "policy_candidates": 8,
+  "variants": [
+   "XAUXAG_M15",
+   "SPXNAS_M15",
+   "EURXAU_M15",
+   "XAUXAG_D1",
+   "SPXNAS_D1",
+   "EURXAU_D1",
+   "pooled_M15",
+   "pooled_D1"
+  ],
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "Z_IN": 2.0,
+   "Z_OUT": 0.5,
+   "Z_STOP": 4.0,
+   "R_SD": 2.0,
+   "SPR_R": 0.2,
+   "BETA_WIN": "60D",
+   "BETA_MINP": 700,
+   "HZ": {
+    "M15": {
+     "gran": "M15",
+     "L": 460,
+     "minp": 400,
+     "hold_min": 1440,
+     "hold_bars": null,
+     "block": 5
+    },
+    "D1": {
+     "gran": "D1",
+     "L": 60,
+     "minp": 60,
+     "hold_min": null,
+     "hold_bars": 20,
+     "block": 20
+    }
+   },
+   "FIN": [
+    0.0,
+    0.03
+   ]
+  }
+ },
+ "coverage": {
+  "WTICO/USD": {
+   "src": "WTICO_USD_3002318_2026-10-07T1838.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "XAU/USD": {
+   "src": "XAU_USD_3060959_2026-10-07T2027.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "XAG/USD": {
+   "src": "XAG_USD_2823959_2026-10-07T2059.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "NATGAS/USD": {
+   "src": "NATGAS_USD_2063563_2026-10-07T2307.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "SPX500/USD": {
+   "src": "SPX500_USD_2938852_2026-10-08T0033.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "NAS100/USD": {
+   "src": "NAS100_USD_3071865_2026-10-08T0705.npz",
+   "first": "2018-01-01T23:00",
+   "last": "2026-10-07T18:15"
+  },
+  "EUR/USD": {
+   "src": "EUR_USD_3213370_2026-10-08T0211.npz",
+   "first": "2018-01-01T22:00",
+   "last": "2026-10-07T18:15"
+  },
+  "USD/JPY": {
+   "src": "USD_JPY_3221681_2026-10-08T0351.npz",
+   "first": "2018-01-01T22:00",
+   "last": "2026-10-07T18:15"
+  },
+  "pairs_common_bars_by_year": {
+   "XAUXAG_M15": {
+    "2018": 23507,
+    "2019": 23460,
+    "2020": 23697,
+    "2021": 23623,
+    "2022": 23658,
+    "2023": 23559,
+    "2024": 23736,
+    "2025": 23629,
+    "2026": 18134
+   },
+   "XAUXAG_D1": {
+    "2018": 260,
+    "2019": 260,
+    "2020": 260,
+    "2021": 258,
+    "2022": 259,
+    "2023": 259,
+    "2024": 261,
+    "2025": 260,
+    "2026": 199
+   },
+   "SPXNAS_M15": {
+    "2018": 23296,
+    "2019": 23319,
+    "2020": 23243,
+    "2021": 23558,
+    "2022": 23614,
+    "2023": 23565,
+    "2024": 23670,
+    "2025": 23504,
+    "2026": 18167
+   },
+   "SPXNAS_D1": {
+    "2018": 260,
+    "2019": 260,
+    "2020": 260,
+    "2021": 259,
+    "2022": 259,
+    "2023": 260,
+    "2024": 261,
+    "2025": 260,
+    "2026": 200
+   },
+   "EURXAU_M15": {
+    "2018": 23614,
+    "2019": 23615,
+    "2020": 23702,
+    "2021": 23623,
+    "2022": 23659,
+    "2023": 23563,
+    "2024": 23736,
+    "2025": 23647,
+    "2026": 18134
+   },
+   "EURXAU_D1": {
+    "2018": 260,
+    "2019": 260,
+    "2020": 260,
+    "2021": 258,
+    "2022": 259,
+    "2023": 259,
+    "2024": 261,
+    "2025": 260,
+    "2026": 199
+   }
+  }
+ },
+ "code_sha256": {
+  "pairs16.py": "e859df2f1d0570da70c3301ea0039225c01d825eba0ea1bd735eeb71c9af536e",
+  "mw6.py": "71e76cc0b3383a9f04f3d23af54cd16375bd205afd7f8833621b6911e0755d5c",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-08T09:30:34+0200",
+   "reason": "exploratory post-hoc sensitivity added after the main run: XAU/XAG with beta fixed at 1 (gold-silver log ratio), explore_ratio.py; outside the candidate budget, descriptive only, no verdict; main code unchanged",
+   "code_sha256": {
+    "pairs16.py": "e859df2f1d0570da70c3301ea0039225c01d825eba0ea1bd735eeb71c9af536e",
+    "mw6.py": "71e76cc0b3383a9f04f3d23af54cd16375bd205afd7f8833621b6911e0755d5c",
+    "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+    "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+    "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+   }
+  }
+ ]
+}

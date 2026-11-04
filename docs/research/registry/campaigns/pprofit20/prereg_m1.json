@@ -1,0 +1,25 @@
+{
+ "title": "pprofit20 amendment A2: the same study on M1 (registered after the M5 and M15 runs, before any M1 outcome)",
+ "before_registration": "M5 and M15 results known (out/results_*.json, out/results_*_M15.json). Before this file only M1 features were computed (pp20.py check with PP_TF=M1: feature quantiles on 2018-2022 and the fixture-size probe, labels=False). No M1 label, net R, fill or model fit was computed.",
+ "code_change": "pp20.py: PP_TF=M1 branch (GM 1, CADENCE 5, POL = POLICY with H 360, tod norm on 5-minute slots stored per minute, fixture size FXB/FXR); artifact() adds expected_R.<side>.meanR_ci (95% moving-block day bootstrap, 5-day blocks, 1000 replicates, seed 7, validate.day_boot) for every timeframe; fixture() refactored into window_rows/window_diffs (same computation); check() writes explore{SUF}.json. M5 and M15 paths unchanged in every computed number; the meanR_ci backfill (backfill_ci.py) asserts coef, scaler, tod_norm, Platt, decile edges, meanR and n of the existing M5/M15 artifacts are reproduced to 1e-12.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "differences_from_M5": {
+  "bars": "M1 bid/ask as cached (resample to M1 = identity aggregation); H1 = M1 resampled on the hour; supertrend (ATR10, mult 3) on mid M1 for st_al, dst and the opposite-flip exit",
+  "trade": "entry at the next M1 bar open (long ask / short bid); 1R = 1.5 x Wilder ATR14 of mid M1; labels_v2.simulate with POLICY and H = 360 M1 bars (6 h, the M5 horizon 72 x 5 min). Why 360: simulate takes the policy dict as an argument, so the harness does not force 72 bars; 72 M1 bars (72 min) would change the trade, 360 keeps the M5 holding time. Same breakeven (+1R, one-bar latency), 3R target, opposite-flip exit at the next open. Label = net R > 0; net R stored",
+  "population": "every 5th M1 bar: start minute % 5 == 4 (the bar whose close is the M5 close), all hours, long and short rows",
+  "features": "same 18 definitions on M1 bars with the same bar counts as M5/M15 (lrv12/lrv72 = 12/72 M1 bars, ATR regime = 1440 M1 bars = 1 day, burst = 3 M1 bars > 2.5 ATR14); minute-of-day and H1 completion use t + 1; st_al and dst from the M1 supertrend (replacing M5); h1_al unchanged (last completed H1). tod norm: median lrng per 5-minute slot (288 slots, ((t + 120) mod 1440) div 5) fitted per fold, exported as 1440 per-minute entries (each minute carries its slot value) so a consumer indexes slot = ((t + 120) mod 1440) div GM with GM = 1",
+  "fixtures": "WTI and EUR/USD, last 2000 M1 bars (FXB), last 40 cadence bars x 2 sides = 80 rows. FXB = the smallest of 1500/1700/2000/2500/3000/4000 whose window features match full-history features over the fixture rows (check-mode probe, features only): max abs diff WTI 1500: 2.0 (h1/supertrend state), 1700: 2.8e-5, 2000: 1.3e-14; EUR 1500: 1.5e-4, 1700: 6.7e-6, 2000: 6.7e-14. Floor: 1453 bars for latr (1440-bar ATR mean + 13 ATR seed) + 200 minutes of rows; the rest is supertrend state convergence",
+  "instruments": "WTICO/USD, XAU/USD, XAG/USD, NATGAS/USD, SPX500/USD, EUR/USD: all six have M1 bid/ask in history.db (cache npz); none skipped"
+ },
+ "new_for_all_timeframes": "expected_R.meanR_ci per decile per side in the artifact (full walk-forward OOS rows 2019..cutoff, same rows as meanR). Supports the card rule: recommend only if expected R >= +0.05 R and the interval lies above 0",
+ "unchanged": "model (LR with side interaction, C = 1), quarterly expanding refit, 182-day Platt window, HGB comparator, windows (dev 2019-2022 walk-forward, 2023+ development window), validation rule (|mean P - observed| <= 0.03 in every per-side decile with n >= 1000, both windows), statistics, export rule (artifact only for passing instruments; WTI/EUR artifacts written as parity reference marked NOT calibrated if they fail)",
+ "status": "development evidence; no test_ledger; nothing qualified",
+ "created": "2026-10-08T10:40:03+0200",
+ "code_sha256": {
+  "pp20.py": "5c79949266ff0eed42b60e8493bfb23a48af9f2059cd999b28c8ea8dc010e712",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

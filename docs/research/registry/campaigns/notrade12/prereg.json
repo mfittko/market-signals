@@ -1,0 +1,216 @@
+{
+ "created": "2026-10-08T08:44:10+0200",
+ "title": "notrade12: no-trade advisor - evidence-based 'do not enter now' reasons as a filter on the live signal types (queue v2 item 12)",
+ "before_registration": "explore mode only: signal counts, reason block rates and R5 feature quantiles on 2018-2022 (out/explore.json). No outcome (net R, label, fill) was computed before this file.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "labels_v2.simulate, fills.resolve, validate.day_boot unchanged"
+ },
+ "data": "engine/cache M1 bid/ask npz (newest per instrument), cut at 2026-10-07T18:30 UTC; M1/M5/M15/H1 by bars.resample; production supertrend (flips.mjs, ATR 10, mult 3) per timeframe",
+ "signals": {
+  "flips": "every supertrend flip bar of the timeframe; side = flip",
+  "impulses": "detectVolumeImpulse/detectHistoricalImpulses (scripts/supertrend.mjs): two consecutive closed mid bars with the same nonzero body sign, both volume >= 2.0 x mean volume of the 20 bars before the pair, cooldown 10 bars; side = body sign; volume = OANDA tick count",
+  "instruments": [
+   "WTICO/USD",
+   "XAU/USD",
+   "XAG/USD",
+   "NATGAS/USD",
+   "SPX500/USD",
+   "EUR/USD"
+  ],
+  "timeframes": "M5, M15 for all; M1 for WTI and XAU",
+  "unfiltered": "no spread filter (as the live engine emits them); entries with a censored outcome dropped"
+ },
+ "management": "308 baseline: labels_v2.simulate POLICY (k=1.5, stop -1R, breakeven after +1R with one-bar latency, 3R target, opposite flip of the SAME timeframe exits, H=72 bars of that timeframe), entry next bar open on ask/bid, equal cash risk (1 unit per trade, so cash = net R); matched-entry accounting, overlap allowed",
+ "reasons": {
+  "R1_spread": "(ask_c - bid_c) / (1.5 ATR) at the signal bar > 0.2",
+  "R2_chase": "any completed M5 bucket ending within the last 15 min before the signal close (incl. the signal bar's own bucket) where (>= 3 of the 8 xvol9 instruments are above their causal 95th-percentile normalized activity [xvol9 K=3] OR this instrument is above its own threshold) AND this instrument's M5 mid move in that bucket has the signal's sign. Burst data: xvol9 cache (same M1 source)",
+  "R3_thin_hours": "UTC hour of the entry (signal close) is among the 4 hours with the highest median M5 spread/(1.5 ATR) per instrument over 2018-2022 non-weekend bars (spread data only, no outcomes)",
+  "R4_release": "entry within [15 min before, 10 min after] a scheduled release: NFP 08:30 ET (all instruments) by the BLS rule (third Friday after the week containing the 12th); EIA crude WPSR Wed 10:30 ET, moved to Thu 11:00 ET when a US federal holiday falls Mon-Wed (WTI); EIA gas storage Thu 10:30 ET, Thanksgiving -> Wed 12:00 ET (NATGAS). ET via zoneinfo (DST). CPI and FOMC SKIPPED: no reliable historical date list in the repo, and neither follows a derivable rule. Ad-hoc exceptions (shutdowns, special shifts) are not modelled",
+  "R5_extended": "side x (close - supertrend line) / ATR_tf > 4.5 OR side x (close - trading-day open [22:00 UTC roll]) / ATR_H1 (completed H1 bar) > 3.0",
+  "R6_counter_h1": "completed-H1 supertrend trend is nonzero and opposite to the signal side"
+ },
+ "thresholds_rationale": "R1 = the evaluator's carried-forward spread rule. R5: band = 3 ATR, so 4.5 ATR = 1.5 bands; 3 H1 ATR from the day open = a stretched intraday move. Chosen from principle; explore.json shows the resulting block rates (no outcomes). Not tuned afterwards.",
+ "combined": "ANY: blocked when any of R1..R6 fires",
+ "families": {
+  "primary": "M5 + M15, all 6 instruments, flips + impulses pooled, signal-weighted (decision family)",
+  "secondary": "M1 WTI + XAU (reported, same rule, separate family)"
+ },
+ "objective": "delta = mean net R of KEPT signals minus mean net R of ALL signals (paired; under random thinning E[delta]=0)",
+ "statistics": "5-day moving-block day bootstrap (validate.day_boot, 1000 reps) for delta, kept-minus-blocked, kept mean, net R saved per day, daily CVaR 5% and max drawdown differences; random-thinning null: 500 uniform draws of the same blocked count; one-sided bootstrap p for delta > 0; Holm across the 7 tests (R1..R6, ANY) per family in the dev window",
+ "decision_rule": "PASS per reason and family iff (a) dev 2018-2022 Holm-adjusted one-sided p < 0.05 for delta > 0, (b) dev delta above the 97.5th percentile of the random-thinning null, (c) 2023+ development window delta > 0 and blocked mean < kept mean. Anything else FAIL. Absolute question reported separately: kept-set mean R with CI (>= 0 or not).",
+ "diagnostics": "incremental effect of R2..R6 and ANY among R1-kept signals; per-stream (instrument/timeframe/kind) block shares and kept/blocked means; losses avoided vs winners missed in R",
+ "windows": {
+  "dev2018_22": "signal time < 2023-01-01 (nothing is fitted; R3 hour list from spread only)",
+  "w2023": "2023-01-01..cut: DEVELOPMENT window, inspected by earlier campaigns, never a holdout"
+ },
+ "explore_summary": [
+  {
+   "stream": "WTICO/USD/M1/flip",
+   "n_dev": 47968,
+   "any_dev": 0.965
+  },
+  {
+   "stream": "WTICO/USD/M1/impulse",
+   "n_dev": 17507,
+   "any_dev": 0.977
+  },
+  {
+   "stream": "WTICO/USD/M5/flip",
+   "n_dev": 9058,
+   "any_dev": 0.86
+  },
+  {
+   "stream": "WTICO/USD/M5/impulse",
+   "n_dev": 5088,
+   "any_dev": 0.907
+  },
+  {
+   "stream": "WTICO/USD/M15/flip",
+   "n_dev": 3088,
+   "any_dev": 0.768
+  },
+  {
+   "stream": "WTICO/USD/M15/impulse",
+   "n_dev": 2410,
+   "any_dev": 0.713
+  },
+  {
+   "stream": "XAU/USD/M1/flip",
+   "n_dev": 55643,
+   "any_dev": 0.989
+  },
+  {
+   "stream": "XAU/USD/M1/impulse",
+   "n_dev": 17501,
+   "any_dev": 0.99
+  },
+  {
+   "stream": "XAU/USD/M5/flip",
+   "n_dev": 9228,
+   "any_dev": 0.889
+  },
+  {
+   "stream": "XAU/USD/M5/impulse",
+   "n_dev": 4364,
+   "any_dev": 0.922
+  },
+  {
+   "stream": "XAU/USD/M15/flip",
+   "n_dev": 2942,
+   "any_dev": 0.782
+  },
+  {
+   "stream": "XAU/USD/M15/impulse",
+   "n_dev": 2219,
+   "any_dev": 0.749
+  },
+  {
+   "stream": "XAG/USD/M5/flip",
+   "n_dev": 11048,
+   "any_dev": 0.991
+  },
+  {
+   "stream": "XAG/USD/M5/impulse",
+   "n_dev": 4832,
+   "any_dev": 0.994
+  },
+  {
+   "stream": "XAG/USD/M15/flip",
+   "n_dev": 3326,
+   "any_dev": 0.946
+  },
+  {
+   "stream": "XAG/USD/M15/impulse",
+   "n_dev": 2424,
+   "any_dev": 0.933
+  },
+  {
+   "stream": "NATGAS/USD/M5/flip",
+   "n_dev": 10901,
+   "any_dev": 0.983
+  },
+  {
+   "stream": "NATGAS/USD/M5/impulse",
+   "n_dev": 4597,
+   "any_dev": 0.987
+  },
+  {
+   "stream": "NATGAS/USD/M15/flip",
+   "n_dev": 3483,
+   "any_dev": 0.959
+  },
+  {
+   "stream": "NATGAS/USD/M15/impulse",
+   "n_dev": 2381,
+   "any_dev": 0.943
+  },
+  {
+   "stream": "SPX500/USD/M5/flip",
+   "n_dev": 9460,
+   "any_dev": 0.798
+  },
+  {
+   "stream": "SPX500/USD/M5/impulse",
+   "n_dev": 4635,
+   "any_dev": 0.811
+  },
+  {
+   "stream": "SPX500/USD/M15/flip",
+   "n_dev": 3088,
+   "any_dev": 0.765
+  },
+  {
+   "stream": "SPX500/USD/M15/impulse",
+   "n_dev": 2146,
+   "any_dev": 0.683
+  },
+  {
+   "stream": "EUR/USD/M5/flip",
+   "n_dev": 9763,
+   "any_dev": 0.896
+  },
+  {
+   "stream": "EUR/USD/M5/impulse",
+   "n_dev": 3902,
+   "any_dev": 0.956
+  },
+  {
+   "stream": "EUR/USD/M15/flip",
+   "n_dev": 3106,
+   "any_dev": 0.791
+  },
+  {
+   "stream": "EUR/USD/M15/impulse",
+   "n_dev": 2167,
+   "any_dev": 0.766
+  }
+ ],
+ "rules": "no test_ledger use; nothing marked qualified; development evidence only; trials logged with exp notrade12",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "xvol9.py": "bad44f29af6f631e88d66d3fb7566bfdd4af7650d7bcb52d0f1ee5577cd155a9"
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-08T08:45:48+0200",
+   "reason": "Reporting-metric correction after run 1 (no decision metric, threshold or reason changed): the bootstrap of 'net R saved per day' divided by distinct drawn days, so repeated days inflated it and the CI excluded its own point estimate; now R saved per signal x mean signals per signal-day. Added per-stream kept counts. Run 1 kept as out/results_run1.json.",
+   "old_sha": "0b92cdddaa9c55564dc46041a6d1f2ffcc4dad8164a5718666beb635431e9613",
+   "new_sha": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498"
+  }
+ ]
+}

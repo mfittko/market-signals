@@ -1,0 +1,47 @@
+{
+ "created": "2026-10-09T09:20:00+0200",
+ "title": "flow29: aggressor-side volume imbalance over the last 1 or 3 M5 candles vs WTI direction over the next 6 candles; issue 310",
+ "before_registration": "No outcome computed. Before this file: Databento cost quotes, the download of the trade files, a bar build smoke test on three finished months (trade and side counts only), and synthetic self-checks of the statistic (planted continuation, planted reversal, null, roll guard, Holm).",
+ "declared": "Single-year test: 2025-10-01 .. 2026-10-08, one regime, includes the 2026 escalation period. A PASS needs confirmation on 2024-10 .. 2025-10 before any live use. Gross (trade prices), no costs.",
+ "data": {
+  "source": "Databento GLBX.MDP3, schema trades, stype_in continuous, symbol CL.v.0 (volume-ranked front month, follows the liquid contract through rolls)",
+  "window": "start 2025-10-01, end 2026-10-09 exclusive (last day 2026-10-08)",
+  "quote": {"CL.c.0_usd": 32.61, "CL.v.0_usd": 35.98, "rule": "CL.v.0 if <= $40, else CL.c.0 with the last 5 trading days before expiry excluded; both <= $40, so CL.v.0"},
+  "side": "databento_dbn Side enum (installed package stub, links the Databento common-fields doc): 'B' (BID) = buy aggressor in a trade, 'A' (ASK) = sell aggressor in a trade, 'N' (NONE) = no side specified by the source",
+  "time": "ts_event (UTC), floored to the bar start",
+  "chunks": "monthly, raw/CL.v.0_YYYY-MM.dbn.zst, downloaded once"
+ },
+ "bars": {
+  "M5": "built from CL trades: open first, high max, low min, close = last trade price; total volume; buy = sum of 'B' sizes, sell = sum of 'A' sizes; 'N' excluded from the imbalance",
+  "grid": "complete 5-minute grid; a bar without trades has volume 0 and the previous close; a bar is closed when it lies in a run of trade-free bars spanning >= 60 minutes (session breaks, weekends)",
+  "contract": "each bar carries its instrument id; a bar with trades of two contracts is invalid; every window (imbalance bars and outcome bars) must be open and on one contract, so no move spans a roll",
+  "day": "trading day key validate.day_of (22:00 UTC rollover)"
+ },
+ "imbalance": "I_k(t) = sum(buy - sell) / sum(buy + sell) over the closed bars t-k+1..t, k in {1, 3}; defined only when those bars are open, on one contract, and buy + sell > 0",
+ "event": "|I_k(t)| >= the 95th percentile (numpy quantile, linear) of all defined |I_k| values in the previous 20 trading days (strictly earlier days with defined values); bars in the first 20 trading days are skipped; I_k = 0 is never an event. Consecutive event bars all count; the day-block bootstrap handles the clustering.",
+ "outcome": "move = close[t+6] - close[t] (M5 closes, bars t..t+6 open and on one contract); ties (move = 0) dropped; continuation iff sign(move) = sign(I_k)",
+ "baseline": "p_up = share of up moves over all bars of the same period with a valid outcome window (after the first 20 trading days, ties dropped); the baseline of an event is p_up for a buy event and 1 - p_up for a sell event",
+ "primary": {
+  "statistic": "per k: D_k = mean over events of (continuation - baseline of that event) = P(continue | event) - matched baseline",
+  "inference": "moving-block day bootstrap (validate.day_boot, block 5 trading days, 1000 reps, seed 29) over all bars of the period, recomputing p_up and the event mean in each replicate; two-sided p = 2 x min(share of replicates <= 0, share >= 0), floor 1/reps; Holm over k = 1 and k = 3 at alpha 0.05",
+  "pass_rule": "PASS iff for at least one k the Holm-adjusted p < 0.05 AND |D_k| >= 0.03. D_k > 0 is labelled CONTINUATION, D_k < 0 is labelled REVERSAL; both count as a pass.",
+  "variants": "none; no other thresholds, horizons or lookbacks enter the verdict"
+ },
+ "secondary": {
+  "note": "reported only, never decide the verdict",
+  "horizons": "N = 3 and 12 M5 bars, same statistic",
+  "M1": "the same procedure on M1 bars built from the same trades (k in {1, 3}, N = 6 M1 bars, own trailing 20-day thresholds)",
+  "absorption": "event bars where the flow-signed price move over the k imbalance bars (close[t] - close[t-k], bars t-k..t open, one contract) is < 0.25 x ATR(10) (Wilder on the M5 grid, true range reset at a contract change); report P(next 6 bars go against the flow) for absorbed vs pushed events with their matched baselines, and D for absorbed events with a bootstrap CI",
+  "oanda": "the same CL event bars and timestamps scored on OANDA WTICO/USD mid (research/history.db view candles, read-only, M1 -> M5 last close), close at bar start t+30 min vs bar start t, aligned by UTC; OANDA up-share baseline over the same bars",
+  "atr_move": "mean flow-signed move over 6 bars in ATR(10) units, raw and drift-adjusted (minus the flow sign x mean move/ATR over all bars), split by buy and sell events",
+  "power": "minimum detectable difference at 80% power = (2.2414 + 0.8416) x bootstrap SE of D_k (two-sided alpha 0.025, the Holm first step)",
+  "descriptive": "events per k and per side, the threshold distribution, the share of events with |I| = 1"
+ },
+ "budget": {"primary_tests": 2, "tuned_hyperparameters": 0,
+  "fixed_constants": {"KS": [1, 3], "N": 6, "Q": 0.95, "LOOKBACK_DAYS": 20, "GAP_MIN": 60, "REPS": 1000, "BLOCK": 5, "SEED": 29, "ALPHA": 0.05, "MIN_PP": 0.03, "ABSORB_ATR": 0.25, "ATR_N": 10}},
+ "file_sha256": {
+  "flow29.py": "9347892e79361e0ffcd666bd941266eef6e26f10497f91c8b55c8f963f6e4cf5",
+  "fetch.py": "8f0701eddd8ce19f871c02f85cdab667e2bdfcb3895a9cf4637a186c310a360a",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd"
+ }
+}

@@ -1,0 +1,69 @@
+{
+ "created": "2026-10-08T14:30:53+0200",
+ "title": "lean21: continuation of the day's move when the abs11 big-day alert is high (direction 'lean' test)",
+ "motivation": "Operator observation on 2026-10-08 (WTI +3.4% trend day): 'When the big-day alert is high AND the day has already moved strongly in one direction, the move continues in that direction.' The hypothesis was formed from one observed day. 2023+ has been inspected for other questions (abs11, pprofit20, daytype14 and others); it is a development window, not a holdout. Prior related knowledge: daytype14 found trend-day-so-far probability usable as context only; pprofit20 'up' labels near chance.",
+ "before_registration": "No outcome of this test computed. Code written and self-checked (synthetic only).",
+ "declared": "Development evidence only. No test ledger, nothing qualified, no entries shipped.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD"
+ ],
+ "timeframe": "M5",
+ "horizons_bars": [
+  12,
+  48
+ ],
+ "alert": "abs11 A1 day-level intraday LR, out-of-sample walk-forward (quarterly expanding refit, 5-day purge), scored at every 30-min close while the session excursion so far < T1. C_alert: P(big day) >= 3 x the trailing session base rate (share of valid sessions with max |excursion| >= T1 among sessions before the quarter's training cutoff, expanding from 2018).",
+ "state": "Each M5 decision bar uses the latest abs11 30-min row of the same session (bar close >= row close). Bars before the session's first 30-min close have no score and are excluded. Bars whose latest 30-min row has already crossed T1 (day already big, the alert model does not score them) are excluded from all decision cells and reported separately.",
+ "move": "move so far % = 100 x (M5 mid close - session open mid) / session open (22:00 UTC roll, abs11 session); side = sign",
+ "conditions": {
+  "C_move": "|move so far| >= 0.5 x T1 (sensitivity (0.25, 0.75), not decision)",
+  "main": "C_alert AND C_move, side = move",
+  "B1": "C_move AND NOT C_alert",
+  "B2": "C_alert AND NOT C_move",
+  "B3": "all scored bars, side = move",
+  "random": "main cell bars with a random side (seeded)",
+  "survivorship": "main cell restricted to days ending >= T1: NOT available at decision time, reported only"
+ },
+ "decision_bars": "M5 bars with start minute % 15 == 10 (every 3rd bar, pprofit20 cadence); spread rule: (ask_c - bid_c)/(1.5 ATR14) <= 0.2",
+ "target": "pprofit20 A4 'up': entry at bar i+1 open (long ask / short bid), exit at the close of bar i+H (long bid / short ask); y = net > 0; net R = net / (1.5 x Wilder ATR14 of mid M5 at bar i). H = 12 and 48 M5 bars.",
+ "windows": {
+  "dev": "2019-2022 (abs11 OOS starts 2019Q1)",
+  "w2023": "2023-01-01 .. pprofit20 cut 2026-10-07T18:30 (development window)",
+  "stress": {
+   "2020H1": [
+    "2020-01-01",
+    "2020-07-01"
+   ],
+   "2022H1": [
+    "2022-01-01",
+    "2022-07-01"
+   ],
+   "2025Q4_26Q1": [
+    "2025-10-01",
+    "2026-04-01"
+   ]
+  }
+ },
+ "stats": "moving-block bootstrap over trading days (block 5, 1000 reps, seed 21); per window; pooled clusters by calendar day; paired diffs share the day draws; MDE80 = 2.486 x bootstrap SD of mean net R",
+ "decision_rule": "Decision cells: 6 instruments + pooled x H12, H48 = 14. SUPPORTED if in BOTH windows continuation rate > 0.5, net R > 0 with CI lower bound > 0, AND main minus B1 CI lower bound > 0, AND the Holm-adjusted (14 cells) intersection-union p = max of the four one-sided bootstrap p values < 0.05. REJECTED if net R CI upper bound < 0 in both windows. Else INCONCLUSIVE.",
+ "budget": {
+  "alert_multiplier": 1,
+  "move_thresholds_decision": 1,
+  "move_thresholds_sensitivity": 2,
+  "horizons": 2,
+  "instruments": 6,
+  "tuned": 0
+ },
+ "code_sha256": {
+  "lean21.py": "a6978c636eadff62fea68e7c97630c8b38094f177474785725230ab4deecfd0e",
+  "abs11.py": "21228f08951edcc5b8a92343e4eaa3493b030a66444c09d26ed452816b55afcc",
+  "pp20.py": "82fed00e65f7b6bc883326af19c7124db28e01d7939a2b2932ccfc21990020a1",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}

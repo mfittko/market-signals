@@ -1,0 +1,82 @@
+{
+ "created": "2026-10-08T15:31:03+0200",
+ "title": "sess25: Asia-range and prior-day high/low breakouts split by tick volume; issue 310",
+ "before_registration": "Nothing computed on market data before this file (synthetic self-checks only). Prior knowledge: orb15 (opening-range breakouts gross +0.07 R in dev only), xvol9/xvol10 (bursts end inside the burst bar), notrade12 (spread and thin hours).",
+ "declared": "Development evidence only. No test ledger, nothing qualified. 2023+ is a development window, not a holdout (inspected by earlier campaigns). Binding confirmation for any survivor is prospective (issue 313) or post-2026-10-07 data. Operator decision: direction signals are judged GROSS (mid, no spread) with realistic latency; net is secondary.",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "dt14.range_sim (fills.resolve, stop first) and validate.day_boot imported unchanged"
+ },
+ "data": "engine/cache M1 bid/ask/volume via nt12.load_m1c (cut 2026-10-07T18:30 UTC); M5 by bars.resample; tick volume = OANDA candle volume summed per bar; ATR from de_v2.supertrend on the same timeframe",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "EUR/USD",
+  "SPX500/USD",
+  "NATGAS/USD"
+ ],
+ "timeframes": {
+  "primary": "M5",
+  "secondary": "M1 (same rules, horizons in M1 bars)"
+ },
+ "clock": {
+  "trading_day": "validate.day_of (22:00 UTC rollover); trading day key d contains calendar date d from 00:00 UTC; Mon-Fri only",
+  "asia": "Asia range = mid high / mid low of bars starting in [00:00, 07:00) UTC of calendar date d = Tokyo 09:00-16:00 (Japan has no DST). Valid iff >= 80% of its bars exist.",
+  "break_window": "bars with start >= 08:00 Europe/London and end <= 17:00 America/New_York on calendar date d (DST-aware per date via zoneinfo; London open to New York close; covers both sessions). Valid iff >= 80% of its bars exist.",
+  "prior_day": "mid high / mid low over all bars of the most recent earlier trading day with >= 50% of its bars"
+ },
+ "events": {
+  "asia": "E1: first bar in the break window whose mid close is above the Asia high (long) while the previous close was not; separately the first close below the Asia low (short). First break per level per day only.",
+  "pday": "E2: as E1 with the prior trading day high / low as the levels, same break window."
+ },
+ "volume_split": "ratio = break-bar tick volume / median tick volume of the same UTC minute-of-day slot over the previous 20 occurrences of that slot (strictly earlier days; needs all 20). HIGH-VOL iff ratio >= 2.0; QUIET otherwise; no ratio (warm-up, zero median) -> excluded.",
+ "trade": "Entry at the open of the bar after the break bar (gross: mid open; net: long ask, short bid), side = break direction. Stop = entry -/+ 1.5 x ATR at the break bar (labels_v2 POLICY k, the harness stop; R = 1.5 ATR). No target. Exit at the open of bar entry + h for h in [3, 6, 12] (held h bars), dt14.range_sim, stop first. A horizon whose bars are not contiguous (gap, weekend) is missing for that event. No spread filter (operator: spread is the operator's risk).",
+ "metrics": "per instrument x timeframe x event x volume class x window: n, gross mean R [95% CI], continuation rate (gross R > 0) [CI], net mean R [CI] at 3/6/12 bars; moving-block day bootstrap (validate.day_boot, block 5, 1000 reps, seed 25); MDE = 2.8 x SE; random-side null at 6 bars (coin flip between the actual and the mirror outcome per event, 1000 draws); HIGH-VOL minus QUIET gross R difference [CI].",
+ "windows": {
+  "dev": "2018-01-01 .. 2022-12-31",
+  "w2023": "2023-01-01 .. 2026-10-07 (development window, not a holdout)"
+ },
+ "primary": "WTICO/USD, M5, HIGH-VOL: gross mean R at 6 bars, events E1 and E2 tested separately. Event PASS iff in BOTH dev and 2023+: 95% CI lower bound > 0 AND Holm-adjusted (2 events) one-sided bootstrap p (mean <= 0) < 0.05. Campaign verdict PASS iff any event passes. All other instruments, M1, 3/12 bars and net are reported descriptively.",
+ "secondary": "HIGH-VOL minus QUIET gross R at 6 bars (CI), per instrument; base rates JSON for a card line (out/base_rates.json, key <INST>_<TF>_<event>_<vol>: n, continuation at 3/6/12 bars with CI over 2018-2026).",
+ "budget": {
+  "primary_hypotheses": 2,
+  "cells": "6 instruments x 2 TF x 2 events x 2 vol x 2 windows x 3 horizons",
+  "tuned_hyperparameters": 0,
+  "fixed_constants": {
+   "VOL_N": 20,
+   "VOL_THR": 2.0,
+   "H": [
+    3,
+    6,
+    12
+   ],
+   "K": 1.5,
+   "ASIA_UTC": [
+    0,
+    420
+   ],
+   "MIN_COVER": 0.8,
+   "PRIOR_COVER": 0.5,
+   "NBOOT": 1000,
+   "BLOCK": 5,
+   "SEED": 25
+  }
+ },
+ "code_sha256": {
+  "sess25.py": "b8d2fb15f2a3d22028fe8f1d9b34b53cf584a1cebca28ed5aa9a200c78fe5a32",
+  "dt14.py": "908eeb453cae910d14f6f7e36932caefea2393292c6b3917a5e99f0fb82f2e6f",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ },
+ "file_sha256": {
+  "sess25.py": "b8d2fb15f2a3d22028fe8f1d9b34b53cf584a1cebca28ed5aa9a200c78fe5a32",
+  "dt14.py": "908eeb453cae910d14f6f7e36932caefea2393292c6b3917a5e99f0fb82f2e6f",
+  "nt12.py": "d6acecfb6a45af1d4a111c054277165d29f49370da298ce1d33eb4b5b505b498",
+  "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+  "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+  "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+  "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64"
+ }
+}

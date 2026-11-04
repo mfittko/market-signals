@@ -1,0 +1,88 @@
+{
+ "created": "2026-10-08T07:56:44+0200",
+ "title": "xvol9: simultaneous cross-instrument activity bursts as an entry signal (#310 campaign, epic #307)",
+ "evaluator": {
+  "version": "v2",
+  "digest": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "note": "labels_v2.simulate, fills.resolve, validate.day_boot imported unchanged"
+ },
+ "before_registration": "Coverage query only (M1 row counts per instrument/year; cov.py). No activity, burst or outcome statistic was computed before this file.",
+ "instruments": [
+  "WTICO/USD",
+  "XAU/USD",
+  "XAG/USD",
+  "NATGAS/USD",
+  "SPX500/USD",
+  "EUR/USD",
+  "USD/JPY",
+  "BTC/USD"
+ ],
+ "excluded": {
+  "NAS100/USD": "incomplete (backfill at 2020-03-19 at registration time)"
+ },
+ "data": "history.db candles_ba M1 bid/ask, read-only; volume = OANDA price-update count (activity proxy, not traded volume); M5 built from M1 (bars.resample via de_v2.build), production supertrend ATR/flip",
+ "weekend": "bars Fri 21:00 UTC .. Sun 22:00 UTC are excluded from activity normalization, thresholds and burst detection for every instrument (BTC trades 24/7); trade management still runs through them",
+ "activity": "a = tick count / median(tick count at the same UTC M5 slot over the prior 20 trading days of that instrument, >= 10 obs, current day excluded; floor 1)",
+ "burst": "instrument above = a > its 95th percentile of a over the prior 20 trading days (all non-weekend bars, >= 10 days). Burst bar = at least K instruments above in the same M5 bucket. K = 3 primary (decision-eligible); K = (2, 4) sensitivity only. Cooldown: next event >= 60 min after the previous event.",
+ "move": "move = (mid close of burst bar - previous bar's mid close) / ATR of the previous bar; burst direction = sign",
+ "hypotheses": {
+  "H1": "shock continuation: instrument with the largest |move| among instruments above threshold in the burst bar; side = its burst direction; confirmation 'ext': the next M5 bar (contiguous) closes beyond the burst bar's high (long) / low (short)",
+  "H2": "lead-lag: leader in ['SPX500/USD', 'XAU/USD'] above threshold with |move| >= 1.0 ATR; laggard map {'SPX500/USD': {'WTICO/USD': 1, 'EUR/USD': 1, 'USD/JPY': 1, 'XAG/USD': 1}, 'XAU/USD': {'XAG/USD': 1, 'EUR/USD': 1, 'USD/JPY': -1}} (side = sign(leader move) x map sign); laggard |move| < 0.5 ATR in the burst bar; conflicting implied sides from both leaders -> skip; confirmation 'ext' on the laggard; one trade per qualifying laggard per event",
+  "H3": "fade: same lead instrument as H1, side = opposite of its burst direction; confirmation 'mid': the next M5 bar closes beyond the burst bar's midpoint in the fade direction"
+ },
+ "entry": "signal bar = confirmation bar; entry at the next bar's open, long at the ask, short at the bid (labels_v2); spread at the signal bar <= 0.2 R (de_v2.SPR_MAX); R = 1.5 x ATR at the signal bar",
+ "management": {
+  "M72": "308 baseline: labels_v2 POLICY k=1.5, stop -1R, breakeven after +1R (one-bar latency), 3R target, opposite supertrend flip exit, max 72 bars",
+  "M12": "same with a 12-bar time stop (H=12)"
+ },
+ "accounting": "matched-entry evaluation: every confirmed candidate is one trade; overlapping trades in one instrument are allowed (diagnostic, not a capital replay); max drawdown over trades in entry order",
+ "variants": {
+  "decision": [
+   "H1/M72",
+   "H1/M12",
+   "H2/M72",
+   "H2/M12",
+   "H3/M72",
+   "H3/M12"
+  ],
+  "count": 6,
+  "sensitivity": "the same 6 at K=2 and K=4 (reported, never decision-eligible)"
+ },
+ "nulls": {
+  "N1_single": "single-instrument bursts (exactly one instrument above; 60-min cooldown per instrument). H1/H3: that instrument, side from its own move, same confirmation; H2: a leader bursting alone with |move| >= 1.0, same laggard rule. Matched: 5 null trades per hypothesis trade drawn from the same (instrument, UTC hour) cell of the same window",
+  "N2_random_time": "same instrument and UTC M5 slot on 5 random other trading days of the same window; side from that bar's move (H1: same sign, H3: opposite) or the hypothesis side (H2); same confirmation and management",
+  "N3_random_side": "same candidates, side random (+/-1, 5 draws), confirmation in that side's direction"
+ },
+ "windows": {
+  "dev2018_22": "2018-01-01..2022-12-31 (first ~20 trading days lose to warm-up); nothing is fitted, so no walk-forward is needed",
+  "w2023": "2023-01-01..newest: DEVELOPMENT window, inspected many times by earlier campaigns, never a holdout"
+ },
+ "objective": "net R per trade of the confirmed policy (bid/ask fills, management as declared)",
+ "mue": 0.05,
+ "statistics": "5-day moving-block bootstrap by trading day (validate.day_boot, 3000 reps); Bonferroni over the 6 decision variants (two-sided alpha 0.05/6); paired differences vs each null with a joint day-block bootstrap; cost sensitivity +0.05 R per trade",
+ "risk_constraint": "share of trades losing beyond 1.5 R <= 0.05",
+ "decision_rule": {
+  "supported": "dev window: Bonferroni CI lower bound of net R/trade > MUE, every null difference Bonferroni CI lower bound > 0, risk constraint holds, AND 2023+ development-window point estimate > MUE",
+  "rejected": "dev window: Bonferroni CI upper bound of net R/trade < MUE, or the risk constraint fails",
+  "inconclusive": "anything else"
+ },
+ "diagnostics": "event study of mean signed ATR-normalized mid path at +(1, 5, 15, 30, 60) minutes after the burst bar close (lead instrument for H1/H3 orientation, laggards for H2), all events and confirmed only; events per year and per instrument; distinct event days",
+ "rules": "no test_ledger use; nothing marked qualified for production; development evidence only; trials logged to trials.jsonl with exp xvol9",
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "xvol9.py": "bad44f29af6f631e88d66d3fb7566bfdd4af7650d7bcb52d0f1ee5577cd155a9",
+  "prep.py": "e7561c5835fe1e4ffdbe54b8f609c078fda6c42e8f9f67f8e940254c40dee106"
+ }
+}

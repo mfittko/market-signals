@@ -1,0 +1,104 @@
+{
+ "created": "2026-10-08T03:35:09+0200",
+ "title": "ablate4: candidate population x target ablation, learners and evaluator v2 (V4) fixed (#310 queue item 4)",
+ "question": "Is the dead end the candidate POPULATION or the LABEL? Learner, features, evaluator, fills, spread rule, management policy and windows held fixed.",
+ "before_registration": "No real-data scoring in this campaign before this file. Reused: bench1 harness (bench.py unchanged, its causality check passed), evaluator v2 digest 1b66053d unchanged.",
+ "populations": {
+  "P1": "frozen D candidates (WTI: fired 0.9, brk, W 48) - entry-capable",
+  "P2": "cfgX: none, h1, W 12 (broader no-gate H1-confirmation population of bench1) - entry-capable",
+  "P3": "fixed cadence: every M5 bar closing on a multiple of 30 min UTC in [07:00, 20:30] UTC, spread <= 0.2 R, finite ATR, uncensored outcomes, side = M5 trend; independent of supertrend flips, impulse and gate; no price confirmation; learnability only; cluster = day",
+  "P3c": "P3 rows that are price-confirmed (H1 supertrend agrees) inside a trend episode-day: cfg (none, h1cad, 288) where h1cad = h1 & cadence (runtime extension of de_v2.confirm_mask, evaluator files unchanged); one entry per episode, no overlap - entry-capable"
+ },
+ "targets": {
+  "T1": "y_arm: +1R before the stop within H=72 (308 contract)",
+  "T2": "side-free big move: mid high/low over bars i+1..i+72 reaches close_i +/- KX*ATR_i (either side). KX from (3.0, 4.5, 6.0): the value whose 2018 base rate on the P3 cadence sample is closest to 1/3 (label definition only, pre-fold data, computed and recorded at run time)",
+  "T3": "direction given a big move: 1 if the first KX*ATR passage is on the row's side; rows with T2=1 and an unambiguous first passage only",
+  "T4": "sign of side-specific net R under the 308 management policy (net_R > 0); Spearman(score, net_R) also reported"
+ },
+ "purge": "label end = max(trade exit, bar i+72); V4 fit rows exit before test - 6 months - 5 days",
+ "learners": "bench1 lr_base (BASEF+VOLF), lr_eng (ENG), hgb_eng (ENG); unchanged hyperparameters; no tuning",
+ "evaluator": "de_v2 + labels_v2, V4 E stage via bench.evaluate, unchanged; for each target the V4 calibration guard and threshold rule use that target's label as y (calibration) and the policy net R (threshold, vs unselected)",
+ "folds": "purged walk-forward test years 2019, 2020, 2021, 2022 (gate and learners fitted before the year) + 2023-01-01..newest DEVELOPMENT window (inspected before; never a holdout). No test ledger, no verdicts.",
+ "report": "raw AUC by fold and pooled (day-bootstrap CI), by side; diagnostic calibration (Platt fitted on the V4 pooled window, no guard) with quintile reliability and support; for entry-capable cells: registered V4 policy and the coverage curve (q = 0.5/0.35/0.2/0.1) net R with 5-day moving-block CIs, vs unselected population policy and vs no-trade (0 R), cost sensitivity 0/0.02/0.05/0.10 R",
+ "layers": "market-path predictability = raw AUC of T1-T4; policy conversion = V4 availability and coverage-curve net R vs the unselected policy; net economics = absolute net R and cost sensitivity",
+ "budget": {
+  "populations": 4,
+  "targets": 4,
+  "learners": 3,
+  "folds": 5,
+  "cells": 240,
+  "kx_values_considered": 3,
+  "hyperparameters": "none tuned (bench1 fixed values; HGB iteration count by chronological validation)",
+  "thresholds": "V4 coverage grid (4 values) inside the evaluator"
+ },
+ "controls": "planted-signal controls only if a positive cell needs interpretation; bench1/audit controls cover the T1 pipeline",
+ "expectation": "to test, not assume: T2 learnable; T1 and T3 not",
+ "instruments": [
+  "WTICO/USD primary",
+  "XAU/USD only if time permits (P1 = its frozen D = cfgX; no P2)"
+ ],
+ "code_sha256": {
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+  "evaluator_files": {
+   "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+   "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+   "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+   "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+   "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+   "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+   "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+   "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+   "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+   "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+  },
+  "selected_json": "3882d9343779af5512d4425c9d7b4885082711682e80dc73293904061c18074b",
+  "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+  "run.py": "617d4d3ee9758ac862f79df8a06fa1f7052a26744bd3588e9c8ef32cfe305bbc"
+ },
+ "amendments": [
+  {
+   "ts": "2026-10-08T03:35:14+0200",
+   "reason": "Before any run: evaluate() called with diag=True (diag=False returns no trade set). No data scored yet.",
+   "code_sha256": {
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+    "evaluator_files": {
+     "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+     "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+     "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+     "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+     "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+     "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+     "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+     "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+     "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+     "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+    },
+    "selected_json": "3882d9343779af5512d4425c9d7b4885082711682e80dc73293904061c18074b",
+    "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+    "run.py": "4e254f5abe3f6645bd937b7c7302fde7c65e1fb92fb69baed53dd8e5bb3e835c"
+   }
+  },
+  {
+   "ts": "2026-10-08T03:42:02+0200",
+   "reason": "After run 1 (WTI): reporting-only correction. Pooled vs-unselected comparisons now pair each cell with the unselected policy over exactly the folds that cell covers (run 1 paired 2020-22 or 2021-22 cell trades with 2019-22 unselected trades), and bootstrap days are the covered folds' days. Model fits, labels, scores, AUCs and V4 decisions unchanged. Run 1 output kept as out/*.run1.*.",
+   "code_sha256": {
+    "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb",
+    "evaluator_files": {
+     "de_v2.py": "074ab687db540c1b25b14901f2207b0743a2e8c9cd05626e3a51e65666301963",
+     "labels_v2.py": "c9acc5e5281533c2cb72d15b5726b3ef94c1e4efbc17e83fa4b7436393266ec6",
+     "fills.py": "e96441a7020ce8425c0f910288d5146c7b15a4ecd0a6dec10f99ee9e343390cb",
+     "bars.py": "433b96871892064a015bd7aa640786ff7225a6a52073bd67ccc2962bc2cf0d64",
+     "nulls.py": "2a87505bb48213fdf7e91a5f3183807100e21cc554b3c18fa9c86bc738625577",
+     "validate.py": "cb1642edb11efc214e1cdc360b4b5d5adc353ed4067270282719836e7e6abddd",
+     "gate.py": "75410f7655b2990ca28b306a4c9931f60e594be7b1f922f3a3e7ddc94eb273e4",
+     "ladder.py": "793819c946a5b3f0e0ee5f46ac2ec10f03c9813c5b85bede5d6b567a441766d5",
+     "flips.mjs": "0d56a5c0754e4aa9ad996cb76967951488d21c70dc934ae7d1899913d434bd76",
+     "../modellab/spike4/data.py": "59b7a59f8c27e5ba574779c00129f1679d9b1f36ceda639007286a5df8aac8bc"
+    },
+    "selected_json": "3882d9343779af5512d4425c9d7b4885082711682e80dc73293904061c18074b",
+    "bench.py": "c53c35513720229a93dc66cf964b95d346e6f4f4d005f8a913b9c5b7fbfb3b89",
+    "run.py": "617d4d3ee9758ac862f79df8a06fa1f7052a26744bd3588e9c8ef32cfe305bbc"
+   }
+  }
+ ]
+}

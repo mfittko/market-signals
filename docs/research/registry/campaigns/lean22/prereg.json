@@ -1,0 +1,80 @@
+{
+ "created": "2026-10-08T14:40:04+0200",
+ "title": "lean22: track record of the card lean (side with the higher pprofit20 A4 calibrated P)",
+ "before_registration": "No outcome of this measurement computed. Code self-checked on synthetic data only. A first registration (14:39:58) had wrong cell keys (timeframe parsed from the file name) and was replaced before any outcome run. pprofit20 A4 results (per-side calibration, AUC, decile mean R, long-minus-short deciles) were inspected earlier; 2023+ is a development window, never a holdout.",
+ "declared": "Descriptive measurement. No pass/fail rule for shipping a lean. Development evidence. No test ledger, nothing qualified.",
+ "cells": [
+  "EUR_USD_M15_H12_up",
+  "EUR_USD_M15_H48_plan",
+  "EUR_USD_M1_H12_plan",
+  "EUR_USD_M1_H12_up",
+  "EUR_USD_M1_H48_plan",
+  "EUR_USD_M5_H12_up",
+  "EUR_USD_M5_H48_plan",
+  "EUR_USD_M5_H48_up",
+  "NATGAS_USD_M1_H12_up",
+  "NATGAS_USD_M5_H12_up",
+  "SPX500_USD_M1_H12_plan",
+  "SPX500_USD_M1_H12_up",
+  "SPX500_USD_M1_H48_plan",
+  "SPX500_USD_M5_H12_up",
+  "SPX500_USD_M5_H48_plan",
+  "WTICO_USD_M15_H48_plan",
+  "WTICO_USD_M1_H12_up",
+  "WTICO_USD_M1_H48_plan",
+  "WTICO_USD_M1_H48_up",
+  "WTICO_USD_M5_H12_plan",
+  "WTICO_USD_M5_H12_up",
+  "WTICO_USD_M5_H48_plan",
+  "XAG_USD_M15_H48_plan",
+  "XAG_USD_M1_H12_plan",
+  "XAG_USD_M1_H48_plan",
+  "XAG_USD_M5_H12_up",
+  "XAU_USD_M1_H12_plan",
+  "XAU_USD_M1_H12_up",
+  "XAU_USD_M1_H48_plan",
+  "XAU_USD_M1_H48_up",
+  "XAU_USD_M5_H12_plan",
+  "XAU_USD_M5_H48_plan"
+ ],
+ "cells_rule": "the 32 A4 artifacts whose status starts 'development evidence' (calibration pass, not degenerate)",
+ "predictions": "pp20.walk_forward (quarterly expanding refit, 182-day calibration window, Platt M5/M15, isotonic M1), recomputed with pp20.py unchanged via PP_TF/PP_H/PP_TGT; out-of-sample rows only (P finite on both sides)",
+ "decision_bars": "pp20 cadence bars (M5: start % 15 == 10; M15: every bar; M1: start % 5 == 4) with both sides labelled",
+ "lean": "LONG if P_long >= P_short else SHORT (ties go LONG); gap = 100 x |P_long - P_short| percentage points",
+ "outcomes": "realized net R per side from the cell's own label (plan: labels_v2.simulate trade; up: entry bar i+1 open, exit bar i+H close, bid/ask), 1R = 1.5 x Wilder ATR14 of mid at bar i",
+ "lean_right_primary": "lean side net R > other side net R (strict)",
+ "lean_positive_secondary": "lean side net R > 0 after costs",
+ "gap_buckets_pp": [
+  "[0,1)",
+  "[1,2)",
+  "[2,3)",
+  "[3,5)",
+  ">=5"
+ ],
+ "baselines": {
+  "always_long": "long net R > short net R (and long net R > 0)",
+  "supertrend": "side = direction of the last COMPLETED M5 supertrend bar (production ATR10 mult 3 on mid; M5 resampled from M1 for M1/M15 cells; completed when M5 start + 5 <= decision bar close); bars with no trend are excluded from that baseline's denominator"
+ },
+ "windows": {
+  "dev": "OOS 2019-2022",
+  "w2023": "2023-01-01 .. pprofit20 cut 2026-10-07T18:30 (development window)",
+  "full": "all OOS"
+ },
+ "stats": "moving-block bootstrap over trading days (22:00 UTC roll), block 5, 1000 reps, seed 22, per window; 95% percentile CI of the ratio of day sums; pooled = equal-weight mean of cell hit rates with shared day draws (cells overlap in instrument and time, so pooled CI is not 32x independent evidence); also pooled per timeframe; paired differences lean minus baseline use the same draws",
+ "monotonicity": "per cell and pooled: hit rate by bucket non-decreasing across supported buckets (n >= 300); Spearman of bucket index vs hit rate reported",
+ "card_window": "w2023 if it has >= 2000 bars, else full OOS",
+ "grey_threshold": "per cell, card window: the lowest bucket lower edge from which every supported bucket (n >= 300) has CI low > 50%; null = grey always",
+ "label": "'right X% of the time (lo-hi%), <window>' from the primary metric, overall",
+ "budget": {
+  "metrics": 2,
+  "gap_buckets": 5,
+  "baselines": 2,
+  "windows": 3,
+  "tuned": 0
+ },
+ "code_sha256": {
+  "lean22.py": "8fed76e73a283ac32874717ebcd7d77e35cc8f089c24346a063a17196bcdb27a",
+  "pp20.py": "82fed00e65f7b6bc883326af19c7124db28e01d7939a2b2932ccfc21990020a1",
+  "evaluator": "1b66053da304e13ab2539fef82f3ce31f180d1a5478e991a34985f294b72c6bb"
+ }
+}
