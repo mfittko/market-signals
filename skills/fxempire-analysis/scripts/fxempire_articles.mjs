@@ -614,14 +614,14 @@ Options:
     }
   }
 
-  // SSR news pages are the live source (issue #28): one global fetch, articles
-  // attributed to slugs by tag match; a per-instrument page is fetched only for
-  // slugs the global mix missed; the frozen hub API is the last-resort fallback
-  // so a markup change degrades instead of breaking.
-  const globalSsr = await fetchSsrPage('/news');
+  // The untagged forecasts hub is the live source: one global fetch, articles
+  // attributed to slugs by tag match. The /news page and the news hub froze at
+  // 2026-08-04, and tagged hub queries return nothing. A per-instrument SSR page
+  // and the tagged hub stay as fallbacks for slugs the global feed missed.
+  const globalFeed = await fetchHub('forecasts', '');
   let hubArticles = [];
   for (const { slug, tag } of tagsUsed) {
-    let batch = globalSsr.filter((a) => articleMatchesSlug(a, slug));
+    let batch = globalFeed.filter((a) => articleMatchesSlug(a, slug));
     if (!batch.length) {
       batch = (await fetchSsrPage(`/${slugMarket(slug)}/${slug}/news`)).filter((a) => articleMatchesSlug(a, slug));
       await delay(120);
