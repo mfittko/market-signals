@@ -1164,11 +1164,12 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
 }
 
 // Near-live top-of-book price from the same OANDA proxy the candles come from.
-// One cache entry per instrument: calls within ttlMs reuse the last result and
-// concurrent callers share one in-flight request, so any number of viewers cost
-// at most one upstream call per ttlMs per instrument.
+// One cache entry per instrument: callers share the in-flight request however long
+// it takes, and calls within ttlMs of its result reuse that result, so any number of
+// viewers cost at most one upstream call per ttlMs per instrument and loads of one
+// instrument never overlap (moves stays in request order).
 export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now } = {}) {
-  const cache = new Map(); // instrument -> { at, promise }
+  const cache = new Map(); // instrument -> { at (null while pending), promise }
   // instrument -> { mid, prevMid }: the last mid and the different mid before it, so a
   // first-time viewer can colour the price by its last move
   const moves = new Map();
@@ -1195,10 +1196,11 @@ export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now 
   };
   return (instrument) => {
     const hit = cache.get(instrument);
-    if (hit && now() - hit.at < ttlMs) return hit.promise;
-    const entry = { at: now(), promise: load(instrument) };
+    // a pending call is shared until it settles (the 5 s fetch timeout bounds it); the TTL counts from its result
+    if (hit && (hit.at === null || now() - hit.at < ttlMs)) return hit.promise;
+    const entry = { at: null, promise: load(instrument) };
     // a failure is not kept: the next call after it settles retries upstream
-    entry.promise.catch(() => { if (cache.get(instrument) === entry) cache.delete(instrument); });
+    entry.promise.then(() => { entry.at = now(); }, () => { if (cache.get(instrument) === entry) cache.delete(instrument); });
     cache.set(instrument, entry);
     return entry.promise;
   };

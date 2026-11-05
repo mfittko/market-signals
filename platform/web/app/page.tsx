@@ -12,14 +12,17 @@ import { Ago, Card, Loading } from '@/components/ui';
 function LivePrice({ slug }: { slug: string }) {
   const [p, setP] = useState<{ mid: number; dir: number } | null>(null);
   useEffect(() => {
-    let dead = false;
+    let dead = false, busy = false;
     const pull = async () => {
-      if (document.visibilityState !== 'visible') return;
+      // one pull at a time, so an older response never lands after a newer one
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
       try {
         const r = await api<{ mid: number; prevMid?: number | null }>(`/instruments/${slug}/price`);
         // the first colour comes from the engine's previous different mid; later ones from this card's own last mid
         if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, dir: Math.sign(r.mid - (o?.mid ?? r.prevMid ?? r.mid)) || (o?.dir ?? 0) }));
       } catch { if (!dead) setP(null); }
+      finally { busy = false; }
     };
     void pull();
     const t = setInterval(pull, 5000);

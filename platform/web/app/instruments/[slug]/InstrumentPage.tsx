@@ -18,13 +18,24 @@ const POLL_MS = 15000;
 const PRICE_POLL_MS = 2000;
 type Price = { mid: number; spread: number; time: string | null };
 // Moves the forming (last, incomplete) candle to the near-live mid. Finished candles stay as the engine sent them.
-// A quote from after the forming bar's end belongs to the next bar, which the 15s live data has not delivered yet:
-// it is left out so the closed bar's high, low and close stay its own. The bar length is the gap to the previous bar.
-function withPrice(candles: Candle[], price: Price | null): Candle[] {
+// Only a quote inside the forming bar moves it. A quote from before the bar's start belongs to the previous bar, and one
+// from after its end belongs to the next bar, which the 15s live data has not delivered yet: both are left out, so every
+// bar keeps its own high, low and close. The bar length comes from the granularity (gaps between bars vary).
+const UNIT_MS: Record<string, number> = { S: 1e3, M: 60e3, H: 3600e3, D: 86400e3, W: 7 * 86400e3 };
+function barMs(granularity?: string): number | null {
+  const m = /^([SMHDW])(\d*)$/.exec(granularity ?? '');
+  if (!m || (m[1] === 'M' && !m[2])) return null; // a bare M is a month, which has no fixed length
+  return UNIT_MS[m[1]] * Number(m[2] || 1);
+}
+// The engine writes nanosecond timestamps. Keep three fractional digits so every browser parses them.
+const ts = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
+function withPrice(candles: Candle[], price: Price | null, granularity?: string): Candle[] {
   const last = candles[candles.length - 1];
-  const prev = candles[candles.length - 2];
   if (!price || last.complete !== false) return candles;
-  if (price.time && prev && Date.parse(price.time) >= 2 * Date.parse(last.time) - Date.parse(prev.time)) return candles;
+  if (price.time) {
+    const at = ts(price.time), start = ts(last.time), len = barMs(granularity);
+    if (at < start || (len !== null && at >= start + len)) return candles;
+  }
   const mid = price.mid;
   return [...candles.slice(0, -1), { ...last, close: mid, high: Math.max(last.high, mid), low: Math.min(last.low, mid) }];
 }
@@ -96,13 +107,16 @@ function InstrumentView() {
   // Near-live price every 2s while the tab is visible. It moves the forming candle of the latest
   // 15s live data, which stays the source of truth. A failed poll drops back to the 15s behaviour.
   useEffect(() => {
-    let dead = false;
+    let dead = false, busy = false;
     const pull = async () => {
-      if (document.visibilityState !== 'visible') return;
+      // one pull at a time, so an older response never lands after a newer one
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
       try {
         const r = await api<Price>(`/instruments/${slug}/price`);
         if (!dead && Number.isFinite(r.mid)) setPrice(r);
       } catch { if (!dead) setPrice(null); } // back to the 15s live data
+      finally { busy = false; }
     };
     void pull();
     const t = setInterval(pull, PRICE_POLL_MS);
@@ -121,7 +135,7 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const candles = live?.candles.length ? withPrice(live.candles, price) : d.candles;
+  const candles = live?.candles.length ? withPrice(live.candles, price, live.granularity): d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
@@ -141,7 +155,7 @@ function InstrumentView() {
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small chart-aside">
-          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}${price ? ` · spread ${price.spread.toPrecision(2)}` : ''}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
+          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}${price ? ` · spread ${price.spread}` : ''}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
           {(live || liveErr) && lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
         {!live && !liveErr ? (

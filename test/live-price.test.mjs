@@ -27,8 +27,8 @@ test('livePriceSource maps the first bid/ask level, shares in-flight calls and c
   assert.equal(a, b);
   assert.equal(a.bid, 93.109);
   assert.equal(a.ask, 93.139);
-  assert.ok(Math.abs(a.mid - 93.124) < 1e-9);
-  assert.ok(Math.abs(a.spread - 0.03) < 1e-9);
+  assert.equal(a.mid, 93.124, 'mid at the quote precision');
+  assert.equal(a.spread, 0.03, 'spread at the quote precision');
   t = 999; await get('WTICO/USD');
   assert.equal(calls.length, 1, 'still inside the TTL');
   await get('EUR/USD');
@@ -46,6 +46,39 @@ test('livePriceSource reports the previous different mid per instrument', async 
   t += 1000; assert.equal((await get('EUR/USD')).prevMid, null, 'an unchanged mid is not a move');
   t += 1000; assert.equal((await get('EUR/USD')).prevMid, 1.11);
   t += 1000; assert.equal((await get('EUR/USD')).prevMid, 1.11, 'kept while the mid stays');
+});
+
+test('livePriceSource shares a call that is still pending after the TTL, so loads never overlap', async () => {
+  let t = 0;
+  let release;
+  const calls = [];
+  const quote = (bid, ask) => ({ ok: true, status: 200, json: async () => ({ prices: [{ bids: [{ price: bid }], asks: [{ price: ask }] }] }) });
+  const fn = (url) => {
+    calls.push(String(url));
+    if (calls.length === 1) return new Promise((r) => { release = () => r(quote('1.10', '1.12')); });
+    return Promise.resolve(quote('1.12', '1.14'));
+  };
+  const get = livePriceSource(fn, { ttlMs: 1000, now: () => t });
+  const first = get('EUR/USD');
+  t = 1200;
+  assert.equal(get('EUR/USD'), first, 'a pending call is shared past the TTL');
+  assert.equal(calls.length, 1);
+  release();
+  assert.equal((await first).prevMid, null);
+  t = 2199; await get('EUR/USD');
+  assert.equal(calls.length, 1, 'the TTL counts from the result');
+  t = 2200;
+  const next = await get('EUR/USD');
+  assert.equal(calls.length, 2);
+  assert.equal(next.mid, 1.13);
+  assert.equal(next.prevMid, 1.11, 'prevMid follows request order');
+});
+
+test('livePriceSource rejects a body without a bid/ask', async () => {
+  for (const prices of [[], [{}]]) {
+    const { fn } = fakeFetch([{ status: 200, body: { prices } }]);
+    await assert.rejects(livePriceSource(fn)('WTICO/USD'), /no bid\/ask/);
+  }
 });
 
 test('livePriceSource does not keep a failure', async () => {
