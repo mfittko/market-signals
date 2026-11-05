@@ -6,6 +6,28 @@ import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
 import { Ago, Card, Loading } from '@/components/ui';
 
+// Near-live mid for one Desk card, polled every 5 s while the tab is visible.
+// Green or red shows the direction of the last change. A failed poll hides the price.
+// ponytail: one poll per card; the engine caches 1 s per instrument, add a batch endpoint if the grid grows large.
+function LivePrice({ slug }: { slug: string }) {
+  const [p, setP] = useState<{ mid: number; dir: number } | null>(null);
+  useEffect(() => {
+    let dead = false;
+    const pull = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const r = await api<{ mid: number }>(`/instruments/${slug}/price`);
+        if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, dir: o ? Math.sign(r.mid - o.mid) || o.dir : 0 }));
+      } catch { if (!dead) setP(null); }
+    };
+    void pull();
+    const t = setInterval(pull, 5000);
+    return () => { dead = true; clearInterval(t); };
+  }, [slug]);
+  if (!p) return null;
+  return <span className={`num ${p.dir > 0 ? 'good-t' : p.dir < 0 ? 'bad-t' : ''}`} title="Live mid price">{p.mid}</span>;
+}
+
 export default function Desk() {
   const [rows, setRows] = useState<DeskRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +65,7 @@ export default function Desk() {
           {shown.map((r) => (
             <Link key={r.symbol} href={`/instruments/${r.slug}`} className="card inst">
               <div className="row"><h3>{r.name}</h3><BotBadge grans={bots?.get(r.symbol)} /></div>
-              <div className="muted small">{r.symbol}</div>
+              <div className="row small"><span className="muted">{r.symbol}</span><LivePrice slug={r.slug} /></div>
               <div className="row small">
                 <span className="muted">{r.market} · {r.granularities.join(' ')}</span>
                 <span className={`num ${r.realized >= 0 ? 'good-t' : 'bad-t'}`}>{r.trades ? `${money(r.realized)} · ${r.wins}/${r.trades} won` : 'no trades yet'}</span>
