@@ -15,7 +15,42 @@ import { useWatchers } from '@/lib/alerts';
 
 const LIMIT = 10;
 const POLL_MS = 15000;
-type Live = { candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
+const PRICE_POLL_MS = 2000;
+type Price = { mid: number; spread: number; time: string | null };
+// Moves the forming (last, incomplete) candle to the near-live mid. Finished candles stay as the engine sent them.
+// Only a quote inside the forming bar moves it. A quote from before the bar's start belongs to the previous bar, and one
+// from after its end belongs to the next bar, which the 15s live data has not delivered yet: both are left out, so every
+// bar keeps its own high, low and close. The bar length comes from the granularity (gaps between bars vary).
+const UNIT_MS: Record<string, number> = { S: 1e3, M: 60e3, H: 3600e3, D: 86400e3, W: 7 * 86400e3 };
+function barMs(granularity?: string): number | null {
+  const m = /^([SMHDW])(\d*)$/.exec(granularity ?? '');
+  if (!m || (m[1] === 'M' && !m[2])) return null; // a bare M is a month, which has no fixed length
+  return UNIT_MS[m[1]] * Number(m[2] || 1);
+}
+// The engine writes nanosecond timestamps. Keep three fractional digits so every browser parses them.
+const ts = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
+// The running high and low and the last of the mids applied to one forming bar, keyed by granularity and bar
+// time. A poll's extreme stays on the bar after later polls move the mid back, and the last in-bar mid stays its
+// close after a quote falls past the bar end, until the 15s live data starts a new bar.
+type PollRange = { key: string; high: number; low: number; close: number };
+function withPrice(candles: Candle[], price: Price | null, granularity: string | undefined, range: { current: PollRange | null }): Candle[] {
+  const last = candles[candles.length - 1];
+  if (!price || last.complete !== false) return candles;
+  const key = `${granularity}|${last.time}`;
+  if (range.current?.key !== key) range.current = null; // a new forming bar starts without poll extremes
+  // A quote without a usable timestamp cannot be placed in a bar, so it never moves one (NaN fails both comparisons).
+  const at = price.time ? ts(price.time) : NaN, start = ts(last.time), len = barMs(granularity);
+  const inBar = at >= start && (len === null || at < start + len);
+  if (inBar) {
+    const mid = price.mid, r = range.current;
+    range.current = { key, high: Math.max(r?.high ?? mid, mid), low: Math.min(r?.low ?? mid, mid), close: mid };
+  }
+  const r = range.current;
+  if (!inBar && !r) return candles;
+  const close = inBar ? price.mid : r?.close ?? last.close;
+  return [...candles.slice(0, -1), { ...last, close, high: Math.max(last.high, close, r?.high ?? close), low: Math.min(last.low, close, r?.low ?? close) }];
+}
+type Live ={ candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
 type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; summary?: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
 const when = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -39,6 +74,8 @@ function InstrumentView() {
   const [allTr, setAllTr] = useState(false);
   const [live, setLive] = useState<Live | null>(null);
   const [liveErr, setLiveErr] = useState<string | null>(null);
+  const [price, setPrice] = useState<Price | null>(null);
+  const pollRange = useRef<PollRange | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
   const [escalationPref, setOnlyEscalation] = useState(true);
@@ -79,6 +116,26 @@ function InstrumentView() {
     return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug, gran]);
 
+  // Near-live price every 2s while the tab is visible. It moves the forming candle of the latest
+  // 15s live data, which stays the source of truth. A failed poll drops back to the 15s behaviour.
+  useEffect(() => {
+    let dead = false, busy = false;
+    const pull = async () => {
+      // one pull at a time, so an older response never lands after a newer one
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try {
+        const r = await api<Price>(`/instruments/${slug}/price`);
+        if (!dead && Number.isFinite(r.mid)) setPrice(r);
+      } catch { if (!dead) setPrice(null); } // back to the 15s live data
+      finally { busy = false; }
+    };
+    void pull();
+    const t = setInterval(pull, PRICE_POLL_MS);
+    document.addEventListener('visibilitychange', pull); // a returning tab refreshes at once instead of showing the old mid
+    return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
+  }, [slug]);
+
   useEffect(() => {
     let dead = false;
     api<{ items: NewsItem[] }>(`/instruments/${slug}/news?hours=72`).then((r) => { if (!dead) setNews(r.items ?? []); }).catch(() => { if (!dead) setNews([]); });
@@ -90,7 +147,7 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const candles = live?.candles.length ? live.candles : d.candles;
+  const candles = live?.candles.length ? withPrice(live.candles, price, live.granularity, pollRange) : d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
@@ -110,14 +167,14 @@ function InstrumentView() {
         <div className="grid">
       <Card title={`Chart · ${d.granularity}`} className="chart-card" aside={
         <span className="muted small chart-aside">
-          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
+          {!live && !liveErr ? 'connecting to live data…' : live ? `live · updated ${new Date(live.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}${price ? ` · spread ${price.spread}` : ''}` : `imported history through ${d.candles.length ? when(d.candles[d.candles.length - 1].time) : "n/a"}${liveErr ? " · engine offline" : ""}`}
           {(live || liveErr) && lastFlip ? ` · ${lastFlip.signal} flip marked` : ''}
         </span>}>
         {!live && !liveErr ? (
           // Draw once, from the source that will stay: imported history first would jump when the live candles arrive.
           <div className="chart-wait" aria-busy="true"><Loading /></div>
         ) : candles.length ? (
-          <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={live?.quote?.last}
+          <CandleChart candles={candles} supertrend={live?.supertrend} lastPrice={price?.mid ?? live?.quote?.last}
             signals={signals.filter((s) => s.granularity === d.granularity)}
             trades={d.trades.filter((t) => !t.granularity || t.granularity === d.granularity)}
             news={relevantNews.map((n) => ({ time: n.time, title: n.title, source: n.source, escalation: n.escalation, impact: n.tone }))} />

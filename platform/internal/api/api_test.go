@@ -52,6 +52,13 @@ func fakeEngine(t *testing.T) *httptest.Server {
 		}
 		io.WriteString(w, `{"ok":true,"items":[{"title":"Tanker hit","source":"gdelt","time":"2026-01-01T10:00:00Z","escalation":true}]}`)
 	})
+	mux.HandleFunc("/api/price", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("instrument") != "WTICO/USD" {
+			http.Error(w, "wrong scope", 400)
+			return
+		}
+		io.WriteString(w, `{"ok":true,"instrument":"WTICO/USD","time":"2026-01-01T10:05:01Z","bid":93.1,"ask":93.13,"mid":93.115,"spread":0.03}`)
+	})
 	mux.HandleFunc("/api/indicators", func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"ok":true,"indicators":{"atr14":0.42,"extremes":{"high":99}}}`)
 	})
@@ -493,6 +500,29 @@ func TestLiveAndNewsProxyTheEngineForOneInstrument(t *testing.T) {
 	}
 	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope/live", "", "", nil); code != 404 {
 		t.Fatalf("unknown instrument must be 404, got %d", code)
+	}
+}
+
+func TestPriceProxiesTheEngineAndReportsEngineDown(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE instruments CASCADE; INSERT INTO instruments (symbol,name,market) VALUES ('WTICO/USD','WTI Oil','commodities')`); err != nil {
+		t.Fatal(err)
+	}
+	code, p := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd/price", "", "", nil)
+	if code != 200 || p["mid"] != 93.115 || p["spread"] != 0.03 {
+		t.Fatalf("price: %d %v", code, p)
+	}
+	if code, _ := call(t, "GET", hs.URL+"/api/v1/instruments/nope/price", "", "", nil); code != 404 {
+		t.Fatalf("unknown instrument must be 404, got %d", code)
+	}
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close() // nothing listens on this URL any more
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", EngineURL: down.URL}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs2 := httptest.NewServer(srv.Handler())
+	t.Cleanup(hs2.Close)
+	if code, body := call(t, "GET", hs2.URL+"/api/v1/instruments/wtico-usd/price", "", "", nil); code != 502 || body["error"] == nil {
+		t.Fatalf("engine down must be 502 with an error: %d %v", code, body)
 	}
 }
 
