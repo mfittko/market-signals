@@ -1169,6 +1169,9 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
 // at most one upstream call per ttlMs per instrument.
 export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now } = {}) {
   const cache = new Map(); // instrument -> { at, promise }
+  // instrument -> { mid, prevMid }: the last mid and the different mid before it, so a
+  // first-time viewer can colour the price by its last move
+  const moves = new Map();
   const load = async (instrument) => {
     const url = new URL('https://p.fxempire.com/oanda/pricing');
     url.searchParams.set('instruments', instrument);
@@ -1184,7 +1187,11 @@ export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now 
     // mid and spread at the quote's own precision, like OANDA's mid candles (no 93.04599999999999)
     const dp = Math.max(...[bidS, askS].map((s) => (s.split('.')[1] ?? '').length));
     const round = (v) => Number(v.toFixed(dp));
-    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid: round((bid + ask) / 2), spread: round(ask - bid) };
+    const mid = round((bid + ask) / 2);
+    const m = moves.get(instrument);
+    const prevMid = !m ? null : m.mid !== mid ? m.mid : m.prevMid;
+    moves.set(instrument, { mid, prevMid });
+    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid, prevMid, spread: round(ask - bid) };
   };
   return (instrument) => {
     const hit = cache.get(instrument);

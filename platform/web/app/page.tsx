@@ -7,7 +7,7 @@ import { BotBadge, useActiveBots } from '@/lib/bots';
 import { Ago, Card, Loading } from '@/components/ui';
 
 // Near-live mid for one Desk card, polled every 5 s while the tab is visible.
-// Green or red shows the direction of the last change. A failed poll hides the price.
+// Green or red shows the direction of the last change; the first colour compares with the engine's previous different mid. A failed poll hides the price.
 // ponytail: one poll per card; the engine caches 1 s per instrument, add a batch endpoint if the grid grows large.
 function LivePrice({ slug }: { slug: string }) {
   const [p, setP] = useState<{ mid: number; dir: number } | null>(null);
@@ -16,8 +16,9 @@ function LivePrice({ slug }: { slug: string }) {
     const pull = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
-        const r = await api<{ mid: number }>(`/instruments/${slug}/price`);
-        if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, dir: o ? Math.sign(r.mid - o.mid) || o.dir : 0 }));
+        const r = await api<{ mid: number; prevMid?: number | null }>(`/instruments/${slug}/price`);
+        // the first colour comes from the engine's previous different mid; later ones from this card's own last mid
+        if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, dir: Math.sign(r.mid - (o?.mid ?? r.prevMid ?? r.mid)) || (o?.dir ?? 0) }));
       } catch { if (!dead) setP(null); }
     };
     void pull();

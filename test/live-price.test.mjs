@@ -37,6 +37,17 @@ test('livePriceSource maps the first bid/ask level, shares in-flight calls and c
   assert.equal(calls.length, 3, 'TTL expired');
 });
 
+test('livePriceSource reports the previous different mid per instrument', async () => {
+  let t = 0;
+  const quote = (bid, ask) => ({ status: 200, body: { prices: [{ bids: [{ price: bid }], asks: [{ price: ask }] }] } });
+  const { fn } = fakeFetch([quote('1.10', '1.12'), quote('1.10', '1.12'), quote('1.12', '1.14'), quote('1.12', '1.14')]);
+  const get = livePriceSource(fn, { ttlMs: 1000, now: () => t });
+  assert.equal((await get('EUR/USD')).prevMid, null, 'no earlier quote');
+  t += 1000; assert.equal((await get('EUR/USD')).prevMid, null, 'an unchanged mid is not a move');
+  t += 1000; assert.equal((await get('EUR/USD')).prevMid, 1.11);
+  t += 1000; assert.equal((await get('EUR/USD')).prevMid, 1.11, 'kept while the mid stays');
+});
+
 test('livePriceSource does not keep a failure', async () => {
   const { fn, calls } = fakeFetch([{ status: 503 }]);
   const get = livePriceSource(fn, { now: () => 0 });
