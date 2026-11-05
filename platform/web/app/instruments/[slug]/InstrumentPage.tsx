@@ -29,15 +29,27 @@ function barMs(granularity?: string): number | null {
 }
 // The engine writes nanosecond timestamps. Keep three fractional digits so every browser parses them.
 const ts = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
-function withPrice(candles: Candle[], price: Price | null, granularity?: string): Candle[] {
+// The running high and low of the mids applied to one forming bar, keyed by granularity and bar time. A poll's
+// extreme stays on the bar after later polls move the mid back, until the 15s live data starts a new bar.
+type PollRange = { key: string; high: number; low: number };
+function withPrice(candles: Candle[], price: Price | null, granularity: string | undefined, range: { current: PollRange | null }): Candle[] {
   const last = candles[candles.length - 1];
   if (!price || last.complete !== false) return candles;
+  const key = `${granularity}|${last.time}`;
+  if (range.current?.key !== key) range.current = null; // a new forming bar starts without poll extremes
+  let inBar = true;
   if (price.time) {
     const at = ts(price.time), start = ts(last.time), len = barMs(granularity);
-    if (at < start || (len !== null && at >= start + len)) return candles;
+    inBar = !(at < start || (len !== null && at >= start + len));
   }
-  const mid = price.mid;
-  return [...candles.slice(0, -1), { ...last, close: mid, high: Math.max(last.high, mid), low: Math.min(last.low, mid) }];
+  if (inBar) {
+    const mid = price.mid, r = range.current;
+    range.current = { key, high: Math.max(r?.high ?? mid, mid), low: Math.min(r?.low ?? mid, mid) };
+  }
+  const r = range.current;
+  if (!inBar && !r) return candles;
+  const close = inBar ? price.mid : last.close;
+  return [...candles.slice(0, -1), { ...last, close, high: Math.max(last.high, close, r?.high ?? close), low: Math.min(last.low, close, r?.low ?? close) }];
 }
 type Live ={ candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
 type NewsItem = { title: string; titleOriginal?: string; relevant?: boolean; pending?: boolean; summary?: string; source: string; time: string; url: string | null; tone: string | null; escalation: boolean };
@@ -64,6 +76,7 @@ function InstrumentView() {
   const [live, setLive] = useState<Live | null>(null);
   const [liveErr, setLiveErr] = useState<string | null>(null);
   const [price, setPrice] = useState<Price | null>(null);
+  const pollRange = useRef<PollRange | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [showNews, setShowNews] = useState(false);
   const [escalationPref, setOnlyEscalation] = useState(true);
@@ -135,7 +148,7 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const candles = live?.candles.length ? withPrice(live.candles, price, live.granularity): d.candles;
+  const candles = live?.candles.length ? withPrice(live.candles, price, live.granularity, pollRange) : d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 
