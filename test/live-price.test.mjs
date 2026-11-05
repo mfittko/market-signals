@@ -89,6 +89,20 @@ test('livePriceSource does not keep a failure', async () => {
   assert.equal(calls.length, 2);
 });
 
+test('livePriceSource clears its maps when a new instrument passes maxEntries', async () => {
+  const moved = { prices: [{ bids: [{ price: '93.209' }], asks: [{ price: '93.239' }] }] };
+  const { fn, calls } = fakeFetch([{ status: 200, body }, { status: 200, body }, { status: 200, body }, { status: 200, body: moved }]);
+  const get = livePriceSource(fn, { now: () => 0, maxEntries: 2 });
+  await get('AAA0001'); await get('AAA0002');
+  await get('AAA0001');
+  assert.equal(calls.length, 2, 'a cached instrument does not clear the maps');
+  await get('AAA0003');
+  assert.equal(calls.length, 3);
+  const again = await get('AAA0001');
+  assert.equal(calls.length, 4, 'the cleared entry costs a fresh upstream call');
+  assert.equal(again.prevMid, null, 'moves was cleared too');
+});
+
 test('GET /api/price validates the instrument and returns 502 on upstream failure', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'price-'));
   const { fn } = fakeFetch([{ status: 200, body }, { status: 500 }]);

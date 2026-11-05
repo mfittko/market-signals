@@ -1168,7 +1168,7 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
 // it takes, and calls within ttlMs of its result reuse that result, so any number of
 // viewers cost at most one upstream call per ttlMs per instrument and loads of one
 // instrument never overlap (moves stays in request order).
-export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now } = {}) {
+export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now, maxEntries = 256 } = {}) {
   const cache = new Map(); // instrument -> { at (null while pending), promise }
   // instrument -> { mid, prevMid }: the last mid and the different mid before it, so a
   // first-time viewer can colour the price by its last move
@@ -1198,6 +1198,9 @@ export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now 
     const hit = cache.get(instrument);
     // a pending call is shared until it settles (the 5 s fetch timeout bounds it); the TTL counts from its result
     if (hit && (hit.at === null || now() - hit.at < ttlMs)) return hit.promise;
+    // ponytail: bound both maps like GetCached in platform/internal/tools/tools.go: a new instrument past
+    // maxEntries clears them. A cleared instrument costs one fresh upstream call and loses its prevMid.
+    if (!hit && cache.size >= maxEntries) { cache.clear(); moves.clear(); }
     const entry = { at: null, promise: load(instrument) };
     // a failure is not kept: the next call after it settles retries upstream
     entry.promise.then(() => { entry.at = now(); }, () => { if (cache.get(instrument) === entry) cache.delete(instrument); });

@@ -29,9 +29,10 @@ function barMs(granularity?: string): number | null {
 }
 // The engine writes nanosecond timestamps. Keep three fractional digits so every browser parses them.
 const ts = (t: string) => Date.parse(t.replace(/(\.\d{3})\d+/, '$1'));
-// The running high and low of the mids applied to one forming bar, keyed by granularity and bar time. A poll's
-// extreme stays on the bar after later polls move the mid back, until the 15s live data starts a new bar.
-type PollRange = { key: string; high: number; low: number };
+// The running high and low and the last of the mids applied to one forming bar, keyed by granularity and bar
+// time. A poll's extreme stays on the bar after later polls move the mid back, and the last in-bar mid stays its
+// close after a quote falls past the bar end, until the 15s live data starts a new bar.
+type PollRange = { key: string; high: number; low: number; close: number };
 function withPrice(candles: Candle[], price: Price | null, granularity: string | undefined, range: { current: PollRange | null }): Candle[] {
   const last = candles[candles.length - 1];
   if (!price || last.complete !== false) return candles;
@@ -44,11 +45,11 @@ function withPrice(candles: Candle[], price: Price | null, granularity: string |
   }
   if (inBar) {
     const mid = price.mid, r = range.current;
-    range.current = { key, high: Math.max(r?.high ?? mid, mid), low: Math.min(r?.low ?? mid, mid) };
+    range.current = { key, high: Math.max(r?.high ?? mid, mid), low: Math.min(r?.low ?? mid, mid), close: mid };
   }
   const r = range.current;
   if (!inBar && !r) return candles;
-  const close = inBar ? price.mid : last.close;
+  const close = inBar ? price.mid : r?.close ?? last.close;
   return [...candles.slice(0, -1), { ...last, close, high: Math.max(last.high, close, r?.high ?? close), low: Math.min(last.low, close, r?.low ?? close) }];
 }
 type Live ={ candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
