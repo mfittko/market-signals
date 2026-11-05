@@ -18,9 +18,14 @@ const POLL_MS = 15000;
 const PRICE_POLL_MS = 2000;
 type Price = { mid: number; spread: number; time: string | null };
 // Moves the forming (last, incomplete) candle to the near-live mid. Finished candles stay as the engine sent them.
-function withPrice(candles: Candle[], mid: number | undefined): Candle[] {
+// A quote from after the forming bar's end belongs to the next bar, which the 15s live data has not delivered yet:
+// it is left out so the closed bar's high, low and close stay its own. The bar length is the gap to the previous bar.
+function withPrice(candles: Candle[], price: Price | null): Candle[] {
   const last = candles[candles.length - 1];
-  if (mid === undefined || last.complete !== false) return candles;
+  const prev = candles[candles.length - 2];
+  if (!price || last.complete !== false) return candles;
+  if (price.time && prev && Date.parse(price.time) >= 2 * Date.parse(last.time) - Date.parse(prev.time)) return candles;
+  const mid = price.mid;
   return [...candles.slice(0, -1), { ...last, close: mid, high: Math.max(last.high, mid), low: Math.min(last.low, mid) }];
 }
 type Live ={ candles: Candle[]; supertrend: STPoint[]; signals: InstrumentDetail['signals']; quote?: { last?: number }; fetchedAt: string; granularity?: string };
@@ -101,7 +106,8 @@ function InstrumentView() {
     };
     void pull();
     const t = setInterval(pull, PRICE_POLL_MS);
-    return () => { dead = true; clearInterval(t); };
+    document.addEventListener('visibilitychange', pull); // a returning tab refreshes at once instead of showing the old mid
+    return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug]);
 
   useEffect(() => {
@@ -115,7 +121,7 @@ function InstrumentView() {
 
   const won = d.trades.filter((t) => t.realized > 0).length;
   const pnl = d.trades.reduce((s, t) => s + t.realized, 0);
-  const candles = live?.candles.length ? withPrice(live.candles, price?.mid) : d.candles;
+  const candles = live?.candles.length ? withPrice(live.candles, price) : d.candles;
   const signals = live?.signals.length ? live.signals : d.signals;
   const lastFlip = [...signals].find((s) => s.granularity === d.granularity && candles.some((c) => c.time === s.time));
 

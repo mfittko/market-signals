@@ -22,7 +22,8 @@ function LivePrice({ slug }: { slug: string }) {
     };
     void pull();
     const t = setInterval(pull, 5000);
-    return () => { dead = true; clearInterval(t); };
+    document.addEventListener('visibilitychange', pull); // a returning tab refreshes at once instead of showing the old mid
+    return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug]);
   if (!p) return null;
   return <span className={`num ${p.dir > 0 ? 'good-t' : p.dir < 0 ? 'bad-t' : ''}`} title="Live mid price">{p.mid}</span>;
