@@ -38,11 +38,9 @@ function withPrice(candles: Candle[], price: Price | null, granularity: string |
   if (!price || last.complete !== false) return candles;
   const key = `${granularity}|${last.time}`;
   if (range.current?.key !== key) range.current = null; // a new forming bar starts without poll extremes
-  let inBar = true;
-  if (price.time) {
-    const at = ts(price.time), start = ts(last.time), len = barMs(granularity);
-    inBar = !(at < start || (len !== null && at >= start + len));
-  }
+  // A quote without a usable timestamp cannot be placed in a bar, so it never moves one (NaN fails both comparisons).
+  const at = price.time ? ts(price.time) : NaN, start = ts(last.time), len = barMs(granularity);
+  const inBar = at >= start && (len === null || at < start + len);
   if (inBar) {
     const mid = price.mid, r = range.current;
     range.current = { key, high: Math.max(r?.high ?? mid, mid), low: Math.min(r?.low ?? mid, mid), close: mid };
