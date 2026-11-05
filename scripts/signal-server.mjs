@@ -1199,8 +1199,11 @@ export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now,
     // a pending call is shared until it settles (the 5 s fetch timeout bounds it); the TTL counts from its result
     if (hit && (hit.at === null || now() - hit.at < ttlMs)) return hit.promise;
     // ponytail: bound both maps like GetCached in platform/internal/tools/tools.go: a new instrument past
-    // maxEntries clears them. A cleared instrument costs one fresh upstream call and loses its prevMid.
-    if (!hit && cache.size >= maxEntries) { cache.clear(); moves.clear(); }
+    // maxEntries clears their settled entries. A cleared instrument costs one fresh upstream call and loses
+    // its prevMid. Pending loads stay, so loads of one instrument still never overlap.
+    if (!hit && cache.size >= maxEntries) {
+      for (const [k, e] of cache) if (e.at !== null) { cache.delete(k); moves.delete(k); }
+    }
     const entry = { at: null, promise: load(instrument) };
     // a failure is not kept: the next call after it settles retries upstream
     entry.promise.then(() => { entry.at = now(); }, () => { if (cache.get(instrument) === entry) cache.delete(instrument); });

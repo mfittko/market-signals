@@ -103,6 +103,24 @@ test('livePriceSource clears its maps when a new instrument passes maxEntries', 
   assert.equal(again.prevMid, null, 'moves was cleared too');
 });
 
+test('livePriceSource keeps a pending load when it clears past maxEntries', async () => {
+  let release;
+  const calls = [];
+  const fn = (url) => {
+    calls.push(String(url));
+    const res = { ok: true, status: 200, json: async () => body };
+    return calls.length === 1 ? new Promise((r) => { release = () => r(res); }) : Promise.resolve(res);
+  };
+  const get = livePriceSource(fn, { now: () => 0, maxEntries: 2 });
+  const pending = get('AAA0001');
+  await get('AAA0002');
+  await get('AAA0003'); // clears the settled AAA0002 only
+  assert.equal(get('AAA0001'), pending, 'the pending load is still shared');
+  assert.equal(calls.length, 3);
+  release();
+  await pending;
+});
+
 test('GET /api/price validates the instrument and returns 502 on upstream failure', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'price-'));
   const { fn } = fakeFetch([{ status: 200, body }, { status: 500 }]);
