@@ -1163,8 +1163,58 @@ export function warnLegacyLaunchAgent(logFn = console.warn, homeDir = homedir())
   } catch { /* best-effort warning only */ }
 }
 
-export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch }) {
+// Near-live top-of-book price from the same OANDA proxy the candles come from.
+// One cache entry per instrument: callers share the in-flight request however long
+// it takes, and calls within ttlMs of its result reuse that result, so any number of
+// viewers cost at most one upstream call per ttlMs per instrument and loads of one
+// instrument never overlap (moves stays in request order).
+export function livePriceSource(fetchFn = fetch, { ttlMs = 1000, now = Date.now, maxEntries = 256 } = {}) {
+  const cache = new Map(); // instrument -> { at (null while pending), promise }
+  // instrument -> { mid, prevMid }: the last mid and the different mid before it, so a
+  // first-time viewer can colour the price by its last move
+  const moves = new Map();
+  const load = async (instrument) => {
+    const url = new URL('https://p.fxempire.com/oanda/pricing');
+    url.searchParams.set('instruments', instrument);
+    const res = await fetchFn(url, {
+      headers: { accept: 'application/json,*/*', 'user-agent': 'Mozilla/5.0 (market-signals; supertrend)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`pricing HTTP ${res.status}`);
+    const p = (await res.json())?.prices?.[0];
+    const bidS = String(p?.bids?.[0]?.price ?? ''), askS = String(p?.asks?.[0]?.price ?? '');
+    const bid = Number(bidS), ask = Number(askS);
+    if (!bidS || !askS || !Number.isFinite(bid) || !Number.isFinite(ask)) throw new Error('pricing returned no bid/ask');
+    // mid and spread at the quote's own precision, like OANDA's mid candles (no 93.04599999999999)
+    const dp = Math.max(...[bidS, askS].map((s) => (s.split('.')[1] ?? '').length));
+    const round = (v) => Number(v.toFixed(dp));
+    const mid = round((bid + ask) / 2);
+    const m = moves.get(instrument);
+    const prevMid = !m ? null : m.mid !== mid ? m.mid : m.prevMid;
+    moves.set(instrument, { mid, prevMid });
+    return { ok: true, instrument, time: p.time ?? null, bid, ask, mid, prevMid, spread: round(ask - bid) };
+  };
+  return (instrument) => {
+    const hit = cache.get(instrument);
+    // a pending call is shared until it settles (the 5 s fetch timeout bounds it); the TTL counts from its result
+    if (hit && (hit.at === null || now() - hit.at < ttlMs)) return hit.promise;
+    // ponytail: bound both maps like GetCached in platform/internal/tools/tools.go: a new instrument past
+    // maxEntries clears their settled entries. A cleared instrument costs one fresh upstream call and loses
+    // its prevMid. Pending loads stay, so loads of one instrument still never overlap.
+    if (!hit && cache.size >= maxEntries) {
+      for (const [k, e] of cache) if (e.at !== null) { cache.delete(k); moves.delete(k); }
+    }
+    const entry = { at: null, promise: load(instrument) };
+    // a failure is not kept: the next call after it settles retries upstream
+    entry.promise.then(() => { entry.at = now(); }, () => { if (cache.get(instrument) === entry) cache.delete(instrument); });
+    cache.set(instrument, entry);
+    return entry.promise;
+  };
+}
+
+export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, providerFetch = fetch, priceFetch = fetch }) {
   warnLegacyLaunchAgent();
+  const livePrice = livePriceSource(priceFetch);
   // #191: proactive keep-fresh background loop. `fetcher: null` (test/e2e
   // fixtures) never starts the timer at all — fixture-safety. Shares
   // attemptedGaps (unfillable-gap memory) and lastLiveFetch (the on-read gate)
@@ -1245,6 +1295,16 @@ export function buildServer({ dbPath, settingsPath, fetcher = fetchCandles, prov
         data.watchers = (cfg.watchers ?? '').split(',').map((x) => x.trim()).filter(Boolean);
         data.watched = data.watchers.includes(`${instrument}|${granularity}`);
         return json(res, 200, data);
+      }
+      // Near-live bid/ask for the console's Desk cards and instrument page. Cached for 1 s per instrument.
+      if (url.pathname === '/api/price' && req.method === 'GET') {
+        const instrument = url.searchParams.get('instrument') || '';
+        if (!/^[A-Za-z0-9/]{3,20}$/.test(instrument)) return json(res, 400, { ok: false, error: 'bad instrument' });
+        try {
+          return json(res, 200, await livePrice(instrument));
+        } catch (err) {
+          return json(res, 502, { ok: false, error: `price unavailable: ${err.message}` });
+        }
       }
       // Recent headlines for one instrument, read from the news cache. Read-only.
       if (url.pathname === '/api/news' && req.method === 'GET') {

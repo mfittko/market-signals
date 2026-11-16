@@ -1,0 +1,1 @@
+- Console: live mid prices on the Desk cards and a 2 s price feed on the instrument page chart (#330)
