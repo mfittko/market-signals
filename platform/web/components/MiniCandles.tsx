@@ -24,11 +24,13 @@ export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
       if (document.visibilityState !== 'visible') return;
       const hit = cache.get(key);
       if (hit && Date.now() - hit.at < REFRESH - 1000) return; // another mount fetched it moments ago
+      const started = Date.now();
       try {
         const r = await api<{ candles: C[] }>(`/instruments/${slug}/live?granularity=${gran}`);
-        const next = r.candles.slice(-BARS);
-        cache.set(key, { at: Date.now(), cs: next });
-        if (!dead) setCs(next);
+        // `at` is the request start: a slower response from an older request (an unmounted effect or another card)
+        // never overwrites candles from a request that started later.
+        if ((cache.get(key)?.at ?? -1) <= started) cache.set(key, { at: started, cs: r.candles.slice(-BARS) });
+        if (!dead) setCs(cache.get(key)!.cs);
       } catch { if (!dead && !cache.has(key)) setCs([]); } // a failed refresh keeps the cached candles
     };
     void pull();
