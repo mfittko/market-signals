@@ -1,8 +1,9 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { withPrice, type PollRange, type Price } from '@/lib/forming-bar';
 
-type C = { time: string; open: number; high: number; low: number; close: number };
+type C = { time: string; open: number; high: number; low: number; close: number; complete?: boolean };
 const BARS = 48;
 const W = 280;
 
@@ -12,10 +13,12 @@ const REFRESH = 30000;
 const cache = new Map<string, { at: number; cs: C[] }>();
 
 // Last BARS candles of one instrument at one resolution, refreshed every 30 s while the tab is visible.
+// `price` is the card's latest tick; it moves the forming (last) candle between refreshes.
 // shortcut: one /live call per card (engine caches 5 s per instrument+granularity); add a batch endpoint if the grid grows large.
-export function MiniCandles({ slug, gran, height: H = 44 }: { slug: string; gran: string; height?: number }) {
+export function MiniCandles({ slug, gran, height: H = 44, price = null }: { slug: string; gran: string; height?: number; price?: Price | null }) {
   const key = `${slug}|${gran}`;
-  const [cs, setCs] = useState<C[] | null>(() => cache.get(key)?.cs ?? null);
+  const [raw, setCs] = useState<C[] | null>(() => cache.get(key)?.cs ?? null);
+  const range = useRef<PollRange | null>(null);
   const [hover, setHover] = useState<number | null>(null);
   useEffect(() => {
     let dead = false;
@@ -38,6 +41,7 @@ export function MiniCandles({ slug, gran, height: H = 44 }: { slug: string; gran
     return () => { dead = true; clearInterval(t); };
   }, [key, slug, gran]);
 
+  const cs = raw && withPrice(raw, price, gran, range);
   if (!cs) return <div className="mini-spin" style={{ height: H }} role="status" aria-label={`Loading ${gran} candles`}><span /></div>;
   if (cs.length === 0) return <div className="small muted" style={{ height: H }}>No {gran} candles</div>;
   const lo = Math.min(...cs.map((c) => c.low)), hi = Math.max(...cs.map((c) => c.high));

@@ -1,0 +1,1 @@
+- Console: Desk cards poll the latest tick every 2 s, and the same tick moves the forming candle in the card's strip, so the card price and the strip's last close agree (#333)
