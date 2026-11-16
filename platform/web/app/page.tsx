@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, money, type DeskRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
@@ -59,7 +59,13 @@ export default function Desk() {
   }, []);
   const pickGran = (g: string) => { setGran(g); save(GRAN_KEY, g); };
   const pickSize = (s: string) => { setSize(s); save(SIZE_KEY, s); };
-  const toggleFav = (sym: string) => setFavs((f) => { const n = f.includes(sym) ? f.filter((x) => x !== sym) : [...f, sym]; save(FAV_KEY, JSON.stringify(n)); return n; });
+  // Starring moves the tile to the other section and remounts it, so focus follows the star to its new place.
+  const refocus = useRef<string | null>(null);
+  const toggleFav = (sym: string) => { refocus.current = sym; setFavs((f) => { const n = f.includes(sym) ? f.filter((x) => x !== sym) : [...f, sym]; save(FAV_KEY, JSON.stringify(n)); return n; }); };
+  useEffect(() => {
+    if (refocus.current) document.querySelector<HTMLButtonElement>(`button[data-fav="${CSS.escape(refocus.current)}"]`)?.focus();
+    refocus.current = null;
+  }, [favs]);
   const { tick } = useLive();
 
   useEffect(() => {
@@ -86,7 +92,7 @@ export default function Desk() {
         <div className="row"><h3>{r.name}</h3>
           <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><BotBadge grans={bots?.get(r.symbol)} />
             {/* shortcut: a button inside the card link; preventDefault keeps the click from navigating. Split the card into link + actions if more buttons arrive. */}
-            <button type="button" className={`fav${fav ? ' on' : ''}`} aria-pressed={fav} aria-label={fav ? `Remove ${r.name} from favourites` : `Add ${r.name} to favourites`}
+            <button type="button" data-fav={r.symbol} className={`fav${fav ? ' on' : ''}`} aria-pressed={fav} aria-label={fav ? `Remove ${r.name} from favourites` : `Add ${r.name} to favourites`}
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFav(r.symbol); }}>{fav ? '★' : '☆'}</button></span></div>
         <div className="row small"><span className="muted">{r.symbol}</span><LivePrice slug={r.slug} /></div>
         <MiniCandles slug={r.slug} gran={gran} height={sz.candles} />
@@ -115,6 +121,7 @@ export default function Desk() {
       <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Paper only · agents advise, nothing is traded</span>
         {rows && trades > 0 && <Link href="/portfolio" className="small" title="Closed paper trades, including the previous bot versions">Realized <span className={total >= 0 ? 'good-t' : 'bad-t'}>{money(total)}</span> · {wins} of {trades} trades won</Link>}</div>
         <div className="left">
+          <span className="small muted">Tiles</span>
           <div className="seg" role="group" aria-label="Tile size">
             {Object.keys(SIZES).map((s) => <button key={s} aria-pressed={size === s} onClick={() => pickSize(s)}>{s}</button>)}
           </div>

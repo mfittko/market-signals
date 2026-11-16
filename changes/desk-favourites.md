@@ -1,0 +1,1 @@
+- Console: Desk favourites section pinned by a star on each tile, and an S/M/L tile size switch that also sets the candle strip height; both stored per browser (#332)
