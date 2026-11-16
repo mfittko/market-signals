@@ -31,7 +31,7 @@ export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
         // never overwrites candles from a request that started later.
         if ((cache.get(key)?.at ?? -1) <= started) cache.set(key, { at: started, cs: r.candles.slice(-BARS) });
         if (!dead) setCs(cache.get(key)!.cs);
-      } catch { if (!dead && !cache.has(key)) setCs([]); } // a failed refresh keeps the cached candles
+      } catch { if (!dead) setCs(cache.get(key)?.cs ?? []); } // a failed request shows whatever is cached, which another request may have filled
     };
     void pull();
     const t = setInterval(pull, REFRESH);
