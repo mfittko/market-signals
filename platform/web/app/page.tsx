@@ -55,7 +55,7 @@ export default function Desk() {
     const g = load(GRAN_KEY), s = load(SIZE_KEY);
     if (g && GRANS.includes(g)) setGran(g);
     if (s && SIZES[s]) setSize(s);
-    try { const f = JSON.parse(load(FAV_KEY) ?? '[]'); if (Array.isArray(f)) setFavs(f.filter((x) => typeof x === 'string')); } catch { /* bad value: no favourites */ }
+    try { const f = JSON.parse(load(FAV_KEY) ?? '[]'); if (Array.isArray(f)) setFavs([...new Set(f.filter((x): x is string => typeof x === 'string'))]); } catch { /* bad value: no favourites */ }
   }, []);
   const pickGran = (g: string) => { setGran(g); save(GRAN_KEY, g); };
   const pickSize = (s: string) => { setSize(s); save(SIZE_KEY, s); };
@@ -70,6 +70,7 @@ export default function Desk() {
   const bots = useActiveBots();
   const isActive = (r: DeskRow) => bots?.has(r.symbol) || r.agents.some((a) => a.enabled);
   // Favourites ignore the filters and keep the order they were starred in; the filtered grid below leaves them out.
+  // A favourite missing from /desk is skipped, not deleted: a partial response must not wipe stored favourites.
   const favRows = favs.map((s) => (rows ?? []).find((r) => r.symbol === s)).filter((r): r is DeskRow => !!r);
   const shown = (rows ?? []).filter((r) => !favs.includes(r.symbol) && (market === 'all' || r.market === market) && (!active || isActive(r)));
   const total = (rows ?? []).reduce((s, r) => s + r.realized, 0);
