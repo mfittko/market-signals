@@ -36,7 +36,7 @@ export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
     return () => { dead = true; clearInterval(t); };
   }, [key, slug, gran]);
 
-  if (!cs) return <div style={{ height: H }} aria-hidden />;
+  if (!cs) return <div className="mini-spin" style={{ height: H }} role="status" aria-label={`Loading ${gran} candles`}><span /></div>;
   if (cs.length < 2) return <div className="small muted" style={{ height: H }}>No {gran} candles</div>;
   const lo = Math.min(...cs.map((c) => c.low)), hi = Math.max(...cs.map((c) => c.high));
   const y = (v: number) => (hi === lo ? H / 2 : 1 + (H - 2) * (hi - v) / (hi - lo));
