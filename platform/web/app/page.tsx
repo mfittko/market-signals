@@ -16,11 +16,13 @@ const GRAN_KEY = 'ms-desk-gran', SIZE_KEY = 'ms-desk-size', FAV_KEY = 'ms-desk-f
 const load = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private window */ } };
 
-// Near-live mid for one Desk card, polled every 5 s while the tab is visible.
+// Latest tick (near-live mid) for one Desk card, polled every 2 s while the tab is visible, like the instrument page.
 // Green or red shows the direction of the last change; the first colour compares with the engine's previous different mid. A failed poll hides the price.
-// ponytail: one poll per card; the engine caches 1 s per instrument, add a batch endpoint if the grid grows large.
-function LivePrice({ slug }: { slug: string }) {
-  const [p, setP] = useState<{ mid: number; dir: number } | null>(null);
+// shortcut: one poll per card; the engine caches 1 s per instrument, add a batch endpoint if the grid grows large.
+const PRICE_POLL_MS = 2000;
+type Tick = { mid: number; dir: number; time: string | null };
+function useLivePrice(slug: string) {
+  const [p, setP] = useState<Tick | null>(null);
   useEffect(() => {
     let dead = false, busy = false;
     const pull = async () => {
@@ -28,19 +30,28 @@ function LivePrice({ slug }: { slug: string }) {
       if (busy || document.visibilityState !== 'visible') return;
       busy = true;
       try {
-        const r = await api<{ mid: number; prevMid?: number | null }>(`/instruments/${slug}/price`);
+        const r = await api<{ mid: number; prevMid?: number | null; time?: string | null }>(`/instruments/${slug}/price`);
         // the first colour comes from the engine's previous different mid; later ones from this card's own last mid
-        if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, dir: Math.sign(r.mid - (o?.mid ?? r.prevMid ?? r.mid)) || (o?.dir ?? 0) }));
+        if (!dead && Number.isFinite(r.mid)) setP((o) => ({ mid: r.mid, time: r.time ?? null, dir: Math.sign(r.mid - (o?.mid ?? r.prevMid ?? r.mid)) || (o?.dir ?? 0) }));
       } catch { if (!dead) setP(null); }
       finally { busy = false; }
     };
     void pull();
-    const t = setInterval(pull, 5000);
+    const t = setInterval(pull, PRICE_POLL_MS);
     document.addEventListener('visibilitychange', pull); // a returning tab refreshes at once instead of showing the old mid
     return () => { dead = true; clearInterval(t); document.removeEventListener('visibilitychange', pull); };
   }, [slug]);
-  if (!p) return null;
-  return <span className={`num ${p.dir > 0 ? 'good-t' : p.dir < 0 ? 'bad-t' : ''}`} title="Live mid price">{p.mid}</span>;
+  return p;
+}
+
+// Symbol, latest tick and candle strip of one card. The same tick moves the strip's forming candle, so price and strip agree.
+function LiveRow({ r, gran, height }: { r: DeskRow; gran: string; height: number }) {
+  const p = useLivePrice(r.slug);
+  return <>
+    <div className="row small"><span className="muted">{r.symbol}</span>
+      {p && <span className={`num ${p.dir > 0 ? 'good-t' : p.dir < 0 ? 'bad-t' : ''}`} title="Live mid price">{p.mid}</span>}</div>
+    <MiniCandles slug={r.slug} gran={gran} height={height} price={p} />
+  </>;
 }
 
 export default function Desk() {
@@ -95,8 +106,7 @@ export default function Desk() {
             {/* shortcut: a button inside the card link; preventDefault keeps the click from navigating. Split the card into link + actions if more buttons arrive. */}
             <button type="button" data-fav={r.symbol} className={`fav${fav ? ' on' : ''}`} aria-pressed={fav} aria-label={fav ? `Remove ${r.name} from favourites` : `Add ${r.name} to favourites`}
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFav(r.symbol, e.detail === 0); }}>{fav ? '★' : '☆'}</button></span></div>
-        <div className="row small"><span className="muted">{r.symbol}</span><LivePrice slug={r.slug} /></div>
-        <MiniCandles slug={r.slug} gran={gran} height={sz.candles} />
+        <LiveRow r={r} gran={gran} height={sz.candles} />
         <div className="row small">
           <span className="muted">{r.market} · {r.granularities.join(' ')}</span>
           <span className={`num ${r.realized >= 0 ? 'good-t' : 'bad-t'}`}>{r.trades ? `${money(r.realized)} · ${r.wins}/${r.trades} won` : 'no trades yet'}</span>
