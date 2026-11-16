@@ -119,3 +119,10 @@ gates:
 # This overrides the shipped local-first default humanMergeOnly: true.
 autonomy:
   humanMergeOnly: false
+
+# Copilot reviews (operator, 2026-11-16): disabled for this repo. A round cap
+# of 0 stops every Copilot request and round; merge-pr.mjs then passes Copilot
+# convergence as copilot_gate_disabled. The draft_gate, pre_approval_gate and
+# running-app UX review stay required.
+refinement:
+  maxCopilotRounds: 0
