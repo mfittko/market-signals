@@ -114,6 +114,7 @@ button:focus-visible, select:focus-visible, a:focus-visible, summary:focus-visib
 .nav .brand { color: var(--text); font-weight: 700; margin-right: 8px; }
 .inst-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .inst { display: grid; gap: 8px; color: inherit; } .inst:hover { text-decoration: none; border-color: var(--accent); }
+.fav { background: none; border: 0; padding: 0 2px; font-size: 16px; line-height: 1; color: var(--muted); cursor: pointer; } .fav:hover, .fav.on { color: var(--warn); }
 .inst h3 { margin: 0; font-size: 15px; } .inst .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .good-t { color: var(--good); } .bad-t { color: var(--bad); }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }

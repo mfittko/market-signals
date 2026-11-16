@@ -4,7 +4,7 @@ import { api } from '@/lib/api';
 
 type C = { time: string; open: number; high: number; low: number; close: number };
 const BARS = 48;
-const W = 280, H = 44;
+const W = 280;
 
 const REFRESH = 30000;
 // Client cache per slug|gran for the page session: switching resolution back or returning to the Desk draws at once,
@@ -13,7 +13,7 @@ const cache = new Map<string, { at: number; cs: C[] }>();
 
 // Last BARS candles of one instrument at one resolution, refreshed every 30 s while the tab is visible.
 // shortcut: one /live call per card (engine caches 5 s per instrument+granularity); add a batch endpoint if the grid grows large.
-export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
+export function MiniCandles({ slug, gran, height: H = 44 }: { slug: string; gran: string; height?: number }) {
   const key = `${slug}|${gran}`;
   const [cs, setCs] = useState<C[] | null>(() => cache.get(key)?.cs ?? null);
   const [hover, setHover] = useState<number | null>(null);
