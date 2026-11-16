@@ -5,6 +5,10 @@ import { api, money, type DeskRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
 import { BotBadge, useActiveBots } from '@/lib/bots';
 import { Ago, Card, Loading } from '@/components/ui';
+import { MiniCandles } from '@/components/MiniCandles';
+
+const GRANS = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4'];
+const GRAN_KEY = 'ms-desk-gran';
 
 // Near-live mid for one Desk card, polled every 5 s while the tab is visible.
 // Green or red shows the direction of the last change; the first colour compares with the engine's previous different mid. A failed poll hides the price.
@@ -38,6 +42,9 @@ export default function Desk() {
   const [error, setError] = useState<string | null>(null);
   const [market, setMarket] = useState('all');
   const [active, setActive] = useState(true);
+  const [gran, setGran] = useState('M5');
+  useEffect(() => { try { const g = localStorage.getItem(GRAN_KEY); if (g && GRANS.includes(g)) setGran(g); } catch { /* private window */ } }, []);
+  const pickGran = (g: string) => { setGran(g); try { localStorage.setItem(GRAN_KEY, g); } catch { /* private window */ } };
   const { tick } = useLive();
 
   useEffect(() => {
@@ -55,7 +62,8 @@ export default function Desk() {
   return (
     <main className="wrap">
       <div className="top"><div className="left"><h1>Desk</h1><span className="chip mode">Paper only · agents advise, nothing is traded</span>
-        {rows && trades > 0 && <Link href="/portfolio" className="small" title="Closed paper trades, including the previous bot versions">Realized <span className={total >= 0 ? 'good-t' : 'bad-t'}>{money(total)}</span> · {wins} of {trades} trades won</Link>}</div></div>
+        {rows && trades > 0 && <Link href="/portfolio" className="small" title="Closed paper trades, including the previous bot versions">Realized <span className={total >= 0 ? 'good-t' : 'bad-t'}>{money(total)}</span> · {wins} of {trades} trades won</Link>}</div>
+        <label className="small muted">Candles <select value={gran} onChange={(e) => pickGran(e.target.value)} aria-label="Candle resolution">{GRANS.map((g) => <option key={g}>{g}</option>)}</select></label></div>
       {error && <div className="msg err" role="alert" style={{ marginBottom: 16 }}>Cannot reach the control plane: {error}</div>}
       <div className="filters">
         <div className="seg" role="group" aria-label="Market">
@@ -71,6 +79,7 @@ export default function Desk() {
             <Link key={r.symbol} href={`/instruments/${r.slug}`} className="card inst">
               <div className="row"><h3>{r.name}</h3><BotBadge grans={bots?.get(r.symbol)} /></div>
               <div className="row small"><span className="muted">{r.symbol}</span><LivePrice slug={r.slug} /></div>
+              <MiniCandles slug={r.slug} gran={gran} />
               <div className="row small">
                 <span className="muted">{r.market} · {r.granularities.join(' ')}</span>
                 <span className={`num ${r.realized >= 0 ? 'good-t' : 'bad-t'}`}>{r.trades ? `${money(r.realized)} · ${r.wins}/${r.trades} won` : 'no trades yet'}</span>
