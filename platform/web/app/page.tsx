@@ -59,9 +59,10 @@ export default function Desk() {
   }, []);
   const pickGran = (g: string) => { setGran(g); save(GRAN_KEY, g); };
   const pickSize = (s: string) => { setSize(s); save(SIZE_KEY, s); };
-  // Starring moves the tile to the other section and remounts it, so focus follows the star to its new place.
+  // Starring moves the tile to the other section and remounts it. A keyboard toggle moves focus to the star's new place;
+  // a mouse toggle does not, because focusing scrolls the page away from where the user clicked.
   const refocus = useRef<string | null>(null);
-  const toggleFav = (sym: string) => { refocus.current = sym; setFavs((f) => { const n = f.includes(sym) ? f.filter((x) => x !== sym) : [...f, sym]; save(FAV_KEY, JSON.stringify(n)); return n; }); };
+  const toggleFav = (sym: string, keyboard: boolean) => { refocus.current = keyboard ? sym : null; setFavs((f) => { const n = f.includes(sym) ? f.filter((x) => x !== sym) : [...f, sym]; save(FAV_KEY, JSON.stringify(n)); return n; }); };
   useEffect(() => {
     if (refocus.current) document.querySelector<HTMLButtonElement>(`button[data-fav="${CSS.escape(refocus.current)}"]`)?.focus();
     refocus.current = null;
@@ -93,7 +94,7 @@ export default function Desk() {
           <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><BotBadge grans={bots?.get(r.symbol)} />
             {/* shortcut: a button inside the card link; preventDefault keeps the click from navigating. Split the card into link + actions if more buttons arrive. */}
             <button type="button" data-fav={r.symbol} className={`fav${fav ? ' on' : ''}`} aria-pressed={fav} aria-label={fav ? `Remove ${r.name} from favourites` : `Add ${r.name} to favourites`}
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFav(r.symbol); }}>{fav ? '★' : '☆'}</button></span></div>
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFav(r.symbol, e.detail === 0); }}>{fav ? '★' : '☆'}</button></span></div>
         <div className="row small"><span className="muted">{r.symbol}</span><LivePrice slug={r.slug} /></div>
         <MiniCandles slug={r.slug} gran={gran} height={sz.candles} />
         <div className="row small">
