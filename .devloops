@@ -109,3 +109,13 @@ tracker:
 # rather than several independent ones — that is the tradeoff being accepted.
 gates:
   requireFanoutEvidence: false
+
+# Merge policy (operator, 2026-11-16): standing merge approval for this repo.
+# The agent may merge a PR once every gate is clean on the current head: CI,
+# draft_gate, pre_approval_gate, Copilot convergence, size budget, and, for UI
+# changes, the running-app UX review. Merges go through the sanctioned wrapper
+# scripts/github/merge-pr.mjs with --human-approved-by mfittko
+# --standing-authorization; it still refuses on any failing precondition.
+# This overrides the shipped local-first default humanMergeOnly: true.
+autonomy:
+  humanMergeOnly: false
