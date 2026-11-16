@@ -1,0 +1,1 @@
+- Console: Desk cards show a strip of the last 48 candles with a resolution select, hover OHLC and a loading spinner (#331)
