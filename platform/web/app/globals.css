@@ -62,6 +62,9 @@ tbody tr.link:hover { background: var(--surface-2); cursor: pointer; }
 .empty { padding: 28px 8px; text-align: center; color: var(--muted); }
 .loading { min-height: 120px; display: grid; place-items: center; color: var(--muted); }
 .loading.full { min-height: 50vh; }
+.mini-spin { display: grid; place-items: center; } .mini-spin span { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--muted); border-radius: 50%; animation: mini-spin 0.8s linear infinite; }
+@keyframes mini-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .mini-spin span { animation: none; } }
 .chart-wait { min-height: 420px; display: grid; place-items: center; } /* chart 380 + legend row */
 @media (max-width: 560px) { .chart-wait { min-height: 340px; } .chart-aside { display: inline-block; min-height: 2.6em; } }
 button, select { font: inherit; }
