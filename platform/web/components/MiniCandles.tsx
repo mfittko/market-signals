@@ -39,7 +39,7 @@ export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
   }, [key, slug, gran]);
 
   if (!cs) return <div className="mini-spin" style={{ height: H }} role="status" aria-label={`Loading ${gran} candles`}><span /></div>;
-  if (cs.length < 2) return <div className="small muted" style={{ height: H }}>No {gran} candles</div>;
+  if (cs.length === 0) return <div className="small muted" style={{ height: H }}>No {gran} candles</div>;
   const lo = Math.min(...cs.map((c) => c.low)), hi = Math.max(...cs.map((c) => c.high));
   const y = (v: number) => (hi === lo ? H / 2 : 1 + (H - 2) * (hi - v) / (hi - lo));
   const slot = W / cs.length, bw = Math.max(1, slot * 0.6);
@@ -70,7 +70,8 @@ export function MiniCandles({ slug, gran }: { slug: string; gran: string }) {
       // below the strip so it never covers a candle; it overlays the stats line only while hovering
       <div className="small num" style={{ position: 'absolute', top: '100%', left: 0, right: 0, pointerEvents: 'none', zIndex: 1,
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 6px' }}>
-        <span className="muted">{new Date(hv.time).toLocaleString([], gran.startsWith('H') ? { weekday: 'short', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })}</span>
+        <span className="muted">{/* the engine writes nanosecond timestamps; keep three fractional digits so every browser parses them */}
+        {new Date(hv.time.replace(/(\.\d{3})\d+/, '$1')).toLocaleString([], gran.startsWith('H') ? { weekday: 'short', hour: '2-digit', minute: '2-digit' } : { hour: '2-digit', minute: '2-digit' })}</span>
         {/* four items that wrap on a narrow card instead of cutting a price off */}
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: 8 }}>
           {(['open', 'high', 'low', 'close'] as const).map((k) => (
