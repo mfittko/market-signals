@@ -132,7 +132,7 @@ test('GET /api/chart honours an optional count and ignores an invalid one', asyn
     const all = await n('');
     assert.equal(all, 60, 'the default window holds every fixture candle');
     assert.equal(await n('?count=10'), 10, 'count narrows the window');
-    assert.equal(await n('?count=5000'), all, 'a huge count is capped and still serves');
+    assert.equal(await n('?count=5000'), all, 'a huge count still serves every candle');
     for (const bad of ['0', '-3', '2.5', 'abc', '']) assert.equal(await n(`?count=${bad}`), all, `count=${bad} keeps the default window`);
   });
 });

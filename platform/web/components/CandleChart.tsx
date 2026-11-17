@@ -2,6 +2,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
+import { zoomFactor } from '@/lib/chart-zoom-key';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -151,7 +152,8 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') { setHover(null); return; }
-    if (e.key === '-' || e.key === '+' || e.key === '=') { e.preventDefault(); zoom(e.key === '-' ? 1.5 : 1 / 1.5); return; }
+    const f = zoomFactor(e);
+    if (f !== null) { e.preventDefault(); zoom(f); return; }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const cur = hover?.i ?? candles.length - 1;
