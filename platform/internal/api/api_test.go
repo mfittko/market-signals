@@ -29,12 +29,21 @@ func fakeEngine(t *testing.T) *httptest.Server {
 			http.Error(w, "wrong scope", 400)
 			return
 		}
+		candles := []map[string]any{
+			{"time": "2026-01-01T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 10}, // stored bars carry no complete field
+			{"time": "2026-01-01T10:05:00Z", "open": 1.5, "high": 2, "low": 1, "close": 1.6, "volume": 5, "complete": false, "partial": true},
+		}
+		// a caller asking for a window gets more older bars than it asked for, so its own cap is observable
+		if n, _ := strconv.Atoi(r.URL.Query().Get("count")); n > 0 {
+			older := make([]map[string]any, n)
+			for i := range older {
+				older[i] = map[string]any{"time": "2025-12-31T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 1}
+			}
+			candles = append(older, candles...)
+		}
 		json.NewEncoder(w).Encode(map[string]any{
-			"candles": []map[string]any{
-				{"time": "2026-01-01T10:00:00Z", "open": 1, "high": 2, "low": 1, "close": 1.5, "volume": 10}, // stored bars carry no complete field
-				{"time": "2026-01-01T10:05:00Z", "open": 1.5, "high": 2, "low": 1, "close": 1.6, "volume": 5, "complete": false, "partial": true},
-			},
-			"signal": map[string]any{"signal": "sell", "time": "2026-01-01T09:55:00Z", "price": 1.4},
+			"candles": candles,
+			"signal":  map[string]any{"signal": "sell", "time": "2026-01-01T09:55:00Z", "price": 1.4},
 			// deliberately unordered: the Desk must pick the newest by time
 			"signals":    []map[string]any{{"time": "2026-01-01T09:00:00Z", "signal": "buy"}, {"time": "2026-01-01T09:55:00Z", "signal": "sell"}, {"time": "2026-01-01T09:30:00Z", "signal": "buy"}},
 			"supertrend": []map[string]any{{"value": 1.7, "trend": "down"}},
@@ -491,8 +500,11 @@ func TestLiveAndNewsProxyTheEngineForOneInstrument(t *testing.T) {
 		t.Fatalf("live: %d %v", code, live)
 	}
 	cs := live["candles"].([]any)
-	if len(cs) != 2 || cs[0].(map[string]any)["complete"] != true || cs[1].(map[string]any)["complete"] != false {
-		t.Fatalf("the forming candle must be flagged and the finished one must not: %v", cs)
+	if len(cs) != liveWindow {
+		t.Fatalf("the live route must ask the engine for a window and keep only its last %d candles, got %d", liveWindow, len(cs))
+	}
+	if cs[len(cs)-2].(map[string]any)["complete"] != true || cs[len(cs)-1].(map[string]any)["complete"] != false {
+		t.Fatalf("the forming candle must be flagged and the finished one must not: %v", cs[len(cs)-2:])
 	}
 	code, news := call(t, "GET", hs.URL+"/api/v1/instruments/wtico-usd/news", "", "", nil)
 	if code != 200 || len(news["items"].([]any)) != 1 {
