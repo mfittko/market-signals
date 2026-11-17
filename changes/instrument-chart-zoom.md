@@ -1,0 +1,1 @@
+- Console: the instrument chart zooms its time axis with the − / + buttons or keys, from 20 candles up to the 480 the live route now loads (#338)

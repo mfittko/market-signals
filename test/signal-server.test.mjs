@@ -126,6 +126,17 @@ test('GET / serves the self-contained chart page', async () => {
   });
 });
 
+test('GET /api/chart honours an optional count and ignores an invalid one', async () => {
+  await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base }) => {
+    const n = async (q) => (await (await fetch(`${base}/api/chart${q}`)).json()).candles.length;
+    const all = await n('');
+    assert.equal(all, 60, 'the default window holds every fixture candle');
+    assert.equal(await n('?count=10'), 10, 'count narrows the window');
+    assert.equal(await n('?count=5000'), all, 'a huge count still serves every candle');
+    for (const bad of ['0', '-3', '2.5', 'abc', '']) assert.equal(await n(`?count=${bad}`), all, `count=${bad} keeps the default window`);
+  });
+});
+
 test('GET /api/chart returns candles, supertrend, and the deep-linked signal', async () => {
   await withServer(mkdtempSync(join(tmpdir(), 'ss-')), async ({ base, sigTime }) => {
     const d = await (await fetch(`${base}/api/chart?t=${encodeURIComponent(sigTime)}`)).json();
