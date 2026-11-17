@@ -173,10 +173,10 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   if (!W) return <div ref={box} style={{ minHeight: 300 }} />; // reserves the space until the width is measured
   return (
     <div ref={box} style={{ position: 'relative' }}>
-      {/* bottom-right corner: the price-label margin is free below the last tick */}
-      <div className="seg" style={{ position: 'absolute', right: 4, bottom: 4, zIndex: 1 }}>
-        <button type="button" onClick={() => zoom(1.5)} disabled={fit >= all.length} aria-label="Show more candles" title="Show more candles (−)">−</button>
-        <button type="button" onClick={() => zoom(1 / 1.5)} disabled={fit <= 20} aria-label="Show fewer candles" title="Show fewer candles (+)">+</button>
+      {/* time-axis row of the price-label margin: free below the last tick, and above the legend (the svg draws at 1:1 since W is the box width) */}
+      <div className="seg" style={{ position: 'absolute', right: 4, top: H - 26, zIndex: 1 }}>
+        <button type="button" style={{ padding: '0 8px', lineHeight: '20px' }} onClick={() => zoom(1.5)} disabled={fit >= all.length} aria-label="Show more candles" title="Show more candles (−)">−</button>
+        <button type="button" style={{ padding: '0 8px', lineHeight: '20px' }} onClick={() => zoom(1 / 1.5)} disabled={fit <= 20} aria-label="Show fewer candles" title="Show fewer candles (+)">+</button>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary} tabIndex={0}
         style={{ width: '100%', height: 'auto', display: 'block', touchAction: 'pan-y', outline: 'none' }}
