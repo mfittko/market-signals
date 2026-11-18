@@ -25,7 +25,10 @@ const (
 	articleMinText  = 400 // shorter extracts are cookie walls, index pages or redirect stubs
 )
 
-var errPrivateAddr = errors.New("refusing a non-public address")
+var errPrivateAddr = fmt.Errorf("%w: refusing a non-public address", errNoArticle)
+
+// errNoArticle marks a link that will never yield article text, so retrying it is pointless.
+var errNoArticle = errors.New("no article text")
 
 // publicOnly refuses loopback, private, link-local and unspecified addresses at dial time,
 // so a redirect or DNS answer cannot point the fetch at the local network.
@@ -66,10 +69,10 @@ var articleClient = &http.Client{
 	},
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
-			return errors.New("too many redirects")
+			return fmt.Errorf("%w: too many redirects", errNoArticle)
 		}
 		if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-			return errors.New("redirect to a non-web scheme")
+			return fmt.Errorf("%w: redirect to a non-web scheme", errNoArticle)
 		}
 		return nil
 	},
@@ -85,7 +88,7 @@ var (
 func fetchArticle(ctx context.Context, raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("not a web URL: %q", raw)
+		return "", fmt.Errorf("%w: not a web URL: %q", errNoArticle, raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -98,11 +101,14 @@ func fetchArticle(ctx context.Context, raw string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("article returned %d", resp.StatusCode)
+	if c := resp.StatusCode; c != http.StatusOK {
+		if c >= 400 && c < 500 && c != http.StatusRequestTimeout && c != http.StatusTooManyRequests {
+			return "", fmt.Errorf("%w: article returned %d", errNoArticle, c)
+		}
+		return "", fmt.Errorf("article returned %d", c) // 5xx, 408 and 429 are temporary
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "text/html") && !strings.Contains(ct, "text/plain") {
-		return "", fmt.Errorf("article is %s", ct)
+		return "", fmt.Errorf("%w: article is %s", errNoArticle, ct)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, articleMaxBytes))
 	if err != nil {
@@ -110,7 +116,7 @@ func fetchArticle(ctx context.Context, raw string) (string, error) {
 	}
 	text := htmlText(string(body))
 	if len(text) < articleMinText {
-		return "", errors.New("no article text")
+		return "", errNoArticle
 	}
 	if len(text) > articleMaxText {
 		text = text[:articleMaxText]

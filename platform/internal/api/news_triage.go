@@ -16,21 +16,22 @@ type triage struct {
 	Relevant   bool
 	URL        string
 	Summary    string // Markdown; empty when no summary exists yet or the article had none
-	Summarized bool   // a summary attempt finished, so it is not retried
+	Summarized bool   // a summary attempt finished (a summary, no article text or NONE), so it is not retried
 }
 
 // newsTriage keeps the records in memory in front of the news_triage table.
 // ponytail: unbounded in-memory map per process; add eviction when headline volume makes memory matter.
 type newsTriage struct {
-	mu       sync.Mutex
-	seen     map[string]triage
-	inflight map[string]bool      // instruments with a background triage running
-	failed   map[string]time.Time // last failed classification per instrument; pauses retries
-	wg       sync.WaitGroup       // lets tests wait for the background work
+	mu        sync.Mutex
+	seen      map[string]triage
+	inflight  map[string]bool      // instruments with a background triage running
+	failed    map[string]time.Time // last failed classification per instrument; pauses retries
+	sumFailed map[string]time.Time // last failed summary per headline key; pauses retries
+	wg        sync.WaitGroup       // lets tests wait for the background work
 }
 
 func newNewsTriage() *newsTriage {
-	return &newsTriage{seen: map[string]triage{}, inflight: map[string]bool{}, failed: map[string]time.Time{}}
+	return &newsTriage{seen: map[string]triage{}, inflight: map[string]bool{}, failed: map[string]time.Time{}, sumFailed: map[string]time.Time{}}
 }
 
 const (
@@ -104,7 +105,7 @@ func (s *Server) triageNews(ctx context.Context, symbol, name string, raw json.R
 				todo = append(todo, h)
 			}
 			urls[h] = field(it, "url")
-		} else if r.Relevant && !r.Summarized && field(it, "url") != "" {
+		} else if t.summaryDue(symbol, h, r, field(it, "url")) {
 			needSummary = true
 			urls[h] = field(it, "url")
 		}
@@ -246,7 +247,7 @@ func (s *Server) runTriage(symbol, name string, todo []string, urls map[string]s
 	t.mu.Lock()
 	var work []string
 	for h, u := range urls {
-		if r, ok := t.seen[newsKey(symbol, h)]; ok && r.Relevant && !r.Summarized && u != "" {
+		if r, ok := t.seen[newsKey(symbol, h)]; ok && t.summaryDue(symbol, h, r, u) {
 			work = append(work, h)
 		}
 	}
@@ -264,11 +265,16 @@ func (s *Server) runTriage(symbol, name string, todo []string, urls map[string]s
 		go func() {
 			defer func() { <-sem; wg.Done() }()
 			sum, err := s.summarize(ctx, symbol, name, h, urls[h])
-			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-				return // retried on a later visit
-			}
+			key := newsKey(symbol, h)
 			t.mu.Lock()
-			r := t.seen[newsKey(symbol, h)]
+			if err != nil {
+				t.sumFailed[key] = time.Now()
+				t.mu.Unlock()
+				s.log.Warn("news summary", "instrument", symbol, "err", err)
+				return // a temporary failure: retried on a later visit after the backoff
+			}
+			delete(t.sumFailed, key)
+			r := t.seen[key]
 			t.mu.Unlock()
 			r.Summary, r.Summarized = sum, true
 			s.store(symbol, h, r)
@@ -284,12 +290,25 @@ func (s *Server) notifyNews(symbol string) {
 	}
 }
 
+// summaryDue reports whether a relevant headline with a link still needs a summary attempt:
+// none finished yet and no failed attempt within the backoff. The caller holds t.mu.
+func (t *newsTriage) summaryDue(symbol, title string, r triage, link string) bool {
+	return r.Relevant && !r.Summarized && link != "" && time.Since(t.sumFailed[newsKey(symbol, title)]) > triageBackoff
+}
+
 // summarize fetches the article and asks the model for a short Markdown summary.
-// It returns an empty summary when the page has no article text or the model finds none.
+// It returns an empty summary when the page has no article text or the model finds none,
+// and an error for a temporary failure (a done context, a network error, a model error).
 func (s *Server) summarize(ctx context.Context, symbol, name, title, link string) (string, error) {
 	text, err := fetchArticle(ctx, link)
-	if err != nil {
+	if errors.Is(err, errNoArticle) {
 		return "", nil
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", err
 	}
 	user := fmt.Sprintf("Instrument: %s (%s).\nHeadline: %s\nArticle text:\n%s", symbol, name, title, text)
 	reply, err := s.cfg.Complete(ctx, []map[string]any{{"role": "system", "content": summarySystem}, {"role": "user", "content": user}})
