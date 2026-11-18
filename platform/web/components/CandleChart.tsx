@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Decision } from '@/lib/api';
 import { isAlerted } from '@/lib/signal-class';
 import { zoomFactor } from '@/lib/chart-zoom-key';
+import { tickShowsDate } from '@/lib/axis-label';
 
 export type Candle = { time: string; open: number; high: number; low: number; close: number; volume: number; complete?: boolean };
 export type STPoint = { time: string; value: number; trend: string };
@@ -37,6 +38,7 @@ const ms = (t: string) => {
 };
 const stamp = (t: string) => new Date(ms(t)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const hm = (t: string) => new Date(ms(t)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const md = (t: string) => new Date(ms(t)).toLocaleDateString([], { month: 'short', day: 'numeric' });
 
 function levels(d: Decision | undefined) {
   if (!d || d.action !== 'open') return [];
@@ -128,6 +130,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
   const flipIdx = barAt(flip?.time);
   const asOfIdx = barAt(asOf);
   const labelEvery = Math.max(1, Math.ceil(candles.length / Math.max(2, Math.floor(pw / 64)))); // one label per ~64px
+  const tickStep = barMs * labelEvery;
 
   // Supertrend as line segments, coloured by trend and broken where the trend flips.
   const stSegs: { d: string; up: boolean }[] = [];
@@ -215,7 +218,7 @@ export function CandleChart({ candles: all, asOf, price, lastPrice, flip, agent,
           );
         })}
         {candles.map((c, i) => i % labelEvery === 0 && (
-          <text key={`l${i}`} x={x(i)} y={H - 16} fontSize={11} textAnchor="middle" fill="var(--muted)">{hm(c.time)}</text>
+          <text key={`l${i}`} x={i ? x(i) : PAD.l} y={H - 16} fontSize={11} textAnchor={i ? 'middle' : 'start'} fill="var(--muted)">{tickShowsDate(ms(c.time), i ? ms(candles[i - labelEvery].time) : null, tickStep) ? md(c.time) : hm(c.time)}</text>
         ))}
         {[...marks.entries()].map(([i, m]) => (
           <g key={`m${i}`}>

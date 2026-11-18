@@ -1,0 +1,1 @@
+- Console: the instrument chart time axis shows dates when its labels are a day or more apart, and marks each new day on closer labels
