@@ -97,12 +97,13 @@ func TestArticleGuardsAndText(t *testing.T) {
 	}
 }
 
-// summaryFixture serves one article page and answers classification as relevant; the
+// summaryFixture serves one article page with the given status and answers classification as relevant; the
 // summary reply comes from sum. It returns the server, the article link and the summary call count.
-func summaryFixture(t *testing.T, page string, sum func() (string, error)) (*Server, string, *int) {
+func summaryFixture(t *testing.T, status int, page string, sum func() (string, error)) (*Server, string, *int) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(status)
 		_, _ = io.WriteString(w, page)
 	}))
 	t.Cleanup(srv.Close)
@@ -135,7 +136,7 @@ func triageAndWait(t *testing.T, s *Server, raw json.RawMessage) {
 }
 
 func TestSummaryModelErrorIsRetriedAfterBackoff(t *testing.T) {
-	s, link, calls := summaryFixture(t, articlePage, func() (string, error) { return "", errors.New("down") })
+	s, link, calls := summaryFixture(t, http.StatusOK, articlePage, func() (string, error) { return "", errors.New("down") })
 	raw := newsWith(link)
 	key := newsKey("WTICO/USD", "Oil rises")
 
@@ -155,7 +156,7 @@ func TestSummaryModelErrorIsRetriedAfterBackoff(t *testing.T) {
 }
 
 func TestSummaryCancelledContextIsRetryable(t *testing.T) {
-	s, link, calls := summaryFixture(t, articlePage, func() (string, error) { return "**Oil up.**", nil })
+	s, link, calls := summaryFixture(t, http.StatusOK, articlePage, func() (string, error) { return "**Oil up.**", nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := s.summarize(ctx, "WTICO/USD", "WTI Crude", "Oil rises", link); !errors.Is(err, context.Canceled) {
@@ -168,15 +169,17 @@ func TestSummaryCancelledContextIsRetryable(t *testing.T) {
 
 func TestSummaryFinishedWithoutArticleOrOnNone(t *testing.T) {
 	for name, tc := range map[string]struct {
-		page  string
-		reply string
-		calls int
+		status int
+		page   string
+		reply  string
+		calls  int
 	}{
-		"no article text": {"<html><p>Accept cookies</p></html>", "unused", 0},
-		"NONE reply":      {articlePage, "NONE", 1},
+		"no article text": {http.StatusOK, "<html><p>Accept cookies</p></html>", "unused", 0},
+		"page not found":  {http.StatusNotFound, articlePage, "unused", 0},
+		"NONE reply":      {http.StatusOK, articlePage, "NONE", 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			s, link, calls := summaryFixture(t, tc.page, func() (string, error) { return tc.reply, nil })
+			s, link, calls := summaryFixture(t, tc.status, tc.page, func() (string, error) { return tc.reply, nil })
 			raw := newsWith(link)
 			key := newsKey("WTICO/USD", "Oil rises")
 			triageAndWait(t, s, raw)
