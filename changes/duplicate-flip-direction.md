@@ -1,0 +1,1 @@
+- Alerts: an opposite-direction supertrend flip within three bars of the last flip is a new signal again, no longer suppressed as a duplicate (#340)

@@ -316,6 +316,67 @@ test('processSignal fails open on filter error and records the verdict', async (
   }
 });
 
+// --- duplicate window is direction-aware: only a same-direction flip is a re-detection ---
+async function flipSeq(dir, flips, granularity = 'M1') {
+  const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "ok"}'`);
+  fakeBin(dir, 'osascript', 'exit 0');
+  const { opts, result, candles: c } = fixture(dir, { settings: { provider: 'pi', piBin } });
+  opts.granularity = granularity;
+  const out = [];
+  for (const [time, signal] of flips) {
+    out.push(await processSignal(opts, { ...result, signal: { time, signal, price: 88.35, barsAgo: 0, fresh: true } }, c));
+  }
+  return { opts, out };
+}
+
+test('processSignal: an opposite-direction flip two bars after a flip is a new signal, not a duplicate (M1 sell 06:01 then buy 06:03)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  try {
+    const { opts, out } = await flipSeq(dir, [['2026-10-01T06:01:00Z', 'sell'], ['2026-10-01T06:03:00Z', 'buy']]);
+    assert.equal(out[0].sent, true, out[0].reason);
+    assert.equal(out[1].sent, true, out[1].reason);
+    const rows = signalOutcomes(opts.db, 'WTICO/USD', 'M1');
+    assert.equal(rows.filter((r) => r.notified === 1).length, 2, 'both flips notified');
+    assert.ok(rows.every((r) => r.verdict !== 'duplicate'));
+  } finally {
+    process.env.PATH = prevPath;
+  }
+});
+
+test('processSignal: the mirror (buy then sell two bars later) also notifies twice', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  try {
+    const { out } = await flipSeq(dir, [['2026-10-01T06:01:00Z', 'buy'], ['2026-10-01T06:03:00Z', 'sell']]);
+    assert.equal(out[0].sent, true, out[0].reason);
+    assert.equal(out[1].sent, true, out[1].reason);
+  } finally {
+    process.env.PATH = prevPath;
+  }
+});
+
+test('processSignal: a same-direction flip one bar apart is a duplicate (one notification); four bars apart is not', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'st-'));
+  const prevPath = process.env.PATH;
+  process.env.PATH = `${dir}:${prevPath}`;
+  try {
+    const { out } = await flipSeq(dir, [
+      ['2026-10-01T06:01:00Z', 'sell'],
+      ['2026-10-01T06:02:00Z', 'sell'],
+      ['2026-10-01T06:06:00Z', 'sell'],
+    ]);
+    assert.equal(out[0].sent, true, out[0].reason);
+    assert.equal(out[1].sent, false);
+    assert.match(out[1].reason, /^duplicate of 2026-10-01T06:01:00Z/);
+    assert.equal(out[2].sent, true, 'four bars after the nearest same-direction flip is outside the window');
+  } finally {
+    process.env.PATH = prevPath;
+  }
+});
+
 test('resolveFilterSystem falls back to the builtin prompt when gate-prompt resolution throws (fail-open, #58)', async () => {
   const { resolveFilterSystem } = await import('../scripts/supertrend.mjs');
   const r = await resolveFilterSystem('/nonexistent-dir/nope/db.sqlite');

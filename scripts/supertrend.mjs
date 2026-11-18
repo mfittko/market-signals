@@ -1297,11 +1297,11 @@ export async function processSignal(opts, result, candles) {
   const granMs = granularityMs(opts.granularity);
   const sigMs = Date.parse(sig.time);
   const nearby = signalOutcomes(opts.db, opts.instrument, opts.granularity, { limit: 10 })
-    .find((s) => s.time !== sig.time && Math.abs(Date.parse(s.time) - sigMs) <= 3 * granMs);
+    .find((s) => s.time !== sig.time && s.signal === sig.signal && Math.abs(Date.parse(s.time) - sigMs) <= 3 * granMs);
   const { isNew } = recordSignal(opts.db, opts.instrument, opts.granularity, sig, result.backtest.winRatePct);
   if (!isNew) return { sent: false, reason: 'already processed' };
   if (nearby) {
-    // Same flip re-detected on a shifted candle window: lock in the original,
+    // Same-direction flip re-detected on a shifted candle window: lock in the original,
     // record this row for audit, never notify twice.
     updateSignal(opts.db, opts.instrument, opts.granularity, sig.time, 'duplicate', `re-detection of ${nearby.time}`, 0);
     dbg(`suppressed duplicate of ${nearby.time} (flip re-detected at ${sig.time})`);
