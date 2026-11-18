@@ -6,8 +6,11 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type triagedDoc struct {
@@ -91,5 +94,99 @@ func TestArticleGuardsAndText(t *testing.T) {
 	got := htmlText(`<html><script>x()</script><nav>menu</nav><p>Oil &amp; gas  rise</p><style>p{}</style></html>`)
 	if got != "Oil & gas rise" {
 		t.Fatalf("htmlText = %q", got)
+	}
+}
+
+// summaryFixture serves one article page and answers classification as relevant; the
+// summary reply comes from sum. It returns the server, the article link and the summary call count.
+func summaryFixture(t *testing.T, page string, sum func() (string, error)) (*Server, string, *int) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, page)
+	}))
+	t.Cleanup(srv.Close)
+	prev := articleClient
+	articleClient = srv.Client() // the real client refuses loopback
+	t.Cleanup(func() { articleClient = prev })
+
+	calls := 0
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil)), tri: newNewsTriage()}
+	s.cfg.Complete = func(_ context.Context, msgs []map[string]any) (string, error) {
+		if msgs[0]["content"] == summarySystem {
+			calls++
+			return sum()
+		}
+		return `[{"i":0,"en":"Oil rises","relevant":true}]`, nil
+	}
+	return s, srv.URL + "/a", &calls
+}
+
+func newsWith(link string) json.RawMessage {
+	return json.RawMessage(`{"ok":true,"items":[{"title":"Oil rises","url":"` + link + `"}]}`)
+}
+
+var articlePage = "<html><p>" + strings.Repeat("Crude oil rose on supply fears. ", 20) + "</p></html>"
+
+func triageAndWait(t *testing.T, s *Server, raw json.RawMessage) {
+	t.Helper()
+	triageOnce(t, s, raw)
+	s.tri.wg.Wait()
+}
+
+func TestSummaryModelErrorIsRetriedAfterBackoff(t *testing.T) {
+	s, link, calls := summaryFixture(t, articlePage, func() (string, error) { return "", errors.New("down") })
+	raw := newsWith(link)
+	key := newsKey("WTICO/USD", "Oil rises")
+
+	triageAndWait(t, s, raw) // classifies, then the summary fails
+	if *calls != 1 || s.tri.seen[key].Summarized {
+		t.Fatalf("a failed summary must stay unfinished: calls=%d record=%+v", *calls, s.tri.seen[key])
+	}
+	triageAndWait(t, s, raw)
+	if *calls != 1 {
+		t.Fatalf("a retry within the backoff called the model: %d calls", *calls)
+	}
+	s.tri.sumFailed[key] = time.Now().Add(-triageBackoff - time.Second)
+	triageAndWait(t, s, raw)
+	if *calls != 2 || s.tri.seen[key].Summarized {
+		t.Fatalf("after the backoff the summary must be retried: calls=%d record=%+v", *calls, s.tri.seen[key])
+	}
+}
+
+func TestSummaryCancelledContextIsRetryable(t *testing.T) {
+	s, link, calls := summaryFixture(t, articlePage, func() (string, error) { return "**Oil up.**", nil })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.summarize(ctx, "WTICO/USD", "WTI Crude", "Oil rises", link); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled context must surface as context.Canceled, got %v", err)
+	}
+	if *calls != 0 {
+		t.Fatalf("a cancelled fetch reached the model: %d calls", *calls)
+	}
+}
+
+func TestSummaryFinishedWithoutArticleOrOnNone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		page  string
+		reply string
+		calls int
+	}{
+		"no article text": {"<html><p>Accept cookies</p></html>", "unused", 0},
+		"NONE reply":      {articlePage, "NONE", 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, link, calls := summaryFixture(t, tc.page, func() (string, error) { return tc.reply, nil })
+			raw := newsWith(link)
+			key := newsKey("WTICO/USD", "Oil rises")
+			triageAndWait(t, s, raw)
+			if r := s.tri.seen[key]; !r.Summarized || r.Summary != "" {
+				t.Fatalf("the attempt must count as finished with no summary: %+v", r)
+			}
+			triageAndWait(t, s, raw)
+			if *calls != tc.calls {
+				t.Fatalf("a finished attempt was retried: %d calls, want %d", *calls, tc.calls)
+			}
+		})
 	}
 }

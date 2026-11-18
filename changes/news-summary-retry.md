@@ -1,0 +1,1 @@
+- Console: a news summary that fails for a temporary reason (network, timeout, model error) is retried after 5 minutes instead of being stored as "no summary" (#297)

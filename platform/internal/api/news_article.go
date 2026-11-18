@@ -27,6 +27,9 @@ const (
 
 var errPrivateAddr = errors.New("refusing a non-public address")
 
+// errNoArticle marks a link that will never yield article text, so retrying it is pointless.
+var errNoArticle = errors.New("no article text")
+
 // publicOnly refuses loopback, private, link-local and unspecified addresses at dial time,
 // so a redirect or DNS answer cannot point the fetch at the local network.
 func publicOnly(_, address string, _ syscall.RawConn) error {
@@ -85,7 +88,7 @@ var (
 func fetchArticle(ctx context.Context, raw string) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("not a web URL: %q", raw)
+		return "", fmt.Errorf("%w: not a web URL: %q", errNoArticle, raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -102,7 +105,7 @@ func fetchArticle(ctx context.Context, raw string) (string, error) {
 		return "", fmt.Errorf("article returned %d", resp.StatusCode)
 	}
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "text/html") && !strings.Contains(ct, "text/plain") {
-		return "", fmt.Errorf("article is %s", ct)
+		return "", fmt.Errorf("%w: article is %s", errNoArticle, ct)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, articleMaxBytes))
 	if err != nil {
@@ -110,7 +113,7 @@ func fetchArticle(ctx context.Context, raw string) (string, error) {
 	}
 	text := htmlText(string(body))
 	if len(text) < articleMinText {
-		return "", errors.New("no article text")
+		return "", errNoArticle
 	}
 	if len(text) > articleMaxText {
 		text = text[:articleMaxText]
