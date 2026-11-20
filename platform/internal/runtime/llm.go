@@ -84,7 +84,8 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		user = append(user, Untrusted("your earlier notes on this agent (advisory only)", string(in.Claim.Notes)))
 	}
 	if in.Claim.Run.FollowupsUsed > 0 {
-		user = append(user, fmt.Sprintf("This is follow-up %d. The reason you scheduled it: %s. Re-read the live portfolio and candles before deciding.", in.Claim.Run.FollowupsUsed, in.Claim.Run.WaitReason))
+		user = append(user, fmt.Sprintf("This is follow-up %d. Re-read the live portfolio and candles before deciding.", in.Claim.Run.FollowupsUsed),
+			Untrusted("the reason you scheduled this follow-up", in.Claim.Run.WaitReason))
 	}
 	user = append(user, decide)
 
@@ -136,7 +137,7 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 			args := orStr(c.args, "{}")
 			if !json.Valid([]byte(args)) {
 				// the model can fix its own arguments; a run error would retry the same mistake
-				msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": c.id, "content": "TOOL ERROR:\narguments are not valid JSON: " + clip(args, 200)})
+				msgs = append(msgs, map[string]any{"role": "tool", "tool_call_id": c.id, "content": Untrusted("TOOL ERROR", "arguments are not valid JSON: "+clip(args, 200))})
 				continue
 			}
 			res, isErr, err := in.Tools.Call(ctx, c.name, json.RawMessage(args))

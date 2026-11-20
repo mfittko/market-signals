@@ -122,9 +122,31 @@ func TestUntrustedCloseDelimiterCannotEndTheWrapperEarly(t *testing.T) {
 	if strings.Count(w, runtime.UntrustedOpen) != 1 || strings.Count(w, runtime.UntrustedClose) != 1 || strings.Contains(outside(t, w), inject) {
 		t.Fatalf("delimiters inside the text must be neutralized: %q", w)
 	}
-	// the same breakout through the model path: raw tool output and the JSON summary
+	// the same breakout through the model path: the raw tool output exercises the
+	// neutralization; the summary is protected earlier, since json.Marshal escapes '<'
 	ft := &fakeTools{out: map[string]string{"get_snapshot": raw}}
 	assertWrapped(t, runLLM(t, ft, snap(breakoutNews), "", toolReply("get_snapshot"), hold))
+}
+
+func TestUntrustedInvalidToolArgumentsStayWrapped(t *testing.T) {
+	bad := toolReply("get_snapshot")
+	bad["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["arguments"] = `{"note":"` + inject
+	reqs := runLLM(t, &fakeTools{out: map[string]string{}}, snap(cleanNews), "", bad, hold)
+	if len(reqs) != 2 {
+		t.Fatalf("want a tool round and a decision round, got %d requests", len(reqs))
+	}
+	assertWrapped(t, reqs[1:])
+}
+
+func TestUntrustedWaitReasonStaysWrapped(t *testing.T) {
+	srv, reqs := fakeLLM(t, hold)
+	in := input(&fakeTools{out: map[string]string{}}, 1)
+	in.Claim.Snapshot.Payload = json.RawMessage(snap(cleanNews))
+	in.Claim.Run.WaitReason = inject
+	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	assertWrapped(t, *reqs)
 }
 
 func mockProposal(t *testing.T, snapshot string) (string, string) {
