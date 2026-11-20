@@ -6,11 +6,12 @@
 #   scripts/backup.sh [dest-dir]      dump into <dest-dir>/<timestamp>/ (default: <main checkout>/tmp/backups)
 #   (a folder is marked and kept only after its dump verifies; a failed run removes its folder)
 #   scripts/backup.sh scheduled       dump into the backupDir root named in data/settings.json (the daily launchd job);
-#                                     fails without creating anything when backupDir is unset, inside the checkout,
-#                                     missing or not writable
+#                                     fails without creating anything when backupDir is unset, not absolute, inside
+#                                     the checkout, missing or not writable
 #   scripts/backup.sh restore <dir>   restore the Postgres dump from a backup directory (asks first)
-#   scripts/backup.sh restore-sqlite <dir>  restore candles.db, signals.db and settings.json (asks first); stops the
-#                                     engine job during the copy and keeps the old files in data/.pre-restore-<timestamp>/
+#   scripts/backup.sh restore-sqlite <dir>  restore candles.db, signals.db and settings.json (asks first); checks the
+#                                     backup files first, stops the engine job during the copy, refuses while another
+#                                     process holds the databases, and keeps the old files in data/.pre-restore-<timestamp>/
 #   scripts/backup.sh prune <dest-dir> apply the retention rule below without taking a backup
 #
 # Backups keep only the newest 14 folders this script wrote. SQLite copies use the online backup API, so they are
@@ -47,8 +48,12 @@ prune() {
 backup() {
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
   local root="${1:-$MAIN/tmp/backups}" out; out="$root/$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$out" && chmod 700 "$out"
-  trap 'rm -rf -- "$out"' EXIT # a failed run leaves no folder behind
+  mkdir -p "$root"
+  # plain mkdir: a second run in the same second fails here instead of sharing (and on failure deleting) this folder
+  mkdir "$out" || die "the backup folder already exists: $out"
+  chmod 700 "$out"
+  # a failed run leaves no folder behind; the path is expanded now because bash 3.2 (/bin/bash) drops locals before EXIT
+  trap "rm -rf -- $(printf '%q' "$out")" EXIT
   docker exec "$PG" pg_dump -U ms -d ms --format=custom --no-owner > "$out/console.pgdump"
   for f in candles.db signals.db; do [ -f "$MAIN/data/$f" ] && sqlite3 "$MAIN/data/$f" ".backup '$out/$f'"; done
   for f in settings.json notes.md; do [ -f "$MAIN/data/$f" ] && command cp -p "$MAIN/data/$f" "$out/$f"; done
@@ -73,8 +78,9 @@ scheduled() {
   [ -n "$root" ] || die "scheduled backup: backupDir is not set in $MAIN/data/settings.json"
   case "$root" in /*) ;; *) die "scheduled backup: backupDir must be an absolute path: $root" ;; esac
   [ -d "$root" ] || die "scheduled backup: backupDir does not exist: $root"
-  main="$(cd "$MAIN" && pwd -P)"
-  case "$(cd "$root" && pwd -P)/" in "$main"/*) die "scheduled backup: backupDir is inside the checkout $MAIN: $root" ;; esac
+  # /bin/pwd returns the on-disk case; the builtin keeps the typed case, which a case-insensitive disk would let past
+  main="$(cd "$MAIN" && /bin/pwd -P)"
+  case "$(cd "$root" && /bin/pwd -P)/" in "$main"/*) die "scheduled backup: backupDir is inside the checkout $MAIN: $root" ;; esac
   [ -w "$root" ] || die "scheduled backup: backupDir is not writable: $root"
   echo "$(date '+%Y-%m-%d %H:%M:%S') scheduled backup into $root"
   backup "$root"
@@ -87,9 +93,15 @@ start_engine() {
 }
 
 restore_sqlite() {
-  local dir="${1:-}" data="$MAIN/data" pre f n=0
+  local dir="${1:-}" data="$MAIN/data" pre f n=0 stopped=0
   [ -f "$dir/$MARKER" ] || die "usage: $0 restore-sqlite <backup-dir containing $MARKER>"
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
+  command -v lsof >/dev/null || die "lsof is required"
+  # a damaged backup file is refused before anything stops or changes
+  for f in candles.db signals.db; do
+    [ -f "$dir/$f" ] || continue
+    [ "$(sqlite3 "$dir/$f" 'pragma integrity_check')" = ok ] || die "the backup file failed its integrity check: $dir/$f; nothing was restored"
+  done
   echo "This replaces candles.db, signals.db and settings.json in $data with the copies in $dir."
   read -r -p "Type 'restore' to continue: " a; [ "$a" = restore ] || die "cancelled"
   pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
@@ -97,12 +109,21 @@ restore_sqlite() {
   for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
   if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
   echo "the current files are kept in $pre"
-  launchctl bootout "gui/$(id -u)/$SRV" 2>/dev/null || true # not loaded is fine
-  while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; do
-    n=$((n + 1)); [ "$n" -gt 20 ] && die "$SRV did not stop; nothing was restored"
-    sleep 0.5
+  if launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)/$SRV" 2>/dev/null || true
+    while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; do
+      n=$((n + 1)); [ "$n" -gt 20 ] && die "$SRV did not stop; nothing was restored"
+      sleep 0.5
+    done
+    stopped=1
+    trap start_engine EXIT # the engine job this run stopped starts again on a failure too
+  fi
+  # an engine started outside launchd (node scripts/signal-server.mjs) still holds the files
+  for f in candles.db signals.db; do
+    if [ -f "$data/$f" ] && lsof -t -- "$data/$f" >/dev/null 2>&1; then
+      die "a process still holds $data/$f (an engine running outside launchd?); stop it first; nothing was restored"
+    fi
   done
-  trap start_engine EXIT # the engine starts again on a failed copy too
   for f in candles.db signals.db; do
     [ -f "$dir/$f" ] || continue
     command rm -f "$data/$f-wal" "$data/$f-shm"
@@ -111,7 +132,7 @@ restore_sqlite() {
   done
   if [ -f "$dir/settings.json" ]; then command cp -p "$dir/settings.json" "$data/settings.json"; fi
   trap - EXIT
-  start_engine
+  if [ "$stopped" = 1 ]; then start_engine; fi
   echo "restored."
 }
 

@@ -5,7 +5,7 @@
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
 #   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   switch to this worktree (asks first; -y skips the question)
-#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs and consoleUrl, restore the original server plist and the main checkout;
+#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the backup job and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
@@ -60,6 +60,8 @@ wait_health() {
 
 # --- console stack: three KeepAlive jobs that run `dev.sh run <name>` ---
 plabel() { echo "com.market-signals.platform-$1"; }
+# backupDir is any absolute path the owner chose; a raw & or < in it would make the plist invalid XML
+xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
 write_plist() { # name
   cat >"$LA/$(plabel "$1").plist" <<PLIST
@@ -85,7 +87,7 @@ write_plist() { # name
 		<key>MS_CONSOLE_PORT</key>
 		<string>$PORT</string>
 		<key>MS_BACKUP_DIR</key>
-		<string>${BACKUP_DIR:-}</string>
+		<string>$(xml_escape "${BACKUP_DIR:-}")</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -228,7 +230,7 @@ up() {
 
   wait_health || die "engine did not answer within 30 seconds; run: $0 rollback"
   BACKUP_DIR="$(jq -r '.backupDir // empty' "$SETTINGS")" # the api reports the newest backup in its health
-  [ -n "$BACKUP_DIR" ] || echo "warning: backupDir is not set in $SETTINGS; the daily backup job will fail until it is" >&2
+  [ -n "$BACKUP_DIR" ] || echo "warning: backupDir is not set in $SETTINGS; the daily backup job will fail until it is, and health reports it only after you run up again" >&2
   install_console
   after="$(equity || echo unavailable)"
   echo; echo "portfolio before: $before"; echo "portfolio after:  $after"

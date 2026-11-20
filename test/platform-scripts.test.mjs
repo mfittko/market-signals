@@ -47,6 +47,8 @@ test('backup marks a folder only after the dump verifies, a failing run leaves n
     stub('pg_dump', 'echo dump');
     stub('pg_restore', 'if [ "$1" = --list ]; then [ -z "$STUB_BAD_DUMP" ]; else echo "$@" >>"$STUB_LOG"; fi');
     stub('sqlite3', 'exit 0');
+    // STUB_DATE pins the folder timestamp, so a second run in the same second can be staged
+    stub('date', 'if [ -n "$STUB_DATE" ] && [ "$1" = +%Y%m%d-%H%M%S ]; then echo "$STUB_DATE"; else exec /bin/date "$@"; fi');
     const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: join(dir, 'log') };
     const backup = (extra = {}) => sh(`source platform/scripts/backup.sh; MAIN="$DIR"; backup "$DIR/dest"`, { ...env, DIR: dir, ...extra });
 
@@ -60,6 +62,16 @@ test('backup marks a folder only after the dump verifies, a failing run leaves n
     r = backup({ STUB_BAD_DUMP: '1' });
     assert.notEqual(r.status, 0);
     assert.deepEqual(readdirSync(dest), []);
+
+    // another run already writes 20260101-000000: this run fails and leaves that folder as it is
+    mkdirSync(join(dest, '20260101-000000'));
+    writeFileSync(join(dest, '20260101-000000', 'console.pgdump'), 'other run');
+    r = backup({ STUB_DATE: '20260101-000000', STUB_BAD_DUMP: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /already exists/);
+    assert.deepEqual(readdirSync(join(dest, '20260101-000000')), ['console.pgdump']);
+    assert.equal(readFileSync(join(dest, '20260101-000000', 'console.pgdump'), 'utf8'), 'other run');
+    rmSync(join(dest, '20260101-000000'), { recursive: true });
 
     const restore = (d) => sh(`source platform/scripts/backup.sh; echo restore | restore "${d}"`, env);
     const unmarked = join(dir, 'unmarked');
@@ -106,9 +118,10 @@ test('smoke.sh switches the private smoke agent off and deletes its shadow posit
   }
 });
 
-// A scratch main checkout with data/, a backup root, and stand-in docker, pg_dump, pg_restore, sqlite3 and launchctl.
-// The stand-in launchctl logs each call with the candles.db content at that moment, so the order of stop, copy and
-// start is visible.
+// A scratch main checkout with data/, a backup root, and stand-in docker, pg_dump, pg_restore, sqlite3, launchctl
+// and lsof. The stand-in launchctl logs each call with the candles.db content at that moment, so the order of stop,
+// copy and start is visible. The engine job counts as loaded while the STUB_LOADED file exists. The stand-in sqlite3
+// reports the file named in STUB_CORRUPT as damaged, and the stand-in lsof reports a holder for STUB_HELD.
 const backupFixture = (dir) => {
   const bin = join(dir, 'bin'), main = join(dir, 'main'), data = join(main, 'data');
   mkdirSync(bin); mkdirSync(data, { recursive: true });
@@ -116,37 +129,58 @@ const backupFixture = (dir) => {
   stub('docker', 'shift; [ "$1" = -i ] && shift; shift; exec "$@"');
   stub('pg_dump', 'echo dump');
   stub('pg_restore', 'exit 0');
-  stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")" ;; pragma*) echo ok ;; esac`);
-  stub('launchctl', 'case "$1" in print) exit 1 ;; *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL" ;; esac');
+  stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
+  stub('launchctl', 'case "$1" in print) [ -f "$STUB_LOADED" ] ;; *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; case "$1" in bootout) rm -f "$STUB_LOADED" ;; bootstrap) : >"$STUB_LOADED" ;; esac ;; esac');
+  stub('lsof', 'case "$*" in *"$STUB_HELD"*) [ -n "$STUB_HELD" ] && echo 4242 && exit 0 ;; esac; exit 1');
   writeFileSync(join(data, 'candles.db'), 'old candles');
   writeFileSync(join(data, 'signals.db'), 'old signals');
-  const env = { PATH: `${bin}:${process.env.PATH}`, MAIN_DIR: main, DATA: data, HOME: dir, STUB_LAUNCHCTL: join(dir, 'launchctl.log') };
+  const env = { PATH: `${bin}:${process.env.PATH}`, MAIN_DIR: main, DATA: data, HOME: dir, STUB_LAUNCHCTL: join(dir, 'launchctl.log'), STUB_LOADED: join(dir, 'loaded') };
   const run = (body, extra = {}) => sh(`source platform/scripts/backup.sh; MAIN="$MAIN_DIR"; ${body}`, { ...env, ...extra });
   return { main, data, env, run };
 };
 
-test('scheduled backup writes a marked folder into backupDir and refuses an unset, in-checkout, missing or unwritable target', () => {
+// A marked backup folder with new copies of the three files.
+const backupFolder = (dir) => {
+  const bk = join(dir, 'bk');
+  mkdirSync(bk);
+  writeFileSync(join(bk, 'candles.db'), 'new candles');
+  writeFileSync(join(bk, 'signals.db'), 'new signals');
+  writeFileSync(join(bk, 'settings.json'), '{"new":true}');
+  writeFileSync(join(bk, '.ms-backup'), '');
+  return bk;
+};
+
+test('scheduled backup writes a marked folder into backupDir and refuses an unset, relative, in-checkout, missing or unwritable target', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-scheduled-'));
   try {
     const { main, data, run } = backupFixture(dir);
     const settings = (backupDir) => writeFileSync(join(data, 'settings.json'), JSON.stringify(backupDir ? { backupDir } : { a: 1 }));
-    const target = join(dir, 'target');
-    mkdirSync(target);
-    settings(target);
-    let r = run('scheduled');
-    assert.equal(r.status, 0, r.stderr);
-    const [folder] = readdirSync(target);
-    assert.deepEqual(readdirSync(join(target, folder)).sort(), ['.ms-backup', 'candles.db', 'console.pgdump', 'settings.json', 'signals.db']);
+    // accepted: a root on another disk (like /Volumes/Backup/ms) and a root beside the checkout (like /Users/me/Backups/ms)
+    const target = join(dir, 'target'), beside = join(dir, 'Backups', 'ms');
+    mkdirSync(target); mkdirSync(beside, { recursive: true });
+    for (const root of [target, beside]) {
+      settings(root);
+      const r = run('scheduled');
+      assert.equal(r.status, 0, `${root}: ${r.stderr}`);
+      const [folder] = readdirSync(root);
+      assert.deepEqual(readdirSync(join(root, folder)).sort(), ['.ms-backup', 'candles.db', 'console.pgdump', 'settings.json', 'signals.db']);
+    }
 
+    // refused: the checkout itself (like /Users/me/github/market-signals), a folder in it (like .../tmp/backups),
+    // and that folder typed in another case (like /users/me/...), which a case-insensitive disk resolves to the same folder
     const inside = join(main, 'tmp', 'backups'), readonly = join(dir, 'readonly');
     mkdirSync(inside, { recursive: true }); mkdirSync(readonly, { mode: 0o500 });
-    for (const [value, reason] of [[null, /backupDir is not set/], [inside, /inside the checkout/], [join(dir, 'missing'), /does not exist/], [readonly, /not writable/]]) {
+    const caseVariant = join(dir, 'MAIN', 'tmp', 'backups');
+    const refused = [[null, /backupDir is not set/], ['relative/ms', /must be an absolute path/], [main, /inside the checkout/], [inside, /inside the checkout/], [join(dir, 'missing'), /does not exist/], [readonly, /not writable/]];
+    if (existsSync(caseVariant)) refused.push([caseVariant, /inside the checkout/]); // skipped on a case-sensitive disk
+    for (const [value, reason] of refused) {
       settings(value);
-      r = run('scheduled');
+      const r = run('scheduled');
       assert.equal(r.status, 1, `${value}: ${r.stdout}`);
       assert.match(r.stderr, reason);
     }
     assert.deepEqual(readdirSync(inside), []);
+    assert.deepEqual(readdirSync(main).sort(), ['data', 'tmp']);
     assert.equal(existsSync(join(dir, 'missing')), false);
     assert.deepEqual(readdirSync(readonly), []);
     assert.equal(readdirSync(target).length, 1);
@@ -161,11 +195,9 @@ test('restore-sqlite needs the marker, stops the engine for the copy, starts it 
     const { data, env, run } = backupFixture(dir);
     writeFileSync(join(data, 'settings.json'), '{"old":true}');
     writeFileSync(join(data, 'candles.db-wal'), 'wal');
-    const bk = join(dir, 'bk');
-    mkdirSync(bk);
-    writeFileSync(join(bk, 'candles.db'), 'new candles');
-    writeFileSync(join(bk, 'signals.db'), 'new signals');
-    writeFileSync(join(bk, 'settings.json'), '{"new":true}');
+    writeFileSync(env.STUB_LOADED, '');
+    const bk = backupFolder(dir);
+    rmSync(join(bk, '.ms-backup'));
 
     let r = run(`echo restore | restore_sqlite "${bk}"`);
     assert.notEqual(r.status, 0);
@@ -186,17 +218,63 @@ test('restore-sqlite needs the marker, stops the engine for the copy, starts it 
   }
 });
 
+test('restore-sqlite refuses a damaged backup file and a held database with nothing changed, and starts the engine again after a failed copy', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-restore-fail-'));
+  try {
+    const live = (data) => ['candles.db', 'signals.db'].map((f) => readFileSync(join(data, f), 'utf8'));
+    const preFolders = (data) => readdirSync(data).filter((f) => f.startsWith('.pre-restore-'));
+
+    // the backup's signals.db is damaged: refused before the engine stops or a live file changes
+    let case_ = join(dir, 'corrupt-backup'); mkdirSync(case_);
+    let { data, env, run } = backupFixture(case_);
+    writeFileSync(env.STUB_LOADED, '');
+    let bk = backupFolder(case_);
+    let r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_CORRUPT: join(bk, 'signals.db') });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /backup file failed its integrity check/);
+    assert.equal(existsSync(env.STUB_LAUNCHCTL), false);
+    assert.deepEqual(live(data), ['old candles', 'old signals']);
+    assert.deepEqual(preFolders(data), []);
+
+    // the restored candles.db fails the post-copy check: exit 1, the engine job starts again, the old files are kept
+    case_ = join(dir, 'corrupt-copy'); mkdirSync(case_);
+    ({ data, env, run } = backupFixture(case_));
+    writeFileSync(env.STUB_LOADED, '');
+    bk = backupFolder(case_);
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_CORRUPT: join(data, 'candles.db') });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /restored file failed its integrity check/);
+    assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap new candles']);
+    const [pre] = preFolders(data);
+    assert.equal(readFileSync(join(data, pre, 'candles.db'), 'utf8'), 'old candles');
+    assert.equal(readFileSync(join(data, pre, 'signals.db'), 'utf8'), 'old signals');
+
+    // an engine runs outside launchd and holds candles.db: refused, no job is stopped or started, the live files stay
+    case_ = join(dir, 'held'); mkdirSync(case_);
+    ({ data, env, run } = backupFixture(case_));
+    bk = backupFolder(case_);
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_HELD: join(data, 'candles.db') });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /still holds .*candles\.db/);
+    assert.equal(existsSync(env.STUB_LAUNCHCTL), false);
+    assert.deepEqual(live(data), ['old candles', 'old signals']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('switch-launchd writes a daily backup plist without KeepAlive and passes backupDir to the api job', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-plist-'));
   try {
-    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; BACKUP_DIR=/Volumes/b; write_backup_plist; write_plist api', { DIR: dir });
+    // a legal absolute path with XML specials must still give a valid plist
+    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; BACKUP_DIR="/Volumes/Backup & Sync/<ms>"; write_backup_plist; write_plist api', { DIR: dir });
     assert.equal(r.status, 0, r.stderr);
     const plist = readFileSync(join(dir, 'com.market-signals.platform-backup.plist'), 'utf8');
     assert.match(plist, /backup\.sh<\/string>\s*<string>scheduled</);
     assert.match(plist, /<key>Hour<\/key>\s*<integer>3<\/integer>\s*<key>Minute<\/key>\s*<integer>30</);
     assert.doesNotMatch(plist, /KeepAlive/);
     assert.match(plist, /\.dev\/backup\.launchd\.log/);
-    assert.match(readFileSync(join(dir, 'com.market-signals.platform-api.plist'), 'utf8'), /<key>MS_BACKUP_DIR<\/key>\s*<string>\/Volumes\/b</);
+    assert.match(readFileSync(join(dir, 'com.market-signals.platform-api.plist'), 'utf8'), /<key>MS_BACKUP_DIR<\/key>\s*<string>\/Volumes\/Backup &amp; Sync\/&lt;ms&gt;<\/string>/);
     if (spawnSync('which', ['plutil']).status === 0) {
       for (const f of readdirSync(dir)) assert.equal(spawnSync('plutil', ['-lint', join(dir, f)]).status, 0, f);
     }
