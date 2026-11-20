@@ -101,13 +101,20 @@ try {
         page.on('pageerror', (e) => note(`page error: ${e.message}`));
         page.on('console', (m) => { if (m.type() === 'error') note(`console error: ${m.text()}`); });
         const inflight = new Set();
-        page.on('request', (r) => {
+        // set on every tracked request event: a stubbed request can start and finish between two poll ticks
+        let quietSince = Date.now();
+        const tracked = (r) => {
           const p = new URL(r.url()).pathname;
-          if (p.startsWith('/api/v1/') && p !== '/api/v1/stream') inflight.add(r);
+          return p.startsWith('/api/v1/') && p !== '/api/v1/stream';
+        };
+        page.on('request', (r) => {
+          if (tracked(r)) { inflight.add(r); quietSince = Date.now(); }
         });
-        page.on('requestfinished', (r) => inflight.delete(r));
+        page.on('requestfinished', (r) => {
+          if (tracked(r)) { inflight.delete(r); quietSince = Date.now(); }
+        });
         page.on('requestfailed', (r) => {
-          inflight.delete(r);
+          if (tracked(r)) { inflight.delete(r); quietSince = Date.now(); }
           if (new URL(r.url()).pathname.startsWith('/api/v1/')) note(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`);
         });
         page.on('response', (r) => {
@@ -118,7 +125,7 @@ try {
           if (!res || res.status() !== 200) note(`navigation answered ${res?.status()}`);
           // networkidle never settles here: the pages poll and hold an EventSource
           const deadline = Date.now() + SETTLE_CAP_MS;
-          let quietSince = Date.now();
+          quietSince = Date.now();
           while (inflight.size || Date.now() - quietSince < QUIET_MS) {
             if (Date.now() > deadline) {
               note(`settle timeout: /api/v1 requests still in flight after ${SETTLE_CAP_MS} ms: ${[...inflight].map((r) => `${r.method()} ${r.url()}`).join(', ')}`);
