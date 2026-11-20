@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -313,6 +314,14 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 		IdemKey: fmt.Sprintf("wake:%d:%s:%d", q.ID, Key(tw), barTime.Unix()), Instrument: q.Instrument, Granularity: q.Granularity,
 		Event: "tripwire", Source: "monitor", Trigger: "tripwire:" + tw.Kind, Payload: raw, AgentID: q.AgentID,
 	})
+	if errors.Is(err, queue.ErrSnapshotTooLarge) {
+		// a retry hits the same cap every tick, so ask the operator instead; the stop and target still apply
+		if err := s.Store.RaiseAttention(ctx, q.ID, "wake_refused", map[string]any{"tripwire": tw.Kind, "bar": barTime,
+			"why": "the wake snapshot plus the agent's strategy is over the size limit, so no run was queued; shorten the strategy prompt"}); err != nil {
+			s.Log.Error("raise attention", "position", q.ID, "err", err)
+		}
+		return true
+	}
 	if err != nil {
 		s.Log.Error("wake ingest", "position", q.ID, "err", err)
 		return false

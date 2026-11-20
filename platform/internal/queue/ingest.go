@@ -148,7 +148,7 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 	}
 	for _, t := range targets {
 		// the worker receives the payload with this strategy in it, so the cap counts both
-		if n := len(in.Payload) + len(t.strategy); n > MaxSnapshotBytes {
+		if n := len(in.Payload) + len(t.strategy) + len(`,"strategy":`); n > MaxSnapshotBytes {
 			return res, fmt.Errorf("%w: %d bytes with the strategy of agent %s, the limit is %d", ErrSnapshotTooLarge, n, t.agent, MaxSnapshotBytes)
 		}
 		var runID int64

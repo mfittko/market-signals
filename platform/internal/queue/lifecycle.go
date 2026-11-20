@@ -24,7 +24,7 @@ func (s *Store) RegisterWorker(ctx context.Context, id string, runtimes []string
 
 const runCols = `r.id,r.agent_id,r.snapshot_id,r.trigger,r.status,r.attempts_made,r.max_attempts,r.followups_used,r.cancel_requested,
 	COALESCE(r.wait_reason,''),r.wait_until,COALESCE(r.stop_reason,''),r.proposal,r.validation,r.legacy_decision,r.comparison,r.usage,
-	r.created_at,r.updated_at,r.finished_at,r.strategy - 'prompt'`
+	r.created_at,r.updated_at,r.finished_at,CASE WHEN jsonb_typeof(r.strategy)='object' THEN r.strategy - 'prompt' END`
 
 func scanRun(r scanner) (Run, error) {
 	var x Run
@@ -111,7 +111,7 @@ func governed(payload, frozen []byte) []byte {
 	}
 	engine, hasEngine := m["engineStrategy"].(map[string]any)
 	switch {
-	case frozen != nil:
+	case frozen != nil && string(frozen) != "null":
 		var f any
 		if json.Unmarshal(frozen, &f) != nil {
 			return payload
