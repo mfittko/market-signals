@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -1420,4 +1422,50 @@ func TestStreamDeliversALowerIDThatCommitsAfterTheStreamStarted(t *testing.T) {
 		}
 	}
 	t.Fatal("the late commit was never sent")
+}
+
+func TestHealthReportsTheNewestMarkedBackup(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	get := func(dir string) map[string]any {
+		t.Helper()
+		hs := httptest.NewServer(New(Config{BackupDir: dir}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+		defer hs.Close()
+		code, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil)
+		if code != 200 {
+			t.Fatalf("health: %d", code)
+		}
+		return out["backup"].(map[string]any)
+	}
+	dir := t.TempDir()
+	marked := time.Now().Add(-2 * time.Hour).Format("20060102-150405")
+	for _, d := range []string{marked, time.Now().Add(-time.Hour).Format("20060102-150405"), "2099-taxes"} {
+		if err := os.Mkdir(filepath.Join(dir, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// only the older folder is marked; the newer one is a failed or foreign folder
+	if err := os.WriteFile(filepath.Join(dir, marked, ".ms-backup"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := get(dir)
+	at, _ := time.Parse(time.RFC3339, b["newestAt"].(string))
+	want, _ := time.ParseInLocation("20060102-150405", marked, time.Local)
+	if b["configured"] != true || !at.Equal(want) {
+		t.Fatalf("marked folder: %v", b)
+	}
+	if age := b["ageSeconds"].(float64); age < 7190 || age > 7300 {
+		t.Fatalf("ageSeconds: %v", age)
+	}
+	empty := t.TempDir()
+	if err := os.Mkdir(filepath.Join(empty, marked), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range map[string]string{"unmarked folder": empty, "missing target": filepath.Join(dir, "missing")} {
+		if b := get(d); b["configured"] != true || b["newestAt"] != nil || b["ageSeconds"] != nil {
+			t.Fatalf("%s: %v", name, b)
+		}
+	}
+	if b := get(""); b["configured"] != false || b["newestAt"] != nil {
+		t.Fatalf("no target: %v", b)
+	}
 }

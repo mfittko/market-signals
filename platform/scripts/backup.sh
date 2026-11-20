@@ -5,7 +5,12 @@
 #
 #   scripts/backup.sh [dest-dir]      dump into <dest-dir>/<timestamp>/ (default: <main checkout>/tmp/backups)
 #   (a folder is marked and kept only after its dump verifies; a failed run removes its folder)
+#   scripts/backup.sh scheduled       dump into the backupDir root named in data/settings.json (the daily launchd job);
+#                                     fails without creating anything when backupDir is unset, inside the checkout,
+#                                     missing or not writable
 #   scripts/backup.sh restore <dir>   restore the Postgres dump from a backup directory (asks first)
+#   scripts/backup.sh restore-sqlite <dir>  restore candles.db, signals.db and settings.json (asks first); stops the
+#                                     engine job during the copy and keeps the old files in data/.pre-restore-<timestamp>/
 #   scripts/backup.sh prune <dest-dir> apply the retention rule below without taking a backup
 #
 # Backups keep only the newest 14 folders this script wrote. SQLite copies use the online backup API, so they are
@@ -60,9 +65,61 @@ backup() {
   echo "backup written to $out ($(du -sh "$out" | cut -f1))"
 }
 
+# The scheduled job must never write to the main disk by accident, so it never creates its root.
+scheduled() {
+  local root main
+  command -v jq >/dev/null || die "jq is required"
+  root="$(jq -r '.backupDir // empty' "$MAIN/data/settings.json" 2>/dev/null || true)"
+  [ -n "$root" ] || die "scheduled backup: backupDir is not set in $MAIN/data/settings.json"
+  case "$root" in /*) ;; *) die "scheduled backup: backupDir must be an absolute path: $root" ;; esac
+  [ -d "$root" ] || die "scheduled backup: backupDir does not exist: $root"
+  main="$(cd "$MAIN" && pwd -P)"
+  case "$(cd "$root" && pwd -P)/" in "$main"/*) die "scheduled backup: backupDir is inside the checkout $MAIN: $root" ;; esac
+  [ -w "$root" ] || die "scheduled backup: backupDir is not writable: $root"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') scheduled backup into $root"
+  backup "$root"
+}
+
+SRV=com.market-signals.signal-server
+start_engine() {
+  launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$SRV.plist" ||
+    echo "warning: could not start $SRV; run: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$SRV.plist" >&2
+}
+
+restore_sqlite() {
+  local dir="${1:-}" data="$MAIN/data" pre f n=0
+  [ -f "$dir/$MARKER" ] || die "usage: $0 restore-sqlite <backup-dir containing $MARKER>"
+  command -v sqlite3 >/dev/null || die "sqlite3 is required"
+  echo "This replaces candles.db, signals.db and settings.json in $data with the copies in $dir."
+  read -r -p "Type 'restore' to continue: " a; [ "$a" = restore ] || die "cancelled"
+  pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$pre" && chmod 700 "$pre"
+  for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
+  if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
+  echo "the current files are kept in $pre"
+  launchctl bootout "gui/$(id -u)/$SRV" 2>/dev/null || true # not loaded is fine
+  while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; do
+    n=$((n + 1)); [ "$n" -gt 20 ] && die "$SRV did not stop; nothing was restored"
+    sleep 0.5
+  done
+  trap start_engine EXIT # the engine starts again on a failed copy too
+  for f in candles.db signals.db; do
+    [ -f "$dir/$f" ] || continue
+    command rm -f "$data/$f-wal" "$data/$f-shm"
+    command cp -p "$dir/$f" "$data/$f"
+    [ "$(sqlite3 "$data/$f" 'pragma integrity_check')" = ok ] || die "the restored file failed its integrity check: $data/$f (old files in $pre)"
+  done
+  if [ -f "$dir/settings.json" ]; then command cp -p "$dir/settings.json" "$data/settings.json"; fi
+  trap - EXIT
+  start_engine
+  echo "restored."
+}
+
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 case "${1:-}" in
   restore) restore "${2:-}" ;;
+  restore-sqlite) restore_sqlite "${2:-}" ;;
+  scheduled) scheduled ;;
   prune) prune "${2:-}" ;;
   *) backup "${1:-}" ;;
 esac

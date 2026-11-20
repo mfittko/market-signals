@@ -68,6 +68,15 @@ platform/scripts/switch-launchd.sh rollback [--with-watcher]       # restore the
 
 `platform/scripts/backup.sh` dumps the Postgres database and copies the engine's SQLite files, settings and notes. Its header lists the restore and prune commands.
 
+Daily backups need a target off the main disk. Set `backupDir` in `data/settings.json` once, to an absolute path outside the checkout on a second disk or in a synced folder. `up` installs the `com.market-signals.platform-backup` job, which runs `backup.sh scheduled` every day at 03:30 and logs to `platform/.dev/backup.launchd.log`. `rollback` removes it. The scheduled run fails with a logged reason, and creates no directory, when `backupDir` is unset, inside the checkout, missing or not writable. `up` also passes `backupDir` to the control plane as `MS_BACKUP_DIR`, and `GET /api/v1/health` reports the newest marked backup in `backup.newestAt` and `backup.ageSeconds`.
+
+```sh
+platform/scripts/backup.sh restore <backup-dir>          # Postgres: replaces the console database (asks first)
+platform/scripts/backup.sh restore-sqlite <backup-dir>   # engine: candles.db, signals.db and settings.json (asks first)
+```
+
+`restore-sqlite` first keeps the current files in `data/.pre-restore-<timestamp>/`. It then stops the engine job, copies the backup files into `data/`, checks their integrity and starts the engine job again, also after a failed copy.
+
 ## Testing
 
 Engine unit tests. They use a fixture database and fake provider binaries, assert the served page, and make no network calls. They include the golden-fixture replay and the engine side of the control-plane hook.

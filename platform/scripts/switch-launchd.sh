@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the live Market Signals setup under launchd: the engine from this checkout, and the console stack
-# (control plane, worker, web) as three KeepAlive jobs. Also retires the old five-minute watcher, which duplicates
+# (control plane, worker, web) as three KeepAlive jobs, plus a daily backup job. Also retires the old five-minute watcher, which duplicates
 # the server's own watcher cycle. Every step is idempotent: run `up` again after a pull to rebuild and reload.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
@@ -84,6 +84,8 @@ write_plist() { # name
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 		<key>MS_CONSOLE_PORT</key>
 		<string>$PORT</string>
+		<key>MS_BACKUP_DIR</key>
+		<string>${BACKUP_DIR:-}</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -95,6 +97,44 @@ write_plist() { # name
 	<string>$PLAT/.dev/$1.launchd.log</string>
 	<key>StandardErrorPath</key>
 	<string>$PLAT/.dev/$1.launchd.log</string>
+</dict>
+</plist>
+PLIST
+}
+
+# The daily backup: `backup.sh scheduled` at 03:30 local time. It runs once per day and is not kept alive.
+write_backup_plist() {
+  cat >"$LA/$(plabel backup).plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$(plabel backup)</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>$PLAT/scripts/backup.sh</string>
+		<string>scheduled</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>$PLAT</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+	</dict>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>3</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>$PLAT/.dev/backup.launchd.log</string>
+	<key>StandardErrorPath</key>
+	<string>$PLAT/.dev/backup.launchd.log</string>
 </dict>
 </plist>
 PLIST
@@ -120,16 +160,17 @@ install_console() {
   [ -d "$PLAT/web/node_modules" ] || (cd "$PLAT/web" && pnpm install --silent)
   (cd "$PLAT/web" && pnpm exec next build)
   for j in $PLAT_JOBS; do unload "$(plabel "$j")"; write_plist "$j"; load "$(plabel "$j")"; done
+  unload "$(plabel backup)"; write_backup_plist; load "$(plabel backup)"
   for _ in $(seq 1 60); do console_health && return 0; sleep 1; done
   die "the console did not answer on port $PORT; see $PLAT/.dev/web.launchd.log"
 }
 
 remove_console() {
-  for j in $PLAT_JOBS; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
+  for j in $PLAT_JOBS backup; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
 }
 
 status() {
-  for j in $PLAT_JOBS; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
+  for j in $PLAT_JOBS backup; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
   console_health && echo "console:        answering on http://127.0.0.1:$PORT" || echo "console:        not answering on port $PORT"
   echo "worktree:       $WT ($(git -C "$WT" branch --show-current))"
   echo "main checkout:  $MAIN"
@@ -154,6 +195,7 @@ up() {
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
   echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
   echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes)"
+  echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS)"
   if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
 
   before="$(equity || echo unavailable)"
@@ -185,6 +227,8 @@ up() {
   load "$SRV"
 
   wait_health || die "engine did not answer within 30 seconds; run: $0 rollback"
+  BACKUP_DIR="$(jq -r '.backupDir // empty' "$SETTINGS")" # the api reports the newest backup in its health
+  [ -n "$BACKUP_DIR" ] || echo "warning: backupDir is not set in $SETTINGS; the daily backup job will fail until it is" >&2
   install_console
   after="$(equity || echo unavailable)"
   echo; echo "portfolio before: $before"; echo "portfolio after:  $after"
