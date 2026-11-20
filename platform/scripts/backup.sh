@@ -139,13 +139,14 @@ restore_sqlite() {
   for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
   if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
   echo "the current files are kept in $pre"
-  for f in candles.db signals.db; do
-    [ -f "$dir/$f" ] || continue
+  # the rollback copy above can take seconds, so a prune can still remove the folder before this copy
+  for f in $want; do
+    [ -f "$dir/$f" ] || die "the backup folder changed during the restore ($dir/$f is gone); restore incomplete (old files in $pre)"
+    [ "$f" = settings.json ] && { command cp -p "$dir/$f" "$data/$f"; continue; }
     command rm -f "$data/$f-wal" "$data/$f-shm"
     command cp -p "$dir/$f" "$data/$f"
     [ "$(sqlite3 "$data/$f" 'pragma integrity_check')" = ok ] || die "the restored file failed its integrity check: $data/$f (old files in $pre)"
   done
-  if [ -f "$dir/settings.json" ]; then command cp -p "$dir/settings.json" "$data/settings.json"; fi
   trap - EXIT
   if [ "$stopped" = 1 ]; then start_engine; fi
   echo "restored."

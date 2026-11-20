@@ -130,7 +130,8 @@ const backupFixture = (dir) => {
   stub('docker', 'shift; [ "$1" = -i ] && shift; shift; exec "$@"');
   stub('pg_dump', 'echo dump');
   stub('pg_restore', 'exit 0');
-  stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
+  // STUB_BACKUP_RM: the rollback .backup also removes that folder, like a prune landing during the rollback copy
+  stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")"; rm -rf "\${STUB_BACKUP_RM:-/nonexistent-ms-stub}" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
   // STUB_STUCK keeps the job loaded after bootout for that many print calls, like a slow engine shutdown; like
   // launchd, bootstrap fails while the job is loaded; sleep returns at once
   stub('sleep', 'exit 0');
@@ -321,6 +322,21 @@ test('restore-sqlite refuses a damaged backup file and a held database with noth
     assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
     assert.deepEqual(live(data), ['old candles', 'old signals']);
     assert.deepEqual(preFolders(data), []);
+
+    // the backup folder vanishes during the rollback copy, after the re-check: exit 1, no "restored.", the engine
+    // job starts again, and the old files are kept in the pre-restore folder
+    case_ = join(dir, 'vanished-late'); mkdirSync(case_);
+    ({ data, env, run } = backupFixture(case_));
+    writeFileSync(env.STUB_LOADED, '');
+    bk = backupFolder(case_);
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_BACKUP_RM: bk });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /backup folder changed during the restore .*restore incomplete/);
+    assert.doesNotMatch(r.stdout, /restored\./);
+    assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
+    assert.deepEqual(live(data), ['old candles', 'old signals']);
+    const [late] = preFolders(data);
+    assert.equal(readFileSync(join(data, late, 'candles.db'), 'utf8'), 'old candles');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
