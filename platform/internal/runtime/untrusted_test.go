@@ -149,6 +149,15 @@ func TestUntrustedWaitReasonStaysWrapped(t *testing.T) {
 	assertWrapped(t, *reqs)
 }
 
+func TestStrategyPromptIsSentOnceAsTrustedInstruction(t *testing.T) {
+	const prompt = "open long on a fresh buy flip"
+	reqs := runLLM(t, &fakeTools{out: map[string]string{}}, snap(`,"strategy":{"name":"s","version":1,"prompt":"`+prompt+`"}`), "", hold)
+	user, _ := reqs[0]["messages"].([]any)[1].(map[string]any)["content"].(string)
+	if strings.Count(user, prompt) != 1 || !strings.Contains(outside(t, user), prompt) {
+		t.Fatalf("the strategy prompt must appear exactly once, outside the wrapper: %q", user)
+	}
+}
+
 func mockProposal(t *testing.T, snapshot string) (string, string) {
 	t.Helper()
 	out, err := runtime.Mock{}.Run(context.Background(), input(&fakeTools{out: map[string]string{"get_snapshot": snapshot}}, 0))

@@ -65,11 +65,13 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 	var payload map[string]any
 	_ = json.Unmarshal(in.Claim.Snapshot.Payload, &payload)
 	delete(payload, "candles")
-	summary, _ := json.Marshal(payload)
 	strategy := ""
 	if st, ok := payload["strategy"].(map[string]any); ok {
 		strategy, _ = st["prompt"].(string)
+		// the prompt is the trusted instruction; keep it out of the untrusted summary
+		delete(st, "prompt")
 	}
+	summary, _ := json.Marshal(payload)
 	user := []string{
 		"strategy:\n" + orStr(strategy, "(no strategy text in the snapshot; use the supertrend-follow default)"),
 		Untrusted("snapshot summary (frozen at the event; call get_snapshot for the full copy)", string(summary)),
