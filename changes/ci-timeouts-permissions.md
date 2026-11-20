@@ -1,0 +1,1 @@
+- CI: every job has a timeout (5 minutes, 20 for the WebKit smoke) and the workflow token is read-only (#372)
