@@ -7,5 +7,6 @@ export function strategyConflict(status: number | undefined, body: Record<string
   if (status !== 409 || body?.code !== 'stale_base_version') return null;
   const currentVersion = Number(body.currentVersion);
   const head = [body.error, body.hint].filter(Boolean).join(': ');
-  return { text: `${head}. The current version is v${currentVersion}. Your draft is kept until you reload.`, currentVersion, reload: true };
+  const known = Number.isFinite(currentVersion) ? ` The current version is v${currentVersion}.` : '';
+  return { text: `${head}.${known} Your draft is kept until you reload.`, currentVersion, reload: true };
 }

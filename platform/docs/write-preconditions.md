@@ -18,7 +18,7 @@ A write to a versioned resource names the version it was based on. The control p
 | `baseVersion` is missing and the resource exists | `400` | `base_version_required` |
 | `baseVersion` is missing (or `0`) and the resource has no rows yet | `200` (creates it) | none |
 
-Only a create may omit `baseVersion`. A write that applies to an existing resource only (strategy activate and archive) returns `400` with `base_version_required` when the field is missing, before it reads the database.
+Only a create may omit `baseVersion`. A write that applies to an existing resource only (strategy activate and archive) returns `400` with `base_version_required` when the field is missing, before it reads the database. An empty request body counts as a missing field.
 
 ## Body shape
 

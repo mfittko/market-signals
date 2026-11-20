@@ -12,6 +12,12 @@ test('a stale base version maps to the conflict text with the current version an
   assert.match(c.text, /v4/);
 });
 
+test('a conflict without a numeric current version omits the version sentence', () => {
+  const c = strategyConflict(409, { error: 'another tab or client changed this strategy', code: 'stale_base_version' });
+  assert.equal(c?.reload, true);
+  assert.doesNotMatch(c.text, /NaN|current version is/);
+});
+
 test('other failures are not a conflict', () => {
   assert.equal(strategyConflict(409, { error: 'this strategy is archived; restore it before editing' }), null);
   assert.equal(strategyConflict(400, { code: 'base_version_required' }), null);

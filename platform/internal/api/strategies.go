@@ -2,7 +2,9 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -54,6 +56,17 @@ func checkBase(ctx context.Context, tx pgx.Tx, name string, base *int) (int, err
 		return cur, staleBase{cur}
 	}
 	return cur, nil
+}
+
+// decodeOrEmpty is decode for a body whose fields are all optional to the decoder: an
+// empty body reads as {}, so a bodiless activate or archive reaches the missing-base check.
+func decodeOrEmpty(w http.ResponseWriter, r *http.Request, v any, max int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, max)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON body: " + err.Error()})
+		return false
+	}
+	return true
 }
 
 // writePrecondition answers a failed base check and reports whether it did.
@@ -265,7 +278,7 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 	var b struct {
 		BaseVersion *int `json:"baseVersion"`
 	}
-	if !decode(w, r, &b, 1<<10) {
+	if !decodeOrEmpty(w, r, &b, 1<<10) {
 		return
 	}
 	if b.BaseVersion == nil {
@@ -314,15 +327,15 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 		Archived    *bool `json:"archived"`
 		BaseVersion *int  `json:"baseVersion"`
 	}
-	if !decode(w, r, &b, 1<<10) {
-		return
-	}
-	if b.Archived == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "archived is required"})
+	if !decodeOrEmpty(w, r, &b, 1<<10) {
 		return
 	}
 	if b.BaseVersion == nil {
 		writePrecondition(w, errBaseRequired)
+		return
+	}
+	if b.Archived == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "archived is required"})
 		return
 	}
 	var agents, rows, cur int

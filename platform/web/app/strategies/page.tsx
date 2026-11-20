@@ -53,6 +53,8 @@ export default function StrategiesPage() {
   }, []);
   const open = useCallback(async (name: string) => {
     setSel(name); setMsg(null); setCompare(null);
+    // another strategy's versions must not supply this one's baseVersion: no write panel until it loads
+    if (latest.current !== name) { setVersions([]); setDraft(''); }
     latest.current = name;
     const r = await api<{ versions: Version[]; scopes: Scope[] }>(`/strategies/${encodeURIComponent(name)}`);
     if (latest.current !== name) return; // a later click already owns the panel
@@ -100,7 +102,7 @@ export default function StrategiesPage() {
         An agent judges entries with the active version of its strategy. Saving adds a new version and makes it active. Older versions stay, so any change can be rolled back.
         These edits stay in this console. The live engine keeps its own strategies.
       </p>
-      {msg && <p ref={msgEl} className={`msg ${msg.ok ? 'ok' : 'err'}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}{msg.reload && sel && <> <button className="ghost" onClick={() => void loadList().then(() => open(sel))}>Reload</button></>}</p>}
+      {msg && <p ref={msgEl} className={`msg ${msg.ok ? 'ok' : 'err'}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}{msg.reload && sel && <> <button className="ghost" disabled={busy} onClick={() => void loadList().then(() => open(sel)).catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }))}>Reload</button></>}</p>}
       <div className="grid strat">
         <Card title="All strategies">
           <div role="group" aria-label="Filter strategies" style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -129,7 +131,7 @@ export default function StrategiesPage() {
         {wizard ? (
           <div ref={(el) => { el?.scrollIntoView({ block: "start", behavior: "smooth" }); }}><Card title="New strategy">
             <StrategyWizard existing={(list ?? []).map((s) => s.name)} onCancel={() => setWizard(false)}
-              onDone={(n) => { setWizard(false); void loadList().then(() => { setFilter("all"); return open(n); }).then(() => setMsg({ ok: true, text: `Created ${n}.` })); }} />
+              onDone={(n) => { setWizard(false); void loadList().then(() => { setFilter("all"); return open(n); }).then(() => setMsg({ ok: true, text: `Created ${n}.` })).catch((e) => setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })); }} />
           </Card></div>
         ) : sel && active && (
           <div className="grid">

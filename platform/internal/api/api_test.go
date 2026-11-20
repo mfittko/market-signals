@@ -1526,8 +1526,12 @@ func TestStrategyWritesCheckTheBaseVersion(t *testing.T) {
 	if n := rows(); n != 2 {
 		t.Fatalf("a stale save stored a row: %d", n)
 	}
-	// a missing base on an existing strategy is refused on every write route
-	for _, w := range [][2]string{{"/versions", `{"prompt":"x"}`}, {"/versions/1/activate", `{}`}, {"/archive", `{"archived":true}`}} {
+	// baseVersion 0 is the current base only while the name has no rows
+	if c, out := call(t, "POST", u+"/versions", "", `{"prompt":"x","baseVersion":0}`, nil); c != 409 || out["code"] != "stale_base_version" {
+		t.Fatalf("base 0 on an existing name: %d %v", c, out)
+	}
+	// a missing base on an existing strategy is refused on every write route, an empty body included
+	for _, w := range [][2]string{{"/versions", `{"prompt":"x"}`}, {"/versions/1/activate", `{}`}, {"/archive", `{"archived":true}`}, {"/versions/1/activate", ``}, {"/archive", ``}} {
 		if c, out := call(t, "POST", u+w[0], "", w[1], nil); c != 400 || out["code"] != "base_version_required" {
 			t.Fatalf("%s without base: %d %v", w[0], c, out)
 		}
@@ -1553,6 +1557,10 @@ func TestStrategyWritesCheckTheBaseVersion(t *testing.T) {
 	}
 	if c, out := call(t, "POST", u+"/archive", "", `{"archived":false,"baseVersion":2}`, nil); c != 200 {
 		t.Fatalf("restore: %d %v", c, out)
+	}
+	// baseVersion 0 on a name with no rows creates it
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Zero/versions", "", `{"prompt":"x","baseVersion":0}`, nil); c != 200 || out["version"] != float64(1) {
+		t.Fatalf("base 0 on a new name: %d %v", c, out)
 	}
 	// a base on a name with no rows conflicts instead of creating it
 	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Ghost/versions", "", `{"prompt":"x","baseVersion":3}`, nil); c != 409 || out["currentVersion"] != float64(0) {
