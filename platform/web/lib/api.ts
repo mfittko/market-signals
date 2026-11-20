@@ -122,9 +122,12 @@ export type Health = {
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/v1${path}`, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) }, cache: 'no-store' });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error ? `${body.error}${body.hint ? `: ${body.hint}` : ''}` : `request failed (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(body.error ? `${body.error}${body.hint ? `: ${body.hint}` : ''}` : `request failed (${res.status})`), { status: res.status, code: body.code, body });
   return body as T;
 }
+
+// A failed api() call carries the response status, its machine-readable code and the parsed body.
+export type ApiError = Error & { status?: number; code?: string; body?: Record<string, unknown> };
 
 export function describe(d?: Decision | null): string {
   if (!d) return '';

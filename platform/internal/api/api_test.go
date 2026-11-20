@@ -662,7 +662,7 @@ func TestStrategyNamesAreUniqueIgnoringCaseAndHaveNoTrailingSpace(t *testing.T) 
 	if c := save("Trend"); c != 200 {
 		t.Fatalf("create: %d", c)
 	}
-	if c := save("Trend"); c != 200 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"rules","baseVersion":1}`, nil); c != 200 {
 		t.Fatalf("a new version of the same name: %d", c)
 	}
 	if c := save("trend"); c != 409 {
@@ -693,7 +693,7 @@ func TestStrategyVersionsSaveActivateAndAssign(t *testing.T) {
 		t.Fatal(err)
 	}
 	// an edit adds version 2, makes it the only active one and keeps the scope of v1
-	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  v2 rules  "}`, nil); c != 200 || out["version"] != float64(2) {
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  v2 rules  ","baseVersion":1}`, nil); c != 200 || out["version"] != float64(2) {
 		t.Fatalf("save: %d %v", c, out)
 	}
 	var active int
@@ -702,7 +702,7 @@ func TestStrategyVersionsSaveActivateAndAssign(t *testing.T) {
 		t.Fatalf("active=%d inst=%q err=%v", active, inst, err)
 	}
 	// rollback
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/1/activate", "", "", nil); c != 200 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/1/activate", "", `{"baseVersion":2}`, nil); c != 200 {
 		t.Fatal(c)
 	}
 	var n int
@@ -710,17 +710,17 @@ func TestStrategyVersionsSaveActivateAndAssign(t *testing.T) {
 	if n != 1 {
 		t.Fatal("v1 should be active again")
 	}
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/9/activate", "", "", nil); c != 404 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/9/activate", "", `{"baseVersion":2}`, nil); c != 404 {
 		t.Fatalf("unknown version: %d", c)
 	}
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/abc/activate", "", "", nil); c != 404 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions/abc/activate", "", `{"baseVersion":2}`, nil); c != 404 {
 		t.Fatalf("a non-numeric version must be a 404, not a server error: %d", c)
 	}
 	// a new name starts at version 1; bad input is refused
 	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Fresh/versions", "", `{"prompt":"x"}`, nil); c != 200 || out["version"] != float64(1) {
 		t.Fatalf("new: %d %v", c, out)
 	}
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  "}`, nil); c != 400 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Trend/versions", "", `{"prompt":"  ","baseVersion":2}`, nil); c != 400 {
 		t.Fatal("empty prompt must be refused")
 	}
 	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/bad;name/versions", "", `{"prompt":"x"}`, nil); c != 400 {
@@ -759,14 +759,14 @@ func TestArchiveIsBlockedWhileAssignedAndReversible(t *testing.T) {
 		t.Fatal(c)
 	}
 	// in use: refused, nothing changes
-	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Live/archive", "", `{"archived":true}`, nil); c != 409 || out["agents"] != float64(1) {
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Live/archive", "", `{"archived":true,"baseVersion":1}`, nil); c != 409 || out["agents"] != float64(1) {
 		t.Fatalf("in use: %d %v", c, out)
 	}
 	// unused: archived hides it from snapshots, refuses edits and assignment, and shows in the list
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":true}`, nil); c != 200 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":true,"baseVersion":1}`, nil); c != 200 {
 		t.Fatal(c)
 	}
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y"}`, nil); c != 409 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y","baseVersion":1}`, nil); c != 409 {
 		t.Fatalf("edit of a archived strategy: %d", c)
 	}
 	if c, _ := call(t, "PATCH", hs.URL+"/api/v1/agents/a1", "", `{"strategy":"Old"}`, nil); c != 404 {
@@ -796,10 +796,10 @@ func TestArchiveIsBlockedWhileAssignedAndReversible(t *testing.T) {
 		t.Fatalf("list: %v", archived)
 	}
 	// restore
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":false}`, nil); c != 200 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/archive", "", `{"archived":false,"baseVersion":1}`, nil); c != 200 {
 		t.Fatal(c)
 	}
-	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y"}`, nil); c != 200 {
+	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Old/versions", "", `{"prompt":"y","baseVersion":1}`, nil); c != 200 {
 		t.Fatalf("edit after restore: %d", c)
 	}
 }
@@ -1099,7 +1099,7 @@ func TestAnImportedStrategyWithOneArchivedOldVersionStaysEditable(t *testing.T) 
 		  ('Mixed',1,'old','import',now(),false,true,false), ('Mixed',2,'live','import',now(),true,false,false)`); err != nil {
 		t.Fatal(err)
 	}
-	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Mixed/versions", "", `{"prompt":"v3"}`, nil); c != 200 || out["version"] != float64(3) {
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Mixed/versions", "", `{"prompt":"v3","baseVersion":2}`, nil); c != 200 || out["version"] != float64(3) {
 		t.Fatalf("save: %d %v", c, out)
 	}
 }
@@ -1495,5 +1495,101 @@ func TestBuildFieldsReadTheVCSStamp(t *testing.T) {
 	}
 	if got := buildFields(nil, nil); got["commit"] != "unknown" || got["builtAt"] != (*time.Time)(nil) {
 		t.Fatalf("no build info: %v", got)
+	}
+}
+
+func TestStrategyWritesCheckTheBaseVersion(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	u := hs.URL + "/api/v1/strategies/Trend"
+	rows := func() int {
+		var n int
+		if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	// a new strategy needs no base version
+	if c, out := call(t, "POST", u+"/versions", "", `{"prompt":"v1"}`, nil); c != 200 || out["version"] != float64(1) {
+		t.Fatalf("create: %d %v", c, out)
+	}
+	// two tabs loaded v1: the first save wins, the second conflicts and stores nothing
+	if c, out := call(t, "POST", u+"/versions", "", `{"prompt":"tab a","baseVersion":1}`, nil); c != 200 || out["version"] != float64(2) {
+		t.Fatalf("fresh save: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", u+"/versions", "", `{"prompt":"tab b","baseVersion":1}`, nil); c != 409 || out["code"] != "stale_base_version" || out["currentVersion"] != float64(2) || out["hint"] == nil {
+		t.Fatalf("stale save: %d %v", c, out)
+	}
+	if n := rows(); n != 2 {
+		t.Fatalf("a stale save stored a row: %d", n)
+	}
+	// a missing base on an existing strategy is refused on every write route
+	for _, w := range [][2]string{{"/versions", `{"prompt":"x"}`}, {"/versions/1/activate", `{}`}, {"/archive", `{"archived":true}`}} {
+		if c, out := call(t, "POST", u+w[0], "", w[1], nil); c != 400 || out["code"] != "base_version_required" {
+			t.Fatalf("%s without base: %d %v", w[0], c, out)
+		}
+	}
+	// activate and archive conflict on a stale base and change nothing
+	if c, out := call(t, "POST", u+"/versions/1/activate", "", `{"baseVersion":1}`, nil); c != 409 || out["currentVersion"] != float64(2) {
+		t.Fatalf("stale activate: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", u+"/archive", "", `{"archived":true,"baseVersion":1}`, nil); c != 409 || out["code"] != "stale_base_version" {
+		t.Fatalf("stale archive: %d %v", c, out)
+	}
+	var active int
+	var archived bool
+	if err := st.Pool.QueryRow(ctx, `SELECT max(version) FILTER (WHERE active), bool_or(archived) FROM strategies WHERE name='Trend'`).Scan(&active, &archived); err != nil || active != 2 || archived {
+		t.Fatalf("a stale write changed state: active=%d archived=%v err=%v", active, archived, err)
+	}
+	// on the current base they succeed and return the current version
+	if c, out := call(t, "POST", u+"/versions/1/activate", "", `{"baseVersion":2}`, nil); c != 200 || out["version"] != float64(2) {
+		t.Fatalf("activate: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", u+"/archive", "", `{"archived":true,"baseVersion":2}`, nil); c != 200 || out["version"] != float64(2) {
+		t.Fatalf("archive: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", u+"/archive", "", `{"archived":false,"baseVersion":2}`, nil); c != 200 {
+		t.Fatalf("restore: %d %v", c, out)
+	}
+	// a base on a name with no rows conflicts instead of creating it
+	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/Ghost/versions", "", `{"prompt":"x","baseVersion":3}`, nil); c != 409 || out["currentVersion"] != float64(0) {
+		t.Fatalf("base on a new name: %d %v", c, out)
+	}
+}
+
+func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
+	hs, st := setup(t)
+	if _, err := st.Pool.Exec(context.Background(), `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	u := hs.URL + "/api/v1/strategies/Race/versions"
+	if c, _ := call(t, "POST", u, "", `{"prompt":"v1"}`, nil); c != 200 {
+		t.Fatal(c)
+	}
+	codes := make(chan int, 2)
+	var wg sync.WaitGroup
+	for _, p := range []string{"a", "b"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, _ := call(t, "POST", u, "", `{"prompt":"`+p+`","baseVersion":1}`, nil)
+			codes <- c
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	got := map[int]int{}
+	for c := range codes {
+		got[c]++
+	}
+	if got[200] != 1 || got[409] != 1 {
+		t.Fatalf("want one 200 and one 409, got %v", got)
+	}
+	var n int
+	if err := st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM strategies WHERE name='Race'`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("rows %d %v", n, err)
 	}
 }

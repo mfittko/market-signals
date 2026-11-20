@@ -1,0 +1,1 @@
+- Platform: strategy save, activate and archive carry the `baseVersion` the caller loaded; a stale one gets `409 stale_base_version` with the current version and stores nothing, and the console shows the conflict with a Reload button and keeps the draft (#281)

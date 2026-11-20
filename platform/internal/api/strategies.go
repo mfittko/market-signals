@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"regexp"
@@ -26,6 +27,50 @@ const maxPromptBody = 6*maxPrompt + 16<<10
 var errArchived = errors.New("strategy is archived")
 
 var errNameTaken = errors.New("strategy name differs only in case")
+
+// Every strategy write names the highest version the caller loaded (baseVersion).
+// The check runs in the write's transaction under the strategy lock, so a write
+// based on a stale view stores nothing. platform/docs/write-preconditions.md owns the convention.
+var errBaseRequired = errors.New("baseVersion is required")
+
+type staleBase struct{ current int }
+
+func (e staleBase) Error() string { return "stale base version" }
+
+// checkBase reads the current highest version of name and compares it with base.
+// A nil base passes only while the name has no rows. Call it after the strategy lock.
+func checkBase(ctx context.Context, tx pgx.Tx, name string, base *int) (int, error) {
+	var cur int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(max(version),0) FROM strategies WHERE name=$1`, name).Scan(&cur); err != nil {
+		return 0, err
+	}
+	if base == nil {
+		if cur > 0 {
+			return cur, errBaseRequired
+		}
+		return cur, nil
+	}
+	if *base != cur {
+		return cur, staleBase{cur}
+	}
+	return cur, nil
+}
+
+// writePrecondition answers a failed base check and reports whether it did.
+func writePrecondition(w http.ResponseWriter, err error) bool {
+	var stale staleBase
+	switch {
+	case errors.Is(err, errBaseRequired):
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "baseVersion is required for an existing strategy",
+			"hint": "send the highest version you loaded", "code": "base_version_required"})
+	case errors.As(err, &stale):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "another tab or client changed this strategy",
+			"hint": "reload to see the current version", "code": "stale_base_version", "currentVersion": stale.current})
+	default:
+		return false
+	}
+	return true
+}
 
 // A name starts with a letter or digit and does not end with a space, so "Trend" and
 // "Trend " cannot become two strategies. Case is checked in saveVersion.
@@ -128,6 +173,7 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		Prompt      string `json:"prompt"`
 		Instrument  string `json:"instrument"`  // scope for a brand new strategy
 		Granularity string `json:"granularity"` // ignored when an earlier version exists
+		BaseVersion *int   `json:"baseVersion"` // omitted only to create a new strategy
 	}
 	if !decode(w, r, &b, maxPromptBody) {
 		return
@@ -176,6 +222,9 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		if archived {
 			return errArchived
 		}
+		if _, err := checkBase(r.Context(), tx, name, b.BaseVersion); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(r.Context(), `UPDATE strategies SET active=false WHERE name=$1`, name); err != nil {
 			return err
 		}
@@ -195,6 +244,9 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "a strategy with this name in different case exists; use that name"})
 		return
 	}
+	if writePrecondition(w, err) {
+		return
+	}
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -210,7 +262,17 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such version"})
 		return
 	}
-	var n int
+	var b struct {
+		BaseVersion *int `json:"baseVersion"`
+	}
+	if !decode(w, r, &b, 1<<10) {
+		return
+	}
+	if b.BaseVersion == nil {
+		writePrecondition(w, errBaseRequired)
+		return
+	}
+	var n, cur int
 	err := pgx.BeginFunc(r.Context(), s.st.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+name); err != nil {
 			return err
@@ -218,12 +280,19 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 		if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM strategies WHERE name=$1 AND version=$2::int AND NOT archived`, name, ver).Scan(&n); err != nil || n == 0 {
 			return err
 		}
+		var err error
+		if cur, err = checkBase(r.Context(), tx, name, b.BaseVersion); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(r.Context(), `UPDATE strategies SET active=false WHERE name=$1`, name); err != nil {
 			return err
 		}
-		_, err := tx.Exec(r.Context(), `UPDATE strategies SET active=true WHERE name=$1 AND version=$2::int`, name, ver)
+		_, err = tx.Exec(r.Context(), `UPDATE strategies SET active=true WHERE name=$1 AND version=$2::int`, name, ver)
 		return err
 	})
+	if writePrecondition(w, err) {
+		return
+	}
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -232,7 +301,7 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "no such version"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": cur})
 }
 
 // archived retires a strategy: every version is archived, so no snapshot uses it and
@@ -242,7 +311,8 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var b struct {
-		Archived *bool `json:"archived"`
+		Archived    *bool `json:"archived"`
+		BaseVersion *int  `json:"baseVersion"`
 	}
 	if !decode(w, r, &b, 1<<10) {
 		return
@@ -251,7 +321,11 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "archived is required"})
 		return
 	}
-	var agents, rows int
+	if b.BaseVersion == nil {
+		writePrecondition(w, errBaseRequired)
+		return
+	}
+	var agents, rows, cur int
 	err := pgx.BeginFunc(r.Context(), s.st.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+name); err != nil {
 			return err
@@ -259,15 +333,20 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 		if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM strategies WHERE name=$1`, name).Scan(&rows); err != nil || rows == 0 {
 			return err
 		}
+		var err error
+		if cur, err = checkBase(r.Context(), tx, name, b.BaseVersion); err != nil {
+			return err
+		}
 		if *b.Archived {
 			if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM agents WHERE strategy_name=$1`, name).Scan(&agents); err != nil || agents > 0 {
 				return err
 			}
 		}
-		_, err := tx.Exec(r.Context(), `UPDATE strategies SET archived=$2 WHERE name=$1`, name, *b.Archived)
+		_, err = tx.Exec(r.Context(), `UPDATE strategies SET archived=$2 WHERE name=$1`, name, *b.Archived)
 		return err
 	})
 	switch {
+	case writePrecondition(w, err):
 	case err != nil:
 		s.fail500(w, err)
 	case rows == 0:
@@ -275,6 +354,6 @@ func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 	case agents > 0:
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "agents still use this strategy; assign them another one first", "agents": agents})
 	default:
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": cur})
 	}
 }
