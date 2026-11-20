@@ -400,6 +400,8 @@ const deployFixture = (dir) => {
   stub(join(bin, 'curl'), 'echo "{\\"build\\":{\\"commit\\":\\"$STUB_SERVED\\"}}"');
   stub(join(bin, 'git'), 'case "$*" in *"rev-parse HEAD") echo want ;; *) exec /usr/bin/git "$@" ;; esac');
   stub(join(bin, 'sleep'), 'exit 0');
+  // STUB_CP_TERM sends TERM while restore_build copies a .prev folder back
+  stub(join(bin, 'cp'), 'case "$2" in *.prev) [ -z "$STUB_CP_TERM" ] || kill -TERM "$DEPLOY_PID" ;; esac; exec /bin/cp "$@"');
   const read = (...p) => readFileSync(join(plat, ...p), 'utf8').trim();
   const deploy = (extra) => sh('export DEPLOY_PID=$$; source platform/scripts/switch-launchd.sh; PLAT="$DIR/plat"; LA="$DIR/la"; install_console', { DIR: dir, PATH: `${bin}:${process.env.PATH}`, STUB_SERVED: 'want', ...extra });
   return { read, deploy, log: () => readFileSync(join(dir, 'launchctl.log'), 'utf8') };
@@ -414,6 +416,8 @@ test('install_console keeps the previous build, restores it after a failed build
       [{ STUB_PNPM_FAIL: '1' }, 1, /the console build failed; restoring the previous build/, 'old'],
       // a TERM during next build, after it wrote into the live .next: the trap restores the previous build
       [{ STUB_PNPM_TERM: '1' }, 1, /restoring the previous build/, 'old'],
+      // a second TERM during the restore copy: the restore still finishes and reloads the jobs
+      [{ STUB_PNPM_FAIL: '1', STUB_CP_TERM: '1' }, 1, /the console build failed; restoring the previous build/, 'old'],
       [{ STUB_SERVED: 'other' }, 1, /serves commit other, but the build is want/, 'old'],
       [{ STUB_SERVED: '' }, 1, /did not answer on port/, 'old'],
       // launchctl bootstrap fails after the binary swap: load dies, and the exit trap restores the previous build

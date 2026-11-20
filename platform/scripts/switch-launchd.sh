@@ -160,7 +160,8 @@ served_commit() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" 2>/dev/n
 
 # The previous build stays in .dev/bin.prev and web/.next.prev. restore_build puts it back, reloads the jobs and exits 1.
 restore_build() { # reason
-  trap - EXIT INT TERM # a second failure inside reload_jobs must not restore again
+  trap - EXIT # a second failure inside reload_jobs must not restore again
+  trap '' INT TERM # a second Ctrl-C must not stop the restore between the delete and the copy
   echo "error: $1; restoring the previous build" >&2
   local d
   for d in "$PLAT/.dev/bin" "$PLAT/web/.next"; do
