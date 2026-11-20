@@ -495,7 +495,8 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     stub(join(dir, 'svc'), 'echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}" >>"$STUB_OUT"');
     stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_SVC" "$2/api"; cp "$STUB_SVC" "$2/worker"');
-    stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}" >>"$STUB_OUT"');
+    // the last field holds every secret the console must not inherit, so it is empty for the web line
+    stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}|${MS_DEV_DB_PASSWORD:-}${MS_WORKER_TOKEN:-}${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"');
     stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"');
     // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
     stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
@@ -509,7 +510,7 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     for (let i = 0; i < 50 && !(existsSync(out) && readFileSync(out, 'utf8').trim().split('\n').length >= 3); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     assert.deepEqual(readFileSync(out, 'utf8').trim().split('\n').sort(), [
       'api|127.0.0.1:8081|http://127.0.0.1:8081|ms_dev',
-      'web|127.0.0.1:8081|http://127.0.0.1:8081|',
+      'web|127.0.0.1:8081|http://127.0.0.1:8081||',
       'worker|127.0.0.1:8081|http://127.0.0.1:8081|ms_dev',
     ]);
     const curls = readFileSync(env.STUB_CURL, 'utf8');
@@ -571,6 +572,24 @@ test('the development env file has its own tokens and password, mode 600, and th
     assert.notEqual(dev.MS_DEV_DB_PASSWORD, live.MS_DB_PASSWORD);
     assert.notEqual(dev.MS_WORKER_TOKEN, live.MS_WORKER_TOKEN);
     assert.notEqual(dev.MS_INGEST_TOKEN, live.MS_INGEST_TOKEN);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// MS_RUN_DIR points both stacks at one scratch env file: each stack refuses the other stack's file and appends nothing.
+test('load_env refuses an env file that holds the other stack database password and leaves it unchanged', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-envmix-'));
+  try {
+    const file = join(dir, 'env');
+    for (const [stack, line, owner] of [['dev', 'MS_DB_PASSWORD=live', 'live'], ['live', 'MS_DEV_DB_PASSWORD=dev', 'development']]) {
+      writeFileSync(file, `MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\n${line}\n`, { mode: 0o600 });
+      const before = readFileSync(file, 'utf8');
+      const r = sh(`source platform/scripts/dev.sh; use_stack ${stack}; load_env`, { MS_RUN_DIR: dir });
+      assert.notEqual(r.status, 0, stack);
+      assert.match(r.stderr, new RegExp(`belongs to the ${owner} stack`));
+      assert.equal(readFileSync(file, 'utf8'), before);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

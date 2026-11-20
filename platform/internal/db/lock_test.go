@@ -13,6 +13,19 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/testutil"
 )
 
+// holdAfterClose takes the lock right after another session closed. pgx Close does not wait for the backend to
+// exit, and Postgres releases the session lock only when it has, so it retries for up to 2 seconds.
+func holdAfterClose(ctx context.Context, url, appName string) (*pgx.Conn, error) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		conn, err := db.HoldStackLock(ctx, url, appName)
+		if err == nil || time.Now().After(deadline) {
+			return conn, err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestStackLockRefusesASecondHolderAndReleasesWithTheSession(t *testing.T) {
 	url, err := testutil.DatabaseURL()
 	if err != nil {
@@ -49,7 +62,7 @@ func TestStackLockRefusesASecondHolderAndReleasesWithTheSession(t *testing.T) {
 	if err := first.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
-	third, err := db.HoldStackLock(ctx, url, "ms-api third")
+	third, err := holdAfterClose(ctx, url, "ms-api third")
 	if err != nil {
 		t.Fatal("lock not released after the holder closed:", err)
 	}
@@ -65,7 +78,8 @@ func TestWatchStackLockReportsALostSession(t *testing.T) {
 		t.Skip(err)
 	}
 	ctx := context.Background()
-	holder, err := db.HoldStackLock(ctx, url, "ms-api watched")
+	// the previous test closed its holder just before this one starts
+	holder, err := holdAfterClose(ctx, url, "ms-api watched")
 	if err != nil {
 		if testutil.Required() {
 			t.Fatal(err)

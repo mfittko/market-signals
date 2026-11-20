@@ -89,6 +89,13 @@ load_env() {
     ( umask 077; { echo "MS_WORKER_TOKEN=$(openssl rand -hex 16)"; echo "MS_INGEST_TOKEN=$(openssl rand -hex 16)"; } >"$RUN/env" )
     chmod 600 "$RUN/env"
   fi
+  # MS_RUN_DIR can point both stacks at one file; the later MS_DATABASE_URL line would then move a stack to the
+  # other stack's database, so a file holding the other stack's password is refused before anything is appended
+  if [ "$STACK" = dev ]; then
+    ! grep -q '^MS_DB_PASSWORD=' "$RUN/env" || die "$RUN/env belongs to the live stack; the development stack needs its own run directory"
+  elif grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
+    die "$RUN/env belongs to the development stack; the live stack needs its own run directory"
+  fi
   # the database password is generated once; an env file from before it existed gains it here
   if [ "$STACK" = dev ]; then
     if ! grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
@@ -209,7 +216,7 @@ run() {
     web) cd "$ROOT/web"
       # same rule as `up`: the console inherits no model key, database password or service token
       exec env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
-        -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN \
+        -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN \
         pnpm exec next start -p "${MS_CONSOLE_PORT:-3737}" -H 127.0.0.1 ;;
     *) die "usage: $0 run api|worker|web" ;;
   esac
@@ -238,7 +245,7 @@ up() {
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
     # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
     start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
-      -u MS_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
+      -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
 

@@ -47,8 +47,9 @@ the live database `ms` only. `MS_RUN_DIR` overrides the run directory of both st
 Upgrade step: a development stack started before the two stacks existed runs from `platform/.dev/`, and the new
 `dev.sh down` cannot see it. Stop it before the first `dev.sh up` or `switch-launchd.sh up`: run the old
 `scripts/dev.sh down` before you pull this change. After the pull, run
-`bash -c 'source scripts/dev.sh; for p in web worker api; do stop_one "$p"; done'` from `platform/`. Do not use
-`MS_RUN_DIR=.dev scripts/dev.sh down`: it would add the development database lines to the live env file.
+`bash -c 'source scripts/dev.sh; for p in web worker api; do stop_one "$p"; done'` from `platform/`.
+`MS_RUN_DIR=.dev scripts/dev.sh down` does not work: `dev.sh` refuses an env file that holds the other stack's
+database password, so neither stack can append its lines to the other stack's env file.
 
 One control plane runs per database. At start the control plane takes a Postgres session advisory lock on a
 dedicated connection named `ms-api <listen address>`. A second control plane on the same database exits with
