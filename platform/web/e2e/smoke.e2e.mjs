@@ -3,7 +3,8 @@
 // proxies /api/v1 to an isolated Go API. Engine-backed routes are answered from
 // fixtures/engine.json inside the browser, so no engine process runs.
 //   E2E_BASE_URL  console origin (default http://127.0.0.1:13000)
-//   E2E_OUT       failure artifacts: one screenshot per failing page and failures.jsonl
+//   E2E_OUT       failure artifacts: one screenshot per failing page and failures.jsonl; each run
+//                 deletes the failures.jsonl and *.png files there and nothing else
 // Exits non-zero on any failure. A missing browser is a failure, never a skip.
 import { mkdirSync, readFileSync, readdirSync, appendFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -14,7 +15,9 @@ import { webkit } from 'playwright';
 const here = dirname(fileURLToPath(import.meta.url));
 const BASE = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:13000';
 const OUT = process.env.E2E_OUT ?? join(tmpdir(), 'console-e2e');
-const SETTLE_MS = 1500; // time for a page's first client fetches to answer before the checks run
+// the checks run once no /api/v1 request (the long-lived stream aside) has been in flight for QUIET_MS
+const QUIET_MS = 500;
+const SETTLE_CAP_MS = 15000;
 const VIEWPORTS = { desktop: { width: 1440, height: 900 }, phone: { width: 390, height: 844 } };
 const THEMES = ['light', 'dark'];
 const fixture = JSON.parse(readFileSync(join(here, 'fixtures/engine.json'), 'utf8'));
@@ -71,8 +74,8 @@ const targets = Object.fromEntries(await Promise.all(Object.entries(ROUTES).map(
 const ENGINE = /^https?:\/\/[^/]+\/api\/v1\/(?:engine\/|instruments\/[^/]+\/(?:live|price|news)(?:\?|$))/;
 const stubKey = (method, path) => `${method} ${path.replace(/^\/instruments\/[^/]+\//, '/instruments/*/')}`;
 
-rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
+for (const f of readdirSync(OUT)) if (f === 'failures.jsonl' || f.endsWith('.png')) rmSync(join(OUT, f), { force: true });
 const browser = await webkit.launch();
 let failed = 0;
 try {
@@ -97,7 +100,14 @@ try {
         note = (msg) => { if (open) problems.push(msg); };
         page.on('pageerror', (e) => note(`page error: ${e.message}`));
         page.on('console', (m) => { if (m.type() === 'error') note(`console error: ${m.text()}`); });
+        const inflight = new Set();
+        page.on('request', (r) => {
+          const p = new URL(r.url()).pathname;
+          if (p.startsWith('/api/v1/') && p !== '/api/v1/stream') inflight.add(r);
+        });
+        page.on('requestfinished', (r) => inflight.delete(r));
         page.on('requestfailed', (r) => {
+          inflight.delete(r);
           if (new URL(r.url()).pathname.startsWith('/api/v1/')) note(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`);
         });
         page.on('response', (r) => {
@@ -106,7 +116,17 @@ try {
         try {
           const res = await page.goto(BASE + path, { waitUntil: 'load' });
           if (!res || res.status() !== 200) note(`navigation answered ${res?.status()}`);
-          await page.waitForTimeout(SETTLE_MS);
+          // networkidle never settles here: the pages poll and hold an EventSource
+          const deadline = Date.now() + SETTLE_CAP_MS;
+          let quietSince = Date.now();
+          while (inflight.size || Date.now() - quietSince < QUIET_MS) {
+            if (Date.now() > deadline) {
+              note(`settle timeout: /api/v1 requests still in flight after ${SETTLE_CAP_MS} ms: ${[...inflight].map((r) => `${r.method()} ${r.url()}`).join(', ')}`);
+              break;
+            }
+            if (inflight.size) quietSince = Date.now();
+            await new Promise((ok) => setTimeout(ok, 50));
+          }
           const found = await page.evaluate(() => {
             const t = (s) => (s ?? '').replace(/\s+/g, ' ').trim();
             // shortcut: a name heuristic (aria-label, labelledby, label, title, text, alt), not the full accname algorithm; switch to an axe run if it misses real cases

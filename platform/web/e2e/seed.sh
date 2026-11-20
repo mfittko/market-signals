@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Seeds the isolated console-e2e stack with one instrument, one demo run and one shadow position.
 # It uses the same API calls as platform/scripts/smoke.sh and the deterministic mock agent, so it
-# needs no model, no provider key and no network. Point it only at a disposable test database.
+# needs no model, no provider key and no network. It refuses any database but the lane's ms_e2e on 15544.
 set -euo pipefail
-API="${MS_E2E_API:-http://127.0.0.1:18080}/api/v1"
+API="${MS_API_URL:-http://127.0.0.1:18080}/api/v1"
 : "${MS_INGEST_TOKEN:?set MS_INGEST_TOKEN}" "${MS_DATABASE_URL:?set MS_DATABASE_URL}"
 fail() { echo "FAIL: $*" >&2; exit 1; }
+case "$MS_DATABASE_URL" in
+  *@127.0.0.1:15544/ms_e2e) ;;
+  *) fail "MS_DATABASE_URL must be the console-e2e test database (127.0.0.1:15544/ms_e2e)" ;;
+esac
 
 wait_status() { # run_id status seconds
   local s=""

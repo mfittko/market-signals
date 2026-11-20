@@ -9,7 +9,7 @@
     "portfolio": { "startingBalance": 10000, "cash": 10000, "marginLocked": 0, "unrealized": 0, "equity": 10000, "halted": false, "dayPnl": 0, "realizedTotal": 0, "positions": [], "trades": [] }
   },
   "GET /engine/signals": { "signals": [] },
-  "POST /engine/predict": { "ok": true },
+  "POST /engine/predict": { "prediction": { "id": 1, "action": "no_trade" } },
   "GET /engine/predictions": { "predictions": [] },
   "GET /instruments/*/live": {
     "source": "engine", "symbol": "SMOKE/TEST", "granularity": "M5", "fetchedAt": "2026-11-20T12:15:00Z",
