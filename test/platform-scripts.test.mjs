@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 
 const sh = (script, env) => spawnSync('bash', ['-c', script], { env: { ...process.env, ...env }, encoding: 'utf8' });
 
@@ -346,13 +347,14 @@ test('switch-launchd writes a daily backup plist without KeepAlive and passes ba
   const dir = mkdtempSync(join(tmpdir(), 'ms-plist-'));
   try {
     // a legal absolute path with XML specials must still give a valid plist
-    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; BACKUP_DIR="/Volumes/Backup & Sync/<ms>"; write_backup_plist; write_plist api', { DIR: dir });
+    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; BACKUP_DIR="/Volumes/Backup & Sync/<ms>"; write_backup_plist; write_rotate_plist; write_plist api', { DIR: dir });
     assert.equal(r.status, 0, r.stderr);
     const plist = readFileSync(join(dir, 'com.market-signals.platform-backup.plist'), 'utf8');
     assert.match(plist, /backup\.sh<\/string>\s*<string>scheduled</);
     assert.match(plist, /<key>Hour<\/key>\s*<integer>3<\/integer>\s*<key>Minute<\/key>\s*<integer>30</);
     assert.doesNotMatch(plist, /KeepAlive/);
     assert.match(plist, /\.dev\/backup\.launchd\.log/);
+    assert.match(readFileSync(join(dir, 'com.market-signals.platform-rotate-logs.plist'), 'utf8'), /rotate-logs\.sh<\/string>\s*<\/array>[\s\S]*<key>Hour<\/key>\s*<integer>4</);
     assert.match(readFileSync(join(dir, 'com.market-signals.platform-api.plist'), 'utf8'), /<key>MS_BACKUP_DIR<\/key>\s*<string>\/Volumes\/Backup &amp; Sync\/&lt;ms&gt;<\/string>/);
     if (spawnSync('which', ['plutil']).status === 0) {
       for (const f of readdirSync(dir)) assert.equal(spawnSync('plutil', ['-lint', join(dir, f)]).status, 0, f);
@@ -377,6 +379,93 @@ test('rollback removal unloads the backup job and deletes its plist', () => {
     const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
     assert.deepEqual(readFileSync(join(dir, 'launchctl.log'), 'utf8').trim().split('\n'), [`bootout gui/${uid}/${label}`]);
     assert.deepEqual(readdirSync(la), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A scratch platform tree with an old build, and stand-in go, pnpm, launchctl, curl, git and sleep first on PATH.
+// go writes the api binary before it can fail, and pnpm writes a half build before it fails, like a real broken build.
+// curl serves STUB_SERVED as the console's build.commit; git reports HEAD as "want".
+const deployFixture = (dir) => {
+  const bin = join(dir, 'bin'), plat = join(dir, 'plat');
+  for (const d of [bin, join(dir, 'la'), join(plat, 'scripts'), join(plat, '.dev', 'bin'), join(plat, 'web', '.next'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
+  const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  stub(join(plat, 'scripts', 'dev.sh'), 'exit 0');
+  for (const f of ['api', 'worker']) writeFileSync(join(plat, '.dev', 'bin', f), 'old');
+  writeFileSync(join(plat, 'web', '.next', 'BUILD'), 'old');
+  stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; echo new >"$2/api"; [ -z "$STUB_GO_FAIL" ] || exit 1; echo new >"$2/worker"');
+  stub(join(bin, 'pnpm'), '[ -z "$STUB_PNPM_FAIL" ] || { echo half >.next/BUILD; exit 1; }; echo new >.next/BUILD');
+  stub(join(bin, 'launchctl'), '[ "$1" = bootstrap ] && echo "bootstrap ${3##*/}" >>"$DIR/launchctl.log"; [ "$1" != print ]');
+  stub(join(bin, 'curl'), 'echo "{\\"build\\":{\\"commit\\":\\"$STUB_SERVED\\"}}"');
+  stub(join(bin, 'git'), 'case "$*" in *"rev-parse HEAD") echo want ;; *) exec /usr/bin/git "$@" ;; esac');
+  stub(join(bin, 'sleep'), 'exit 0');
+  const read = (...p) => readFileSync(join(plat, ...p), 'utf8').trim();
+  const deploy = (extra) => sh('source platform/scripts/switch-launchd.sh; PLAT="$DIR/plat"; LA="$DIR/la"; install_console', { DIR: dir, PATH: `${bin}:${process.env.PATH}`, STUB_SERVED: 'want', ...extra });
+  return { read, deploy, log: () => readFileSync(join(dir, 'launchctl.log'), 'utf8') };
+};
+
+test('install_console keeps the previous build, restores it after a failed build or a served commit mismatch, and reloads the jobs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-deploy-'));
+  try {
+    const cases = [
+      [{}, 0, null, 'new'],
+      [{ STUB_GO_FAIL: '1' }, 1, /the Go build failed; restoring the previous build/, 'old'],
+      [{ STUB_PNPM_FAIL: '1' }, 1, /the console build failed; restoring the previous build/, 'old'],
+      [{ STUB_SERVED: 'other' }, 1, /serves commit other, but the build is want/, 'old'],
+      [{ STUB_SERVED: '' }, 1, /did not answer on port/, 'old'],
+    ];
+    for (const [i, [env, status, err, want]] of cases.entries()) {
+      const caseDir = join(dir, String(i));
+      mkdirSync(caseDir);
+      const { read, deploy, log } = deployFixture(caseDir);
+      const r = deploy(env);
+      assert.equal(r.status, status, `${JSON.stringify(env)}: ${r.stderr}`);
+      if (err) assert.match(r.stderr, err);
+      for (const f of [['.dev', 'bin', 'api'], ['.dev', 'bin', 'worker'], ['web', '.next', 'BUILD']]) assert.equal(read(...f), want, `${JSON.stringify(env)} ${f.join('/')}`);
+      assert.equal(read('.dev', 'bin.prev', 'api'), 'old');
+      assert.equal(read('web', '.next.prev', 'BUILD'), 'old');
+      for (const j of ['api', 'worker', 'web']) assert.match(log(), new RegExp(`bootstrap com\\.market-signals\\.platform-${j}\\.plist`));
+      if (status === 0) assert.match(log(), /bootstrap com\.market-signals\.platform-rotate-logs\.plist/);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('rotate-logs gzips a log over 10 MB, truncates it in place, keeps 7 copies, and an append-mode writer keeps writing to the live file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-rotate-'));
+  try {
+    const big = Buffer.alloc(10 * 1024 * 1024 + 1, 'a');
+    writeFileSync(join(dir, 'api.launchd.log'), big);
+    writeFileSync(join(dir, 'worker.launchd.log'), 'small\n');
+    for (let i = 1; i <= 8; i++) writeFileSync(join(dir, `api.launchd.log.20250101-00000${i}.gz`), '');
+    // the open descriptor stands in for launchd, which opens StandardOutPath in append mode
+    const r = sh('exec 3>>"$DIR/api.launchd.log"; bash platform/scripts/rotate-logs.sh "$DIR"; echo after >&3', { DIR: dir });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(join(dir, 'api.launchd.log'), 'utf8'), 'after\n');
+    assert.equal(readFileSync(join(dir, 'worker.launchd.log'), 'utf8'), 'small\n');
+    const kept = readdirSync(dir).filter((f) => f.startsWith('api.launchd.log.')).sort();
+    assert.equal(kept.length, 7);
+    assert.deepEqual(kept.slice(0, 2), ['api.launchd.log.20250101-000003.gz', 'api.launchd.log.20250101-000004.gz']);
+    assert.deepEqual(gunzipSync(readFileSync(join(dir, kept[6]))), big);
+    assert.equal(readdirSync(dir).some((f) => f.startsWith('worker.launchd.log.')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('every line dev.sh prints for a launchd job carries a time and a level', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devlog-'));
+  try {
+    writeFileSync(join(dir, 'llm.json'), '{"OPENAI_API_KEY":"k","OPENAI_BASE_URL":"http://x"}');
+    writeFileSync(join(dir, 'none.json'), '{}');
+    const r = sh('source platform/scripts/dev.sh; load_env; MS_SETTINGS="$DIR/llm.json" llm_env; MS_SETTINGS="$DIR/none.json" llm_env; die boom', { DIR: dir, MS_RUN_DIR: dir });
+    assert.equal(r.status, 1);
+    const lines = (r.stdout + r.stderr).trim().split('\n');
+    assert.equal(lines.length, 4, lines.join('\n'));
+    for (const l of lines) assert.match(l, /^time=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4} level=(INFO|WARN|ERROR) msg="/);
+    assert.match(r.stderr, /level=ERROR msg="boom"/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

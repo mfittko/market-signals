@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -1468,5 +1469,31 @@ func TestHealthReportsTheNewestMarkedBackup(t *testing.T) {
 	}
 	if b := get(""); b["configured"] != false || b["newestAt"] != nil {
 		t.Fatalf("no target: %v", b)
+	}
+}
+
+func TestHealthReportsTheBuild(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	hs := httptest.NewServer(New(Config{}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	defer hs.Close()
+	code, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil)
+	if code != 200 {
+		t.Fatalf("health: %d", code)
+	}
+	// a test binary carries no VCS stamp
+	b := out["build"].(map[string]any)
+	if at, err := time.Parse(time.RFC3339, b["builtAt"].(string)); b["commit"] != "unknown" || b["dirty"] != false || err != nil || time.Since(at) < 0 {
+		t.Fatalf("build: %v", b)
+	}
+}
+
+func TestBuildFieldsReadTheVCSStamp(t *testing.T) {
+	at := time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+	got := buildFields(&debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "abc123"}, {Key: "vcs.modified", Value: "true"}}}, &at)
+	if got["commit"] != "abc123" || got["dirty"] != true || got["builtAt"] != &at {
+		t.Fatalf("stamped: %v", got)
+	}
+	if got := buildFields(nil, nil); got["commit"] != "unknown" || got["builtAt"] != (*time.Time)(nil) {
+		t.Fatalf("no build info: %v", got)
 	}
 }

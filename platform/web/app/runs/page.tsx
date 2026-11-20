@@ -40,6 +40,8 @@ export default function Home() {
   const total = Object.values(health?.stats.byStatus ?? {}).reduce((a, b) => a + b, 0);
   const rejected = health?.stats.invalidProposals ?? 0;
   const queued = health?.stats.queueDepth ?? 0;
+  const consoleCommit = process.env.NEXT_PUBLIC_BUILD_COMMIT ?? 'unknown';
+  const sameBuild = health?.build?.commit === consoleCommit;
   // one line instead of five tiles; zero counts are left out
   const summary = [
     `${total} recorded`,
@@ -57,6 +59,11 @@ export default function Home() {
         </div>
         <div className="chips">
           <span className={`chip ${health ? 'ok' : 'bad'}`}>Control plane</span>
+          {health?.build && (
+            <span className={`chip ${sameBuild ? 'ok' : 'warn'}`} title={sameBuild ? 'The control plane and the console run the same commit.' : 'The control plane and the console were built from different commits.'}>
+              Build {health.build.commit.slice(0, 7)} · console {consoleCommit.slice(0, 7)}{sameBuild ? '' : ' · differ'}
+            </span>
+          )}
           <span className={`chip ${health?.engine.reachable ? 'ok' : health?.engine.configured ? 'bad' : 'warn'}`} title={health?.engine.error}>
             Engine {health?.engine.reachable ? 'reachable' : health?.engine.configured ? 'unreachable' : 'not configured'}
           </span>

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ type Server struct {
 	log  *slog.Logger
 	mux  *http.ServeMux
 	boot time.Time
+	bld  map[string]any
 	hub  *sigHub
 	tri  *newsTriage
 }
@@ -51,8 +53,41 @@ type Server struct {
 func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	eng := tools.NewEngine(cfg.EngineURL)
 	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage()}
+	bi, _ := debug.ReadBuildInfo()
+	s.bld = buildFields(bi, executableTime())
 	s.routes()
 	return s
+}
+
+// buildFields reports the commit from the Go VCS stamp. A binary built without VCS info (go test) reports "unknown".
+func buildFields(bi *debug.BuildInfo, builtAt *time.Time) map[string]any {
+	out := map[string]any{"commit": "unknown", "dirty": false, "builtAt": builtAt}
+	if bi == nil {
+		return out
+	}
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			out["commit"] = s.Value
+		case "vcs.modified":
+			out["dirty"] = s.Value == "true"
+		}
+	}
+	return out
+}
+
+// executableTime is read once at start: a deploy replaces the file on disk while this process keeps running.
+func executableTime() *time.Time {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	fi, err := os.Stat(exe)
+	if err != nil {
+		return nil
+	}
+	t := fi.ModTime()
+	return &t
 }
 
 func (s *Server) Handler() http.Handler { return s.hostGuard(s.originGuard(s.mux)) }
@@ -262,7 +297,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 			engine["error"] = err.Error()
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now())})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld})
 }
 
 // backupStamp is the folder name backup.sh writes, in local time.

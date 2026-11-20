@@ -109,6 +109,7 @@ export type Health = {
   ok: boolean;
   mode: string;
   engine: { configured: boolean; reachable: boolean; error?: string };
+  build?: { commit: string; dirty: boolean; builtAt: string | null };
   stats: {
     byStatus: Record<string, number>;
     shadow: Record<string, number>;

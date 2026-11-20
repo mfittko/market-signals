@@ -64,7 +64,9 @@ MS_ALLOW_LIVE_SWITCH=1 platform/scripts/switch-launchd.sh up       # asks first;
 platform/scripts/switch-launchd.sh rollback [--with-watcher]       # restore the original engine plist
 ```
 
-`up` refuses to run without `MS_ALLOW_LIVE_SWITCH=1`, because it moves the live engine. It backs up the original plists to `~/Library/LaunchAgents/.ms-backup`, retires the old five-minute watcher job and stops the `dev.sh` processes, which use the same ports. The launchd console listens on port 3737 (`MS_CONSOLE_PORT` overrides it). Every step is idempotent, so run `up` again after a pull to rebuild and reload. `rollback` removes the console jobs, the backup job and `consoleUrl`. It restores the old watcher only with `--with-watcher`.
+`up` refuses to run without `MS_ALLOW_LIVE_SWITCH=1`, because it moves the live engine. It backs up the original plists to `~/Library/LaunchAgents/.ms-backup`, retires the old five-minute watcher job and stops the `dev.sh` processes, which use the same ports. The launchd console listens on port 3737 (`MS_CONSOLE_PORT` overrides it). Every step is idempotent, so run `up` again after a pull to rebuild and reload. `rollback` removes the console jobs, the daily jobs and `consoleUrl`. It restores the old watcher only with `--with-watcher`.
+
+`up` keeps the previous build in `platform/.dev/bin.prev` and `platform/web/.next.prev`. `GET /api/v1/health` reports the running commit in `build.commit`, `build.dirty` and `build.builtAt`, and the Runs page shows it next to the console build. When the Go build or the console build fails, or the console serves another commit than `git rev-parse HEAD`, `up` restores the previous build, reloads the jobs and exits non-zero. `up` also installs `com.market-signals.platform-rotate-logs`, which runs `platform/scripts/rotate-logs.sh` every day at 04:00. It gzips each `platform/.dev/*.launchd.log` over 10 MB, truncates the live file and keeps 7 copies per log.
 
 `platform/scripts/backup.sh` dumps the Postgres database and copies the engine's SQLite files, settings and notes. Its header lists the restore and prune commands.
 
