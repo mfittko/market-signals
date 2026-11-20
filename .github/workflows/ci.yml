@@ -135,13 +135,27 @@ jobs:
           curl -fsS -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "$MS_API_URL/api/v1/health"
           "$RUNNER_TEMP/ms-worker" -id e2e-worker > "$RUNNER_TEMP/worker.log" 2>&1 &
           echo "Go API on $MS_API_ADDR, worker started"
-      # seed.sh must refuse every database but the lane's ms_e2e on 15544 before it reaches psql
-      - name: Seed refuses a non-lane database
+      # seed.sh must refuse every API but the lane's 18080 and every database but the lane's ms_e2e on
+      # 15544 before its first write; the accepted lane values are proven by the Seed test data step
+      - name: Seed refuses a non-lane database or API
         run: |
-          for url in postgres://ms@127.0.0.1:5544/ms postgres://ms:pw@127.0.0.1:5544/ms postgres://ms@127.0.0.1:15544/ms postgres://ms@127.0.0.1:5544/ms_e2e; do
-            ! MS_DATABASE_URL="$url" ./e2e/seed.sh 2> "$RUNNER_TEMP/seed-refusal.log"
-            grep -q 'MS_DATABASE_URL must be the console-e2e test database' "$RUNNER_TEMP/seed-refusal.log" || { echo "seed.sh did not refuse $url"; exit 1; }
+          refuses() { # expected message, then env arguments for one seed.sh run
+            local msg="$1"; shift
+            if env "$@" ./e2e/seed.sh 2> "$RUNNER_TEMP/seed-refusal.log"; then echo "seed.sh accepted $*"; exit 1; fi
+            grep -q "$msg" "$RUNNER_TEMP/seed-refusal.log" || { echo "seed.sh did not refuse $* with: $msg"; exit 1; }
+          }
+          db='MS_DATABASE_URL must be the console-e2e test database'
+          api='MS_API_URL must be unset or the console-e2e API'
+          for url in "" postgres://ms@127.0.0.1:5544/ms postgres://ms@127.0.0.1:15544/ms postgres://ms@127.0.0.1:5544/ms_e2e \
+            'postgres://ms@prodhost:5432/ms?application_name=x@127.0.0.1:15544/ms_e2e'; do
+            refuses "$db" MS_DATABASE_URL="$url"
           done
+          for url in http://127.0.0.1:8080 http://localhost:8080 http://127.0.0.1:18080.evil http://example.com; do
+            refuses "$api" MS_API_URL="$url"
+          done
+          # an unset or empty MS_API_URL passes the API guard, so the run stops at the database guard
+          refuses "$db" -u MS_API_URL MS_DATABASE_URL=postgres://ms@127.0.0.1:5544/ms
+          refuses "$db" MS_API_URL= MS_DATABASE_URL=postgres://ms@127.0.0.1:5544/ms
       - name: Seed test data
         run: ./e2e/seed.sh
       - name: Start console (next start)
