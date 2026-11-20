@@ -6,6 +6,7 @@ import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, StatusPill, Loading } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
 import { pickAgentId } from '@/lib/agent-selection';
+import { sameBuild as isSameBuild } from '@/lib/same-build';
 
 export default function Home() {
   const [runs, setRuns] = useState<RunRow[] | null>(null);
@@ -41,7 +42,7 @@ export default function Home() {
   const rejected = health?.stats.invalidProposals ?? 0;
   const queued = health?.stats.queueDepth ?? 0;
   const consoleCommit = process.env.NEXT_PUBLIC_BUILD_COMMIT ?? 'unknown';
-  const sameBuild = health?.build?.commit === consoleCommit;
+  const sameBuild = isSameBuild(health?.build?.commit, consoleCommit);
   // one line instead of five tiles; zero counts are left out
   const summary = [
     `${total} recorded`,

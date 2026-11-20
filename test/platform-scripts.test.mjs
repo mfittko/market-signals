@@ -396,7 +396,7 @@ const deployFixture = (dir) => {
   writeFileSync(join(plat, 'web', '.next', 'BUILD'), 'old');
   stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; echo new >"$2/api"; [ -z "$STUB_GO_FAIL" ] || exit 1; echo new >"$2/worker"');
   stub(join(bin, 'pnpm'), '[ -z "$STUB_PNPM_FAIL" ] || { echo half >.next/BUILD; exit 1; }; echo new >.next/BUILD');
-  stub(join(bin, 'launchctl'), '[ "$1" = bootstrap ] && echo "bootstrap ${3##*/}" >>"$DIR/launchctl.log"; [ "$1" != print ]');
+  stub(join(bin, 'launchctl'), '[ "$1" = bootstrap ] && { [ -z "$STUB_BOOTSTRAP_FAIL" ] || exit 1; echo "bootstrap ${3##*/}" >>"$DIR/launchctl.log"; }; [ "$1" != print ]');
   stub(join(bin, 'curl'), 'echo "{\\"build\\":{\\"commit\\":\\"$STUB_SERVED\\"}}"');
   stub(join(bin, 'git'), 'case "$*" in *"rev-parse HEAD") echo want ;; *) exec /usr/bin/git "$@" ;; esac');
   stub(join(bin, 'sleep'), 'exit 0');
@@ -405,7 +405,7 @@ const deployFixture = (dir) => {
   return { read, deploy, log: () => readFileSync(join(dir, 'launchctl.log'), 'utf8') };
 };
 
-test('install_console keeps the previous build, restores it after a failed build or a served commit mismatch, and reloads the jobs', () => {
+test('install_console keeps the previous build, restores it after a failed build, a served commit mismatch or a failed reload after the swap, and reloads the jobs', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-deploy-'));
   try {
     const cases = [
@@ -414,6 +414,8 @@ test('install_console keeps the previous build, restores it after a failed build
       [{ STUB_PNPM_FAIL: '1' }, 1, /the console build failed; restoring the previous build/, 'old'],
       [{ STUB_SERVED: 'other' }, 1, /serves commit other, but the build is want/, 'old'],
       [{ STUB_SERVED: '' }, 1, /did not answer on port/, 'old'],
+      // launchctl bootstrap fails after the binary swap: load dies, and the exit trap restores the previous build
+      [{ STUB_BOOTSTRAP_FAIL: '1' }, 1, /the deploy stopped before the new build was verified; restoring the previous build/, 'old'],
     ];
     for (const [i, [env, status, err, want]] of cases.entries()) {
       const caseDir = join(dir, String(i));
@@ -425,7 +427,7 @@ test('install_console keeps the previous build, restores it after a failed build
       for (const f of [['.dev', 'bin', 'api'], ['.dev', 'bin', 'worker'], ['web', '.next', 'BUILD']]) assert.equal(read(...f), want, `${JSON.stringify(env)} ${f.join('/')}`);
       assert.equal(read('.dev', 'bin.prev', 'api'), 'old');
       assert.equal(read('web', '.next.prev', 'BUILD'), 'old');
-      for (const j of ['api', 'worker', 'web']) assert.match(log(), new RegExp(`bootstrap com\\.market-signals\\.platform-${j}\\.plist`));
+      if (!env.STUB_BOOTSTRAP_FAIL) for (const j of ['api', 'worker', 'web']) assert.match(log(),new RegExp(`bootstrap com\\.market-signals\\.platform-${j}\\.plist`));
       if (status === 0) assert.match(log(), /bootstrap com\.market-signals\.platform-rotate-logs\.plist/);
     }
   } finally {

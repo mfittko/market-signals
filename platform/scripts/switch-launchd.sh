@@ -160,6 +160,7 @@ served_commit() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" 2>/dev/n
 
 # The previous build stays in .dev/bin.prev and web/.next.prev. restore_build puts it back, reloads the jobs and exits 1.
 restore_build() { # reason
+  trap - EXIT INT TERM # a second failure inside reload_jobs must not restore again
   echo "error: $1; restoring the previous build" >&2
   local d
   for d in "$PLAT/.dev/bin" "$PLAT/web/.next"; do
@@ -185,6 +186,8 @@ install_console() {
   (cd "$PLAT" && go build -o "$bin.stage/" ./cmd/api ./cmd/worker) || restore_build "the Go build failed"
   [ -d "$PLAT/web/node_modules" ] || (cd "$PLAT/web" && pnpm install --silent)
   (cd "$PLAT/web" && pnpm exec next build) || restore_build "the console build failed"
+  # from here the new build is live but unverified: any exit before the commit check puts the previous build back
+  trap 'restore_build "the deploy stopped before the new build was verified"' EXIT INT TERM
   command mv -f "$bin.stage"/* "$bin/"
   command rm -rf "$bin.stage"
   reload_jobs
@@ -194,6 +197,7 @@ install_console() {
   for _ in $(seq 1 60); do served="$(served_commit)"; [ -n "$served" ] && break; sleep 1; done
   [ -n "$served" ] || restore_build "the console did not answer on port $PORT (see $PLAT/.dev/web.launchd.log)"
   [ "$served" = "$want" ] || restore_build "the console serves commit $served, but the build is $want"
+  trap - EXIT INT TERM
 }
 
 remove_console() {
@@ -226,7 +230,8 @@ up() {
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
   echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
   echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes);"
-  echo "     a failed build, or a console that serves another commit than HEAD, restores the previous build"
+  echo "     a failed build, a console that does not answer on port $PORT within 60 seconds, a console that serves"
+  echo "     another commit than HEAD, or a deploy that stops before that check restores the previous build"
   echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS) and log rotation (04:00)"
   if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
 
