@@ -97,9 +97,11 @@ try {
         const problems = [];
         const page = await context.newPage();
         let open = true;
-        note = (msg) => { if (open) problems.push(msg); };
-        page.on('pageerror', (e) => note(`page error: ${e.message}`));
-        page.on('console', (m) => { if (m.type() === 'error') note(`console error: ${m.text()}`); });
+        // page listeners bind this page's recorder: an event delivered after the loop moves on stays with this page
+        const record = (msg) => { if (open) problems.push(msg); };
+        note = record;
+        page.on('pageerror', (e) => record(`page error: ${e.message}`));
+        page.on('console', (m) => { if (m.type() === 'error') record(`console error: ${m.text()}`); });
         const inflight = new Set();
         // set on every tracked request event: a stubbed request can start and finish between two poll ticks
         let quietSince = Date.now();
@@ -115,10 +117,10 @@ try {
         });
         page.on('requestfailed', (r) => {
           if (tracked(r)) { inflight.delete(r); quietSince = Date.now(); }
-          if (new URL(r.url()).pathname.startsWith('/api/v1/')) note(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`);
+          if (new URL(r.url()).pathname.startsWith('/api/v1/')) record(`request failed: ${r.method()} ${r.url()} ${r.failure()?.errorText ?? ''}`);
         });
         page.on('response', (r) => {
-          if (r.status() >= 400 && new URL(r.url()).pathname.startsWith('/api/v1/')) note(`HTTP ${r.status()}: ${r.request().method()} ${r.url()}`);
+          if (r.status() >= 400 && new URL(r.url()).pathname.startsWith('/api/v1/')) record(`HTTP ${r.status()}: ${r.request().method()} ${r.url()}`);
         });
         try {
           const res = await page.goto(BASE + path, { waitUntil: 'load' });
