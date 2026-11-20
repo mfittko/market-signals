@@ -1,7 +1,6 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mfittko/market-signals/platform/fixtures"
+	"github.com/mfittko/market-signals/platform/internal/domain"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
@@ -23,10 +23,10 @@ func demoSnapshot(a queue.Agent) (json.RawMessage, error) {
 	return json.Marshal(m)
 }
 
-// buildEngineSnapshot freezes the engine's current view for one agent. Only
+// operatorSnapshot freezes the engine's current view for one agent. Only
 // COMPLETE candles enter the snapshot; the forming candle is excluded and the
 // quote is labelled so it can never pass as a completed-bar price.
-func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) (json.RawMessage, error) {
+func operatorSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) (json.RawMessage, error) {
 	var chart struct {
 		Candles    []map[string]any `json:"candles"`
 		Signal     map[string]any   `json:"signal"`
@@ -34,7 +34,7 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 			Value float64 `json:"value"`
 			Trend string  `json:"trend"`
 		} `json:"supertrend"`
-		AxisGate map[string]any `json:"axisGate"`
+		AxisGate any            `json:"axisGate"`
 		Quote    map[string]any `json:"quote"`
 		BotState map[string]any `json:"botState"`
 	}
@@ -71,26 +71,26 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 	if len(done) > 30 {
 		done = done[len(done)-30:]
 	}
-	snap := map[string]any{
-		"instrument": a.Instrument, "granularity": a.Granularity, "event": "operator",
-		"asOf": last["time"], "close": last["close"], "candles": done,
-		"quote": map[string]any{"last": chart.Quote["last"], "provisional": chart.Quote["partial"]},
-		"flip":  chart.Signal,
-		"portfolio": map[string]any{
+	f := domain.SnapshotFields{
+		Instrument: a.Instrument, Granularity: a.Granularity, Event: "operator",
+		AsOf: last["time"], Close: last["close"], Candles: done,
+		Quote: map[string]any{"last": chart.Quote["last"], "provisional": chart.Quote["partial"]},
+		Flip:  chart.Signal,
+		Portfolio: map[string]any{
 			"equity": pf.Portfolio["equity"], "cash": pf.Portfolio["cash"], "halted": pf.Portfolio["halted"], "positions": pf.Portfolio["positions"],
 		},
-		"strategy":   map[string]any{"name": chart.BotState["strategyRef"]},
-		"capturedAt": time.Now().UTC().Format(time.RFC3339),
+		AxisGate:       chart.AxisGate,
+		EngineStrategy: map[string]any{"name": chart.BotState["strategyRef"]},
 	}
-	if chart.AxisGate != nil {
-		snap["axisGate"] = chart.AxisGate
+	if chart.Signal == nil {
+		f.Flip = nil // a nil map in an interface is not nil
 	}
 	// indicator levels a strategy prompt refers to (ATR, EMAs, Bollinger, recent extremes); a failure only omits them
 	var ind struct {
-		Indicators map[string]any `json:"indicators"`
+		Indicators any `json:"indicators"`
 	}
-	if err := eng.Get(ctx, "/api/indicators", q, &ind); err == nil && ind.Indicators != nil {
-		snap["indicators"] = ind.Indicators
+	if err := eng.Get(ctx, "/api/indicators", q, &ind); err == nil {
+		f.Indicators = ind.Indicators
 	}
 	// advisory context the old bot also saw; a failure only omits it
 	var dc struct {
@@ -98,17 +98,42 @@ func buildEngineSnapshot(ctx context.Context, eng *tools.Engine, a queue.Agent) 
 		Sentinel       any `json:"sentinel"`
 	}
 	if err := eng.Get(ctx, "/api/decision-context", url.Values{"instrument": {a.Instrument}}, &dc); err == nil {
-		if dc.TraderMemories != nil {
-			snap["traderMemories"] = dc.TraderMemories
-		}
-		if dc.Sentinel != nil {
-			snap["sentinel"] = dc.Sentinel
-		}
+		f.TraderMemories, f.Sentinel = dc.TraderMemories, dc.Sentinel
 	}
 	if n := len(chart.Supertrend); n > 0 {
-		snap["supertrend"], snap["trend"] = chart.Supertrend[n-1].Value, chart.Supertrend[n-1].Trend
+		f.Supertrend, f.Trend = chart.Supertrend[n-1].Value, chart.Supertrend[n-1].Trend
 	}
-	return json.Marshal(snap)
+	snap := domain.Snapshot(f)
+	snap["capturedAt"] = time.Now().UTC().Format(time.RFC3339)
+	return domain.EncodeSnapshot(snap)
+}
+
+// engineEventSnapshot maps the Node engine's payload into the shared shape: the
+// fields under context move to top level and its strategy becomes engineStrategy.
+// Fields outside the shared set stay as the engine sent them. A payload that is not
+// a JSON object is returned unchanged.
+func engineEventSnapshot(instrument, granularity, event string, payload json.RawMessage) json.RawMessage {
+	var n map[string]any
+	if json.Unmarshal(payload, &n) != nil || n == nil {
+		return payload
+	}
+	c, _ := n["context"].(map[string]any)
+	snap := domain.Snapshot(domain.SnapshotFields{
+		Instrument: instrument, Granularity: granularity, Event: event,
+		AsOf: n["asOf"], Close: n["close"], Quote: n["quote"], Flip: n["flip"], Trend: n["trend"], Supertrend: n["supertrend"],
+		Candles: n["candles"], Portfolio: n["portfolio"], Indicators: n["indicators"], EngineStrategy: n["strategy"],
+		AxisGate: c["axisGate"], TraderMemories: c["traderMemories"], Sentinel: c["sentinel"],
+	})
+	for k, v := range n {
+		if _, set := snap[k]; !set && k != "context" && k != "strategy" {
+			snap[k] = v
+		}
+	}
+	out, err := domain.EncodeSnapshot(snap)
+	if err != nil {
+		return payload
+	}
+	return out
 }
 
 type chartCandle struct {
@@ -160,42 +185,6 @@ func chartCandles(ctx context.Context, eng *tools.Engine, instrument, granularit
 	return out, "engine", "", nil
 }
 
-// withStrategy puts the agent's strategy into a snapshot. The agent's strategy
-// name picks the active, unarchived version from the imported history, so a
-// research run judges entry conditions with the same rules the old bot used.
-func (s *Server) withStrategy(ctx context.Context, payload json.RawMessage, a queue.Agent) (json.RawMessage, error) {
-	if a.StrategyName == "" {
-		return payload, nil
-	}
-	var name, prompt string
-	var version int
-	err := s.st.Pool.QueryRow(ctx, `SELECT name, version, prompt FROM strategies WHERE name=$1 AND NOT archived ORDER BY active DESC, version DESC LIMIT 1`, a.StrategyName).Scan(&name, &version, &prompt)
-	if err != nil {
-		return payload, nil // no imported strategy of that name: keep the engine's own label
-	}
-	var m map[string]any
-	if err := json.Unmarshal(payload, &m); err != nil {
-		return nil, err
-	}
-	if m == nil {
-		return nil, errors.New("snapshot payload must be a JSON object")
-	}
-	m["strategy"] = map[string]any{"name": name, "version": version, "prompt": prompt}
-	return marshalSnapshot(m)
-}
-
-// marshalSnapshot encodes a snapshot payload without HTML escaping. json.Marshal
-// would grow each <, > and & in a prompt to 6 bytes and can push it over the size cap.
-func marshalSnapshot(m map[string]any) (json.RawMessage, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(m); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
-}
-
 // withIndicators adds the engine's indicator levels to a snapshot that lacks them.
 // Complete-candle values hold until the bar closes, so a fetch moments after the
 // event matches the moment it describes. A failure leaves the payload unchanged.
@@ -215,20 +204,17 @@ func (s *Server) withIndicators(ctx context.Context, instrument, granularity str
 		return payload
 	}
 	m["indicators"] = ind.Indicators
-	if out, err := marshalSnapshot(m); err == nil {
+	if out, err := domain.EncodeSnapshot(m); err == nil {
 		return out
 	}
 	return payload
 }
 
-// WakeEnricher gives the position monitor the same strategy and indicator context
-// an entry check gets, so a tripwire wake judges with the numbers the entry used.
+// WakeEnricher gives the position monitor the same indicator context an entry
+// check gets, so a tripwire wake judges with the numbers the entry used. The
+// strategy comes from the run, which the queue freezes at enqueue time.
 func (s *Server) WakeEnricher() func(context.Context, queue.Agent, json.RawMessage) (json.RawMessage, error) {
 	return func(ctx context.Context, a queue.Agent, p json.RawMessage) (json.RawMessage, error) {
-		out, err := s.withStrategy(ctx, p, a)
-		if err != nil {
-			return p, err
-		}
-		return s.withIndicators(ctx, a.Instrument, a.Granularity, out), nil
+		return s.withIndicators(ctx, a.Instrument, a.Granularity, p), nil
 	}
 }

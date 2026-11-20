@@ -45,6 +45,7 @@ export type Run = {
   proposal?: Decision;
   validation?: Validation;
   legacyDecision?: { decision?: Decision; executed?: unknown; error?: string | null } & Partial<Decision>;
+  strategy?: { name: string; version: number }; // the console strategy frozen at enqueue; absent when the engine's governs
   comparison: Comparison;
   usage: Record<string, number>;
   createdAt: string;

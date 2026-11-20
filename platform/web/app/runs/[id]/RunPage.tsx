@@ -6,6 +6,7 @@ import { api, describe, engineDecision, type Decision, type RunDetail, type RunE
 import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, Json, StatusPill, Loading } from '@/components/ui';
 import { CandleChart, type Candle } from '@/components/CandleChart';
+import { governedBy } from '@/lib/governed-by';
 
 const TERMINAL = ['succeeded', 'failed', 'cancelled', 'expired'];
 
@@ -57,6 +58,7 @@ export default function RunPage() {
         </div>
       </div>
       {error && <div className="msg err" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
+      <p className="muted" style={{ marginTop: -6 }}>{governedBy(run.strategy, snapshot.payload)}</p>
       {run.stopReason && <p className="muted" style={{ marginTop: -6 }}>Stop reason: {run.stopReason}</p>}
 
       <Card title="Chart" aside={chart && chart.source !== 'none' && <span className="muted small">{chart.source === 'snapshot' ? 'candles frozen in the snapshot' : 'live engine window, not frozen'}</span>} className="chart-card">
@@ -118,7 +120,6 @@ export default function RunPage() {
               <dt>Digest</dt><dd className="mono">{snapshot.digest.slice(0, 16)}</dd>
               <dt>Close</dt><dd className="num">{snapshot.payload.close}</dd>
               <dt>Flip</dt><dd>{snapshot.payload.flip ? `${snapshot.payload.flip.signal} @ ${snapshot.payload.flip.price}` : 'none'}</dd>
-              <dt>Strategy</dt><dd>{snapshot.payload.strategy?.name ?? 'n/a'}</dd>
             </dl>
             <Json value={snapshot.payload} />
           </Card>

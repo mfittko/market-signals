@@ -48,7 +48,7 @@ type Service struct {
 	Feed  Feed
 	Log   *slog.Logger
 	Now   func() time.Time
-	// Enrich adds the strategy and indicators to a wake snapshot. Optional.
+	// Enrich adds indicators to a wake snapshot. Optional.
 	Enrich func(ctx context.Context, a queue.Agent, payload json.RawMessage) (json.RawMessage, error)
 }
 
@@ -285,19 +285,25 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 	if price <= 0 {
 		price = q.LastClose
 	}
-	body := map[string]any{
-		"instrument": q.Instrument, "granularity": q.Granularity, "event": "tripwire",
-		"close": price, "quote": map[string]any{"last": price},
-		"portfolio": map[string]any{"halted": m.Halted},
-		"wake":      map[string]any{"positionId": q.ID, "side": q.Side, "entry": q.EntryPrice, "stop": q.Stop, "price": price, "tripwire": tw.Kind},
-		"position": map[string]any{
-			"id": q.ID, "side": q.Side, "entry": q.EntryPrice, "stop": q.Stop, "initialStop": q.InitialStop, "target": q.Target,
-			"barsHeld": q.BarsHeld, "bestClose": q.Best, "lastClose": q.LastClose, "plan": q.Plan,
-			"unrealizedPct": pct(q.Side, q.EntryPrice, price), "openedByRun": q.RunID,
-		},
-		"tripwire": tw,
+	f := domain.SnapshotFields{
+		Instrument: q.Instrument, Granularity: q.Granularity, Event: "tripwire",
+		Close: price, Quote: map[string]any{"last": price}, Portfolio: map[string]any{"halted": m.Halted},
 	}
-	raw, _ := json.Marshal(body)
+	// the engine's strategy the position opened under, so an agent without a console strategy manages under it too
+	if es, err := s.Store.EngineStrategy(ctx, q.RunID); err != nil {
+		s.Log.Warn("wake engine strategy", "position", q.ID, "err", err)
+	} else if es != nil {
+		f.EngineStrategy = es
+	}
+	body := domain.Snapshot(f)
+	body["wake"] = map[string]any{"positionId": q.ID, "side": q.Side, "entry": q.EntryPrice, "stop": q.Stop, "price": price, "tripwire": tw.Kind}
+	body["position"] = map[string]any{
+		"id": q.ID, "side": q.Side, "entry": q.EntryPrice, "stop": q.Stop, "initialStop": q.InitialStop, "target": q.Target,
+		"barsHeld": q.BarsHeld, "bestClose": q.Best, "lastClose": q.LastClose, "plan": q.Plan,
+		"unrealizedPct": pct(q.Side, q.EntryPrice, price), "openedByRun": q.RunID,
+	}
+	body["tripwire"] = tw
+	raw, _ := domain.EncodeSnapshot(body)
 	if s.Enrich != nil {
 		if e, err := s.Enrich(ctx, agent, raw); err == nil {
 			raw = e

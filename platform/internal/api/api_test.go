@@ -352,12 +352,12 @@ func TestOperatorRunKeepsALongStrategyPromptUnescapedAndRefusesAnOversizedOne(t 
 	if code != 202 {
 		t.Fatalf("a full-size strategy prompt must fit the snapshot: %d %v", code, out)
 	}
-	d, err := st.GetRun(ctx, int64(out["runs"].([]any)[0].(map[string]any)["runId"].(float64)))
-	if err != nil {
-		t.Fatal(err)
+	c, err := st.Claim(ctx, "w", []string{"mock"}, 30*time.Second)
+	if err != nil || c == nil {
+		t.Fatal("claim", err)
 	}
-	if !strings.Contains(string(d.Snapshot.Payload), rule) {
-		t.Fatal("the stored prompt must keep <, > and & as written")
+	if !strings.Contains(string(c.Snapshot.Payload), rule) {
+		t.Fatal("the claimed prompt must keep <, > and & as written")
 	}
 	// a prompt that escapes past the cap gets a clear 413
 	put("Control", strings.Repeat("\x01", maxPrompt))
