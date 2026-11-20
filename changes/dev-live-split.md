@@ -1,0 +1,1 @@
+- Platform: the development stack (`dev.sh up`) runs on its own database `ms_dev`, role, env file, run directory and API port 8081, beside the live launchd stack, and a second control plane on one database refuses to start (#234)

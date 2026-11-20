@@ -1,24 +1,41 @@
 #!/usr/bin/env bash
 # One-command local stack: Postgres (docker), Go control plane, Go worker, Next.js console.
-#   scripts/dev.sh up      start everything (idempotent)
-#   scripts/dev.sh down    stop app processes (add --db to stop Postgres too)
-#   scripts/dev.sh status  show what is running
-#   scripts/dev.sh logs    tail all logs
-#   scripts/dev.sh db      start Postgres and set the role password (up calls it)
-#   scripts/dev.sh run api|worker|web   one service in the foreground, for a supervisor such as launchd
+# Two stacks share the Postgres server and nothing else: no database, run directory, env file or port.
+#   development (up, down, status, logs): run directory .dev/dev, database ms_dev with role ms_dev, API 8081, console 3000
+#   live (run, db; the launchd jobs):     run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
+#   scripts/dev.sh up      start the development stack (idempotent)
+#   scripts/dev.sh down    stop the development app processes (add --db to stop Postgres too)
+#   scripts/dev.sh status  show what of the development stack is running
+#   scripts/dev.sh logs    tail the development logs
+#   scripts/dev.sh db      start Postgres and set the live role password (switch-launchd.sh calls it)
+#   scripts/dev.sh run api|worker|web   one live service in the foreground, for a supervisor such as launchd
 # Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
 #              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
 #              the console proxy also forwards POST /settings, POST /chat and DELETE /threads.
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
 #              control plane for strategy coaching; the console starts without them).
-# Secrets: .dev/env (mode 600, gitignored) holds the worker and ingest tokens and the Postgres password, generated
-#          once. It also holds MS_DATABASE_URL for the binaries and MS_TEST_DATABASE_URL for go test.
+# Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
+#          and ingest tokens and database password, generated once. It also holds MS_DATABASE_URL for the binaries
+#          and MS_TEST_DATABASE_URL for go test.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
 . "$ROOT/scripts/api-origins.sh"
-RUN="${MS_RUN_DIR:-$ROOT/.dev}" # the override lets a test use a scratch directory
-mkdir -p "$RUN/bin"
+
+# use_stack dev|live sets the run directory and the API address of one stack. MS_RUN_DIR overrides the directory
+# of both, so a test can use a scratch directory.
+use_stack() {
+  STACK="$1"
+  if [ "$STACK" = dev ]; then
+    RUN="${MS_RUN_DIR:-$ROOT/.dev/dev}"
+    # the worker and the console proxy reach the development control plane, never the live one on 8080
+    export MS_API_ADDR=127.0.0.1:8081 MS_API_URL=http://127.0.0.1:8081
+  else
+    RUN="${MS_RUN_DIR:-$ROOT/.dev}"
+  fi
+  mkdir -p "$RUN/bin"
+}
+use_stack live
 
 # every line this script prints carries a time and a level, like the Go services' slog text output
 log() { local level="$1"; shift; echo "time=$(date +%Y-%m-%dT%H:%M:%S%z) level=$level msg=\"$*\""; }
@@ -71,7 +88,14 @@ load_env() {
     chmod 600 "$RUN/env"
   fi
   # the database password is generated once; an env file from before it existed gains it here
-  if ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
+  if [ "$STACK" = dev ]; then
+    if ! grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
+      local pw; pw="$(openssl rand -hex 24)"
+      { echo "MS_DEV_DB_PASSWORD=$pw"
+        echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
+        echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >>"$RUN/env"
+    fi
+  elif ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
     local pw; pw="$(openssl rand -hex 24)"
     { echo "MS_DB_PASSWORD=$pw"
       echo "MS_DATABASE_URL=postgres://ms:$pw@127.0.0.1:5544/ms"
@@ -147,6 +171,29 @@ db_up() {
     || docker compose exec -T postgres psql -U ms -d ms -c "CREATE DATABASE ms_test" >/dev/null
 }
 
+# docker compose needs MS_DB_PASSWORD only to read the compose file; the development env file has no such line
+dc() { MS_DB_PASSWORD="${MS_DB_PASSWORD:-${MS_DEV_DB_PASSWORD:-}}" docker compose "$@"; }
+
+# dev_db: role ms_dev and its databases ms_dev and ms_dev_test in the shared Postgres server. It never changes the
+# live role ms. A running Postgres is used as it is: `compose up` with another password would recreate the container
+# under the live stack.
+dev_db() {
+  need docker; need openssl
+  load_env
+  dc ps --status running postgres 2>/dev/null | grep -q postgres || dc up -d postgres >/dev/null
+  for _ in $(seq 1 30); do
+    dc exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
+    sleep 1
+  done
+  # the SQL goes through stdin, off the process list
+  printf "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;\nALTER ROLE ms_dev PASSWORD '%s';\n" \
+    "$MS_DEV_DB_PASSWORD" | dc exec -T postgres psql -q -v ON_ERROR_STOP=1 -U ms -d ms >/dev/null
+  for d in ms_dev ms_dev_test; do
+    dc exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='$d'" | grep -q 1 \
+      || dc exec -T postgres psql -U ms -d ms -c "CREATE DATABASE $d OWNER ms_dev" >/dev/null
+  done
+}
+
 # run <api|worker|web>: one service in the foreground, for a supervisor such as launchd.
 # The engine URL is not probed here: the engine may start after this service, and the control plane retries.
 run() {
@@ -168,7 +215,7 @@ run() {
 up() {
   need docker; need go; need pnpm; need jq; need openssl
   load_env
-  db_up
+  dev_db
 
   go build -o "$RUN/bin/" ./cmd/api ./cmd/worker
   local engine; engine="$(engine_url)"
@@ -178,7 +225,7 @@ up() {
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
   fi
-  wait_http http://127.0.0.1:8080/api/v1/health "control plane" 20
+  wait_http "$MS_API_URL/api/v1/health" "control plane" 20
 
   if ! alive worker; then
     start worker "$ROOT" "$RUN/bin/worker"
@@ -194,15 +241,16 @@ up() {
 
   echo
   echo "Console:        http://127.0.0.1:3000"
-  echo "Control plane:  http://127.0.0.1:8080/api/v1/health"
+  echo "Control plane:  $MS_API_URL/api/v1/health"
+  echo "Database:       ${MS_DATABASE_URL##*/}"
   echo "Engine (read):  ${engine:-not connected; demo runs work, live-engine runs do not}"
   echo "Ingest token for the engine hook: $RUN/env"
 }
 
 down() {
-  load_env # docker compose needs MS_DB_PASSWORD to read the compose file
+  load_env
   for p in web worker api; do stop_one "$p"; done
-  if [ "${1:-}" = "--db" ]; then docker compose stop postgres >/dev/null; fi
+  if [ "${1:-}" = "--db" ]; then dc stop postgres >/dev/null; fi
   echo "stopped"
 }
 
@@ -211,11 +259,14 @@ status() {
   for p in api worker web; do
     if alive "$p"; then echo "$p: running (pid $(cat "$RUN/$p.pid"))"; else echo "$p: stopped"; fi
   done
-  if docker compose ps --status running postgres 2>/dev/null | grep -q postgres; then echo "postgres: running"; else echo "postgres: stopped"; fi
+  if dc ps --status running postgres 2>/dev/null | grep -q postgres; then echo "postgres: running"; else echo "postgres: stopped"; fi
 }
 
 # sourcing the file (the launcher test does) loads the helpers without running a command
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+case "${1:-up}" in
+  up|down|status|logs) use_stack dev ;;
+esac
 case "${1:-up}" in
   up) up ;;
   down) down "${2:-}" ;;
