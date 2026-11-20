@@ -1453,8 +1453,9 @@ func TestHealthReportsTheNewestMarkedBackup(t *testing.T) {
 	if b["configured"] != true || !at.Equal(want) {
 		t.Fatalf("marked folder: %v", b)
 	}
-	if age := b["ageSeconds"].(float64); age < 7190 || age > 7300 {
-		t.Fatalf("ageSeconds: %v", age)
+	// measured from the parsed folder time, so a DST change inside the last 2 hours does not move it
+	if age, exp := b["ageSeconds"].(float64), time.Since(want).Seconds(); age < exp-5 || age > exp+1 {
+		t.Fatalf("ageSeconds: %v, want about %v", age, exp)
 	}
 	empty := t.TempDir()
 	if err := os.Mkdir(filepath.Join(empty, marked), 0o700); err != nil {

@@ -50,7 +50,8 @@ test('backup marks a folder only after the dump verifies, a failing run leaves n
     // STUB_DATE pins the folder timestamp, so a second run in the same second can be staged
     stub('date', 'if [ -n "$STUB_DATE" ] && [ "$1" = +%Y%m%d-%H%M%S ]; then echo "$STUB_DATE"; else exec /bin/date "$@"; fi');
     const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: join(dir, 'log') };
-    const backup = (extra = {}) => sh(`source platform/scripts/backup.sh; MAIN="$DIR"; backup "$DIR/dest"`, { ...env, DIR: dir, ...extra });
+    // the manual path creates the root first, as the dispatch does
+    const backup = (extra = {}) => sh(`source platform/scripts/backup.sh; MAIN="$DIR"; mkdir -p "$DIR/dest"; backup "$DIR/dest"`, { ...env, DIR: dir, ...extra });
 
     let r = backup();
     assert.equal(r.status, 0, r.stderr);
@@ -130,7 +131,9 @@ const backupFixture = (dir) => {
   stub('pg_dump', 'echo dump');
   stub('pg_restore', 'exit 0');
   stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
-  stub('launchctl', 'case "$1" in print) [ -f "$STUB_LOADED" ] ;; *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; case "$1" in bootout) rm -f "$STUB_LOADED" ;; bootstrap) : >"$STUB_LOADED" ;; esac ;; esac');
+  // STUB_STUCK keeps the job loaded after bootout, like a slow engine shutdown; sleep returns at once
+  stub('sleep', 'exit 0');
+  stub('launchctl', 'case "$1" in print) [ -f "$STUB_LOADED" ] || [ -n "$STUB_STUCK" ] ;; *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; case "$1" in bootout) rm -f "$STUB_LOADED" ;; bootstrap) : >"$STUB_LOADED" ;; esac ;; esac');
   stub('lsof', 'case "$*" in *"$STUB_HELD"*) [ -n "$STUB_HELD" ] && echo 4242 && exit 0 ;; esac; exit 1');
   writeFileSync(join(data, 'candles.db'), 'old candles');
   writeFileSync(join(data, 'signals.db'), 'old signals');
@@ -155,10 +158,11 @@ test('scheduled backup writes a marked folder into backupDir and refuses an unse
   try {
     const { main, data, run } = backupFixture(dir);
     const settings = (backupDir) => writeFileSync(join(data, 'settings.json'), JSON.stringify(backupDir ? { backupDir } : { a: 1 }));
-    // accepted: a root on another disk (like /Volumes/Backup/ms) and a root beside the checkout (like /Users/me/Backups/ms)
-    const target = join(dir, 'target'), beside = join(dir, 'Backups', 'ms');
-    mkdirSync(target); mkdirSync(beside, { recursive: true });
-    for (const root of [target, beside]) {
+    // accepted: a root on another disk (like /Volumes/Backup/ms), one whose name has a space (like /Volumes/Backup SSD/ms)
+    // and a root beside the checkout (like /Users/me/Backups/ms)
+    const target = join(dir, 'target'), spaced = join(dir, 'Backup SSD', 'ms'), beside = join(dir, 'Backups', 'ms');
+    mkdirSync(target); mkdirSync(spaced, { recursive: true }); mkdirSync(beside, { recursive: true });
+    for (const root of [target, spaced, beside]) {
       settings(root);
       const r = run('scheduled');
       assert.equal(r.status, 0, `${root}: ${r.stderr}`);
@@ -171,7 +175,9 @@ test('scheduled backup writes a marked folder into backupDir and refuses an unse
     const inside = join(main, 'tmp', 'backups'), readonly = join(dir, 'readonly');
     mkdirSync(inside, { recursive: true }); mkdirSync(readonly, { mode: 0o500 });
     const caseVariant = join(dir, 'MAIN', 'tmp', 'backups');
-    const refused = [[null, /backupDir is not set/], ['relative/ms', /must be an absolute path/], [main, /inside the checkout/], [inside, /inside the checkout/], [join(dir, 'missing'), /does not exist/], [readonly, /not writable/]];
+    // a single quote would end the sqlite3 .backup argument early, so it is refused before any folder is touched
+    const quoted = ["/Volumes/Mike's SSD/ms", "/tmp/a'b"];
+    const refused = [[null, /backupDir is not set/], ['relative/ms', /must be an absolute path/], ...quoted.map((q) => [q, /must not contain a single quote/]), [main, /inside the checkout/], [inside, /inside the checkout/], [join(dir, 'missing'), /does not exist/], [readonly, /not writable/]];
     if (existsSync(caseVariant)) refused.push([caseVariant, /inside the checkout/]); // skipped on a case-sensitive disk
     for (const [value, reason] of refused) {
       settings(value);
@@ -179,6 +185,22 @@ test('scheduled backup writes a marked folder into backupDir and refuses an unse
       assert.equal(r.status, 1, `${value}: ${r.stdout}`);
       assert.match(r.stderr, reason);
     }
+    // a settings file that is not valid JSON, or no settings file, names that cause instead of an unset key
+    writeFileSync(join(data, 'settings.json'), '{"backupDir": "/x",}');
+    let r = run('scheduled');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /could not be read as JSON/);
+    rmSync(join(data, 'settings.json'));
+    r = run('scheduled');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /settings\.json is missing/);
+    // a root that vanishes after the checks (an unmounted disk) is not created by backup() itself
+    r = run(`backup "${join(dir, 'gone')}"`);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /root is missing/);
+    assert.equal(existsSync(join(dir, 'gone')), false);
+
+    for (const q of quoted) assert.equal(existsSync(q), false, q);
     assert.deepEqual(readdirSync(inside), []);
     assert.deepEqual(readdirSync(main).sort(), ['data', 'tmp']);
     assert.equal(existsSync(join(dir, 'missing')), false);
@@ -258,6 +280,19 @@ test('restore-sqlite refuses a damaged backup file and a held database with noth
     assert.match(r.stderr, /still holds .*candles\.db/);
     assert.equal(existsSync(env.STUB_LAUNCHCTL), false);
     assert.deepEqual(live(data), ['old candles', 'old signals']);
+    assert.deepEqual(preFolders(data), []); // the rollback copy is taken only after the stop and the holder check
+
+    // the engine job never unloads within the wait: exit 1, the job is started again, nothing changes
+    case_ = join(dir, 'stuck'); mkdirSync(case_);
+    ({ data, env, run } = backupFixture(case_));
+    writeFileSync(env.STUB_LOADED, '');
+    bk = backupFolder(case_);
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_STUCK: '1' });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /was asked to stop but did not stop/);
+    assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
+    assert.deepEqual(live(data), ['old candles', 'old signals']);
+    assert.deepEqual(preFolders(data), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -278,6 +313,26 @@ test('switch-launchd writes a daily backup plist without KeepAlive and passes ba
     if (spawnSync('which', ['plutil']).status === 0) {
       for (const f of readdirSync(dir)) assert.equal(spawnSync('plutil', ['-lint', join(dir, f)]).status, 0, f);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Sources switch-launchd.sh with LA in a scratch dir and a stand-in launchctl that treats a job as loaded while
+// its loaded-<label> file exists.
+test('rollback removal unloads the backup job and deletes its plist', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-remove-'));
+  try {
+    const bin = join(dir, 'bin'), la = join(dir, 'la');
+    mkdirSync(bin); mkdirSync(la);
+    writeFileSync(join(bin, 'launchctl'), '#!/bin/sh\ncase "$1" in print) [ -f "$DIR/loaded-${2##*/}" ] ;; bootout) echo "bootout $2" >>"$DIR/launchctl.log"; rm -f "$DIR/loaded-${2##*/}" ;; esac\n', { mode: 0o755 });
+    const label = 'com.market-signals.platform-backup';
+    writeFileSync(join(dir, `loaded-${label}`), '');
+    const r = sh(`source platform/scripts/switch-launchd.sh; LA="$DIR/la"; write_backup_plist; remove_console`, { DIR: dir, PATH: `${bin}:${process.env.PATH}` });
+    assert.equal(r.status, 0, r.stderr);
+    const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
+    assert.deepEqual(readFileSync(join(dir, 'launchctl.log'), 'utf8').trim().split('\n'), [`bootout gui/${uid}/${label}`]);
+    assert.deepEqual(readdirSync(la), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -6,12 +6,14 @@
 #   scripts/backup.sh [dest-dir]      dump into <dest-dir>/<timestamp>/ (default: <main checkout>/tmp/backups)
 #   (a folder is marked and kept only after its dump verifies; a failed run removes its folder)
 #   scripts/backup.sh scheduled       dump into the backupDir root named in data/settings.json (the daily launchd job);
-#                                     fails without creating anything when backupDir is unset, not absolute, inside
-#                                     the checkout, missing or not writable
+#                                     fails without creating anything when settings.json is missing or not valid JSON,
+#                                     or backupDir is unset, not absolute, holds a single quote, is inside the checkout,
+#                                     missing or not writable
 #   scripts/backup.sh restore <dir>   restore the Postgres dump from a backup directory (asks first)
 #   scripts/backup.sh restore-sqlite <dir>  restore candles.db, signals.db and settings.json (asks first); checks the
 #                                     backup files first, stops the engine job during the copy, refuses while another
-#                                     process holds the databases, and keeps the old files in data/.pre-restore-<timestamp>/
+#                                     process holds the databases, and, once the engine is stopped, keeps the old files
+#                                     in data/.pre-restore-<timestamp>/
 #   scripts/backup.sh prune <dest-dir> apply the retention rule below without taking a backup
 #
 # Backups keep only the newest 14 folders this script wrote. SQLite copies use the online backup API, so they are
@@ -47,10 +49,10 @@ prune() {
 
 backup() {
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
-  local root="${1:-$MAIN/tmp/backups}" out; out="$root/$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$root"
-  # plain mkdir: a second run in the same second fails here instead of sharing (and on failure deleting) this folder
-  mkdir "$out" || die "the backup folder already exists: $out"
+  local root="$1" out; out="$root/$(date +%Y%m%d-%H%M%S)"
+  # plain mkdir: a second run in the same second fails here instead of sharing (and on failure deleting) this folder,
+  # and a root that vanished after the scheduled checks (an unmounted disk) is not created on the main disk
+  mkdir "$out" || die "could not create the backup folder (it already exists, or its root is missing): $out"
   chmod 700 "$out"
   # a failed run leaves no folder behind; the path is expanded now because bash 3.2 (/bin/bash) drops locals before EXIT
   trap "rm -rf -- $(printf '%q' "$out")" EXIT
@@ -72,11 +74,14 @@ backup() {
 
 # The scheduled job must never write to the main disk by accident, so it never creates its root.
 scheduled() {
-  local root main
+  local root main settings="$MAIN/data/settings.json"
   command -v jq >/dev/null || die "jq is required"
-  root="$(jq -r '.backupDir // empty' "$MAIN/data/settings.json" 2>/dev/null || true)"
-  [ -n "$root" ] || die "scheduled backup: backupDir is not set in $MAIN/data/settings.json"
+  [ -f "$settings" ] || die "scheduled backup: $settings is missing"
+  root="$(jq -r '.backupDir // empty' "$settings")" || die "scheduled backup: $settings could not be read as JSON"
+  [ -n "$root" ] || die "scheduled backup: backupDir is not set in $settings"
   case "$root" in /*) ;; *) die "scheduled backup: backupDir must be an absolute path: $root" ;; esac
+  # backup() passes the path to sqlite3 inside '...', which a single quote would end early
+  case "$root" in *"'"*) die "scheduled backup: backupDir must not contain a single quote: $root" ;; esac
   [ -d "$root" ] || die "scheduled backup: backupDir does not exist: $root"
   # /bin/pwd returns the on-disk case; the builtin keeps the typed case, which a case-insensitive disk would let past
   main="$(cd "$MAIN" && /bin/pwd -P)"
@@ -104,19 +109,15 @@ restore_sqlite() {
   done
   echo "This replaces candles.db, signals.db and settings.json in $data with the copies in $dir."
   read -r -p "Type 'restore' to continue: " a; [ "$a" = restore ] || die "cancelled"
-  pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
-  mkdir -p "$pre" && chmod 700 "$pre"
-  for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
-  if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
-  echo "the current files are kept in $pre"
   if launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; then
     launchctl bootout "gui/$(id -u)/$SRV" 2>/dev/null || true
-    while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; do
-      n=$((n + 1)); [ "$n" -gt 20 ] && die "$SRV did not stop; nothing was restored"
-      sleep 0.5
-    done
+    # armed before the wait: a job that unloads only after the wait gives up still starts again
     stopped=1
     trap start_engine EXIT # the engine job this run stopped starts again on a failure too
+    while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1; do
+      n=$((n + 1)); [ "$n" -gt 20 ] && die "$SRV was asked to stop but did not stop within 10 s; nothing was restored"
+      sleep 0.5
+    done
   fi
   # an engine started outside launchd (node scripts/signal-server.mjs) still holds the files
   for f in candles.db signals.db; do
@@ -124,6 +125,12 @@ restore_sqlite() {
       die "a process still holds $data/$f (an engine running outside launchd?); stop it first; nothing was restored"
     fi
   done
+  # the rollback copy is taken only now, so no engine write lands between it and the restore
+  pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$pre" && chmod 700 "$pre"
+  for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
+  if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
+  echo "the current files are kept in $pre"
   for f in candles.db signals.db; do
     [ -f "$dir/$f" ] || continue
     command rm -f "$data/$f-wal" "$data/$f-shm"
@@ -142,6 +149,7 @@ case "${1:-}" in
   restore-sqlite) restore_sqlite "${2:-}" ;;
   scheduled) scheduled ;;
   prune) prune "${2:-}" ;;
-  *) backup "${1:-}" ;;
+  # only a manual run creates its root; the scheduled job never does
+  *) root="${1:-$MAIN/tmp/backups}"; mkdir -p "$root"; backup "$root" ;;
 esac
 fi
