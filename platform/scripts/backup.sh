@@ -93,6 +93,9 @@ scheduled() {
 
 SRV=com.market-signals.signal-server
 start_engine() {
+  local n=0
+  # launchd refuses a bootstrap while a slow bootout still has the job loaded, so wait up to 60 s for it to go
+  while launchctl print "gui/$(id -u)/$SRV" >/dev/null 2>&1 && [ "$n" -lt 120 ]; do n=$((n + 1)); sleep 0.5; done
   launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/$SRV.plist" ||
     echo "warning: could not start $SRV; run: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/$SRV.plist" >&2
 }

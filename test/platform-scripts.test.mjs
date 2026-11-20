@@ -131,13 +131,23 @@ const backupFixture = (dir) => {
   stub('pg_dump', 'echo dump');
   stub('pg_restore', 'exit 0');
   stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
-  // STUB_STUCK keeps the job loaded after bootout, like a slow engine shutdown; sleep returns at once
+  // STUB_STUCK keeps the job loaded after bootout for that many print calls, like a slow engine shutdown; like
+  // launchd, bootstrap fails while the job is loaded; sleep returns at once
   stub('sleep', 'exit 0');
-  stub('launchctl', 'case "$1" in print) [ -f "$STUB_LOADED" ] || [ -n "$STUB_STUCK" ] ;; *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; case "$1" in bootout) rm -f "$STUB_LOADED" ;; bootstrap) : >"$STUB_LOADED" ;; esac ;; esac');
+  stub('launchctl', [
+    'n=$(cat "$STUB_PRINTS" 2>/dev/null || echo 0)',
+    'loaded() { [ -f "$STUB_LOADED" ] || [ "$n" -le "${STUB_STUCK:-0}" ]; }',
+    'case "$1" in',
+    '  print) n=$((n + 1)); echo "$n" >"$STUB_PRINTS"; loaded ;;',
+    '  bootstrap) if loaded; then echo "bootstrap refused: already loaded" >>"$STUB_LAUNCHCTL"; exit 5; fi',
+    '    echo "bootstrap $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; : >"$STUB_LOADED" ;;',
+    '  *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; [ "$1" = bootout ] && rm -f "$STUB_LOADED" ;;',
+    'esac',
+  ].join('\n'));
   stub('lsof', 'case "$*" in *"$STUB_HELD"*) [ -n "$STUB_HELD" ] && echo 4242 && exit 0 ;; esac; exit 1');
   writeFileSync(join(data, 'candles.db'), 'old candles');
   writeFileSync(join(data, 'signals.db'), 'old signals');
-  const env = { PATH: `${bin}:${process.env.PATH}`, MAIN_DIR: main, DATA: data, HOME: dir, STUB_LAUNCHCTL: join(dir, 'launchctl.log'), STUB_LOADED: join(dir, 'loaded') };
+  const env = { PATH: `${bin}:${process.env.PATH}`, MAIN_DIR: main, DATA: data, HOME: dir, STUB_LAUNCHCTL: join(dir, 'launchctl.log'), STUB_LOADED: join(dir, 'loaded'), STUB_PRINTS: join(dir, 'prints') };
   const run = (body, extra = {}) => sh(`source platform/scripts/backup.sh; MAIN="$MAIN_DIR"; ${body}`, { ...env, ...extra });
   return { main, data, env, run };
 };
@@ -282,14 +292,17 @@ test('restore-sqlite refuses a damaged backup file and a held database with noth
     assert.deepEqual(live(data), ['old candles', 'old signals']);
     assert.deepEqual(preFolders(data), []); // the rollback copy is taken only after the stop and the holder check
 
-    // the engine job never unloads within the wait: exit 1, the job is started again, nothing changes
+    // the engine job unloads only after the 10 s wait (21 print calls) gives up: exit 1, nothing changes, and the
+    // restart waits for the unload, so the bootstrap succeeds and the job is loaded again
     case_ = join(dir, 'stuck'); mkdirSync(case_);
     ({ data, env, run } = backupFixture(case_));
     writeFileSync(env.STUB_LOADED, '');
     bk = backupFolder(case_);
-    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_STUCK: '1' });
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_STUCK: '25' });
     assert.equal(r.status, 1);
     assert.match(r.stderr, /was asked to stop but did not stop/);
+    assert.doesNotMatch(r.stderr, /could not start/);
+    assert.equal(existsSync(env.STUB_LOADED), true);
     assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
     assert.deepEqual(live(data), ['old candles', 'old signals']);
     assert.deepEqual(preFolders(data), []);
