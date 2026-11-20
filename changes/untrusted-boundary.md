@@ -1,0 +1,1 @@
+- Platform: agent prompts wrap news, notes, snapshot summaries and tool output in fixed untrusted-data delimiters, with tests that injected text cannot leave the wrapper (#270)
