@@ -6,6 +6,7 @@ import { useLive } from '@/lib/live';
 import { Ago, Card, ComparisonPill, StatusPill, Loading } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
 import { pickAgentId } from '@/lib/agent-selection';
+import { buildMatch } from '@/lib/same-build';
 
 export default function Home() {
   const [runs, setRuns] = useState<RunRow[] | null>(null);
@@ -40,6 +41,13 @@ export default function Home() {
   const total = Object.values(health?.stats.byStatus ?? {}).reduce((a, b) => a + b, 0);
   const rejected = health?.stats.invalidProposals ?? 0;
   const queued = health?.stats.queueDepth ?? 0;
+  const consoleCommit = process.env.NEXT_PUBLIC_BUILD_COMMIT ?? 'unknown';
+  const build = buildMatch(health?.build?.commit, consoleCommit);
+  const buildTitle = {
+    same: 'The control plane and the console run the same commit.',
+    unverified: 'The commit of the control plane or the console is unknown, so the page cannot tell whether they match.',
+    differ: 'The control plane and the console were built from different commits.',
+  }[build];
   // one line instead of five tiles; zero counts are left out
   const summary = [
     `${total} recorded`,
@@ -57,6 +65,11 @@ export default function Home() {
         </div>
         <div className="chips">
           <span className={`chip ${health ? 'ok' : 'bad'}`}>Control plane</span>
+          {health?.build && (
+            <span className={`chip ${build === 'same' ? 'ok' : 'warn'}`} title={buildTitle}>
+              Build {health.build.commit.slice(0, 7)} · console {consoleCommit.slice(0, 7)}{build === 'same' ? '' : ` · ${build}`}
+            </span>
+          )}
           <span className={`chip ${health?.engine.reachable ? 'ok' : health?.engine.configured ? 'bad' : 'warn'}`} title={health?.engine.error}>
             Engine {health?.engine.reachable ? 'reachable' : health?.engine.configured ? 'unreachable' : 'not configured'}
           </span>

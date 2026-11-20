@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Install the live Market Signals setup under launchd: the engine from this checkout, and the console stack
-# (control plane, worker, web) as three KeepAlive jobs, plus a daily backup job. Also retires the old five-minute watcher, which duplicates
+# (control plane, worker, web) as three KeepAlive jobs, plus a daily backup job and a daily log rotation job. Also retires the old five-minute watcher, which duplicates
 # the server's own watcher cycle. Every step is idempotent: run `up` again after a pull to rebuild and reload.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
 #   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   switch to this worktree (asks first; -y skips the question)
-#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the backup job and consoleUrl, restore the original server plist and the main checkout;
+#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the daily jobs and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
@@ -104,20 +104,24 @@ write_plist() { # name
 PLIST
 }
 
-# The daily backup: `backup.sh scheduled` at 03:30 local time. It runs once per day and is not kept alive.
-write_backup_plist() {
-  cat >"$LA/$(plabel backup).plist" <<PLIST
+# The daily jobs run once per day at a fixed local time and are not kept alive:
+# `backup.sh scheduled` at 03:30 and `rotate-logs.sh` at 04:00.
+DAILY_JOBS="backup rotate-logs"
+write_backup_plist() { write_daily_plist backup 3 30 scheduled; }
+write_rotate_plist() { write_daily_plist rotate-logs 4 0; }
+write_daily_plist() { # name hour minute [arg]
+  cat >"$LA/$(plabel "$1").plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>$(plabel backup)</string>
+	<string>$(plabel "$1")</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/bin/bash</string>
-		<string>$PLAT/scripts/backup.sh</string>
-		<string>scheduled</string>
+		<string>$PLAT/scripts/$1.sh</string>
+		${4:+<string>$4</string>}
 	</array>
 	<key>WorkingDirectory</key>
 	<string>$PLAT</string>
@@ -129,14 +133,14 @@ write_backup_plist() {
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>
-		<integer>3</integer>
+		<integer>$2</integer>
 		<key>Minute</key>
-		<integer>30</integer>
+		<integer>$3</integer>
 	</dict>
 	<key>StandardOutPath</key>
-	<string>$PLAT/.dev/backup.launchd.log</string>
+	<string>$PLAT/.dev/$1.launchd.log</string>
 	<key>StandardErrorPath</key>
-	<string>$PLAT/.dev/backup.launchd.log</string>
+	<string>$PLAT/.dev/$1.launchd.log</string>
 </dict>
 </plist>
 PLIST
@@ -151,28 +155,58 @@ edit_settings() { # jq filter args...
   command mv -f "$tmp" "$SETTINGS"
 }
 
+reload_jobs() { for j in $PLAT_JOBS; do unload "$(plabel "$j")"; write_plist "$j"; load "$(plabel "$j")"; done; }
+served_commit() { curl -fsS -m 3 "http://127.0.0.1:$PORT/api/v1/health" 2>/dev/null | jq -r '.build.commit // empty' 2>/dev/null || true; }
+
+# The previous build stays in .dev/bin.prev and web/.next.prev. restore_build puts it back, reloads the jobs and exits 1.
+restore_build() { # reason
+  trap - EXIT # a second failure inside reload_jobs must not restore again
+  trap '' INT TERM # a second Ctrl-C must not stop the restore between the delete and the copy
+  echo "error: $1; restoring the previous build" >&2
+  local d
+  for d in "$PLAT/.dev/bin" "$PLAT/web/.next"; do
+    [ -d "$d.prev" ] && { command rm -rf "$d"; command cp -Rp "$d.prev" "$d"; }
+  done
+  reload_jobs
+  exit 1
+}
+
 install_console() {
   command -v pnpm >/dev/null || die "pnpm is required"
   command -v go >/dev/null || die "go is required"
-  mkdir -p "$PLAT/.dev/bin"
+  local bin="$PLAT/.dev/bin" next="$PLAT/web/.next" want served=""
+  mkdir -p "$bin"
   # the dev.sh processes hold the same ports and the same .next build folder
   "$PLAT/scripts/dev.sh" down
   "$PLAT/scripts/dev.sh" db
-  (cd "$PLAT" && go build -o .dev/bin/ ./cmd/api ./cmd/worker)
+  command rm -rf "$bin.prev" "$next.prev" "$bin.stage"
+  command cp -Rp "$bin" "$bin.prev"
+  [ -d "$next" ] && command cp -Rp "$next" "$next.prev"
+  want="$(git -C "$WT" rev-parse HEAD)"
+  # next build writes into the live .next, so from here any exit before the commit check puts the previous build back
+  trap 'restore_build "the deploy stopped before the new build was verified"' EXIT INT TERM
+  # the Go binaries build into a staging folder, so a failed build leaves .dev/bin untouched
+  (cd "$PLAT" && go build -o "$bin.stage/" ./cmd/api ./cmd/worker) || restore_build "the Go build failed"
   [ -d "$PLAT/web/node_modules" ] || (cd "$PLAT/web" && pnpm install --silent)
-  (cd "$PLAT/web" && pnpm exec next build)
-  for j in $PLAT_JOBS; do unload "$(plabel "$j")"; write_plist "$j"; load "$(plabel "$j")"; done
-  unload "$(plabel backup)"; write_backup_plist; load "$(plabel backup)"
-  for _ in $(seq 1 60); do console_health && return 0; sleep 1; done
-  die "the console did not answer on port $PORT; see $PLAT/.dev/web.launchd.log"
+  (cd "$PLAT/web" && pnpm exec next build) || restore_build "the console build failed"
+  command mv -f "$bin.stage"/* "$bin/"
+  command rm -rf "$bin.stage"
+  reload_jobs
+  for j in $DAILY_JOBS; do unload "$(plabel "$j")"; done
+  write_backup_plist; write_rotate_plist
+  for j in $DAILY_JOBS; do load "$(plabel "$j")"; done
+  for _ in $(seq 1 60); do served="$(served_commit)"; [ -n "$served" ] && break; sleep 1; done
+  [ -n "$served" ] || restore_build "the console did not answer on port $PORT (see $PLAT/.dev/web.launchd.log)"
+  [ "$served" = "$want" ] || restore_build "the console serves commit $served, but the build is $want"
+  trap - EXIT INT TERM
 }
 
 remove_console() {
-  for j in $PLAT_JOBS backup; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
+  for j in $PLAT_JOBS $DAILY_JOBS; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
 }
 
 status() {
-  for j in $PLAT_JOBS backup; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
+  for j in $PLAT_JOBS $DAILY_JOBS; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
   console_health && echo "console:        answering on http://127.0.0.1:$PORT" || echo "console:        not answering on port $PORT"
   echo "worktree:       $WT ($(git -C "$WT" branch --show-current))"
   echo "main checkout:  $MAIN"
@@ -196,8 +230,10 @@ up() {
   echo "  3. point $SRV at $WT and reload it"
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
   echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
-  echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes)"
-  echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS)"
+  echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes);"
+  echo "     a failed build, a console that does not answer on port $PORT within 60 seconds, a console that serves"
+  echo "     another commit than HEAD, or a deploy that stops before that check restores the previous build"
+  echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS) and log rotation (04:00)"
   if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
 
   before="$(equity || echo unavailable)"

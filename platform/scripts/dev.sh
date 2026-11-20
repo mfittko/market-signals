@@ -20,7 +20,9 @@ ROOT="$(pwd)"
 RUN="${MS_RUN_DIR:-$ROOT/.dev}" # the override lets a test use a scratch directory
 mkdir -p "$RUN/bin"
 
-die() { echo "error: $*" >&2; exit 1; }
+# every line this script prints carries a time and a level, like the Go services' slog text output
+log() { local level="$1"; shift; echo "time=$(date +%Y-%m-%dT%H:%M:%S%z) level=$level msg=\"$*\""; }
+die() { log ERROR "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 is required"; }
 
 # A pid file can outlive its process, and the number can then belong to an unrelated program. So a pid counts as
@@ -122,10 +124,10 @@ llm_env() {
          elif .ANTHROPIC_API_KEY then "anthropic" else $f end) as $active
       | (.models // {})[$f] // (if $active == $f then .model else null end)
         // (if $f == "openai" then "gpt-5.4-mini" else null end) // empty' "$s")"
-    [ -n "$MS_LLM_MODEL" ] || echo "note: no model in $s; the llm agent fails until MS_LLM_MODEL is set"
-    echo "LLM runtime: enabled (endpoint and key read from $s)"
+    [ -n "$MS_LLM_MODEL" ] || log WARN "no model in $s; the llm agent fails until MS_LLM_MODEL is set"
+    log INFO "LLM runtime: enabled (endpoint and key read from $s)"
   else
-    echo "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works; strategy coaching is off."
+    log INFO "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works; strategy coaching is off."
   fi
 }
 

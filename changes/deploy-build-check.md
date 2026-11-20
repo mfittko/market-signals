@@ -1,0 +1,1 @@
+- Platform: the control-plane health reports the commit and build time it runs, the Runs page shows it next to the console build, `switch-launchd.sh up` restores the previous build when a build fails, the console does not answer, the served commit differs or the deploy stops before that check, and a daily job rotates the launchd logs (#346)
