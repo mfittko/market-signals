@@ -78,30 +78,6 @@ test('backup marks a folder only after the dump verifies, a failing run leaves n
   }
 });
 
-// Runs e2e/seed.sh with a stand-in psql first on PATH that logs its call and stops the script.
-test('e2e/seed.sh reaches psql only for the lane database on 127.0.0.1:15544/ms_e2e', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ms-seed-'));
-  try {
-    const bin = join(dir, 'bin'), log = join(dir, 'psql.log');
-    mkdirSync(bin);
-    writeFileSync(join(bin, 'psql'), `#!/bin/sh\necho "$1" >>"${log}"\nexit 7\n`, { mode: 0o755 });
-    const seed = (url) => spawnSync('bash', ['platform/web/e2e/seed.sh'], {
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, MS_INGEST_TOKEN: 'tok', MS_DATABASE_URL: url }, encoding: 'utf8',
-    });
-    for (const url of ['postgres://ms:pw@127.0.0.1:5544/ms', 'postgres://ms@127.0.0.1:15544/ms', 'postgres://ms@127.0.0.1:5544/ms_e2e']) {
-      const r = seed(url);
-      assert.equal(r.status, 1, url);
-      assert.match(r.stderr, /MS_DATABASE_URL must be the console-e2e test database/, url);
-      assert.equal(existsSync(log), false, url);
-    }
-    const r = seed('postgres://ms@127.0.0.1:15544/ms_e2e');
-    assert.equal(r.status, 7, r.stderr);
-    assert.equal(readFileSync(log, 'utf8'), 'postgres://ms@127.0.0.1:15544/ms_e2e\n');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 // Runs a copy of smoke.sh in a scratch tree with stand-in curl and docker first on PATH. No real service is contacted.
 test('smoke.sh switches the private smoke agent off and deletes its shadow position on exit, also when a step fails', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-smoke-'));

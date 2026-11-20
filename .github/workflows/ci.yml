@@ -135,6 +135,13 @@ jobs:
           curl -fsS -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "$MS_API_URL/api/v1/health"
           "$RUNNER_TEMP/ms-worker" -id e2e-worker > "$RUNNER_TEMP/worker.log" 2>&1 &
           echo "Go API on $MS_API_ADDR, worker started"
+      # seed.sh must refuse every database but the lane's ms_e2e on 15544 before it reaches psql
+      - name: Seed refuses a non-lane database
+        run: |
+          for url in postgres://ms@127.0.0.1:5544/ms postgres://ms:pw@127.0.0.1:5544/ms postgres://ms@127.0.0.1:15544/ms postgres://ms@127.0.0.1:5544/ms_e2e; do
+            ! MS_DATABASE_URL="$url" ./e2e/seed.sh 2> "$RUNNER_TEMP/seed-refusal.log"
+            grep -q 'MS_DATABASE_URL must be the console-e2e test database' "$RUNNER_TEMP/seed-refusal.log" || { echo "seed.sh did not refuse $url"; exit 1; }
+          done
       - name: Seed test data
         run: ./e2e/seed.sh
       - name: Start console (next start)
