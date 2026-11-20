@@ -73,3 +73,84 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Type check
         run: pnpm typecheck
+
+  console-e2e:
+    # Builds the console and drives every route family in WebKit against an isolated Go stack.
+    # Only test ports (Postgres 15544, API 18080, console 13000) and test tokens. MS_ENGINE_URL stays
+    # unset and no provider key or notification token is set: the browser stubs the engine routes.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ms
+          # throwaway service container for one job; trust auth means no credential is committed
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: ms_e2e
+        ports:
+          - 15544:5432
+        options: >-
+          --health-cmd "pg_isready -U ms -d ms_e2e"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    defaults:
+      run:
+        working-directory: platform/web
+    env:
+      MS_DATABASE_URL: postgres://ms@127.0.0.1:15544/ms_e2e
+      MS_API_ADDR: 127.0.0.1:18080
+      # next.config.ts reads MS_API_URL when it loads, so the build and the start step see the same value
+      MS_API_URL: http://127.0.0.1:18080
+      MS_WORKER_TOKEN: e2e-worker-token
+      MS_INGEST_TOKEN: e2e-ingest-token
+      E2E_BASE_URL: http://127.0.0.1:13000
+      E2E_OUT: ${{ runner.temp }}/console-e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: platform/go.mod
+          cache-dependency-path: platform/go.sum
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+          cache-dependency-path: platform/web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # the smoke step launches WebKit without a fallback, so a missing browser fails the job
+      - name: Install WebKit
+        run: pnpm exec playwright install --with-deps webkit
+      - name: Build console (next build)
+        run: pnpm build
+      # the services run in the background for the rest of the job; their logs go to the failure artifact
+      - name: Start Go API and worker
+        working-directory: platform
+        run: |
+          go build -o "$RUNNER_TEMP/ms-api" ./cmd/api
+          go build -o "$RUNNER_TEMP/ms-worker" ./cmd/worker
+          "$RUNNER_TEMP/ms-api" -seed > "$RUNNER_TEMP/api.log" 2>&1 &
+          curl -fsS -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "$MS_API_URL/api/v1/health"
+          "$RUNNER_TEMP/ms-worker" -id e2e-worker > "$RUNNER_TEMP/worker.log" 2>&1 &
+          echo "Go API on $MS_API_ADDR, worker started"
+      - name: Seed test data
+        run: ./e2e/seed.sh
+      - name: Start console (next start)
+        run: |
+          pnpm exec next start -p 13000 -H 127.0.0.1 > "$RUNNER_TEMP/console.log" 2>&1 &
+          curl -fsS -o /dev/null --retry 30 --retry-connrefused --retry-delay 1 "$E2E_BASE_URL/"
+          echo "console on $E2E_BASE_URL, proxying /api/v1 to $MS_API_URL"
+      - name: Route-family smoke (WebKit)
+        run: pnpm e2e
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-e2e-failures
+          path: |
+            ${{ runner.temp }}/console-e2e
+            ${{ runner.temp }}/*.log
+          if-no-files-found: ignore

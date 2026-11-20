@@ -1,0 +1,27 @@
+{
+  "GET /engine/settings": { "provider": "none", "activeProvider": "none", "models": {}, "providerDefaultModels": {}, "watchers": "SMOKE/TEST|M5", "predictionEnabled": "0", "bot": { "bots": {} } },
+  "POST /engine/settings": { "ok": true },
+  "GET /engine/threads": { "threads": [] },
+  "DELETE /engine/threads": { "ok": true },
+  "GET /engine/messages": { "messages": [] },
+  "POST /engine/chat": { "ok": true },
+  "GET /engine/portfolio": {
+    "portfolio": { "startingBalance": 10000, "cash": 10000, "marginLocked": 0, "unrealized": 0, "equity": 10000, "halted": false, "dayPnl": 0, "realizedTotal": 0, "positions": [], "trades": [] }
+  },
+  "GET /engine/signals": { "signals": [] },
+  "POST /engine/predict": { "ok": true },
+  "GET /engine/predictions": { "predictions": [] },
+  "GET /instruments/*/live": {
+    "source": "engine", "symbol": "SMOKE/TEST", "granularity": "M5", "fetchedAt": "2026-11-20T12:15:00Z",
+    "candles": [
+      { "time": "2026-11-20T12:00:00.000000000Z", "open": 93.4, "high": 93.7, "low": 93.2, "close": 93.5, "volume": 120, "complete": true },
+      { "time": "2026-11-20T12:05:00.000000000Z", "open": 93.5, "high": 93.6, "low": 93.0, "close": 93.1, "volume": 140, "complete": true },
+      { "time": "2026-11-20T12:10:00.000000000Z", "open": 93.1, "high": 93.2, "low": 92.9, "close": 93.02, "volume": 90, "complete": false }
+    ],
+    "supertrend": [{ "time": "2026-11-20T12:10:00.000000000Z", "value": 93.6, "trend": "down" }],
+    "signals": [],
+    "quote": { "last": 93.02 }
+  },
+  "GET /instruments/*/price": { "mid": 93.02, "prevMid": 93.1, "spread": 0.03, "time": "2026-11-20T12:15:00Z" },
+  "GET /instruments/*/news": { "items": [] }
+}
