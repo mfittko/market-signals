@@ -4,9 +4,15 @@ on:
   push:
   pull_request:
 
+# least privilege: every job only reads the repo; caches and artifacts use the runtime token
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # green runs take under 1 min; 5 min bounds a hang
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +27,8 @@ jobs:
 
   platform-go:
     runs-on: ubuntu-latest
+    # green runs take under 1.5 min; 5 min bounds a hang
+    timeout-minutes: 5
     # The queue, runtime, monitor and importer tests need a real Postgres; MS_REQUIRE_DB
     # makes them fail when the service is unreachable.
     services:
@@ -56,6 +64,8 @@ jobs:
 
   platform-console:
     runs-on: ubuntu-latest
+    # green runs take under 30 s; 5 min bounds a hang
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: platform/web
@@ -79,6 +89,8 @@ jobs:
     # Only test ports (Postgres 15544, API 18080, console 13000) and test tokens. MS_ENGINE_URL stays
     # unset and no provider key or notification token is set: the browser stubs the engine routes.
     runs-on: ubuntu-latest
+    # green runs take 3 to 5 min; a WebKit install hang ran for 40+ min and must fail instead
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
