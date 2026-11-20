@@ -1575,8 +1575,14 @@ func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c, _ := call(t, "POST", u, "", `{"prompt":"`+p+`","baseVersion":1}`, nil)
-			codes <- c
+			// plain http.Post: t.Fatal inside call must not run off the test goroutine
+			resp, err := http.Post(u, "application/json", strings.NewReader(`{"prompt":"`+p+`","baseVersion":1}`))
+			if err != nil {
+				codes <- 0
+				return
+			}
+			resp.Body.Close()
+			codes <- resp.StatusCode
 		}()
 	}
 	wg.Wait()
