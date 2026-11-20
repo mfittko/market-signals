@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +30,8 @@ type Config struct {
 	IngestToken    string
 	EngineURL      string
 	AllowedOrigins []string
+	// BackupDir is the root of the daily backups; health reports the newest one. Empty when unset.
+	BackupDir string
 	// Complete answers one plain chat turn for strategy coaching. Nil when no model is configured.
 	Complete func(ctx context.Context, messages []map[string]any) (string, error)
 }
@@ -258,7 +262,35 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 			engine["error"] = err.Error()
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow"})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now())})
+}
+
+// backupStamp is the folder name backup.sh writes, in local time.
+const backupStamp = "20060102-150405"
+
+// backupStatus reports the newest timestamp folder under dir that holds the .ms-backup marker.
+// It never fails: a missing or unreadable dir reports a null newestAt.
+func backupStatus(dir string, now time.Time) map[string]any {
+	out := map[string]any{"configured": dir != "", "newestAt": nil, "ageSeconds": nil}
+	if dir == "" {
+		return out
+	}
+	entries, _ := os.ReadDir(dir)
+	var newest time.Time
+	for _, e := range entries {
+		t, err := time.ParseInLocation(backupStamp, e.Name(), time.Local)
+		if err != nil || !e.IsDir() || !t.After(newest) {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, e.Name(), ".ms-backup")); err == nil {
+			newest = t
+		}
+	}
+	if !newest.IsZero() {
+		out["newestAt"] = newest
+		out["ageSeconds"] = int(now.Sub(newest).Seconds())
+	}
+	return out
 }
 
 // agentWithLastRun is an agent plus its newest run, which the Runs page shows on each agent row.

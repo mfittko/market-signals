@@ -159,6 +159,8 @@ Optional keys: `model`, `models`, `notesFile`, `piBin`, `claudeBin`, `notifierBi
 
 The platform key `consoleUrl` makes alert links open the console. You set it by hand in `settings.json`, or `platform/scripts/switch-launchd.sh up` sets it.
 
+The platform key `backupDir` names the root folder of the daily backups. `platform/scripts/backup.sh scheduled` and `platform/scripts/switch-launchd.sh up` read it. The README backup section has the details.
+
 Speech-to-text for the chat mic button (https://github.com/mfittko/market-signals/issues/137) uses these keys:
 
 - `sttOpenaiKey` is a real OpenAI key. It stays separate from the LLM `OPENAI_API_KEY`, which may point at a chat-only proxy with no transcription endpoint.

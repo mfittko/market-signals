@@ -64,9 +64,18 @@ MS_ALLOW_LIVE_SWITCH=1 platform/scripts/switch-launchd.sh up       # asks first;
 platform/scripts/switch-launchd.sh rollback [--with-watcher]       # restore the original engine plist
 ```
 
-`up` refuses to run without `MS_ALLOW_LIVE_SWITCH=1`, because it moves the live engine. It backs up the original plists to `~/Library/LaunchAgents/.ms-backup`, retires the old five-minute watcher job and stops the `dev.sh` processes, which use the same ports. The launchd console listens on port 3737 (`MS_CONSOLE_PORT` overrides it). Every step is idempotent, so run `up` again after a pull to rebuild and reload. `rollback` removes the console jobs and `consoleUrl`. It restores the old watcher only with `--with-watcher`.
+`up` refuses to run without `MS_ALLOW_LIVE_SWITCH=1`, because it moves the live engine. It backs up the original plists to `~/Library/LaunchAgents/.ms-backup`, retires the old five-minute watcher job and stops the `dev.sh` processes, which use the same ports. The launchd console listens on port 3737 (`MS_CONSOLE_PORT` overrides it). Every step is idempotent, so run `up` again after a pull to rebuild and reload. `rollback` removes the console jobs, the backup job and `consoleUrl`. It restores the old watcher only with `--with-watcher`.
 
 `platform/scripts/backup.sh` dumps the Postgres database and copies the engine's SQLite files, settings and notes. Its header lists the restore and prune commands.
+
+Daily backups need a target off the main disk. Set `backupDir` in `data/settings.json` once, to an absolute path outside the checkout on a second disk or in a synced folder. `up` installs the `com.market-signals.platform-backup` job, which runs `backup.sh scheduled` every day at 03:30 and logs to `platform/.dev/backup.launchd.log`. `rollback` removes it. The scheduled run fails with a logged reason, and creates no directory, when `data/settings.json` is missing or not valid JSON, or when `backupDir` is unset, not absolute, contains a single quote, is inside the checkout, missing or not writable. `up` also passes `backupDir` to the control plane as `MS_BACKUP_DIR`, and `GET /api/v1/health` reports it in `backup.configured`, with the newest marked backup in `backup.newestAt` and `backup.ageSeconds`. The scheduled job reads `backupDir` on every run, but the control plane reads it only when `up` runs, so run `up` again after you set or change `backupDir`.
+
+```sh
+platform/scripts/backup.sh restore <backup-dir>          # Postgres: replaces the console database (asks first)
+platform/scripts/backup.sh restore-sqlite <backup-dir>   # engine: candles.db, signals.db and settings.json (asks first)
+```
+
+`restore-sqlite` first checks the integrity of the backup files. It then stops the engine job, keeps the current files in `data/.pre-restore-<timestamp>/`, copies the backup files into `data/`, checks their integrity and starts the engine job again, also after a failed copy or a stop that times out. It refuses, with nothing changed, while another process holds `candles.db` or `signals.db`, for example an engine started with `node scripts/signal-server.mjs`.
 
 ## Testing
 

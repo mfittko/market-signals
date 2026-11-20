@@ -1,0 +1,1 @@
+- Platform: a daily backup job into the `backupDir` set in settings, a `restore-sqlite` path for the engine's SQLite files and settings, and the newest backup age in the control-plane health (#342)
