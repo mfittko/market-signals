@@ -395,13 +395,13 @@ const deployFixture = (dir) => {
   for (const f of ['api', 'worker']) writeFileSync(join(plat, '.dev', 'bin', f), 'old');
   writeFileSync(join(plat, 'web', '.next', 'BUILD'), 'old');
   stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; echo new >"$2/api"; [ -z "$STUB_GO_FAIL" ] || exit 1; echo new >"$2/worker"');
-  stub(join(bin, 'pnpm'), '[ -z "$STUB_PNPM_FAIL" ] || { echo half >.next/BUILD; exit 1; }; echo new >.next/BUILD');
+  stub(join(bin, 'pnpm'), '[ -z "$STUB_PNPM_TERM" ] || { echo half >.next/BUILD; kill -TERM "$DEPLOY_PID"; exit 1; }; [ -z "$STUB_PNPM_FAIL" ] || { echo half >.next/BUILD; exit 1; }; echo new >.next/BUILD');
   stub(join(bin, 'launchctl'), '[ "$1" = bootstrap ] && { [ -z "$STUB_BOOTSTRAP_FAIL" ] || exit 1; echo "bootstrap ${3##*/}" >>"$DIR/launchctl.log"; }; [ "$1" != print ]');
   stub(join(bin, 'curl'), 'echo "{\\"build\\":{\\"commit\\":\\"$STUB_SERVED\\"}}"');
   stub(join(bin, 'git'), 'case "$*" in *"rev-parse HEAD") echo want ;; *) exec /usr/bin/git "$@" ;; esac');
   stub(join(bin, 'sleep'), 'exit 0');
   const read = (...p) => readFileSync(join(plat, ...p), 'utf8').trim();
-  const deploy = (extra) => sh('source platform/scripts/switch-launchd.sh; PLAT="$DIR/plat"; LA="$DIR/la"; install_console', { DIR: dir, PATH: `${bin}:${process.env.PATH}`, STUB_SERVED: 'want', ...extra });
+  const deploy = (extra) => sh('export DEPLOY_PID=$$; source platform/scripts/switch-launchd.sh; PLAT="$DIR/plat"; LA="$DIR/la"; install_console', { DIR: dir, PATH: `${bin}:${process.env.PATH}`, STUB_SERVED: 'want', ...extra });
   return { read, deploy, log: () => readFileSync(join(dir, 'launchctl.log'), 'utf8') };
 };
 
@@ -412,6 +412,8 @@ test('install_console keeps the previous build, restores it after a failed build
       [{}, 0, null, 'new'],
       [{ STUB_GO_FAIL: '1' }, 1, /the Go build failed; restoring the previous build/, 'old'],
       [{ STUB_PNPM_FAIL: '1' }, 1, /the console build failed; restoring the previous build/, 'old'],
+      // a TERM during next build, after it wrote into the live .next: the trap restores the previous build
+      [{ STUB_PNPM_TERM: '1' }, 1, /restoring the previous build/, 'old'],
       [{ STUB_SERVED: 'other' }, 1, /serves commit other, but the build is want/, 'old'],
       [{ STUB_SERVED: '' }, 1, /did not answer on port/, 'old'],
       // launchctl bootstrap fails after the binary swap: load dies, and the exit trap restores the previous build

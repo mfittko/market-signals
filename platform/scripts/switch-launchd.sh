@@ -182,12 +182,12 @@ install_console() {
   command cp -Rp "$bin" "$bin.prev"
   [ -d "$next" ] && command cp -Rp "$next" "$next.prev"
   want="$(git -C "$WT" rev-parse HEAD)"
+  # next build writes into the live .next, so from here any exit before the commit check puts the previous build back
+  trap 'restore_build "the deploy stopped before the new build was verified"' EXIT INT TERM
   # the Go binaries build into a staging folder, so a failed build leaves .dev/bin untouched
   (cd "$PLAT" && go build -o "$bin.stage/" ./cmd/api ./cmd/worker) || restore_build "the Go build failed"
   [ -d "$PLAT/web/node_modules" ] || (cd "$PLAT/web" && pnpm install --silent)
   (cd "$PLAT/web" && pnpm exec next build) || restore_build "the console build failed"
-  # from here the new build is live but unverified: any exit before the commit check puts the previous build back
-  trap 'restore_build "the deploy stopped before the new build was verified"' EXIT INT TERM
   command mv -f "$bin.stage"/* "$bin/"
   command rm -rf "$bin.stage"
   reload_jobs
