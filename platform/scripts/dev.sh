@@ -185,12 +185,16 @@ db_up() {
 dc() { MS_DB_PASSWORD="${MS_DB_PASSWORD:-${MS_DEV_DB_PASSWORD:-}}" docker compose "$@"; }
 
 # dev_db: role ms_dev and its databases ms_dev and ms_dev_test in the shared Postgres server. A running Postgres is
-# used as it is. A stopped one starts through the live path (db_up with the live env file), so the role ms and the
-# container only ever get the live password.
+# used as it is. A stopped container is started as it is (`dc start` keeps its config and sets no password). With no
+# container, the live checkout must create it with `scripts/dev.sh db`. The development path never runs db_up, never
+# reads or creates a live env file and never sets the role ms password.
 dev_db() {
   need docker; need openssl
   load_env
-  dc ps --status running postgres 2>/dev/null | grep -q postgres || ( use_stack live; db_up )
+  if ! dc ps --status running postgres 2>/dev/null | grep -q postgres; then
+    [ -n "$(dc ps -a -q postgres 2>/dev/null)" ] || die "no Postgres container; run scripts/dev.sh db from the live checkout first"
+    dc start postgres >/dev/null
+  fi
   for _ in $(seq 1 30); do
     dc exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
     sleep 1
