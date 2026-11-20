@@ -141,7 +141,8 @@ const backupFixture = (dir) => {
     '  print) n=$((n + 1)); echo "$n" >"$STUB_PRINTS"; loaded ;;',
     '  bootstrap) if loaded; then echo "bootstrap refused: already loaded" >>"$STUB_LAUNCHCTL"; exit 5; fi',
     '    echo "bootstrap $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; : >"$STUB_LOADED" ;;',
-    '  *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; [ "$1" = bootout ] && rm -f "$STUB_LOADED" ;;',
+    // STUB_BOOTOUT_RM: bootout also removes that folder, like the scheduled prune running while the prompt waits
+    '  *) echo "$1 $(cat "$DATA/candles.db")" >>"$STUB_LAUNCHCTL"; [ "$1" = bootout ] && rm -f "$STUB_LOADED" && rm -rf "${STUB_BOOTOUT_RM:-/nonexistent-ms-stub}" ;;',
     'esac',
   ].join('\n'));
   stub('lsof', 'case "$*" in *"$STUB_HELD"*) [ -n "$STUB_HELD" ] && echo 4242 && exit 0 ;; esac; exit 1');
@@ -303,6 +304,20 @@ test('restore-sqlite refuses a damaged backup file and a held database with noth
     assert.match(r.stderr, /was asked to stop but did not stop/);
     assert.doesNotMatch(r.stderr, /could not start/);
     assert.equal(existsSync(env.STUB_LOADED), true);
+    assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
+    assert.deepEqual(live(data), ['old candles', 'old signals']);
+    assert.deepEqual(preFolders(data), []);
+
+    // the backup folder vanishes after the confirmation (the prune ran while the prompt waited): exit 1, nothing is
+    // restored, and the engine job starts again after the bootout
+    case_ = join(dir, 'vanished'); mkdirSync(case_);
+    ({ data, env, run } = backupFixture(case_));
+    writeFileSync(env.STUB_LOADED, '');
+    bk = backupFolder(case_);
+    r = run(`echo restore | restore_sqlite "${bk}"`, { STUB_BOOTOUT_RM: bk });
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /backup folder changed after the check .*nothing was restored/);
+    assert.doesNotMatch(r.stdout, /restored\./);
     assert.deepEqual(readFileSync(env.STUB_LAUNCHCTL, 'utf8').trim().split('\n'), ['bootout old candles', 'bootstrap old candles']);
     assert.deepEqual(live(data), ['old candles', 'old signals']);
     assert.deepEqual(preFolders(data), []);

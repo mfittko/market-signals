@@ -101,10 +101,11 @@ start_engine() {
 }
 
 restore_sqlite() {
-  local dir="${1:-}" data="$MAIN/data" pre f n=0 stopped=0
+  local dir="${1:-}" data="$MAIN/data" pre f n=0 stopped=0 want=""
   [ -f "$dir/$MARKER" ] || die "usage: $0 restore-sqlite <backup-dir containing $MARKER>"
   command -v sqlite3 >/dev/null || die "sqlite3 is required"
   command -v lsof >/dev/null || die "lsof is required"
+  for f in candles.db signals.db settings.json; do if [ -f "$dir/$f" ]; then want="$want $f"; fi; done
   # a damaged backup file is refused before anything stops or changes
   for f in candles.db signals.db; do
     [ -f "$dir/$f" ] || continue
@@ -127,6 +128,10 @@ restore_sqlite() {
     if [ -f "$data/$f" ] && lsof -t -- "$data/$f" >/dev/null 2>&1; then
       die "a process still holds $data/$f (an engine running outside launchd?); stop it first; nothing was restored"
     fi
+  done
+  # the scheduled prune can remove the folder while the prompt waits; a vanished file must not end as "restored."
+  for f in "$MARKER" $want; do
+    [ -f "$dir/$f" ] || die "the backup folder changed after the check ($dir/$f is gone); nothing was restored"
   done
   # the rollback copy is taken only now, so no engine write lands between it and the restore
   pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
