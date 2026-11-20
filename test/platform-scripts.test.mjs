@@ -532,6 +532,26 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
   }
 });
 
+// Postgres reports stopped. Every stand-in docker call logs its arguments and the MS_DB_PASSWORD compose would read.
+test('dev_db starts a stopped Postgres with the live password from the live env file, never the development one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devdb-'));
+  try {
+    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'docker.log');
+    for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$* pw=${MS_DB_PASSWORD:-}" >>"$STUB_DOCKER"; case "$*" in *"psql -q"*) cat >/dev/null ;; esac\n', { mode: 0o755 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log });
+    assert.equal(r.status, 0, r.stderr);
+    const read = (p) => Object.fromEntries(readFileSync(p, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+    const live = read(join(plat, '.dev', 'env')), dev = read(join(plat, '.dev', 'dev', 'env'));
+    const ups = readFileSync(log, 'utf8').trim().split('\n').filter((l) => / up /.test(l));
+    assert.deepEqual(ups, [`compose up -d postgres pw=${live.MS_DB_PASSWORD}`]);
+    assert.notEqual(live.MS_DB_PASSWORD, dev.MS_DEV_DB_PASSWORD);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the development env file has its own tokens and password, mode 600, and the live env file keeps database ms', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devenv-'));
   try {

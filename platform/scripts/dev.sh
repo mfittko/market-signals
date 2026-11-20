@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # One-command local stack: Postgres (docker), Go control plane, Go worker, Next.js console.
-# Two stacks share the Postgres server and nothing else: no database, run directory, env file or port.
+# The only thing the two stacks share is the Postgres server on 127.0.0.1:5544. Each has its own database, run
+# directory, env file and ports.
 #   development (up, down, status, logs): run directory .dev/dev, database ms_dev with role ms_dev, API 8081, console 3000
 #   live (run, db; the launchd jobs):     run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
 #   scripts/dev.sh up      start the development stack (idempotent)
-#   scripts/dev.sh down    stop the development app processes (add --db to stop Postgres too)
+#   scripts/dev.sh down    stop the development app processes (--db also stops the shared Postgres server, which
+#                          the live stack uses too)
 #   scripts/dev.sh status  show what of the development stack is running
 #   scripts/dev.sh logs    tail the development logs
 #   scripts/dev.sh db      start Postgres and set the live role password (switch-launchd.sh calls it)
@@ -171,16 +173,17 @@ db_up() {
     || docker compose exec -T postgres psql -U ms -d ms -c "CREATE DATABASE ms_test" >/dev/null
 }
 
-# docker compose needs MS_DB_PASSWORD only to read the compose file; the development env file has no such line
+# docker compose needs MS_DB_PASSWORD only to read the compose file; the development env file has no such line.
+# Never run `dc up` with it: compose would create or recreate the container with the development password.
 dc() { MS_DB_PASSWORD="${MS_DB_PASSWORD:-${MS_DEV_DB_PASSWORD:-}}" docker compose "$@"; }
 
-# dev_db: role ms_dev and its databases ms_dev and ms_dev_test in the shared Postgres server. It never changes the
-# live role ms. A running Postgres is used as it is: `compose up` with another password would recreate the container
-# under the live stack.
+# dev_db: role ms_dev and its databases ms_dev and ms_dev_test in the shared Postgres server. A running Postgres is
+# used as it is. A stopped one starts through the live path (db_up with the live env file), so the role ms and the
+# container only ever get the live password.
 dev_db() {
   need docker; need openssl
   load_env
-  dc ps --status running postgres 2>/dev/null | grep -q postgres || dc up -d postgres >/dev/null
+  dc ps --status running postgres 2>/dev/null | grep -q postgres || ( use_stack live; db_up )
   for _ in $(seq 1 30); do
     dc exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
     sleep 1

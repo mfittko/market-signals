@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,12 +47,37 @@ func HoldStackLock(ctx context.Context, url, appName string) (*pgx.Conn, error) 
 		WHERE l.locktype = 'advisory' AND l.granted AND l.objsubid = 1 AND l.classid = 0 AND l.objid = $1
 		  AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())`, int64(stackLockKey)).
 		Scan(&dbname, &pid, &holder, &since)
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		// the holder ended between the two queries; a restart takes the lock
-		return nil, fmt.Errorf("database %s: another control plane held the lock and has just released it; start again: %w", cfg.Database, err)
+		return nil, fmt.Errorf("database %s: another control plane held the lock and has just released it; start again", cfg.Database)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("database %s is held by another control plane; the holder lookup failed: %w", cfg.Database, err)
 	}
 	return nil, fmt.Errorf("database %s is held by another control plane: backend pid %s, application_name %q, started %s",
 		dbname, fmtPid(pid), holder, fmtTime(since))
+}
+
+// WatchStackLock pings the lock connection every interval for the process lifetime. A failed ping means the
+// session, and with it the lock, is gone (a Postgres restart or a dropped connection), so it returns that error and
+// the caller must exit for its supervisor to restart it. It closes conn and returns nil when ctx ends.
+func WatchStackLock(ctx context.Context, conn *pgx.Conn, interval time.Duration) error {
+	defer conn.Close(context.Background())
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			if err := conn.Ping(ctx); err != nil {
+				if ctx.Err() != nil {
+					return nil
+				}
+				return fmt.Errorf("stack lock session lost: %w", err)
+			}
+		}
+	}
 }
 
 func fmtPid(p *int32) string {

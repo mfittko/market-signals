@@ -47,7 +47,7 @@ cd platform
 scripts/dev.sh up        # development stack: Postgres on 127.0.0.1:5544 (database ms_dev), control plane :8081, worker, console :3000
 scripts/smoke.sh         # end-to-end check with the mock agent, about 10 seconds
 # open http://127.0.0.1:3000 in a browser
-scripts/dev.sh down      # add --db to stop Postgres too
+scripts/dev.sh down      # --db also stops the shared Postgres server, which the live stack uses too
 ```
 
 `scripts/dev.sh status` shows what runs, and `scripts/dev.sh logs` tails the logs. Do not pipe the launcher into another command. The stack connects to the engine at `MS_ENGINE_URL`. Without it, the stack uses `127.0.0.1:8787` when that answers. `dev.sh up` generates its own database password and tokens into `platform/.dev/dev/env` (mode 600, gitignored). The launchd jobs run the live stack from `platform/.dev/env` on database `ms`, API 8080 and console 3737, so both stacks run at once. The LLM agent takes its endpoint, model and key from the engine's `data/settings.json`. Without a key only the mock agent runs. Details are in [platform/README.md](platform/README.md).

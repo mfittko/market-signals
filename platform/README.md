@@ -27,8 +27,9 @@ scripts/dev.sh down
 
 ### Two stacks
 
-The development stack and the live stack run side by side. They share the Postgres server on `127.0.0.1:5544` and
-nothing else.
+The development stack and the live stack run side by side. The only thing the two stacks share is the Postgres
+server on `127.0.0.1:5544`. `dev.sh down --db` stops that shared server, so it also stops the database of the live
+stack.
 
 | | Development | Live |
 |---|---|---|
@@ -42,6 +43,12 @@ nothing else.
 Each env file holds its own worker token, ingest token and database password. `dev.sh up` creates the role
 `ms_dev` and its two databases in the running Postgres server and never changes the role `ms`. `backup.sh` dumps
 the live database `ms` only. `MS_RUN_DIR` overrides the run directory of both stacks, for tests.
+
+Upgrade step: a development stack started before the two stacks existed runs from `platform/.dev/`, and the new
+`dev.sh down` cannot see it. Stop it before the first `dev.sh up` or `switch-launchd.sh up`: run the old
+`scripts/dev.sh down` before you pull this change. After the pull, run
+`bash -c 'source scripts/dev.sh; for p in web worker api; do stop_one "$p"; done'` from `platform/`. Do not use
+`MS_RUN_DIR=.dev scripts/dev.sh down`: it would add the development database lines to the live env file.
 
 One control plane runs per database. At start the control plane takes a Postgres session advisory lock on a
 dedicated connection named `ms-api <listen address>`. A second control plane on the same database exits with

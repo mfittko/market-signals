@@ -66,7 +66,14 @@ func main() {
 		log.Error("refusing to start", "err", err)
 		os.Exit(1)
 	}
-	defer lock.Close(context.Background())
+	// A lost lock session (Postgres restart, dropped connection) would let a second control plane start beside this
+	// one, so exit; the supervisor restarts the process, which retakes the lock or refuses.
+	go func() {
+		if err := db.WatchStackLock(ctx, lock, 5*time.Second); err != nil {
+			log.Error("exiting: stack lock lost", "err", err)
+			os.Exit(1)
+		}
+	}()
 	st := queue.New(pool)
 	if *seed {
 		if err := seedAgents(ctx, st); err != nil {
