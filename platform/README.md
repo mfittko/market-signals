@@ -164,7 +164,7 @@ changes or delays a bot decision.
 | A second close of a position is refused by the UNIQUE key and leaves one trade | `ledger/ledger_test.go` `TestSecondCloseRefusedByUniqueKey` |
 | A stop touched in a bar between two evaluations fills at that bar's time and price | `ledger/replay_test.go` `TestReplayFillsTheBarBetweenEvaluations` |
 | After a restart the stored last judged bar survives; no completed bar is skipped or judged twice | `ledger/replay_test.go` `TestReplayAfterRestart` |
-| Importing the Node paper book gives the same cash, equity and open positions, or the report lists each difference (refused, missing, extra or mismatched position, cash, equity) | `ledger/nodebook_test.go` `TestImportNodeReconciles`, `TestImportNodeRefusesNoStop`, `TestImportNodeRefusesTargetNotBeyondEntry`, `TestImportNodeShowsExistingAccountDifferences`, `TestImportNodeDebitsMarginIntoExistingAccount`, `TestImportNodeRefusesMarginAboveCash`, `TestNodeBookReadAndRefusals` |
+| Importing the Node paper book gives the same cash, equity and open positions, or the report lists each difference (refused, missing, extra or mismatched position, cash, equity) | `ledger/nodebook_test.go` `TestImportNodeReconciles`, `TestImportNodeRefusesNoStop`, `TestImportNodeRefusesTargetNotBeyondEntry`, `TestImportNodeShowsExistingAccountDifferences`, `TestImportNodeDebitsMarginIntoExistingAccount`, `TestImportNodeRefusesMarginAboveCash`, `TestImportNodeRefusesNewPositionIntoHaltedAccount`, `TestNodeBookReadAndRefusals` |
 | A dry-run Node book import changes nothing; a second import books nothing new | `ledger/nodebook_test.go` `TestImportNodeDryRunChangesNothing`, `TestImportNodeTwiceBooksNothingNew` |
 
 Run everything:
@@ -246,7 +246,8 @@ per difference. It reads a private copy of the file and writes nothing to it. Wi
 rolls back; the report shows the would-be result. It exits 3 when the report lists a difference. With `--commit` the
 import writes even when the report lists a difference, and the report's `committed` field shows the write. A new
 account takes the Node cash. Into an existing account, each newly booked position's margin is taken from Go cash, as
-Open does, and a position whose margin exceeds that cash is refused; a remaining cash difference shows in the report. A
+Open does, and a position whose margin exceeds that cash is refused; a remaining cash difference shows in the report.
+A halted existing account refuses each position not imported before, as Open does. A
 position with no stop, a stop not on the loss side of the entry price, a target not beyond the entry price, a
 non-positive number, an unparseable time, an unknown side, or an empty or space-padded instrument is refused and listed
 in the report unchanged. Each position is booked once under the idempotency key

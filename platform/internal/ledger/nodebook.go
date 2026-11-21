@@ -141,7 +141,8 @@ func readNodeBook(path string) (nodeAccount, []nodePosition, error) {
 // ledger in one transaction and reconciles cash, equity and open positions. It commits only when commit
 // is set, also when the report lists a difference; a dry run computes the same report and rolls back. A
 // new account takes the Node cash. Into an existing account, each newly booked position's margin is taken
-// from cash, and a position whose margin exceeds the cash is refused. A position the Go ledger cannot hold
+// from cash, a position whose margin exceeds the cash is refused, and a halted account refuses every
+// position not imported before. A position the Go ledger cannot hold
 // is refused and listed in the report unchanged. Each position is booked once under the key
 // node-import:position:<node id>:<entry time>, so a repeated import books nothing new.
 func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit bool, at time.Time) (*ImportReport, error) {
@@ -175,9 +176,12 @@ func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit boo
 		}
 	}
 	// The account row lock serializes the import with every keyed operation.
-	if _, err := tx.Exec(ctx, `SELECT 1 FROM ledger_account WHERE id = 1 FOR UPDATE`); err != nil {
+	var halted bool
+	if err := tx.QueryRow(ctx, `SELECT halted FROM ledger_account WHERE id = 1 FOR UPDATE`).Scan(&halted); err != nil {
 		return nil, err
 	}
+	// A new account takes the Node halted flag as is; only an existing halted account refuses new positions.
+	halted = halted && !rep.AccountCreated
 
 	mapped := map[int64]bool{}
 	for i := range nodes {
@@ -187,8 +191,8 @@ func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit boo
 			rep.differ("%s refused: %s", n.name(), reason)
 			continue
 		}
-		id, booked, err := importPosition(ctx, tx, *n, !rep.AccountCreated, at)
-		if errors.Is(err, errNoMargin) {
+		id, booked, err := importPosition(ctx, tx, *n, !rep.AccountCreated, halted, at)
+		if errors.Is(err, errNoMargin) || errors.Is(err, ErrHalted) {
 			rep.Refused++
 			rep.differ("%s refused: %s", n.name(), err)
 			continue
@@ -250,8 +254,9 @@ func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit boo
 var errNoMargin = errors.New("insufficient cash for margin")
 
 // importPosition books n once under its key and returns the Go position id; a known key books nothing.
-// With debit set it takes the margin from cash, as Open does, before the key is written.
-func importPosition(ctx context.Context, tx pgx.Tx, n nodePosition, debit bool, at time.Time) (*int64, bool, error) {
+// With debit set it takes the margin from cash, as Open does, before the key is written. With halted set
+// it refuses a new key with ErrHalted, as Open does, and writes nothing.
+func importPosition(ctx context.Context, tx pgx.Tx, n nodePosition, debit, halted bool, at time.Time) (*int64, bool, error) {
 	key := n.key()
 	var op string
 	var known *int64
@@ -263,6 +268,9 @@ func importPosition(ctx context.Context, tx pgx.Tx, n nodePosition, debit bool, 
 		return known, false, nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, false, err
+	}
+	if halted {
+		return nil, false, ErrHalted
 	}
 	if debit {
 		tag, err := tx.Exec(ctx, `UPDATE ledger_account SET cash = cash - $1 WHERE id = 1 AND cash >= $1`, n.margin)

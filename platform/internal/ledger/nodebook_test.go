@@ -190,6 +190,23 @@ func TestImportNodeRefusesMarginAboveCash(t *testing.T) {
 	}
 }
 
+func TestImportNodeRefusesNewPositionIntoHaltedAccount(t *testing.T) {
+	pool := testutil.Pool(t)
+	importNode(t, pool, nodeBook(t, 9850, cleanPositions...), true)
+	if _, err := pool.Exec(ctx, `UPDATE ledger_account SET halted = true WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	third := `(3, 'GOLD', 'long', 1000, 1, 1000, '2026-01-05T10:10:00.000Z', 10, 100, 990, NULL, 1000, 'M5', NULL)`
+	rep := importNode(t, pool, nodeBook(t, 9750, append(cleanPositions, third)...), true)
+	if rep.Refused != 1 || rep.Booked != 0 || rep.AlreadyImported != 2 || !hasDifference(rep, "node position 3 GOLD long refused", "halted") {
+		t.Fatalf("report %+v", rep)
+	}
+	near(t, "cash", cash(t, pool), 9850)
+	if n := count(t, pool, `SELECT count(*) FROM ledger_requests WHERE idempotency_key LIKE 'node-import:position:3:%'`); n != 0 {
+		t.Fatalf("a refused position left %d keys", n)
+	}
+}
+
 // Runs without Postgres: the Node reader and each refusal rule.
 func TestNodeBookReadAndRefusals(t *testing.T) {
 	row := func(id int, side, stop, target, entryTime string) string {
