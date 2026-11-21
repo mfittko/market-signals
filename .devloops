@@ -5,10 +5,10 @@ version: 1
 
 # UI-review recipe (issue #18 web app). The signal-server has no auth, so no
 # login recipe; flows are the explicit allowlist for /loop-review-ui.
-worktree:
-  entries:
-    - path: data
-      mode: copy
+# Worktrees get tracked files only: no worktree.entries copy or link of data/
+# (about 42 GB of live market data). The server below creates an empty
+# data/candles.db in the worktree on first start; a missing data/settings.json
+# reads as {} and is written on the first settings save.
 uiReview:
   run:
     command: "node scripts/signal-server.mjs --port 4123"
