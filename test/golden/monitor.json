@@ -1,0 +1,2242 @@
+{
+ "version": 1,
+ "area": "monitor",
+ "cases": [
+  {
+   "name": "long-stop-fill",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 99,
+       "high": 99.5,
+       "low": 97.5,
+       "close": 98.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 98.5
+      },
+      "exit": {
+       "price": 98,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-target-fill",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 101,
+       "high": 105.5,
+       "low": 100.5,
+       "close": 105
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 105
+      },
+      "exit": {
+       "price": 105,
+       "reason": "target"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-stop-fill",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99,
+       "close": 99.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 101,
+       "high": 102.5,
+       "low": 100.5,
+       "close": 101.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 99.5,
+       "lastClose": 99.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 99.5,
+       "lastClose": 101.5
+      },
+      "exit": {
+       "price": 102,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-target-fill",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99,
+       "close": 99.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 99,
+       "high": 99.5,
+       "low": 94.5,
+       "close": 95
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 99.5,
+       "lastClose": 99.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 99.5,
+       "lastClose": 95
+      },
+      "exit": {
+       "price": 95,
+       "reason": "target"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-gap-through-stop-fills-at-open",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 96,
+       "high": 97,
+       "low": 95,
+       "close": 96.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "best": 100,
+       "lastClose": 96.5
+      },
+      "exit": {
+       "price": 96,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-gap-through-stop-fills-at-open",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 104,
+       "high": 105,
+       "low": 103,
+       "close": 104
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "best": 100,
+       "lastClose": 104
+      },
+      "exit": {
+       "price": 104,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-gap-through-target-fills-at-target",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 107,
+       "high": 108,
+       "low": 106,
+       "close": 107.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "best": 100,
+       "lastClose": 107.5
+      },
+      "exit": {
+       "price": 105,
+       "reason": "target"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-gap-through-target-fills-at-target",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 93,
+       "high": 94,
+       "low": 92,
+       "close": 93.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "best": 100,
+       "lastClose": 93.5
+      },
+      "exit": {
+       "price": 95,
+       "reason": "target"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-both-touched-stop-wins",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 106,
+       "low": 97,
+       "close": 101
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "best": 100,
+       "lastClose": 101
+      },
+      "exit": {
+       "price": 98,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-both-touched-stop-wins",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 103,
+       "low": 94,
+       "close": 99
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "best": 100,
+       "lastClose": 99
+      },
+      "exit": {
+       "price": 102,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-atr-trail-tightens-never-loosens-never-crosses-close",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "plan": {
+      "trail": {
+       "kind": "atr",
+       "mult": 2
+      }
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 102.2,
+       "low": 99.8,
+       "close": 102
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 102,
+       "high": 102.5,
+       "low": 101,
+       "close": 101.5
+      },
+      "env": {
+       "atr": 2
+      }
+     },
+     {
+      "bar": {
+       "open": 101.5,
+       "high": 102,
+       "low": 100.5,
+       "close": 101
+      },
+      "env": {
+       "atr": 0.25
+      }
+     },
+     {
+      "bar": {
+       "open": 101,
+       "high": 103.5,
+       "low": 100.8,
+       "close": 103
+      },
+      "env": {
+       "atr": 0.5
+      }
+     },
+     {
+      "bar": {
+       "open": 102.5,
+       "high": 102.6,
+       "low": 101.5,
+       "close": 101.8
+      },
+      "env": {
+       "atr": 0.5
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 1,
+       "best": 102,
+       "lastClose": 102
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 2,
+       "best": 102,
+       "lastClose": 101.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 3,
+       "best": 102,
+       "lastClose": 101
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 102,
+       "barsHeld": 4,
+       "best": 103,
+       "lastClose": 103
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 102,
+       "barsHeld": 4,
+       "best": 103,
+       "lastClose": 101.8
+      },
+      "exit": {
+       "price": 102,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-atr-trail-tightens-never-loosens-never-crosses-close",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "plan": {
+      "trail": {
+       "kind": "atr",
+       "mult": 2
+      }
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.2,
+       "low": 97.8,
+       "close": 98
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 98,
+       "high": 99,
+       "low": 97.5,
+       "close": 98.5
+      },
+      "env": {
+       "atr": 2
+      }
+     },
+     {
+      "bar": {
+       "open": 98.5,
+       "high": 99.5,
+       "low": 98.5,
+       "close": 99
+      },
+      "env": {
+       "atr": 0.25
+      }
+     },
+     {
+      "bar": {
+       "open": 99,
+       "high": 99.2,
+       "low": 96.5,
+       "close": 97
+      },
+      "env": {
+       "atr": 0.5
+      }
+     },
+     {
+      "bar": {
+       "open": 97.5,
+       "high": 98.5,
+       "low": 97.2,
+       "close": 98.2
+      },
+      "env": {
+       "atr": 0.5
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 1,
+       "best": 98,
+       "lastClose": 98
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 2,
+       "best": 98,
+       "lastClose": 98.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 100,
+       "barsHeld": 3,
+       "best": 98,
+       "lastClose": 99
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 98,
+       "barsHeld": 4,
+       "best": 97,
+       "lastClose": 97
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 98,
+       "barsHeld": 4,
+       "best": 97,
+       "lastClose": 98.2
+      },
+      "exit": {
+       "price": 98,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-supertrend-trail-tightens-never-loosens-never-crosses-close",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "plan": {
+      "trail": {
+       "kind": "supertrend"
+      }
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101.5,
+       "low": 99.5,
+       "close": 101
+      },
+      "env": {
+       "supertrend": 99
+      }
+     },
+     {
+      "bar": {
+       "open": 101,
+       "high": 101.2,
+       "low": 100,
+       "close": 100.5
+      },
+      "env": {
+       "supertrend": 98.5
+      }
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101,
+       "low": 99.8,
+       "close": 100
+      },
+      "env": {
+       "supertrend": 100.5
+      }
+     },
+     {
+      "bar": {
+       "open": 100,
+       "high": 102.5,
+       "low": 99.9,
+       "close": 102
+      },
+      "env": {
+       "supertrend": 100.8
+      }
+     },
+     {
+      "bar": {
+       "open": 101.5,
+       "high": 101.6,
+       "low": 100.5,
+       "close": 100.7
+      },
+      "env": {
+       "supertrend": 100.8
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 99,
+       "barsHeld": 1,
+       "best": 101,
+       "lastClose": 101
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 99,
+       "barsHeld": 2,
+       "best": 101,
+       "lastClose": 100.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 99,
+       "barsHeld": 3,
+       "best": 101,
+       "lastClose": 100
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 100.8,
+       "barsHeld": 4,
+       "best": 102,
+       "lastClose": 102
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 100.8,
+       "barsHeld": 4,
+       "best": 102,
+       "lastClose": 100.7
+      },
+      "exit": {
+       "price": 100.8,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-supertrend-trail-tightens-never-loosens-never-crosses-close",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "plan": {
+      "trail": {
+       "kind": "supertrend"
+      }
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.5,
+       "low": 98.5,
+       "close": 99
+      },
+      "env": {
+       "supertrend": 101
+      }
+     },
+     {
+      "bar": {
+       "open": 99,
+       "high": 100,
+       "low": 98.8,
+       "close": 99.5
+      },
+      "env": {
+       "supertrend": 101.5
+      }
+     },
+     {
+      "bar": {
+       "open": 99.5,
+       "high": 100.2,
+       "low": 99,
+       "close": 100
+      },
+      "env": {
+       "supertrend": 99.5
+      }
+     },
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.1,
+       "low": 97.5,
+       "close": 98
+      },
+      "env": {
+       "supertrend": 99.2
+      }
+     },
+     {
+      "bar": {
+       "open": 98.5,
+       "high": 99.5,
+       "low": 98.4,
+       "close": 99.3
+      },
+      "env": {
+       "supertrend": 99.2
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 101,
+       "barsHeld": 1,
+       "best": 99,
+       "lastClose": 99
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 101,
+       "barsHeld": 2,
+       "best": 99,
+       "lastClose": 99.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 101,
+       "barsHeld": 3,
+       "best": 99,
+       "lastClose": 100
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 99.2,
+       "barsHeld": 4,
+       "best": 98,
+       "lastClose": 98
+      },
+      "trailed": true
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 99.2,
+       "barsHeld": 4,
+       "best": 98,
+       "lastClose": 99.3
+      },
+      "exit": {
+       "price": 99.2,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "time-stop-at-max-bars",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {
+      "maxBars": 3
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99.5,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101,
+       "low": 99.5,
+       "close": 100.2
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 101,
+       "low": 99.5,
+       "close": 100.4
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 2,
+       "best": 100.5,
+       "lastClose": 100.2
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 3,
+       "best": 100.5,
+       "lastClose": 100.4
+      },
+      "exit": {
+       "price": 100.4,
+       "reason": "time_stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "kill-switch-closes-at-the-bar-close",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101,
+       "low": 99.5,
+       "close": 100.8
+      },
+      "env": {
+       "halted": true
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.5
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.8
+      },
+      "exit": {
+       "price": 100.8,
+       "reason": "kill_switch"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "kill-switch-loses-to-a-stop-in-the-same-bar",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {}
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 99,
+       "high": 99,
+       "low": 97,
+       "close": 98
+      },
+      "env": {
+       "halted": true
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "best": 100,
+       "lastClose": 98
+      },
+      "exit": {
+       "price": 98,
+       "reason": "stop"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "long-invalidation-on-a-close-below-the-level",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {
+      "invalidation": 99
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.5,
+       "low": 98.9,
+       "close": 99
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 99.5,
+       "high": 100,
+       "low": 98.5,
+       "close": 98.8
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 99
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 98.8
+      },
+      "exit": {
+       "price": 98.8,
+       "reason": "invalidated"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-invalidation-on-a-close-above-the-level",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {
+      "invalidation": 101
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101.1,
+       "low": 99.5,
+       "close": 101
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.5,
+       "low": 100,
+       "close": 101.2
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 101
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 101.2
+      },
+      "exit": {
+       "price": 101.2,
+       "reason": "invalidated"
+      },
+      "trailed": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "tripwires-fire-then-cool-down-for-cooldown-bars",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {
+      "tripwires": [
+       {
+        "kind": "close_beyond",
+        "level": 99.5,
+        "dir": "below"
+       },
+       {
+        "kind": "adverse_pct",
+        "pct": 0.5
+       },
+       {
+        "kind": "adverse_atr",
+        "atr": 0.5
+       },
+       {
+        "kind": "opposite_flip"
+       },
+       {
+        "kind": "impulse"
+       },
+       {
+        "kind": "news_escalation"
+       },
+       {
+        "kind": "feed_stale",
+        "minutes": 10
+       }
+      ]
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.2,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     },
+     {
+      "bar": {
+       "open": 99.2,
+       "high": 99.4,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     },
+     {
+      "bar": {
+       "open": 99.2,
+       "high": 99.4,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     },
+     {
+      "bar": {
+       "open": 99.2,
+       "high": 99.4,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     },
+     {
+      "bar": {
+       "open": 99.2,
+       "high": 99.4,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     },
+     {
+      "bar": {
+       "open": 99.2,
+       "high": 99.4,
+       "low": 99,
+       "close": 99.2
+      },
+      "env": {
+       "atr": 1,
+       "oppositeFlip": true,
+       "impulse": true,
+       "newsEscalation": true,
+       "feedStaleMinutes": 15
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 1,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 1,
+        "{\"kind\":\"impulse\"}": 1,
+        "{\"kind\":\"news_escalation\"}": 1,
+        "{\"kind\":\"opposite_flip\"}": 1
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "close_beyond",
+        "level": 99.5,
+        "dir": "below"
+       },
+       {
+        "kind": "adverse_pct",
+        "pct": 0.5
+       },
+       {
+        "kind": "adverse_atr",
+        "atr": 0.5
+       },
+       {
+        "kind": "opposite_flip"
+       },
+       {
+        "kind": "impulse"
+       },
+       {
+        "kind": "news_escalation"
+       },
+       {
+        "kind": "feed_stale",
+        "minutes": 10
+       }
+      ]
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 2,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 1,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 1,
+        "{\"kind\":\"impulse\"}": 1,
+        "{\"kind\":\"news_escalation\"}": 1,
+        "{\"kind\":\"opposite_flip\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 3,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 1,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 1,
+        "{\"kind\":\"impulse\"}": 1,
+        "{\"kind\":\"news_escalation\"}": 1,
+        "{\"kind\":\"opposite_flip\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 4,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 1,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 1,
+        "{\"kind\":\"impulse\"}": 1,
+        "{\"kind\":\"news_escalation\"}": 1,
+        "{\"kind\":\"opposite_flip\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 5,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 1,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 1,
+        "{\"kind\":\"impulse\"}": 1,
+        "{\"kind\":\"news_escalation\"}": 1,
+        "{\"kind\":\"opposite_flip\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 6,
+       "best": 100,
+       "lastClose": 99.2,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 6,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 6,
+        "{\"kind\":\"close_beyond\",\"level\":99.5,\"dir\":\"below\"}": 6,
+        "{\"kind\":\"feed_stale\",\"minutes\":10}": 6,
+        "{\"kind\":\"impulse\"}": 6,
+        "{\"kind\":\"news_escalation\"}": 6,
+        "{\"kind\":\"opposite_flip\"}": 6
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "close_beyond",
+        "level": 99.5,
+        "dir": "below"
+       },
+       {
+        "kind": "adverse_pct",
+        "pct": 0.5
+       },
+       {
+        "kind": "adverse_atr",
+        "atr": 0.5
+       },
+       {
+        "kind": "opposite_flip"
+       },
+       {
+        "kind": "impulse"
+       },
+       {
+        "kind": "news_escalation"
+       },
+       {
+        "kind": "feed_stale",
+        "minutes": 10
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "price-cross-up-and-down-fire-then-cool-down",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {
+      "tripwires": [
+       {
+        "kind": "price_cross",
+        "level": 101,
+        "dir": "up"
+       },
+       {
+        "kind": "price_cross",
+        "level": 99.5,
+        "dir": "down"
+       }
+      ]
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     },
+     {
+      "bar": {
+       "open": 100.5,
+       "high": 101.2,
+       "low": 99.4,
+       "close": 100.5
+      },
+      "env": {}
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 1,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 1
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "price_cross",
+        "level": 101,
+        "dir": "up"
+       },
+       {
+        "kind": "price_cross",
+        "level": 99.5,
+        "dir": "down"
+       }
+      ]
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 2,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 1,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 3,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 1,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 4,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 1,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 5,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 1,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 1
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 6,
+       "best": 100.5,
+       "lastClose": 100.5,
+       "lastFired": {
+        "{\"kind\":\"price_cross\",\"level\":101,\"dir\":\"up\"}": 6,
+        "{\"kind\":\"price_cross\",\"level\":99.5,\"dir\":\"down\"}": 6
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "price_cross",
+        "level": 101,
+        "dir": "up"
+       },
+       {
+        "kind": "price_cross",
+        "level": 99.5,
+        "dir": "down"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "short-adverse-tripwires-fire",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "short",
+     "entry": 100,
+     "stop": 102,
+     "target": 95,
+     "plan": {
+      "tripwires": [
+       {
+        "kind": "close_beyond",
+        "level": 100.5,
+        "dir": "above"
+       },
+       {
+        "kind": "adverse_pct",
+        "pct": 0.5
+       },
+       {
+        "kind": "adverse_atr",
+        "atr": 0.5
+       }
+      ]
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 101,
+       "low": 99.8,
+       "close": 100.8
+      },
+      "env": {
+       "atr": 1
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "short",
+       "entry": 100,
+       "stop": 102,
+       "target": 95,
+       "barsHeld": 1,
+       "best": 100,
+       "lastClose": 100.8,
+       "lastFired": {
+        "{\"kind\":\"adverse_atr\",\"atr\":0.5}": 1,
+        "{\"kind\":\"adverse_pct\",\"pct\":0.5}": 1,
+        "{\"kind\":\"close_beyond\",\"level\":100.5,\"dir\":\"above\"}": 1
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "close_beyond",
+        "level": 100.5,
+        "dir": "above"
+       },
+       {
+        "kind": "adverse_pct",
+        "pct": 0.5
+       },
+       {
+        "kind": "adverse_atr",
+        "atr": 0.5
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-progress-fires-once-and-never-refires",
+   "input": {
+    "kind": "step",
+    "position": {
+     "side": "long",
+     "entry": 100,
+     "stop": 98,
+     "target": 105,
+     "plan": {
+      "tripwires": [
+       {
+        "kind": "no_progress",
+        "bars": 3
+       }
+      ]
+     }
+    },
+    "bars": [
+     {
+      "bar": {
+       "open": 100,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     },
+     {
+      "bar": {
+       "open": 100.2,
+       "high": 100.5,
+       "low": 99.8,
+       "close": 100.2
+      },
+      "env": {
+       "atr": 1
+      }
+     }
+    ]
+   },
+   "expected": {
+    "steps": [
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 1,
+       "best": 100.2,
+       "lastClose": 100.2
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 2,
+       "best": 100.2,
+       "lastClose": 100.2
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 3,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false,
+      "fired": [
+       {
+        "kind": "no_progress",
+        "bars": 3
+       }
+      ]
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 4,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 5,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 6,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 7,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false
+     },
+     {
+      "position": {
+       "side": "long",
+       "entry": 100,
+       "stop": 98,
+       "target": 105,
+       "barsHeld": 8,
+       "best": 100.2,
+       "lastClose": 100.2,
+       "lastFired": {
+        "{\"kind\":\"no_progress\",\"bars\":3}": 3
+       }
+      },
+      "trailed": false
+     }
+    ]
+   }
+  }
+ ]
+}

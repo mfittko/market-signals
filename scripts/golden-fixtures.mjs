@@ -4,7 +4,8 @@
 // so a later port or refactor can be tested differentially. Format and rules:
 // test/golden/README.md. Usage:
 //   node scripts/golden-fixtures.mjs           verify committed fixtures (exit 1 on drift)
-//   node scripts/golden-fixtures.mjs --write   regenerate test/golden/*.json
+//   node scripts/golden-fixtures.mjs --write   regenerate indicators.json and portfolio.json
+// monitor.json is recorded and verified in Go (platform/internal/monitor, TestGoldenReplay).
 // Inputs live in this file; expected values are always produced by the engine.
 process.env.MS_NO_NOTIFY ||= '1'; // the recorder must never notify
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';

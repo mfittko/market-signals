@@ -14,17 +14,31 @@ const files = readdirSync(GOLDEN_DIR).filter((f) => f.endsWith('.json')).sort();
 const load = (f) => JSON.parse(readFileSync(join(GOLDEN_DIR, f), 'utf8'));
 const GENERATOR = fileURLToPath(new URL('../scripts/golden-fixtures.mjs', import.meta.url));
 
-test('golden: fixture files exist for indicators and portfolio', () => {
-  assert.deepEqual(files, ['indicators.json', 'portfolio.json']);
+// Areas the Node engine replays, and areas recorded and replayed in Go (TestGoldenReplay).
+const NODE_AREAS = ['indicators', 'portfolio'];
+const GO_AREAS = ['monitor'];
+// A fixture whose area no replay owns would pass the shape test and never be compared.
+const hasReplay = (area) => NODE_AREAS.includes(area) || GO_AREAS.includes(area);
+
+test('golden: fixture files exist for indicators, portfolio and monitor', () => {
+  for (const f of ['indicators.json', 'monitor.json', 'portfolio.json']) assert.ok(files.includes(f), `${f} is missing`);
 });
+
+for (const [area, owned] of [['indicators', true], ['portfolio', true], ['monitor', true], ['monitr', false], ['ledger', false], ['', false]]) {
+  test(`golden: area "${area}" ${owned ? 'has' : 'has no'} replay`, () => {
+    assert.equal(hasReplay(area), owned);
+  });
+}
 
 for (const f of files) {
   const fx = load(f);
   test(`golden: ${f} declares its format version and area`, () => {
     assert.equal(fx.version, FORMAT_VERSION);
     assert.equal(typeof fx.area, 'string');
+    assert.ok(hasReplay(fx.area), `${f}: area "${fx.area}" has no replay; add it to NODE_AREAS or GO_AREAS`);
     assert.ok(fx.cases.length > 0);
   });
+  if (!NODE_AREAS.includes(fx.area)) continue;
   for (const c of fx.cases) {
     test(`golden replay: ${fx.area} / ${c.name}`, async () => {
       assert.deepEqual(await replayCase(fx.area, c.input, fx.series), c.expected);
@@ -53,7 +67,7 @@ test('golden: fixtures are small, path-free and secret-free', () => {
     };
     walk(JSON.parse(text));
   }
-  assert.ok(total < 200 * 1024, `fixtures total ${total} bytes, budget 200 KB`);
+  assert.ok(total < 256 * 1024, `fixtures total ${total} bytes, budget 256 KB`);
 });
 
 test('golden: the recorder is idempotent and its verify mode fails on drift', () => {

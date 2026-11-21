@@ -91,7 +91,7 @@ npm run verify            # packaging check + unit tests (+ console typecheck an
 
 Node and npm are the toolchain. The `packageManager: bun` pin in package.json exists only so the dev-loops gate validation runner can pick a runtime for these same scripts.
 
-The golden fixtures in [test/golden/](test/golden/README.md) record what the engine computes for fixed synthetic inputs: indicators, fills, sizing, halts and attribution. A port or refactor replays them. `node scripts/golden-fixtures.mjs` verifies the committed fixtures, and `--write` regenerates them.
+The golden fixtures in [test/golden/](test/golden/README.md) record what the engine computes for fixed synthetic inputs: indicators, fills, sizing, halts and attribution. A port or refactor replays them. `node scripts/golden-fixtures.mjs` verifies the committed indicators and portfolio fixtures, and `--write` regenerates them. The monitor fixtures (`monitor.json`) are recorded and verified in Go: run `go test ./internal/monitor -run TestGoldenReplay` in `platform/`, with `-update` to re-record them.
 
 Browser walkthrough (dashboard and all five modals across four viewport orientations). This is dev-only. CI runs it as an opt-in matrix job when the served page changes.
 
