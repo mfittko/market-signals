@@ -352,9 +352,14 @@ func TestMoney(t *testing.T) {
 	}
 	near(t, "cash after close", cash(t, pool), 9899+100+0.9*10)
 
-	// Short partial: 4 of 10 units close at 95 as a child position.
+	// Short partial: entry 99.9 (a short pays the spread below price), 4 of 10 units close at 95 as a child position.
 	start := cash(t, pool)
-	id = mustOpen(t, pool, "o2", OpenInput{Side: "short", Notional: 1000, Price: 100, Leverage: 10, Stop: 105})
+	id = mustOpen(t, pool, "o2", OpenInput{Side: "short", Notional: 1000, Price: 100, Spread: 0.1, Leverage: 10, Stop: 105})
+	var entry float64
+	if err := pool.QueryRow(ctx, `SELECT entry_price FROM ledger_positions WHERE id = $1`, id).Scan(&entry); err != nil {
+		t.Fatal(err)
+	}
+	near(t, "short entry_price", entry, 99.9)
 	child, err := ClosePartial(ctx, pool, "p2", id, 4, 95, "manual", t0)
 	if err != nil {
 		t.Fatal(err)
@@ -370,7 +375,7 @@ func TestMoney(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT p.parent_id FROM ledger_trades t JOIN ledger_positions p ON p.id = t.position_id WHERE t.position_id = $1`, child).Scan(&parent); err != nil || parent != id {
 		t.Fatalf("child trade: parent %d err %v", parent, err)
 	}
-	near(t, "cash after partial", cash(t, pool), start-100+40+20)
+	near(t, "cash after partial", cash(t, pool), start-100+40+(99.9-95)*4)
 	if _, err := ClosePartial(ctx, pool, "p3", id, 6, 95, "manual", t0); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("partial of all units: %v", err)
 	}
