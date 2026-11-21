@@ -176,7 +176,7 @@ install_console() {
   command -v go >/dev/null || die "go is required"
   local bin="$PLAT/.dev/bin" next="$PLAT/web/.next" want served=""
   mkdir -p "$bin"
-  # the dev.sh processes hold the same ports and the same .next build folder
+  # a development stack in this checkout writes the same .next build folder; `db` sets up the live database ms
   "$PLAT/scripts/dev.sh" down
   "$PLAT/scripts/dev.sh" db
   command rm -rf "$bin.prev" "$next.prev" "$bin.stage"

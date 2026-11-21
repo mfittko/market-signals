@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -97,8 +97,8 @@ test('smoke.sh switches the private smoke agent off and deletes its shadow posit
   const dir = mkdtempSync(join(tmpdir(), 'ms-smoke-'));
   try {
     const bin = join(dir, 'bin'), scripts = join(dir, 'scripts');
-    mkdirSync(bin); mkdirSync(scripts); mkdirSync(join(dir, '.dev'));
-    writeFileSync(join(dir, '.dev', 'env'), 'MS_DB_PASSWORD=pw\nMS_INGEST_TOKEN=tok\n');
+    mkdirSync(bin); mkdirSync(scripts); mkdirSync(join(dir, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(dir, '.dev', 'dev', 'env'), 'MS_DEV_DB_PASSWORD=pw\nMS_INGEST_TOKEN=tok\nMS_DATABASE_URL=postgres://ms_dev:pw@127.0.0.1:5544/ms_dev\n');
     writeFileSync(join(scripts, 'smoke.sh'), readFileSync('platform/scripts/smoke.sh'));
     const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
     // the health check passes, the agent registers, and the demo proposal comes back invalid, so the run ends through fail()
@@ -115,6 +115,10 @@ test('smoke.sh switches the private smoke agent off and deletes its shadow posit
     assert.match(posts[1], /"id":"smoke-mock"[\s\S]*"enabled":false/);
     const docker = readFileSync(env.STUB_DOCKER, 'utf8');
     assert.match(docker, /DELETE FROM shadow_positions WHERE agent_id='smoke-mock' AND instrument='SMOKE\/TEST'/);
+    // by default the smoke run targets the development stack: its API port and its database, never the live ms
+    assert.ok(curls.every((l) => !l.includes(':8080')), 'no call reaches the live API');
+    assert.match(curls.find((l) => l.includes('/agents')), /127\.0\.0\.1:8081\/api\/v1\/agents/);
+    assert.match(docker, /psql -q -U ms -d ms_dev\n/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -474,6 +478,148 @@ test('every line dev.sh prints for a launchd job carries a time and a level', ()
     assert.equal(lines.length, 4, lines.join('\n'));
     for (const l of lines) assert.match(l, /^time=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4} level=(INFO|WARN|ERROR) msg="/);
     assert.match(r.stderr, /level=ERROR msg="boom"/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Runs `dev.sh up` from a scratch platform tree with stand-in docker, go, pnpm and curl first on PATH. The built
+// api and worker and the console record their address, API URL and database name; no real service is contacted.
+test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devstack-'));
+  try {
+    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
+    for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    writeFileSync(join(dir, 'none.json'), '{}');
+    const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    stub(join(dir, 'svc'), 'echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}" >>"$STUB_OUT"');
+    stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_SVC" "$2/api"; cp "$STUB_SVC" "$2/worker"');
+    // the last field holds every secret the console must not inherit, so it is empty for the web line
+    stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}|${MS_DEV_DB_PASSWORD:-}${MS_WORKER_TOKEN:-}${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"');
+    stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"');
+    // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
+    stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
+    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log'),
+      MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid' };
+    const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
+    assert.match(r.stdout, /Database: {7}ms_dev\n/);
+    // the services start detached; give them a moment to write their line
+    for (let i = 0; i < 50 && !(existsSync(out) && readFileSync(out, 'utf8').trim().split('\n').length >= 3); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    assert.deepEqual(readFileSync(out, 'utf8').trim().split('\n').sort(), [
+      'api|127.0.0.1:8081|http://127.0.0.1:8081|ms_dev',
+      'web|127.0.0.1:8081|http://127.0.0.1:8081||',
+      'worker|127.0.0.1:8081|http://127.0.0.1:8081|ms_dev',
+    ]);
+    const curls = readFileSync(env.STUB_CURL, 'utf8');
+    assert.match(curls, /http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
+    assert.match(curls, /http:\/\/127\.0\.0\.1:3000\/api\/v1\/health/);
+    assert.doesNotMatch(curls, /:8080|:3737/);
+    const docker = readFileSync(env.STUB_DOCKER, 'utf8');
+    assert.match(docker, /CREATE ROLE ms_dev LOGIN/);
+    assert.match(docker, /ALTER ROLE ms_dev PASSWORD '[0-9a-f]{48}'/);
+    assert.match(docker, /CREATE DATABASE ms_dev OWNER ms_dev\n/);
+    assert.match(docker, /CREATE DATABASE ms_dev_test OWNER ms_dev\n/);
+    assert.doesNotMatch(docker, /ALTER ROLE ms PASSWORD|compose up/);
+    // the development build and pid files live in .dev/dev; the live run directory gets no env file or binary
+    assert.ok(existsSync(join(plat, '.dev', 'dev', 'bin', 'api')));
+    assert.ok(existsSync(join(plat, '.dev', 'dev', 'api.pid')));
+    assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+    assert.deepEqual(readdirSync(join(plat, '.dev', 'bin')), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Postgres reports stopped. The stand-in docker logs every call and the psql stdin; `ps -a -q` reports a container
+// only when STUB_CONTAINER is set.
+const devDbStopped = (container) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devdb-'));
+  const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'docker.log');
+  for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
+  for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"ps -a -q"*) echo "$STUB_CONTAINER" ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
+  const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, STUB_CONTAINER: container });
+  return { dir, plat, r, docker: existsSync(log) ? readFileSync(log, 'utf8') : '' };
+};
+
+test('dev_db starts a stopped Postgres container as it is and never touches the live role or env file', () => {
+  const { dir, plat, r, docker } = devDbStopped('abc123');
+  try {
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(docker, /^compose start postgres$/m);
+    assert.doesNotMatch(docker, /compose up|ALTER ROLE ms PASSWORD/);
+    assert.match(docker, /ALTER ROLE ms_dev PASSWORD/);
+    assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev_db with no Postgres container refuses and names scripts/dev.sh db', () => {
+  const { dir, plat, r, docker } = devDbStopped('');
+  try {
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /run scripts\/dev\.sh db from the live checkout/);
+    assert.doesNotMatch(docker, /compose up|compose start|ALTER ROLE/);
+    assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the development env file has its own tokens and password, mode 600, and the live env file keeps database ms', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devenv-'));
+  try {
+    const plat = join(dir, 'plat');
+    mkdirSync(join(plat, 'scripts'), { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    const r = sh('source "$PLAT/scripts/dev.sh"; load_env; use_stack dev; load_env', { PLAT: plat, MS_RUN_DIR: '' });
+    assert.equal(r.status, 0, r.stderr);
+    const read = (p) => Object.fromEntries(readFileSync(p, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+    const devFile = join(plat, '.dev', 'dev', 'env');
+    const live = read(join(plat, '.dev', 'env')), dev = read(devFile);
+    assert.equal(statSync(devFile).mode & 0o777, 0o600);
+    assert.match(live.MS_DATABASE_URL, /^postgres:\/\/ms:[0-9a-f]{48}@127\.0\.0\.1:5544\/ms$/);
+    assert.equal(dev.MS_DATABASE_URL, `postgres://ms_dev:${dev.MS_DEV_DB_PASSWORD}@127.0.0.1:5544/ms_dev`);
+    assert.equal(dev.MS_TEST_DATABASE_URL, `postgres://ms_dev:${dev.MS_DEV_DB_PASSWORD}@127.0.0.1:5544/ms_dev_test`);
+    assert.equal(dev.MS_DB_PASSWORD, undefined);
+    assert.notEqual(dev.MS_DEV_DB_PASSWORD, live.MS_DB_PASSWORD);
+    assert.notEqual(dev.MS_WORKER_TOKEN, live.MS_WORKER_TOKEN);
+    assert.notEqual(dev.MS_INGEST_TOKEN, live.MS_INGEST_TOKEN);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// MS_RUN_DIR points both stacks at one scratch env file: each stack refuses the other stack's file and appends nothing.
+test('load_env refuses an env file that holds the other stack database password and leaves it unchanged', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-envmix-'));
+  try {
+    const file = join(dir, 'env');
+    for (const [stack, line, owner] of [['dev', 'MS_DB_PASSWORD=live', 'live'], ['live', 'MS_DEV_DB_PASSWORD=dev', 'development']]) {
+      writeFileSync(file, `MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\n${line}\n`, { mode: 0o600 });
+      const before = readFileSync(file, 'utf8');
+      const r = sh(`source platform/scripts/dev.sh; use_stack ${stack}; load_env`, { MS_RUN_DIR: dir });
+      assert.notEqual(r.status, 0, stack);
+      assert.match(r.stderr, new RegExp(`belongs to the ${owner} stack`));
+      assert.equal(readFileSync(file, 'utf8'), before);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('switch-launchd writes the live console port into the web plist: 3737 by default', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-webplist-'));
+  try {
+    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; write_plist web', { DIR: dir, MS_CONSOLE_PORT: '' });
+    assert.equal(r.status, 0, r.stderr);
+    const plist = readFileSync(join(dir, 'com.market-signals.platform-web.plist'), 'utf8');
+    assert.match(plist, /dev\.sh<\/string>\s*<string>run<\/string>\s*<string>web<\/string>/);
+    assert.match(plist, /<key>MS_CONSOLE_PORT<\/key>\s*<string>3737<\/string>/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

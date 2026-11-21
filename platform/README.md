@@ -19,11 +19,44 @@ Needs docker, go, pnpm, jq, openssl. Do not pipe the launcher into another comma
 
 ```sh
 cd platform
-scripts/dev.sh up        # Postgres, control plane :8080, worker, console :3000
+scripts/dev.sh db        # once: creates the shared Postgres container on 127.0.0.1:5544
+scripts/dev.sh up        # development stack (needs the Postgres container dev.sh db creates): control plane :8081, worker, console :3000
 scripts/smoke.sh         # end-to-end check, about 10 seconds
 open http://127.0.0.1:3000
 scripts/dev.sh down
 ```
+
+### Two stacks
+
+The development stack and the live stack run side by side. The only thing the two stacks share is the Postgres
+server on `127.0.0.1:5544`. `dev.sh down --db` stops that shared server, so it also stops the database of the live
+stack.
+
+| | Development | Live |
+|---|---|---|
+| Commands | `dev.sh up`, `down`, `status`, `logs` | `dev.sh run api\|worker\|web` (the launchd jobs from `switch-launchd.sh`), `dev.sh db` |
+| Run directory (binaries, pid files, logs) | `platform/.dev/dev/` | `platform/.dev/` |
+| Env file (mode 600, gitignored) | `platform/.dev/dev/env` | `platform/.dev/env` |
+| Database and role | `ms_dev`, role `ms_dev`; Go tests use `ms_dev_test` | `ms`, role `ms`; Go tests use `ms_test` |
+| Control plane | `127.0.0.1:8081` | `127.0.0.1:8080` |
+| Console | `127.0.0.1:3000` (`pnpm dev`) | `127.0.0.1:$MS_CONSOLE_PORT` (3737 by default) |
+
+Each env file holds its own worker token, ingest token and database password. `dev.sh up` creates the role
+`ms_dev` and its two databases in the running Postgres server and never changes the role `ms`. `backup.sh` dumps
+the live database `ms` only. `MS_RUN_DIR` overrides the run directory of both stacks, for tests.
+
+Upgrade step: a development stack started before the two stacks existed runs from `platform/.dev/`, and the new
+`dev.sh down` cannot see it. Stop it before the first `dev.sh up` or `switch-launchd.sh up`: run the old
+`scripts/dev.sh down` before you pull this change. After the pull, run
+`bash -c 'source scripts/dev.sh; for p in web worker api; do stop_one "$p"; done'` from `platform/`.
+`MS_RUN_DIR=.dev scripts/dev.sh down` does not work: `dev.sh` refuses an env file that holds the other stack's
+database password, so neither stack can append its lines to the other stack's env file.
+
+One control plane runs per database. At start the control plane takes a Postgres session advisory lock on a
+dedicated connection named `ms-api <listen address>`. A second control plane on the same database exits with
+code 1 before it binds a port, and its message names the database and the holder (backend pid,
+`application_name`, start time). Postgres releases the lock when the holder's session ends, also after `kill -9`.
+The lock is per database, so the two stacks do not block each other.
 
 In the console:
 
@@ -72,7 +105,7 @@ listens on port 4123, so start the stack with `MS_ENGINE_URL=http://127.0.0.1:41
 live-engine runs read the same copy.
 
 ```sh
-MS_NO_NOTIFY=1 MS_CONTROL_PLANE_URL=http://127.0.0.1:8080 MS_INGEST_TOKEN=$(grep INGEST platform/.dev/env | cut -d= -f2) \
+MS_NO_NOTIFY=1 MS_CONTROL_PLANE_URL=http://127.0.0.1:8081 MS_INGEST_TOKEN=$(grep INGEST platform/.dev/dev/env | cut -d= -f2) \
   node scripts/signal-server.mjs --port 4123 --db <copy>/candles.db --settings <copy>/settings.json
 ```
 
@@ -101,16 +134,15 @@ changes or delays a bot decision.
 Run everything:
 
 ```sh
-(cd platform && set -a && . .dev/env && go test -p 1 -race -count=1 ./...)   # needs Postgres from scripts/dev.sh up
-node --test test/control-plane.test.mjs                                      # from the repo root
+(cd platform && set -a && . .dev/dev/env && go test -p 1 -race -count=1 ./...)   # database ms_dev_test, from scripts/dev.sh up
+node --test test/control-plane.test.mjs                                          # from the repo root
 ```
 
-No database password is committed. `scripts/dev.sh up` generates one into `platform/.dev/env` (mode 600, gitignored),
-passes it to Docker Compose as `MS_DB_PASSWORD` and sets the Postgres role to it. The same file holds
-`MS_DATABASE_URL`, which `cmd/api` and `cmd/import` require, and `MS_TEST_DATABASE_URL` for the Go tests. Tests
-skip without it, or fail when `MS_REQUIRE_DB=1` or `CI` is set. To run `docker compose` by hand, export the file first
-with `set -a && . .dev/env`. A stack started before the password existed keeps an api process that uses the old
-password, so run `scripts/dev.sh down` and then `scripts/dev.sh up` once.
+No database password is committed. `scripts/dev.sh up` generates one into `platform/.dev/dev/env` (mode 600,
+gitignored) and sets the role `ms_dev` to it. The live `platform/.dev/env` holds `MS_DB_PASSWORD` for the role `ms`,
+which `dev.sh db` sets and Docker Compose reads. Each file holds `MS_DATABASE_URL`, which `cmd/api` and `cmd/import`
+require, and `MS_TEST_DATABASE_URL` for the Go tests. Tests skip without it, or fail when `MS_REQUIRE_DB=1` or `CI`
+is set. To run `docker compose` by hand, export the live file first with `set -a && . .dev/env`.
 
 ## Deliberate simplifications
 
@@ -131,5 +163,6 @@ password, so run `scripts/dev.sh down` and then `scripts/dev.sh up` once.
 standing rules, prompt versions and rechecks) and the bot map into
 Postgres in one transaction. Without `-commit` it is a dry run that rolls back. It commits only when every
 invariant holds, including that cash reconciles with realized profit. Open positions in the source fail that
-check, so close them first. It reads the database from `MS_DATABASE_URL` or `-db`, so export `.dev/env` first.
+check, so close them first. It reads the database from `MS_DATABASE_URL` or `-db`, so export `.dev/dev/env` first
+to fill the development database `ms_dev` from a disposable copy of the engine SQLite file.
 `go run ./cmd/import -h` lists the flags.
