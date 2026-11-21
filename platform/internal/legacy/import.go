@@ -332,30 +332,67 @@ func (im *importer) signalSnapshots() error {
 	return im.finish("signal_snapshots", "signal_snapshots", `SELECT count(*) FROM signal_snapshots`, n)
 }
 
+// EngineStrategy is one row of the engine's strategies table. ID is the engine row id.
+type EngineStrategy struct {
+	ID                                         int64
+	Name, Prompt, CreatedBy                    string
+	Version                                    int
+	CreatedAt                                  time.Time
+	Active, Archived, Dedicated                bool
+	Spec, Instruments, Instrument, Granularity any // nil when unset
+}
+
+// StrategyInsert stores one EngineStrategy (Args order) with its engine id and skips a stored (name, version).
+const StrategyInsert = `INSERT INTO strategies (engine_id,name,version,prompt,spec,instruments,created_by,created_at,active,archived,instrument,granularity,dedicated)
+	VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`
+
+func (s EngineStrategy) Args() []any {
+	return []any{s.ID, s.Name, s.Version, s.Prompt, s.Spec, s.Instruments, s.CreatedBy, s.CreatedAt, s.Active, s.Archived, s.Instrument, s.Granularity, s.Dedicated}
+}
+
+// ReadStrategies reads every engine strategy from a snapshot of the SQLite file at path.
+func ReadStrategies(ctx context.Context, path string) ([]EngineStrategy, error) {
+	src, cleanup, err := openCopy(path)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	return readStrategies(ctx, src)
+}
+
+func readStrategies(ctx context.Context, src *sql.DB) ([]EngineStrategy, error) {
+	rows, err := src.QueryContext(ctx, `SELECT id, name, version, prompt, spec, instruments, created_by, created_at, active, archived, instrument, granularity, dedicated FROM strategies ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EngineStrategy
+	for rows.Next() {
+		var s EngineStrategy
+		var created string
+		var active, archived, dedicated int
+		var spec, insts, inst, gran sql.NullString
+		if err := rows.Scan(&s.ID, &s.Name, &s.Version, &s.Prompt, &spec, &insts, &s.CreatedBy, &created, &active, &archived, &inst, &gran, &dedicated); err != nil {
+			return nil, err
+		}
+		if s.CreatedAt, err = parseTime(created); err != nil {
+			return nil, err
+		}
+		s.Active, s.Archived, s.Dedicated = active != 0, archived != 0, dedicated != 0
+		s.Spec, s.Instruments, s.Instrument, s.Granularity = nullJSON(spec), ns(insts), ns(inst), ns(gran)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func (im *importer) strategies() error {
-	rows, err := im.src.QueryContext(im.ctx, `SELECT name, version, prompt, spec, instruments, created_by, created_at, active, archived, instrument, granularity, dedicated FROM strategies`)
+	rows, err := readStrategies(im.ctx, im.src)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 	b := &pgx.Batch{}
-	for rows.Next() {
-		var name, prompt, by, created string
-		var version, active, archived, dedicated int
-		var spec, insts, inst, gran sql.NullString
-		if err := rows.Scan(&name, &version, &prompt, &spec, &insts, &by, &created, &active, &archived, &inst, &gran, &dedicated); err != nil {
-			return err
-		}
-		t, err := parseTime(created)
-		if err != nil {
-			return err
-		}
-		b.Queue(`INSERT INTO strategies (name,version,prompt,spec,instruments,created_by,created_at,active,archived,instrument,granularity,dedicated)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT DO NOTHING`,
-			name, version, prompt, nullJSON(spec), ns(insts), by, t, active != 0, archived != 0, ns(inst), ns(gran), dedicated != 0)
-	}
-	if err := rows.Err(); err != nil {
-		return err
+	for _, s := range rows {
+		b.Queue(StrategyInsert, s.Args()...)
 	}
 	n, err := im.send(b)
 	if err != nil {
