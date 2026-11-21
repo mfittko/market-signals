@@ -88,10 +88,12 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 		t.Fatalf("engine flags and spec: %v %s %v", active, spec, err)
 	}
 
-	// new engine versions are the only rows the next run inserts; after the delta v1 clash, delta v2 is skipped too
-	engineDB(t, path, [4]any{"alpha", 3, "alpha three", 1}, [4]any{"beta", 2, "beta two", 1}, [4]any{"delta", 1, "engine delta", 1}, [4]any{"delta", 2, "engine delta two", 1})
+	// new engine versions are the only rows the next run inserts; after the delta v1 clash, delta v2 is skipped too;
+	// alpha v4 is saved inactive, so it must leave the stored active alpha v3 active
+	engineDB(t, path, [4]any{"alpha", 3, "alpha three", 1}, [4]any{"beta", 2, "beta two", 1}, [4]any{"delta", 1, "engine delta", 1}, [4]any{"delta", 2, "engine delta two", 1},
+		[4]any{"alpha", 4, "alpha four", 0})
 	rep, err := Mirror(ctx, pool, path)
-	want = MirrorReport{Source: 8, Inserted: 2, Skipped: 3, Clashes: []Clash{{"gamma", 1}, {"delta", 1}, {"delta", 2}}, Recreated: []Clash{}}
+	want = MirrorReport{Source: 9, Inserted: 3, Skipped: 3, Clashes: []Clash{{"gamma", 1}, {"delta", 1}, {"delta", 2}}, Recreated: []Clash{}}
 	if err != nil || !reflect.DeepEqual(rep, want) {
 		t.Fatalf("new version: %+v %v, want %+v", rep, err, want)
 	}
