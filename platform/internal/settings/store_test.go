@@ -157,7 +157,7 @@ func TestImportReportsAWideFileMode(t *testing.T) {
 func TestRefusedWriteChangesNothing(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": float64(8787)}); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": float64(8787)}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, patch := range []map[string]any{
@@ -167,7 +167,7 @@ func TestRefusedWriteChangesNothing(t *testing.T) {
 		{"model": "/usr/local/bin/model"},      // path value over HTTP
 		{"jobOwner.bot": "go"},                 // operator-only key
 	} {
-		if _, _, err := settings.Write(ctx, pool, settings.FromAPI, patch); !errors.Is(err, settings.ErrInvalid) {
+		if _, _, err := settings.Write(ctx, pool, settings.FromAPI, patch, nil); !errors.Is(err, settings.ErrInvalid) {
 			t.Fatalf("%v: got %v, want ErrInvalid", patch, err)
 		}
 	}
@@ -180,10 +180,10 @@ func TestRefusedWriteChangesNothing(t *testing.T) {
 func TestMaskedSecretKeepsStoredValue(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"OPENAI_API_KEY": "sk-fake"}); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"OPENAI_API_KEY": "sk-fake"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	snap, changed, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"OPENAI_API_KEY": settings.Mask})
+	snap, changed, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"OPENAI_API_KEY": settings.Mask}, nil)
 	if err != nil || len(changed) != 0 || snap.Revision != 1 || snap.Values["OPENAI_API_KEY"] != "sk-fake" {
 		t.Fatalf("%+v %v %v", snap, changed, err)
 	}
@@ -192,11 +192,11 @@ func TestMaskedSecretKeepsStoredValue(t *testing.T) {
 func TestBotWithoutWatcherPairIsRefusedInTheTransaction(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"watchers": "WTICO/USD|M5"}); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"watchers": "WTICO/USD|M5"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	enable := map[string]any{"bot": map[string]any{"bots": map[string]any{"XAU/USD|H1": map[string]any{"enabled": true}}}}
-	_, _, err := settings.Write(ctx, pool, settings.FromAPI, enable)
+	_, _, err := settings.Write(ctx, pool, settings.FromAPI, enable, nil)
 	var pe settings.PairError
 	if !errors.As(err, &pe) || !slices.Equal(pe.Pairs, []string{"XAU/USD|H1"}) {
 		t.Fatalf("got %v", err)
@@ -206,10 +206,10 @@ func TestBotWithoutWatcherPairIsRefusedInTheTransaction(t *testing.T) {
 	}
 	// Dropping the pair under an enabled bot is refused the same way.
 	enable["watchers"] = "WTICO/USD|M5,XAU/USD|H1"
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, enable); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, enable, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"watchers": "WTICO/USD|M5"}); !errors.As(err, &pe) {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"watchers": "WTICO/USD|M5"}, nil); !errors.As(err, &pe) {
 		t.Fatalf("removing the pair: got %v", err)
 	}
 }
@@ -222,12 +222,12 @@ func TestInstrumentChangeUnderAFallbackWatchedBotIsRefused(t *testing.T) {
 		"instrument": "XAU/USD", "granularity": "H1",
 		"bot": map[string]any{"bots": map[string]any{"XAU/USD|H1": map[string]any{"enabled": true}}},
 	}
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, seed); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, seed, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, patch := range []map[string]any{{"instrument": "BCO/USD"}, {"granularity": "M5"}} {
 		var pe settings.PairError
-		if _, _, err := settings.Write(ctx, pool, settings.FromAPI, patch); !errors.As(err, &pe) || !slices.Equal(pe.Pairs, []string{"XAU/USD|H1"}) {
+		if _, _, err := settings.Write(ctx, pool, settings.FromAPI, patch, nil); !errors.As(err, &pe) || !slices.Equal(pe.Pairs, []string{"XAU/USD|H1"}) {
 			t.Fatalf("%v: got %v", patch, err)
 		}
 	}
@@ -257,7 +257,7 @@ func TestImportKeepsTheStoredValueOfARefusedKey(t *testing.T) {
 func TestImportKeepsJobOwnerFlags(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
-	if _, _, err := settings.Write(ctx, pool, settings.FromOperator, map[string]any{"jobOwner.news": "go"}); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromOperator, map[string]any{"jobOwner.news": "go"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -268,5 +268,37 @@ func TestImportKeepsJobOwnerFlags(t *testing.T) {
 	}
 	if v := load(t, pool).Values["jobOwner.news"]; v != "go" {
 		t.Fatalf("job owner flag changed by the import: %v", v)
+	}
+}
+
+func TestSameBaseConcurrentWritesGiveOneSuccess(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	snap, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": float64(8787)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := snap.Revision
+	errs := make(chan error, 2)
+	for _, port := range []float64{9001, 9002} {
+		go func() {
+			_, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": port}, &base)
+			errs <- err
+		}()
+	}
+	var ok, stale int
+	for range 2 {
+		var se settings.StaleError
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.As(err, &se) && se.Current == base+1:
+			stale++
+		default:
+			t.Fatal(err)
+		}
+	}
+	if ok != 1 || stale != 1 || load(t, pool).Revision != base+1 {
+		t.Fatalf("ok=%d stale=%d", ok, stale)
 	}
 }
