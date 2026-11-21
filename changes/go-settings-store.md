@@ -1,0 +1,1 @@
+- Platform: Go settings store in Postgres with a typed schema per key, masked secrets, a revision per change, an idempotent settings.json import and operator-only job owner flags (#347)

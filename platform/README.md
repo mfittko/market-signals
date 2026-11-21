@@ -156,6 +156,9 @@ changes or delays a bot decision.
 | An invalid proposal (wrong-side stop, halted, stale, foreign position) is rejected and stays uncommitted | `domain/decision_test.go`, `queue_test.go` |
 | Timed follow-up releases the worker and resumes with a fresh attempt | `queue_test.go` |
 | The engine keeps deciding when the control plane is down | `test/control-plane.test.mjs` |
+| A settings write with an unknown key, a wrong type or a path is refused and stores nothing; secrets read masked | `settings/store_test.go`, `api/settings_test.go` |
+| The settings import is idempotent and a changed file adds one revision with only the changed keys | `settings/store_test.go` |
+| An enabled bot without its watcher pair is refused in the write transaction; job owner flags change only through the operator route | `settings/store_test.go`, `api/settings_test.go` |
 
 Run everything:
 
@@ -192,3 +195,19 @@ invariant holds, including that cash reconciles with realized profit. Open posit
 check, so close them first. It reads the database from `MS_DATABASE_URL` or `-db`, so export `.dev/dev/env` first
 to fill the development database `ms_dev` from a disposable copy of the engine SQLite file.
 `go run ./cmd/import -h` lists the flags.
+
+## Settings store
+
+Go keeps a typed copy of the engine settings in Postgres (`internal/settings`). The engine's `data/settings.json`
+stays the live source until the Go store owns settings writes
+(https://github.com/mfittko/market-signals/issues/365). The mirror is one way:
+
+- `go run ./cmd/settings-import --settings ../data/settings.json` copies the file into the store. It reads
+  `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
+  the changed keys. Unknown or invalid keys keep their stored value and are listed by name, never by value.
+- `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
+  refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the
+  watcher list. A refused write stores nothing. The next import overwrites what this route wrote.
+- Job owner flags (`candles`, `alerts`, `bot`, `news`, each `node` or `go`, default `node`) exist only in Postgres.
+  `GET` and `PUT /api/v1/operator/job-owners` read and set them with `Authorization: Bearer $MS_OPERATOR_TOKEN`.
+  Without `MS_OPERATOR_TOKEN` the operator routes answer 401.

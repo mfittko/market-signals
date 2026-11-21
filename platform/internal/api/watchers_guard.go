@@ -7,33 +7,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mfittko/market-signals/platform/internal/settings"
 )
 
 // The engine runs the paper bot only for watched pairs, so dropping a pair stops the
 // bot's stop and target fills on its open positions. The console may add pairs freely.
 // It may remove one only when the bot is off and holds nothing on that instrument.
-
-// normPair mirrors how the engine reads a watcher entry: parts are trimmed, case is kept,
-// and the timeframe defaults to M5 only when the entry has no separator at all. Changing
-// the case of an instrument therefore names a different pair, which the engine would not
-// match to any candles or positions.
-func normPair(p string) string {
-	a, b, hasTF := strings.Cut(p, "|")
-	if !hasTF {
-		b = "M5"
-	}
-	return strings.TrimSpace(a) + "|" + strings.TrimSpace(b)
-}
-
-func pairSet(csv string) map[string]bool {
-	out := map[string]bool{}
-	for _, p := range strings.Split(csv, ",") {
-		if strings.TrimSpace(p) != "" {
-			out[normPair(p)] = true
-		}
-	}
-	return out
-}
 
 func (s *Server) engineGetJSON(ctx context.Context, path string, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -72,9 +52,9 @@ func (s *Server) watcherRemovalRefusal(ctx context.Context, posted json.RawMessa
 	if err := s.engineGetJSON(ctx, "/api/settings", &cur); err != nil {
 		return "The alert list was not changed: the engine settings could not be read."
 	}
-	posts := pairSet(next)
+	posts := settings.PairSet(next)
 	var removed []string
-	for p := range pairSet(cur.Watchers) {
+	for p := range settings.PairSet(cur.Watchers) {
 		if !posts[p] {
 			removed = append(removed, p)
 		}

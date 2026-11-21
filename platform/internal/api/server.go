@@ -31,8 +31,10 @@ import (
 const snapshotTooLargeHint = "the snapshot, alone or with the agent's strategy prompt, is over the size limit; shorten the strategy prompt or the snapshot"
 
 type Config struct {
-	WorkerToken    string
-	IngestToken    string
+	WorkerToken string
+	IngestToken string
+	// OperatorToken guards the operator routes (job owner flags). Empty disables them.
+	OperatorToken  string
 	EngineURL      string
 	AllowedOrigins []string
 	// BackupDir is the root of the daily backups; health reports the newest one. Empty when unset.
@@ -194,6 +196,11 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/v1/runs/{id}/chart", s.runChart)
 	m.HandleFunc("POST /api/v1/runs", s.triggerRun)
 	m.HandleFunc("POST /api/v1/runs/{id}/cancel", s.cancelRun)
+	m.HandleFunc("GET /api/v1/settings", s.getSettings)
+	m.HandleFunc("PATCH /api/v1/settings", s.patchSettings)
+	// operator routes (bearer MS_OPERATOR_TOKEN)
+	m.Handle("GET /api/v1/operator/job-owners", s.bearer(s.cfg.OperatorToken, s.getJobOwners))
+	m.Handle("PUT /api/v1/operator/job-owners", s.bearer(s.cfg.OperatorToken, s.putJobOwners))
 	m.HandleFunc("GET /api/v1/stream", s.stream)
 	// engine ingest
 	m.Handle("POST /api/v1/events", s.bearer(s.cfg.IngestToken, s.ingest))

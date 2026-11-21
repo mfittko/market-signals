@@ -92,7 +92,7 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 			return fmt.Errorf("seed: %w", err)
 		}
 	}
-	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: engine, AllowedOrigins: parseOrigins(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000")), BackupDir: os.Getenv("MS_BACKUP_DIR")}
+	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: engine, AllowedOrigins: parseOrigins(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000")), BackupDir: os.Getenv("MS_BACKUP_DIR"), OperatorToken: os.Getenv("MS_OPERATOR_TOKEN")}
 	if key := os.Getenv("MS_LLM_API_KEY"); key != "" {
 		maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
 		cfg.Complete = runtime.NewLLM(runtime.LLMConfig{BaseURL: os.Getenv("MS_LLM_BASE_URL"), APIKey: key, Model: os.Getenv("MS_LLM_MODEL"), MaxTokens: maxTok}).Complete
