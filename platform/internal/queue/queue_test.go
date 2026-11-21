@@ -594,9 +594,13 @@ func TestClaimKeepsTheDefaultLeaseWithoutABudget(t *testing.T) {
 	if d := c.Attempt.LeaseUntil.Sub(c.Attempt.StartedAt); d < 29*time.Second || d > 31*time.Second {
 		t.Fatalf("default lease = %v after claim, want 30s", d)
 	}
+	// Shorten the lease first, so only a real extension passes the check below.
+	if _, err := testPool.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + interval '2 seconds' WHERE id=$1`, c.Attempt.ID); err != nil {
+		t.Fatal(err)
+	}
 	_, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence)
 	must(t, err)
 	if left := leaseLeft(t, c.Attempt.ID); left < 29 || left > 30.5 {
-		t.Fatalf("default heartbeat lease left = %.2fs, want 30s", left)
+		t.Fatalf("default heartbeat lease left = %.2fs, want heartbeat time plus 30s", left)
 	}
 }

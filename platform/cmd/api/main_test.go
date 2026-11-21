@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"reflect"
@@ -49,6 +50,7 @@ func testPlane(addr string, rec *recorder, passes *atomic.Int32, served chan<- s
 	}
 	return plane{
 		addr:    addr,
+		log:     slog.New(slog.DiscardHandler),
 		handler: http.NotFoundHandler(),
 		reaper:  loop("reaper"),
 		monitor: loop("monitor"),
@@ -100,13 +102,63 @@ func TestRunBindsThenStartsLoopsThenServes(t *testing.T) {
 	addr := freeAddr(t)
 	done := make(chan error, 1)
 	go func() { done <- run(ctx, testPlane(addr, &rec, &passes, served)) }()
-	<-served
+	awaitServe(t, served, done)
 	if got, want := rec.list()[:4], []string{"listen", "reaper", "monitor", "serve"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("startup order %q, want %q", got, want)
 	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+// awaitServe fails the test when run returns or stalls before it serves.
+func awaitServe(t *testing.T, served <-chan struct{}, done <-chan error) {
+	t.Helper()
+	select {
+	case <-served:
+	case err := <-done:
+		t.Fatalf("run returned before serving: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("run never served")
+	}
+}
+
+func TestShutdownEndsAnOpenStreamBeforeThePoolCloses(t *testing.T) {
+	var rec recorder
+	var passes atomic.Int32
+	served := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	addr := freeAddr(t)
+	p := testPlane(addr, &rec, &passes, served)
+	// Like the event stream, the handler only ends when its request context does.
+	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		rec.add("stream returned")
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, p) }()
+	awaitServe(t, served, done)
+	// The client keeps the body open, so only the server side can end the request.
+	resp, err := http.Get("http://" + addr + "/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second): // well inside the 5 s Shutdown timeout
+		t.Fatal("run did not return while a stream was open")
+	}
+	ev := rec.list()
+	if s, c := slices.Index(ev, "stream returned"), slices.Index(ev, "pool closed"); s < 0 || c < s {
+		t.Fatalf("the stream handler must return before the pool closes: %q", ev)
 	}
 }
 

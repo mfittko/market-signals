@@ -98,7 +98,7 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 		cfg.Complete = runtime.NewLLM(runtime.LLMConfig{BaseURL: os.Getenv("MS_LLM_BASE_URL"), APIKey: key, Model: os.Getenv("MS_LLM_MODEL"), MaxTokens: maxTok}).Complete
 	}
 	srv := api.New(cfg, st, log)
-	p := plane{addr: addr, handler: srv.Handler(), reaper: func(ctx context.Context) { srv.RunReaper(ctx, 3*time.Second) }, close: pool.Close}
+	p := plane{addr: addr, log: log, handler: srv.Handler(), reaper: func(ctx context.Context) { srv.RunReaper(ctx, 3*time.Second) }, close: pool.Close}
 	if engine != "" {
 		mon := &monitor.Service{Store: st, Feed: monitor.EngineFeed{Eng: tools.NewEngine(engine)}, Log: log, Enrich: srv.WakeEnricher()}
 		p.monitor = func(ctx context.Context) { mon.Run(ctx, 15*time.Second) }
@@ -110,6 +110,7 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 // plane is what run starts once the database is ready. Tests inject the loops and hooks.
 type plane struct {
 	addr    string
+	log     *slog.Logger
 	handler http.Handler
 	reaper  func(context.Context) // blocks until its context ends
 	monitor func(context.Context) // blocks until its context ends; nil without an engine
@@ -118,7 +119,8 @@ type plane struct {
 }
 
 // run binds first, so a taken port fails before any reaper or monitor pass. It then starts the loops and
-// serves until ctx ends or serving fails. Shutdown stops accepting, waits for the loops, then calls close.
+// serves until ctx ends or serving fails. Shutdown ends open requests (event streams included), stops accepting,
+// waits for the loops, then calls close.
 func run(ctx context.Context, p plane) error {
 	note := func(e string) {
 		if p.event != nil {
@@ -129,6 +131,7 @@ func run(ctx context.Context, p plane) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	p.log.Info("control plane listening", "addr", ln.Addr().String())
 	note("listen")
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -147,7 +150,9 @@ func run(ctx context.Context, p plane) error {
 		}()
 		note(l.name)
 	}
-	hs := &http.Server{Handler: p.handler, ReadHeaderTimeout: 10 * time.Second}
+	// Request contexts derive from ctx, so the cancel below ends long-lived handlers such as the event stream
+	// before Shutdown waits for them.
+	hs := &http.Server{Handler: p.handler, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return ctx }}
 	served := make(chan error, 1)
 	note("serve")
 	go func() { served <- hs.Serve(ln) }()
@@ -157,7 +162,10 @@ func run(ctx context.Context, p plane) error {
 	}
 	cancel()
 	sc, c := context.WithTimeout(context.Background(), 5*time.Second)
-	_ = hs.Shutdown(sc)
+	if hs.Shutdown(sc) != nil {
+		// Timed out: drop the connections that handlers still hold.
+		hs.Close()
+	}
 	c()
 	wg.Wait()
 	if p.close != nil {
