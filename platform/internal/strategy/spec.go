@@ -3,6 +3,7 @@
 package strategy
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,9 +39,22 @@ var (
 // ValidateSpec checks a declarative strategy spec. The error lists every problem and names each field path.
 // It also rejects a non-object `risk`, which the engine validator ignores.
 func ValidateSpec(raw json.RawMessage) error {
+	_, err := NormalizeSpec(raw)
+	return err
+}
+
+// NormalizeSpec validates raw like ValidateSpec and returns the validated value re-encoded.
+// Store these bytes, never raw: the decoder keeps the last of duplicate keys and turns a lone
+// surrogate or invalid UTF-8 into U+FFFD, so raw can hold a value that was never checked and
+// that Postgres jsonb rejects.
+func NormalizeSpec(raw json.RawMessage) (json.RawMessage, error) {
+	if t := bytes.TrimLeft(raw, " \t\r\n"); len(t) == 0 || t[0] != '{' {
+		return nil, fmt.Errorf("%w: spec must be an object", ErrInvalidSpec)
+	}
 	var spec map[string]any
-	if err := json.Unmarshal(raw, &spec); err != nil || spec == nil {
-		return fmt.Errorf("%w: spec must be an object", ErrInvalidSpec)
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		// an object that still fails to decode, such as a number outside float64 range; the decoder text names the field
+		return nil, fmt.Errorf("%w: %v", ErrInvalidSpec, err)
 	}
 	var errs []string
 	add := func(format string, a ...any) { errs = append(errs, fmt.Sprintf(format, a...)) }
@@ -126,9 +140,9 @@ func ValidateSpec(raw json.RawMessage) error {
 
 	scanStrings(spec, "spec", add)
 	if len(errs) > 0 {
-		return fmt.Errorf("%w: %s", ErrInvalidSpec, strings.Join(errs, "; "))
+		return nil, fmt.Errorf("%w: %s", ErrInvalidSpec, strings.Join(errs, "; "))
 	}
-	return nil
+	return json.Marshal(spec)
 }
 
 // scanStrings rejects raw dates and instrument symbols in any string, keys included, so a spec stays anonymous.

@@ -203,11 +203,13 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	var spec any // nil keeps the previous spec
 	if len(b.Spec) > 0 && string(b.Spec) != "null" {
-		if err := strategy.ValidateSpec(b.Spec); err != nil {
+		// store the validated value, never the raw request bytes
+		norm, err := strategy.NormalizeSpec(b.Spec)
+		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
-		spec = string(b.Spec)
+		spec = string(norm)
 	}
 	switch {
 	case !strategyName.MatchString(name):

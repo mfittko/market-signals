@@ -1622,6 +1622,16 @@ func TestStrategySaveValidatesTheSpec(t *testing.T) {
 	if c, out := call(t, "POST", u, "", `{"prompt":"v4","baseVersion":3,"spec":{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"\u0000"}},"exit":{"stopAtr":1}}}`, nil); c != 400 || !strings.Contains(out["error"].(string), "spec.entry.require.impulse: a NUL character") {
 		t.Fatalf("NUL in spec: %d %v", c, out)
 	}
+	// a duplicate key whose first value is a lone surrogate validates on the last value; the route
+	// stores the validated value, so the jsonb cast never sees the surrogate and the save is no 500
+	dup := `{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":"\ud800","stopAtr":1}}`
+	if c, out := call(t, "POST", u, "", `{"prompt":"v4","baseVersion":3,"spec":`+dup+`}`, nil); c != 200 {
+		t.Fatalf("duplicate key with a lone surrogate: %d %v", c, out)
+	}
+	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend' AND version=4 AND spec = $1::jsonb`,
+		`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1}}`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("stored spec is not the validated value: %d %v", n, err)
+	}
 }
 
 func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
