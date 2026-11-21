@@ -55,11 +55,11 @@ Settings are one resource with one revision counter, so the settings route uses 
 |---|---|---|
 | `baseRevision` equals the current revision | `200` | none |
 | `baseRevision` differs from the current revision | `409` | `stale_base_revision` |
-| `baseRevision` is missing and settings exist | `400` | `base_revision_required` |
-| `baseRevision` is missing and the store is empty | `200` (creates revision 1) | none |
+| `baseRevision` is missing and the current revision is above 0 | `400` | `base_revision_required` |
+| `baseRevision` is missing and the current revision is 0 | `200` (creates revision 1) | none |
 | `baseRevision` is not a non-negative integer | `400` | `invalid_setting` |
 
-The store compares the base inside the write transaction, after the settings advisory lock, so of two saves with the same base exactly one succeeds. A refused write stores nothing, even when its patch would change nothing. `stale_base_revision` returns `currentRevision` in place of `currentVersion`. A successful write returns `{"ok": true, "revision": <n>, "changed": [...], "settings": {...}}`.
+The store compares the base inside the write transaction, after the settings advisory lock, so of two saves with the same base that both change a value, exactly one succeeds. A save that changes nothing keeps the revision. A refused write stores nothing, even when its patch would change nothing. The `stale_base_revision` body names the current revision in `currentRevision`. The strategy route uses `currentVersion` for the same value. A successful write returns `{"ok": true, "revision": <n>, "changed": [...], "settings": {...}}`.
 
 The settings import and the operator job-owner route take no base revision. A job-owner change still raises the revision, so a console tab that loaded settings before it gets `409` on its next save.
 

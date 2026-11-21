@@ -28,11 +28,12 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// baseRevision is the revision the edit is based on (platform/docs/write-preconditions.md).
-	// A missing one counts as 0, so only the first write to an empty store may omit it.
+	// A missing one counts as 0, so a write may omit it only while the current revision is 0.
 	raw, sent := patch["baseRevision"]
 	delete(patch, "baseRevision")
 	f, isNum := raw.(float64)
-	if sent && (!isNum || f < 0 || f != math.Trunc(f)) {
+	// int64(f) is implementation-defined beyond the int64 range, so refuse those values here.
+	if sent && (!isNum || f < 0 || f != math.Trunc(f) || f >= math.MaxInt64) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "baseRevision must be a non-negative integer", "code": "invalid_setting"})
 		return
 	}
@@ -51,7 +52,7 @@ func (s *Server) writeSettings(w http.ResponseWriter, r *http.Request, o setting
 	var stale settings.StaleError
 	switch {
 	case errors.As(err, &stale) && !sent:
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "baseRevision is required once settings exist",
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "baseRevision is required once the settings revision is above 0",
 			"hint": "send the revision you loaded", "code": "base_revision_required"})
 	case errors.As(err, &stale):
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "another tab or client changed the settings",

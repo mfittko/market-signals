@@ -80,7 +80,8 @@ func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
 	if code, out := call(t, "PATCH", api+"/settings", "", `{"port":8788}`, nil); code != http.StatusBadRequest || out["code"] != "base_revision_required" {
 		t.Fatal(code, out)
 	}
-	for _, body := range []string{`{"baseRevision":"1","port":8788}`, `{"baseRevision":1.5,"port":8788}`, `{"baseRevision":-1,"port":8788}`} {
+	for _, base := range []string{`"4"`, `1.5`, `-1`, `null`, `1e19`, `9223372036854775808`} {
+		body := `{"baseRevision":` + base + `,"port":8788}`
 		if code, out := call(t, "PATCH", api+"/settings", "", body, nil); code != http.StatusBadRequest || out["code"] != "invalid_setting" {
 			t.Fatal(body, code, out)
 		}
@@ -88,12 +89,15 @@ func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
 	if code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":1,"port":8789}`, nil); code != http.StatusOK || out["revision"] != float64(2) {
 		t.Fatal(code, out)
 	}
-	// A patch based on revision 1 is now stale and stores nothing.
-	code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":1,"port":9000}`, nil)
-	if code != http.StatusConflict || out["code"] != "stale_base_revision" || out["currentRevision"] != float64(2) {
-		t.Fatal(code, out)
+	// Any base other than revision 2 is now stale and stores nothing, including a patch that changes nothing.
+	for _, body := range []string{`{"baseRevision":1,"port":9000}`, `{"baseRevision":1,"port":8789}`,
+		`{"baseRevision":0,"port":9000}`, `{"baseRevision":4,"port":9000}`, `{"baseRevision":9007199254740991,"port":9000}`} {
+		code, out := call(t, "PATCH", api+"/settings", "", body, nil)
+		if code != http.StatusConflict || out["code"] != "stale_base_revision" || out["currentRevision"] != float64(2) {
+			t.Fatal(body, code, out)
+		}
 	}
-	_, out = call(t, "GET", api+"/settings", "", "", nil)
+	_, out := call(t, "GET", api+"/settings", "", "", nil)
 	if s, _ := out["settings"].(map[string]any); out["revision"] != float64(2) || s["port"] != float64(8789) {
 		t.Fatal("stale write changed the settings:", out)
 	}
