@@ -6,12 +6,17 @@ package settings
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
+
+// sortedKeys ranges a map in a fixed order, so a refusal always names the same entry.
+func sortedKeys(m map[string]any) []string { return slices.Sorted(maps.Keys(m)) }
 
 // Origin names the writer. The schema accepts some keys only from some origins.
 type Origin string
@@ -121,7 +126,8 @@ func Check(o Origin, key string, v any) error {
 	if err := sp.check(v); err != nil {
 		return fmt.Errorf("%s: %w", key, err)
 	}
-	if o != FromImport {
+	// A secret is an opaque token, never a path, and its value must not reach an error text.
+	if o != FromImport && !sp.secret {
 		if p := findPath(v); p != "" {
 			return fmt.Errorf("%s: a file or executable path is not accepted over HTTP (%q)", key, p)
 		}
@@ -144,17 +150,21 @@ func CheckAll(o Origin, patch map[string]any) error {
 	return errors.New(strings.Join(errs, "; "))
 }
 
-// findPath returns the first string inside v that names a file system location.
+// findPath returns the first string inside v, map keys included, that names a file system location.
 func findPath(v any) string {
 	switch t := v.(type) {
 	case string:
-		if strings.HasPrefix(t, "/") || strings.HasPrefix(t, "~") || strings.HasPrefix(t, "./") ||
-			strings.HasPrefix(t, "../") || strings.HasPrefix(t, "file:") || strings.Contains(t, `\`) {
+		s := strings.ToLower(strings.TrimSpace(t))
+		if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") || strings.HasPrefix(s, "./") ||
+			strings.HasPrefix(s, "../") || strings.HasPrefix(s, "file:") || strings.Contains(s, `\`) {
 			return t
 		}
 	case map[string]any:
-		for _, x := range t {
-			if p := findPath(x); p != "" {
+		for _, k := range sortedKeys(t) {
+			if p := findPath(k); p != "" {
+				return p
+			}
+			if p := findPath(t[k]); p != "" {
 				return p
 			}
 		}
@@ -246,7 +256,8 @@ func granularityMap(min float64) func(any) error {
 		if !ok {
 			return errors.New("must be an object keyed by granularity")
 		}
-		for g, x := range m {
+		for _, g := range sortedKeys(m) {
+			x := m[g]
 			if !rx.MatchString(g) {
 				return fmt.Errorf("key %q must be a granularity like M5 or H1", g)
 			}
@@ -263,7 +274,8 @@ func models(v any) error {
 	if !ok {
 		return errors.New("must be an object keyed by provider")
 	}
-	for p, x := range m {
+	for _, p := range sortedKeys(m) {
+		x := m[p]
 		if p == "none" || oneOf(providers...)(p) != nil {
 			return fmt.Errorf("key %q must be a provider", p)
 		}
@@ -313,7 +325,8 @@ func object(v any, fields map[string]func(any) error, prefix string) error {
 	if !ok {
 		return errors.New("must be an object")
 	}
-	for k, x := range m {
+	for _, k := range sortedKeys(m) {
+		x := m[k]
 		check, ok := fields[k]
 		if !ok {
 			return fmt.Errorf("unknown key %s%s", prefix, k)
@@ -333,7 +346,8 @@ func leverage(v any) error {
 	if !ok {
 		return errors.New("must be an object keyed by instrument")
 	}
-	for inst, x := range m {
+	for _, inst := range sortedKeys(m) {
+		x := m[inst]
 		if !leverageRx.MatchString(inst) {
 			return fmt.Errorf("key %q must be an instrument symbol", inst)
 		}
@@ -349,14 +363,12 @@ func bots(v any) error {
 	if !ok {
 		return errors.New(`must be an object keyed by "INSTRUMENT|GRANULARITY"`)
 	}
-	for combo, x := range m {
+	for _, combo := range sortedKeys(m) {
 		if !comboRx.MatchString(combo) {
 			return fmt.Errorf(`key %q must be "INSTRUMENT|GRANULARITY"`, combo)
 		}
-		if x == nil {
-			continue
-		}
-		if err := object(x, perBotSpec, ""); err != nil {
+		// null is the engine's merge-delete marker; Write replaces the whole value and would store it.
+		if err := object(m[combo], perBotSpec, ""); err != nil {
 			return fmt.Errorf("[%s] %w", combo, err)
 		}
 	}

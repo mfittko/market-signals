@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -89,6 +90,9 @@ func TestImportIsIdempotentAndImportsOnlyChanges(t *testing.T) {
 	}
 	if b1, _ := json.Marshal(before.Values); string(b1) != string(mustJSON(after.Values)) {
 		t.Fatalf("rows changed: %s", mustJSON(after.Values))
+	}
+	if got := string(mustJSON(again)); !strings.Contains(got, `"changed":[]`) || !strings.Contains(got, `"notes":[]`) {
+		t.Fatalf("empty lists must marshal as arrays: %s", got)
 	}
 
 	// One key changes and one disappears: the next revision names exactly those two.
@@ -183,6 +187,24 @@ func TestBotWithoutWatcherPairIsRefusedInTheTransaction(t *testing.T) {
 	}
 	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"watchers": "WTICO/USD|M5"}); !errors.As(err, &pe) {
 		t.Fatalf("removing the pair: got %v", err)
+	}
+}
+
+func TestImportKeepsTheStoredValueOfARefusedKey(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	writeFile(t, path, map[string]any{"port": 8787})
+	if _, err := settings.Import(ctx, pool, path); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, path, map[string]any{"port": "abc"})
+	rep, err := settings.Import(ctx, pool, path)
+	if err != nil || len(rep.Skipped) != 1 || !strings.HasPrefix(rep.Skipped[0], "port:") {
+		t.Fatalf("%+v %v", rep, err)
+	}
+	if v := load(t, pool).Values["port"]; v != float64(8787) {
+		t.Fatalf("refused key lost its stored value: %v", v)
 	}
 }
 

@@ -39,8 +39,19 @@ type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
-// Load reads every stored key and the current revision.
-func Load(ctx context.Context, q querier) (Snapshot, error) {
+// Load reads every stored key and the current revision from one snapshot, so a write that
+// commits during the read cannot pair the old revision with the new values.
+func Load(ctx context.Context, pool *pgxpool.Pool) (Snapshot, error) {
+	var snap Snapshot
+	err := pgx.BeginTxFunc(ctx, pool, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly}, func(tx pgx.Tx) error {
+		var err error
+		snap, err = load(ctx, tx)
+		return err
+	})
+	return snap, err
+}
+
+func load(ctx context.Context, q querier) (Snapshot, error) {
 	snap := Snapshot{Values: map[string]any{}}
 	if err := q.QueryRow(ctx, `SELECT COALESCE(max(revision), 0) FROM settings_revisions`).Scan(&snap.Revision); err != nil {
 		return snap, err
@@ -90,12 +101,12 @@ func Write(ctx context.Context, pool *pgxpool.Pool, o Origin, patch map[string]a
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, lockKey); err != nil {
 			return err
 		}
-		cur, err := Load(ctx, tx)
+		cur, err := load(ctx, tx)
 		if err != nil {
 			return err
 		}
 		next := maps.Clone(cur.Values)
-		changed = nil
+		changed = []string{} // an empty list, never JSON null
 		for k, v := range patch {
 			old, had := cur.Values[k]
 			switch {
@@ -167,7 +178,7 @@ type ImportReport struct {
 // the file is deleted; a refused key keeps its stored value and is reported. Job owner
 // flags are never touched. Rerunning it on an unchanged file adds no revision.
 func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport, error) {
-	var rep ImportReport
+	rep := ImportReport{Changed: []string{}, Skipped: []string{}, Notes: []string{}}
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return rep, err

@@ -37,6 +37,17 @@ func TestCheck(t *testing.T) {
 		{FromAPI, "sttModel", "../../etc/passwd", "path is not accepted"},
 		{FromAPI, "models", map[string]any{"pi": "~/bin/model"}, "path is not accepted"},
 		{FromAPI, "model", "openai/gpt-5", ""},
+		{FromAPI, "model", "gpt-5", ""},
+		{FromAPI, "model", "FILE:///etc/passwd", "path is not accepted"},
+		{FromAPI, "model", " /usr/bin/env", "path is not accepted"},
+		// a path used as a map key is refused like a path value
+		{FromAPI, "bot", map[string]any{"leverage": map[string]any{"/etc/passwd": float64(2)}}, "path is not accepted"},
+		{FromAPI, "bot", map[string]any{"bots": map[string]any{"/etc/passwd|M5": map[string]any{"enabled": false}}}, "path is not accepted"},
+		{FromAPI, "bot", map[string]any{"leverage": map[string]any{"XAU/USD": float64(2)}, "bots": map[string]any{"XAU/USD|H1": map[string]any{"enabled": false}}}, ""},
+		// a null per-combo entry is the engine's merge-delete marker, not data
+		{FromAPI, "bot", map[string]any{"bots": map[string]any{"XAU/USD|H1": nil}}, "[XAU/USD|H1] must be an object"},
+		// a secret is an opaque token: a leading slash is not a path
+		{FromAPI, "TYPESAFE_API_KEY", "/aB3-fake-token", ""},
 		// job owner flags: operator route only
 		{FromAPI, "jobOwner.bot", "go", "operator route"},
 		{FromImport, "jobOwner.bot", "go", "operator route"},
@@ -54,6 +65,38 @@ func TestCheck(t *testing.T) {
 		}
 		if c.error != "" && (err == nil || !strings.Contains(err.Error(), c.error)) {
 			t.Errorf("%s %s=%v: got %v, want %q", c.o, c.key, c.val, err, c.error)
+		}
+	}
+}
+
+func TestFindPathInputForms(t *testing.T) {
+	for _, s := range []string{"XAU/USD", "XAU/USD|H1", "EUR/USD|M5", "gpt-5", "https://api.example.com"} {
+		if p := findPath(s); p != "" {
+			t.Errorf("value %q: refused as a path", s)
+		}
+		if p := findPath(map[string]any{s: float64(1)}); p != "" {
+			t.Errorf("key %q: refused as a path", s)
+		}
+	}
+	for _, s := range []string{"/etc/passwd", "/etc/passwd|M5", "~/x|H1", "FILE:///etc/passwd", " /usr/bin/env", "\t~/bin/x", "File:x"} {
+		if p := findPath(s); p != s {
+			t.Errorf("value %q: got %q", s, p)
+		}
+		if p := findPath(map[string]any{s: float64(1)}); p != s {
+			t.Errorf("key %q: got %q", s, p)
+		}
+	}
+}
+
+func TestCheckNamesTheFirstSortedBadEntry(t *testing.T) {
+	v := map[string]any{"bots": map[string]any{
+		"B/USD|M5": map[string]any{"enabled": "y"},
+		"A/USD|M5": map[string]any{"enabled": "x"},
+		"C/USD|M5": map[string]any{"enabled": "z"},
+	}}
+	for range 20 {
+		if err := Check(FromAPI, "bot", v); err == nil || !strings.Contains(err.Error(), "[A/USD|M5]") {
+			t.Fatalf("got %v, want the A/USD|M5 entry", err)
 		}
 	}
 }

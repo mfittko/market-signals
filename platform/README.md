@@ -204,7 +204,7 @@ stays the live source until the Go store owns settings writes
 
 - `go run ./cmd/settings-import --settings ../data/settings.json` copies the file into the store. It reads
   `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
-  the changed keys. Unknown or invalid keys keep their stored value and are listed by name, never by value.
+  the changed keys. Unknown or invalid keys keep their stored value. The report lists only their names.
 - `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
   refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the
   watcher list. A refused write stores nothing. The next import overwrites what this route wrote.
