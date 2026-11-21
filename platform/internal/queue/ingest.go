@@ -147,8 +147,8 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 		return res, err
 	}
 	for _, t := range targets {
-		// the worker receives the payload with this strategy in it, so the cap counts both
-		if n := len(in.Payload) + len(t.strategy) + len(`,"strategy":`); n > MaxSnapshotBytes {
+		// the cap counts exactly the payload the worker claims, so get_snapshot always returns whole JSON
+		if n := len(governed(in.Payload, t.strategy)); n > MaxSnapshotBytes {
 			return res, fmt.Errorf("%w: %d bytes with the strategy of agent %s, the limit is %d", ErrSnapshotTooLarge, n, t.agent, MaxSnapshotBytes)
 		}
 		var runID int64

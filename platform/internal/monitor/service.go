@@ -291,8 +291,10 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 		Close: price, Quote: map[string]any{"last": price}, Portfolio: map[string]any{"halted": m.Halted},
 	}
 	// the engine's strategy the position opened under, so an agent without a console strategy manages under it too
+	// a failed lookup retries on a later tick: the wake key would freeze a snapshot without it for this bar
 	if es, err := s.Store.EngineStrategy(ctx, q.RunID); err != nil {
-		s.Log.Warn("wake engine strategy", "position", q.ID, "err", err)
+		s.Log.Error("wake engine strategy", "position", q.ID, "err", err)
+		return false
 	} else if es != nil {
 		f.EngineStrategy = es
 	}

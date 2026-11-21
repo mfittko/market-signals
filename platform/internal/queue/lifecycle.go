@@ -101,8 +101,8 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, l
 
 // governed returns the payload a worker sees. Its strategy is the run's frozen console
 // strategy, or the engine's when the run has none, so one prompt governs entry and
-// management. engineStrategy stays beside it as a reference without its prompt, which
-// keeps the claimed payload inside the cap Ingest checked. A snapshot stored before
+// management. engineStrategy stays beside it as a reference without its prompt. Ingest
+// checks the cap on this same output, so the claimed payload stays inside it. A snapshot stored before
 // engineStrategy existed, on a run without a frozen strategy, is returned as stored.
 func governed(payload, frozen []byte) []byte {
 	var m map[string]any

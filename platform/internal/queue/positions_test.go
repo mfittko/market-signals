@@ -40,6 +40,33 @@ func openDecision() domain.Decision {
 
 const entryPayload = `{"close":100,"quote":{"last":100},"portfolio":{"halted":false,"positions":[]}}`
 
+// A snapshot stored before engineStrategy existed carries the strategy under "strategy". Only an engine
+// snapshot's strategy is the engine's; an operator snapshot's is a console strategy and must not pass as it.
+func TestEngineStrategyReadsTheOldShapeOnlyFromAnEngineSnapshot(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	run := func(source string) int64 {
+		t.Helper()
+		r, err := s.Ingest(ctx, IngestInput{IdemKey: "old-" + source, Instrument: "WTICO/USD", Granularity: "M5", Event: "flip", Source: source,
+			Payload: json.RawMessage(`{"close":100,"strategy":{"name":"` + source + `"}}`), AgentID: "a1"})
+		must(t, err)
+		if len(r.Runs) != 1 {
+			t.Fatalf("%s: one run expected: %+v", source, r.Runs)
+		}
+		return r.Runs[0].RunID
+	}
+	engineRun, operatorRun := run("engine"), run("operator")
+	es, err := s.EngineStrategy(ctx, engineRun)
+	must(t, err)
+	var got map[string]any
+	if err := json.Unmarshal(es, &got); err != nil || got["name"] != "engine" {
+		t.Fatalf("an old engine snapshot's strategy is the engine's: %s %v", es, err)
+	}
+	if es, err := s.EngineStrategy(ctx, operatorRun); err != nil || es != nil {
+		t.Fatalf("an old operator snapshot has no engine strategy: %s %v", es, err)
+	}
+}
+
 func TestAcceptedEngineEntryOpensOneShadowPositionWithItsPlan(t *testing.T) {
 	s, ctx := fresh(t)
 	must(t, s.UpsertAgent(ctx, agent("a1")))
