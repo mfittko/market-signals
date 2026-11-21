@@ -162,6 +162,8 @@ changes or delays a bot decision.
 | A failed ledger operation writes nothing | `ledger/ledger_test.go` `TestInjectedErrorLeavesLedgerUnchanged` |
 | A repeated ledger idempotency key books nothing twice; a key reused for another position is refused | `ledger/ledger_test.go` `TestSameKeyBooksOnce`, `TestKeyBoundToTarget` |
 | A second close of a position is refused by the UNIQUE key and leaves one trade | `ledger/ledger_test.go` `TestSecondCloseRefusedByUniqueKey` |
+| A stop touched in a bar between two evaluations fills at that bar's time and price | `ledger/replay_test.go` `TestReplayFillsTheBarBetweenEvaluations` |
+| After a restart the stored last judged bar survives; no completed bar is skipped or judged twice | `ledger/replay_test.go` `TestReplayAfterRestart` |
 
 Run everything:
 
@@ -223,5 +225,8 @@ partial close, fill, mark, halt and halt reset each run in one transaction and t
 books nothing, and a failed operation writes nothing. A key is bound to its operation and target position, so a key
 reused for another position is refused. Seed takes no key; it creates the single account row once (`ON CONFLICT DO
 NOTHING`). Fills use the shared fill function (`internal/fill`). A second
-close of a position is refused by the UNIQUE key on `ledger_trades.position_id`. The Node ledger stays live until a
+close of a position is refused by the UNIQUE key on `ledger_trades.position_id`. Replay (migration
+`009_ledger_replay.sql`) judges every stored candle of a position's instrument and granularity after its last judged
+bar, up to the newest completed bar the caller names, and stores the newest judged bar in the same transaction. A stop
+touched between two evaluations fills at that bar's time and price, and a restart neither skips nor re-judges a bar. The Node ledger stays live until a
 later slice of https://github.com/mfittko/market-signals/issues/343 switches the bots.

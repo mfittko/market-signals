@@ -1,0 +1,1 @@
+- Platform: Go paper ledger replay judges every stored candle after a position's last judged bar, so a stop touched between two evaluations fills at that bar's time and price and a restart neither skips nor re-judges a bar (#388)

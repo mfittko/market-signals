@@ -101,6 +101,7 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 	}
 	a := mustOpen(t, pool, "a", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
 	b := mustOpen(t, pool, "b", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
+	c := mustOpen(t, pool, "c", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5})
 	beforeCommit = func(string) error { return injected }
 
 	for name, op := range map[string]func() error{
@@ -117,6 +118,10 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 		"mark":  func() error { return Mark(ctx, pool, "x5", map[string]float64{"WTI": 80}, t0) },
 		"halt":  func() error { return Halt(ctx, pool, "x6", "operator", t0) },
 		"reset": func() error { return ResetHalt(ctx, pool, "x7", t0) },
+		"replay": func() error {
+			_, err := Replay(ctx, pool, "x8", c, t0)
+			return err
+		},
 	} {
 		before := dump(t, pool)
 		if err := op(); !errors.Is(err, injected) {
@@ -335,6 +340,10 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 		"mark":  func() error { return Mark(ctx, nil, "k1", map[string]float64{"WTI": 100}, zero) },
 		"halt":  func() error { return Halt(ctx, nil, "k1", "operator", zero) },
 		"reset": func() error { return ResetHalt(ctx, nil, "k1", zero) },
+		"replay": func() error {
+			_, err := Replay(ctx, nil, "k1", 1, zero)
+			return err
+		},
 	} {
 		if err := op(); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s with a zero time: %v, want ErrInvalid", name, err)

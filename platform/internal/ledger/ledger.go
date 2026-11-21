@@ -266,8 +266,8 @@ func ClosePartial(ctx context.Context, pool *pgxpool.Pool, key string, positionI
 
 // Fill closes the position when the bar reaches its stop or target, at the price fill.Check returns.
 func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, bar Bar) (bool, error) {
-	if !positive(bar.Open) || !positive(bar.High) || !positive(bar.Low) || !(bar.Low <= bar.Open && bar.Open <= bar.High) || bar.Time.IsZero() {
-		return false, invalid("bar needs open, high and low > 0, low <= open <= high and a time")
+	if err := checkBar(bar); err != nil {
+		return false, err
 	}
 	id, err := run(ctx, pool, "fill", key, &positionID, func(tx pgx.Tx, _ bool) (*int64, error) {
 		p, err := load(ctx, tx, positionID)
@@ -282,6 +282,65 @@ func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64,
 			return nil, nil
 		}
 		return &p.id, closeIn(ctx, tx, key, p, price, reason, bar.Time)
+	})
+	return id != nil, err
+}
+
+func checkBar(bar Bar) error {
+	if !positive(bar.Open) || !positive(bar.High) || !positive(bar.Low) || !(bar.Low <= bar.Open && bar.Open <= bar.High) || bar.Time.IsZero() {
+		return invalid("bar needs open, high and low > 0, low <= open <= high and a time")
+	}
+	return nil
+}
+
+// Replay judges, oldest first, every stored candle of the position's instrument and granularity after its
+// last judged bar, up to and including through. The caller sets through to the newest completed bar time,
+// so a forming bar is never judged. Before the first replay, judging starts at the first bar at or after the
+// entry time. The first bar that reaches the stop or target closes the position at that bar's time and at
+// the fill.Check price. The newest judged bar time is stored in the same transaction, so after a restart no
+// bar is skipped or judged twice. A stored candle that fails the bar checks refuses the replay and writes nothing.
+func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, through time.Time) (bool, error) {
+	if through.IsZero() {
+		return false, errNoTime
+	}
+	id, err := run(ctx, pool, "replay", key, &positionID, func(tx pgx.Tx, _ bool) (*int64, error) {
+		p, err := load(ctx, tx, positionID)
+		if err != nil {
+			return nil, err
+		}
+		if p.closed {
+			return nil, ErrClosed
+		}
+		if p.granularity == nil {
+			return nil, invalid(fmt.Sprintf("position %d has no granularity to replay", p.id))
+		}
+		rows, err := tx.Query(ctx, `SELECT c.time, c.open, c.high, c.low FROM candles c JOIN ledger_positions p
+			ON c.instrument = p.instrument AND c.granularity = p.granularity
+			WHERE p.id = $1 AND c.time <= $2
+			AND (c.time > p.last_judged_at OR (p.last_judged_at IS NULL AND c.time >= p.entry_time)) ORDER BY c.time`, p.id, through)
+		if err != nil {
+			return nil, err
+		}
+		bars, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Bar])
+		if err != nil || len(bars) == 0 {
+			return nil, err
+		}
+		var closed *int64
+		judged := bars[len(bars)-1].Time
+		for _, bar := range bars {
+			if err := checkBar(bar); err != nil {
+				return nil, fmt.Errorf("candle at %s: %w", bar.Time.Format(time.RFC3339), err)
+			}
+			if price, reason := fill.Check(p.side == "long", p.stop, p.target, bar.Open, bar.High, bar.Low); reason != "" {
+				if err := closeIn(ctx, tx, key, p, price, reason, bar.Time); err != nil {
+					return nil, err
+				}
+				closed, judged = &p.id, bar.Time
+				break
+			}
+		}
+		_, err = tx.Exec(ctx, `UPDATE ledger_positions SET last_judged_at = $2 WHERE id = $1`, p.id, judged)
+		return closed, err
 	})
 	return id != nil, err
 }
