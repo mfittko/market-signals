@@ -33,7 +33,7 @@ The position monitor rules are Go code (`platform/internal/monitor`, function `S
 - `bar` is `{ open, high, low, close }`. `env` is `{ atr, supertrend, halted, oppositeFlip, impulse, newsEscalation, feedStaleMinutes }`; a missing field is 0 or false.
 - The replay feeds the bars in order and carries the returned position into the next bar. No bar follows an exit.
 - `expected.steps` holds one result per bar: `{ position, exit?, trailed, fired? }`. `exit` is `{ price, reason }`. The recorded `position` omits `plan`, because `Step` never changes it; the replay asserts that instead.
-- A `lastFired` key is the tripwire as compact JSON, its value the `barsHeld` count when it last fired.
+- A `lastFired` key is the tripwire as compact JSON, its value the `barsHeld` count when it last fired. The replay compares keys as exact strings, so a port must build the same bytes: the fields in `domain.Tripwire` order (`kind`, `level`, `dir`, `pct`, `atr`, `bars`, `minProfitAtr`, `minutes`), zero and empty fields omitted, no whitespace, and numbers in the shortest round-trip form of Go `encoding/json`. Example: `{"kind":"close_beyond","level":99.5,"dir":"below"}`.
 - A ledger fill function can reuse the same shape: a position, ordered bars and one expected result per bar.
 
 ## Comparing numbers
@@ -47,7 +47,7 @@ node scripts/golden-fixtures.mjs           # verify: exit 1 when the engine outp
 node scripts/golden-fixtures.mjs --write   # re-record after an intended engine change
 ```
 
-Review the fixture diff like any other change: it is the behaviour change. `npm test` runs `test/golden.test.mjs`, which replays every case.
+Review the fixture diff like any other change: it is the behaviour change. `npm test` runs `test/golden.test.mjs`, which replays every indicators and portfolio case. The monitor cases replay in Go through `TestGoldenReplay`.
 
 The monitor fixtures are recorded from Go:
 
