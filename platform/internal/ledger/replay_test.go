@@ -178,6 +178,23 @@ func TestReplayEntryBarSkipsTheGapRules(t *testing.T) {
 	}
 }
 
+// A bar that opens exactly at the entry time is judged with its own open, so a gap beyond the stop fills at
+// that open, dated at the bar.
+func TestReplayBarOpeningAtEntryKeepsTheGapRule(t *testing.T) {
+	pool := setup(t, 10000)
+	id, err := Open(ctx, pool, "o", OpenInput{Instrument: "WTI", Side: "long", Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5}, bar(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candles(t, pool, [4]float64{0, 93, 96, 92})
+	if !replay(t, pool, "r1", id, bar(0)) {
+		t.Fatal("the bar opening at the entry did not fill")
+	}
+	if price, at, reason := trade(t, pool, id); price != 93 || !at.Equal(bar(0)) || reason != "stop" {
+		t.Fatalf("fill at %v %v %q, want 93 at %v stop", price, at, reason, bar(0))
+	}
+}
+
 // A position without granularity, or with one that is not M<n> or H<n>, and a judged candle that fails the bar checks are refused and write nothing.
 func TestReplayRefusals(t *testing.T) {
 	pool := setup(t, 10000)
