@@ -176,6 +176,8 @@ func TestShutdownDrainsAnInFlightRequestBeforeThePoolCloses(t *testing.T) {
 	addr := freeAddr(t)
 	p := testPlane(addr, &rec, &passes, served)
 	entered, release := make(chan struct{}), make(chan struct{})
+	shutdownStarted := make(chan struct{})
+	p.stopStreams = func() { close(shutdownStarted) }
 	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(entered)
 		<-release
@@ -206,7 +208,11 @@ func TestShutdownDrainsAnInFlightRequestBeforeThePoolCloses(t *testing.T) {
 		t.Fatal("the request never reached the handler")
 	}
 	cancel()
-	time.Sleep(200 * time.Millisecond) // shutdown has started and is waiting on the request
+	select {
+	case <-shutdownStarted: // Shutdown has started and is waiting on the request
+	case <-time.After(5 * time.Second):
+		t.Fatal("shutdown never started")
+	}
 	close(release)
 	if got := <-status; got != http.StatusNoContent {
 		t.Fatalf("the in-flight request must complete during shutdown, got status %d", got)

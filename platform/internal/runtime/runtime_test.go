@@ -492,9 +492,19 @@ func TestShortLeaseIsKeptAliveByHeartbeatsAndReapedWhenTheyStop(t *testing.T) {
 	if res, err := e.st.Reap(e.ctx); err != nil || res.Expired != 0 {
 		t.Fatalf("reap inside the lease: %+v %v", res, err)
 	}
-	time.Sleep(time.Until(c.Attempt.LeaseUntil) + 200*time.Millisecond)
-	if res, err := e.st.Reap(e.ctx); err != nil || res.Expired != 1 {
-		t.Fatalf("reap after the lease: %+v %v", res, err)
+	// Reap compares against the database clock, so poll it instead of sleeping on the host clock.
+	for deadline := c.Attempt.LeaseUntil.Add(5 * time.Second); ; {
+		res, err := e.st.Reap(e.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Expired == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reap after the lease: %+v", res)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	var status string
 	if err := e.st.Pool.QueryRow(e.ctx, `SELECT status FROM attempts WHERE id=$1`, c.Attempt.ID).Scan(&status); err != nil || status != "expired" {

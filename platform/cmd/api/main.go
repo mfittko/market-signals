@@ -161,9 +161,11 @@ func run(ctx context.Context, p plane) error {
 	served := make(chan error, 1)
 	note("serve")
 	go func() { served <- hs.Serve(ln) }()
+	serveReturned := false
 	select {
 	case <-ctx.Done():
 	case err = <-served:
+		serveReturned = true
 	}
 	cancel()
 	sc, c := context.WithTimeout(context.Background(), 5*time.Second)
@@ -172,6 +174,10 @@ func run(ctx context.Context, p plane) error {
 		hs.Close()
 	}
 	c()
+	if !serveReturned {
+		// Serve closes ln only when it returns; wait so the address is free before run returns.
+		err = <-served
+	}
 	wg.Wait()
 	if p.close != nil {
 		p.close()
