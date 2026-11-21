@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 
@@ -111,7 +112,8 @@ func ResolveBotFor(ctx context.Context, settings map[string]any, instrument, gra
 	}
 
 	var legacyID *int64
-	if n, ok := entry["strategyId"].(float64); ok && isInt(n) {
+	// the engine keeps an id beyond 2^53 and its lookup misses; Go drops it so int64 never overflows
+	if n, ok := entry["strategyId"].(float64); ok && isInt(n) && math.Abs(n) <= 1<<53 {
 		id := int64(n)
 		legacyID = &id
 	}

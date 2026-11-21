@@ -98,6 +98,16 @@ func replayResolve(t *testing.T, lookup func(*testing.T, []row) Lookup) {
 	}
 }
 
+func TestResolveDropsAStrategyIdBeyond2To53(t *testing.T) {
+	for n, want := range map[float64]bool{1 << 53: true, -(1 << 53): true, 1<<53 + 2: false, 1e300: false} {
+		settings := map[string]any{"bot": map[string]any{"bots": map[string]any{"X|M5": map[string]any{"strategyId": n}}}}
+		b, err := ResolveBotFor(context.Background(), settings, "X", "M5", memLookup(nil))
+		if err != nil || (b.StrategyID != nil) != want {
+			t.Fatalf("strategyId %g: %v %v", n, b.StrategyID, err)
+		}
+	}
+}
+
 func TestGoldenResolve(t *testing.T) {
 	replayResolve(t, func(_ *testing.T, rows []row) Lookup { return memLookup(rows) })
 }

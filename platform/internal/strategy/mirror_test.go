@@ -58,8 +58,8 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 	if _, err := pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
 		t.Fatal(err)
 	}
-	// beta v1 came in through the one-shot import without an engine id; gamma v1 was written in the console
-	for _, r := range [][2]string{{"beta", "beta rules"}, {"gamma", "console rules"}} {
+	// beta v1 came in through the one-shot import without an engine id; gamma v1 and delta v1 were written in the console
+	for _, r := range [][2]string{{"beta", "beta rules"}, {"gamma", "console rules"}, {"delta", "console delta"}} {
 		if _, err := pool.Exec(ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES ($1,1,$2,'test',now(),true,false,false)`, r[0], r[1]); err != nil {
 			t.Fatal(err)
 		}
@@ -88,11 +88,22 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 		t.Fatalf("engine flags and spec: %v %s %v", active, spec, err)
 	}
 
-	// a new engine version is the only row the next run inserts
-	engineDB(t, path, [4]any{"alpha", 3, "alpha three", 1})
+	// new engine versions are the only rows the next run inserts; after the delta v1 clash, delta v2 is skipped too
+	engineDB(t, path, [4]any{"alpha", 3, "alpha three", 1}, [4]any{"beta", 2, "beta two", 1}, [4]any{"delta", 1, "engine delta", 1}, [4]any{"delta", 2, "engine delta two", 1})
 	rep, err := Mirror(ctx, pool, path)
-	if err != nil || rep.Inserted != 1 || rep.Skipped != 3 || len(rep.Clashes) != 1 {
-		t.Fatalf("new version: %+v %v", rep, err)
+	want = MirrorReport{Source: 8, Inserted: 2, Skipped: 3, Clashes: []Clash{{"gamma", 1}, {"delta", 1}, {"delta", 2}}}
+	if err != nil || !reflect.DeepEqual(rep, want) {
+		t.Fatalf("new version: %+v %v, want %+v", rep, err, want)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='delta'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("a clashing name got engine versions: %d %v", n, err)
+	}
+	// an inserted active version clears the stored active one: one active version per name
+	for _, name := range []string{"alpha", "beta"} {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name=$1 AND active`, name).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("active %s versions: %d %v", name, n, err)
+		}
 	}
 
 	// a journal row carries the engine id, name, version and prompt hash; each maps to the same name and version
@@ -113,8 +124,10 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 	if _, ok, err := st.NameByEngineID(ctx, 4); ok || err != nil {
 		t.Fatalf("a clashing engine version got an engine id: %v %v", ok, err)
 	}
-	// the mirror keeps the older version active, so the active version is the highest one
-	if a, ok, err := st.ActiveByName(ctx, "alpha"); err != nil || !ok || a.Version != 3 {
-		t.Fatalf("active alpha: %+v %v %v", a, ok, err)
+	// the newest inserted active version is the one active version
+	for name, v := range map[string]int{"alpha": 3, "beta": 2} {
+		if a, ok, err := st.ActiveByName(ctx, name); err != nil || !ok || a.Version != v {
+			t.Fatalf("active %s: %+v %v %v", name, a, ok, err)
+		}
 	}
 }

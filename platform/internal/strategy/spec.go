@@ -36,6 +36,7 @@ var (
 )
 
 // ValidateSpec checks a declarative strategy spec. The error lists every problem and names each field path.
+// It also rejects a non-object `risk`, which the engine validator ignores.
 func ValidateSpec(raw json.RawMessage) error {
 	var spec map[string]any
 	if err := json.Unmarshal(raw, &spec); err != nil || spec == nil {

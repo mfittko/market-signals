@@ -226,7 +226,9 @@ stays the live source until the Go store owns settings writes
 https://github.com/mfittko/market-signals/issues/365.
 
 - `go run ./cmd/strategies-import --sqlite ../data/candles.db` mirrors the engine strategy versions. It inserts only
-  versions Postgres does not hold, with the engine flags and row id (`engine_id`), and never changes a stored version.
+  versions Postgres does not hold, with the engine flags and row id (`engine_id`). It changes a stored version only to
+  fill a missing `engine_id` or to clear `active` when it inserts an active version of the same name. After a clash it
+  skips every later engine version of that name.
   The JSON report counts inserted and skipped versions and lists clashes: a stored version with another prompt.
 - A console save may carry a `spec`. An invalid spec, an unknown field included, answers `400` with the field path and
   stores nothing.

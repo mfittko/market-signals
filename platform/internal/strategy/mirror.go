@@ -13,7 +13,8 @@ import (
 )
 
 // Clash is an engine version whose (name, version) is stored with a different prompt,
-// or whose engine id is stored on another version. The stored row is kept.
+// or whose engine id is stored on another version, or a later engine version of a name that
+// already clashed in this run. The stored rows are kept.
 type Clash struct {
 	Name    string `json:"name"`
 	Version int    `json:"version"`
@@ -27,8 +28,10 @@ type MirrorReport struct {
 }
 
 // Mirror copies the engine strategy versions that Postgres does not hold yet, with the engine's
-// flags and row id. It never changes a stored version except to fill a missing engine id, so a
-// rerun on unchanged input inserts nothing. Specs are mirrored as the engine stores them.
+// flags and row id. It changes a stored version only to fill a missing engine id or to clear
+// `active` when it inserts an active version of the same name, so a rerun on unchanged input
+// inserts nothing. After a clash it skips the rest of that name, so one name never mixes console
+// and engine histories. Specs are mirrored as the engine stores them.
 func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorReport, error) {
 	rows, err := legacy.ReadStrategies(ctx, sqlitePath)
 	if err != nil {
@@ -36,13 +39,24 @@ func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorR
 	}
 	rep := MirrorReport{Source: len(rows), Clashes: []Clash{}}
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		clashed := map[string]bool{}
 		for _, s := range rows {
+			if clashed[s.Name] {
+				rep.Clashes = append(rep.Clashes, Clash{s.Name, s.Version})
+				continue
+			}
 			tag, err := tx.Exec(ctx, legacy.StrategyInsert, s.Args()...)
 			if err != nil {
 				return err
 			}
 			if tag.RowsAffected() == 1 {
 				rep.Inserted++
+				// one active version per name, as the engine and the console keep it
+				if s.Active {
+					if _, err := tx.Exec(ctx, `UPDATE strategies SET active=false WHERE name=$1 AND version<>$2 AND active`, s.Name, s.Version); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 			var same bool
@@ -51,6 +65,7 @@ func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorR
 				return err
 			}
 			if !same {
+				clashed[s.Name] = true
 				rep.Clashes = append(rep.Clashes, Clash{s.Name, s.Version})
 				continue
 			}
