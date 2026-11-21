@@ -15,7 +15,7 @@
 # unless MS_ALLOW_LIVE_SWITCH=1 is set, so only an explicit operator decision can move the live engine.
 set -euo pipefail
 
-WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"                     # worktree root
+WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"                  # worktree root, physical like MAIN
 . "$(dirname "${BASH_SOURCE[0]}")/main-root.sh"
 MAIN="$(main_root "$WT")"  # main checkout
 LA="$HOME/Library/LaunchAgents"

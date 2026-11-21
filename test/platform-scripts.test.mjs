@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -807,6 +807,40 @@ test('dev.sh db in the main checkout writes the live env file and sets the role 
     const pw = readFileSync(join(main, 'platform', '.dev', 'env'), 'utf8').match(/^MS_DB_PASSWORD=(\w+)$/m)[1];
     assert.match(docker(), /^compose up -d postgres$/m);
     assert.ok(docker().includes(`ALTER ROLE ms PASSWORD '${pw}';`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('switch-launchd.sh up accepts the main checkout by its physical path and through a symlink, and refuses a worktree', () => {
+  const { dir, main, wt, run } = liveCheckouts();
+  try {
+    const link = join(dir, 'link');
+    symlinkSync(main, link);
+    for (const checkout of [main, link]) {
+      const r = run(checkout, 'switch-launchd.sh', 'up', '-y');
+      assert.notEqual(r.status, 0); // the scratch HOME has no server plist, so up stops at the next check
+      assert.ok(!r.stderr.includes('runs only in the main checkout'), r.stderr);
+      assert.match(r.stderr, /jq is required|plist found/);
+    }
+    const w = run(wt, 'switch-launchd.sh', 'up', '-y');
+    assert.ok(w.stderr.includes(`up runs only in the main checkout ${main}`), w.stderr);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev.sh db and run in the main checkout refuse and name the git failure when git fails, and call no docker', () => {
+  const { dir, main, run, docker } = liveCheckouts();
+  try {
+    writeFileSync(join(dir, 'bin', 'git'), '#!/bin/sh\necho "fatal: stub git" >&2\nexit 1\n', { mode: 0o755 });
+    for (const args of [['dev.sh', 'db'], ['dev.sh', 'run', 'api']]) {
+      const r = run(main, ...args);
+      assert.notEqual(r.status, 0);
+      assert.ok(r.stderr.includes('cannot find the main checkout: git rev-parse failed'), r.stderr);
+    }
+    assert.equal(docker(), '');
+    assert.equal(existsSync(join(main, 'platform', '.dev')), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

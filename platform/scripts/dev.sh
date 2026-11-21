@@ -50,8 +50,8 @@ need() { command -v "$1" >/dev/null || die "$1 is required"; }
 # recreate that container and set a new ms password that the live jobs do not hold, and the live API would go down.
 live_checkout_only() {
   . "$ROOT/scripts/main-root.sh"
-  local main; main="$(main_root "$ROOT")"
-  [ "$(cd "$ROOT/.." && pwd -P)" = "$(cd "$main" && pwd -P)" ] \
+  local main; main="$(main_root "$ROOT")" || die "scripts/dev.sh $1 cannot find the main checkout: git rev-parse failed in $ROOT"
+  [ "$(cd "$ROOT/.." && pwd -P)" = "$main" ] \
     || die "scripts/dev.sh $1 uses the live stack and runs only in the main checkout $main; use scripts/dev.sh up for the development stack here"
 }
 # the check runs before use_stack creates the run directory, so a refused command writes nothing
