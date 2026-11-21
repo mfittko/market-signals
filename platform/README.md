@@ -54,9 +54,13 @@ checkout has its own run directory and env file, but all of them use the role `m
 connect. The first development command after this change (`dev.sh up`, `status` or `down`, in any checkout) keeps
 the password its env file already holds, and later checkouts adopt it. An env file with another password gets the
 shared one at its next development command; restart that checkout's running stack with `dev.sh down` and
-`dev.sh up`. Concurrent `dev.sh up` runs take turns on a Postgres advisory lock while they create the role and the
-databases. The checkouts also share the ports 8081 and 3000 and the one-control-plane rule below, so one
-development stack runs at a time.
+`dev.sh up`. The checkouts also share the ports 8081 and 3000 and the one-control-plane rule below, so one
+development stack runs at a time. A second concurrent `dev.sh up` waits on a Postgres advisory lock only while it
+creates the role and the databases, and otherwise fails with a clear message. In the same checkout it refuses at once
+with `another scripts/dev.sh up runs in this checkout` and names the lock directory `.dev/dev/up.lock`; a killed run
+can leave that directory behind, so remove it and run again. From another checkout, `dev.sh up` refuses before it
+builds anything, or fails once its own api or console exits, when the other checkout's stack answers on port 8081 or
+3000, and the message names the port: stop that stack with `scripts/dev.sh down` there.
 
 Upgrade step: a development stack started before the two stacks existed runs from `platform/.dev/`, and the new
 `dev.sh down` cannot see it. Stop it before the first `dev.sh up` or `switch-launchd.sh up`: run the old

@@ -262,10 +262,10 @@ dev_db() {
     sleep 1
   done
   # One psql session holds an advisory lock while it creates the role and the databases, so `dev.sh up` runs from
-  # several checkouts at once take turns instead of failing on a duplicate role or database. The lock ends with the
-  # session. CREATE DATABASE cannot run in a DO block, so \gexec runs it only for a missing database. The password is
-  # the shared one, so setting it again changes nothing for the other checkouts. The SQL goes through stdin, off the
-  # process list.
+  # several checkouts at once wait for each other here instead of failing on a duplicate role or database. The lock
+  # ends with the session. CREATE DATABASE cannot run in a DO block, so \gexec runs it only for a missing database.
+  # The password is the shared one, so setting it again changes nothing for the other checkouts. The SQL goes through
+  # stdin, off the process list.
   { echo "SELECT pg_advisory_lock(hashtext('ms_dev'));"
     echo "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;"
     printf "ALTER ROLE ms_dev PASSWORD '%s';\n" "$MS_DEV_DB_PASSWORD"
@@ -301,6 +301,11 @@ port_taken() { # 8081|3000
 }
 
 up() {
+  # one up per checkout: a second concurrent up here would empty the first one's logs and overwrite its pid files.
+  # A killed run can leave the directory behind, so the refusal names it.
+  mkdir "$RUN/up.lock" 2>/dev/null \
+    || die "another scripts/dev.sh up runs in this checkout; if none runs, a killed run left $RUN/up.lock: remove it and run again"
+  trap 'rmdir "$RUN/up.lock" 2>/dev/null || true' EXIT
   need docker; need go; need pnpm; need jq; need openssl
   # the checkouts share the ports, so an answer there with this checkout's service down comes from another
   # checkout's stack; wait_http would take that answer as this stack being ready

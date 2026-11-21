@@ -552,12 +552,36 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'api.pid')));
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
     assert.deepEqual(readdirSync(join(plat, '.dev', 'bin')), []);
+    // the finished run released its lock
+    assert.equal(existsSync(join(plat, '.dev', 'dev', 'up.lock')), false);
     // this checkout's api and console are alive and answer on 8081 and 3000: a second up passes the port checks
     const again = up();
     assert.equal(again.status, 0, again.stderr);
     assert.match(again.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
   } finally {
     stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Another up runs in this checkout: its lock directory exists, and its api.pid must survive this run.
+test('dev.sh up refuses while another up holds this checkout\'s lock, names the lock, builds nothing and keeps api.pid', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devlock-'));
+  // nothing starts, and the pid in api.pid is not ours to kill, so this test never calls stop()
+  const { plat, env, up } = devUpFixture(dir);
+  try {
+    const run = join(plat, '.dev', 'dev'), lock = join(run, 'up.lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(run, 'api.pid'), '4242\n');
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`another scripts/dev.sh up runs in this checkout; if none runs, a killed run left ${lock}: remove it and run again`), r.stderr);
+    assert.equal(existsSync(join(run, 'bin', 'api')), false);
+    assert.equal(existsSync(env.STUB_DOCKER), false);
+    assert.equal(readFileSync(join(run, 'api.pid'), 'utf8'), '4242\n');
+    // the refused run leaves the other run's lock in place
+    assert.ok(existsSync(lock));
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -625,6 +649,8 @@ test('dev.sh up fails pointing at api.log when its started api exits and nothing
     assert.ok(r.stderr.includes(`control plane exited before it listened (see ${join(plat, '.dev', 'dev', 'api.log')})`), r.stderr);
     assert.doesNotMatch(r.stderr, /another checkout/);
     assert.equal(existsSync(out), false);
+    // a run that dies still releases its lock
+    assert.equal(existsSync(join(plat, '.dev', 'dev', 'up.lock')), false);
   } finally {
     stop();
     rmSync(dir, { recursive: true, force: true });
