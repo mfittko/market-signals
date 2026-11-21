@@ -196,7 +196,7 @@ func TestSnapshotHoldsTheCommittedStateWhileTheEngineWrites(t *testing.T) {
 	if _, err := tx.Exec(`INSERT INTO t VALUES (3)`); err != nil {
 		t.Fatal(err)
 	}
-	snap, cleanup, err := openCopy(path)
+	snap, cleanup, err := OpenCopy(path)
 	if err != nil {
 		t.Fatal(err)
 	}

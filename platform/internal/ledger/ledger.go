@@ -371,7 +371,7 @@ func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int6
 
 // Mark sets the last mark of each open position whose instrument has a quote > 0. A position whose
 // loss reaches its margin closes with reason "margin". Equity <= 0 halts the account. Stops and targets
-// are judged by Fill.
+// are judged by Fill and Replay.
 func Mark(ctx context.Context, pool *pgxpool.Pool, key string, quotes map[string]float64, at time.Time) error {
 	if at.IsZero() {
 		return errNoTime
@@ -396,9 +396,7 @@ func Mark(ctx context.Context, pool *pgxpool.Pool, key string, quotes map[string
 			}
 		}
 		var equity float64
-		if err := tx.QueryRow(ctx, `SELECT a.cash + COALESCE(sum(p.margin + CASE WHEN p.side = 'long'
-			THEN (p.last_mark - p.entry_price) ELSE (p.entry_price - p.last_mark) END * p.units), 0)
-			FROM ledger_account a LEFT JOIN ledger_positions p ON p.closed_at IS NULL WHERE a.id = 1 GROUP BY a.cash`).Scan(&equity); err != nil {
+		if err := tx.QueryRow(ctx, equitySQL).Scan(&equity); err != nil {
 			return nil, err
 		}
 		if equity <= 0 && !halted {
@@ -471,6 +469,11 @@ func closeIn(ctx context.Context, tx pgx.Tx, key string, p position, price float
 	}
 	return journal(ctx, tx, at, "close", &p.id, reason, key, map[string]any{"price": price, "realized": realized})
 }
+
+// equitySQL is cash plus the margin and unrealized profit at the last mark of every open position.
+const equitySQL = `SELECT a.cash + COALESCE(sum(p.margin + CASE WHEN p.side = 'long'
+	THEN (p.last_mark - p.entry_price) ELSE (p.entry_price - p.last_mark) END * p.units), 0)
+	FROM ledger_account a LEFT JOIN ledger_positions p ON p.closed_at IS NULL WHERE a.id = 1 GROUP BY a.cash`
 
 const positionCols = `id, instrument, side, notional, units, entry_price, leverage, margin, stop, last_mark, target, entry_time, granularity, closed_at IS NOT NULL`
 

@@ -75,7 +75,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, o Options) (*Report, error) {
 	if o.Log == nil {
 		o.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	src, cleanup, err := openCopy(o.SQLitePath)
+	src, cleanup, err := OpenCopy(o.SQLitePath)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +144,10 @@ type importer struct {
 	log *slog.Logger
 }
 
-// openCopy takes a consistent snapshot of the live database with VACUUM INTO on a
+// OpenCopy takes a consistent snapshot of the live database with VACUUM INTO on a
 // read-only connection, the same guarantee as the online backup, and opens the copy.
 // The engine may keep writing meanwhile; the copy holds one committed state.
-func openCopy(path string) (*sql.DB, func(), error) {
+func OpenCopy(path string) (*sql.DB, func(), error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil, err
 	}
@@ -176,7 +176,8 @@ func openCopy(path string) (*sql.DB, func(), error) {
 
 var timeLayouts = []string{time.RFC3339Nano, "2006-01-02T15:04:05.000Z", "2006-01-02 15:04:05", "2006-01-02T15:04:05Z"}
 
-func parseTime(s string) (time.Time, error) {
+// ParseTime reads the time formats the SQLite engine writes and returns UTC.
+func ParseTime(s string) (time.Time, error) {
 	for _, l := range timeLayouts {
 		if t, err := time.Parse(l, s); err == nil {
 			return t.UTC(), nil
@@ -240,7 +241,7 @@ func (im *importer) candles() error {
 			if err := rows.Scan(&inst, &gran, &ts, &o, &h, &l, &c, &v); err != nil {
 				return nil, err
 			}
-			t, err := parseTime(ts)
+			t, err := ParseTime(ts)
 			if err != nil {
 				bad++
 				continue
@@ -281,7 +282,7 @@ func (im *importer) signals() error {
 		if err := rows.Scan(&inst, &gran, &ts, &kind, &sig, &price, &win, &verdict, &reason, &notified); err != nil {
 			return err
 		}
-		t, err := parseTime(ts)
+		t, err := ParseTime(ts)
 		if err != nil {
 			return err
 		}
@@ -314,7 +315,7 @@ func (im *importer) signalSnapshots() error {
 		if err := rows.Scan(&inst, &gran, &ts, &ver, &snap, &fv, &fm, &fh, &fpv, &ctxt); err != nil {
 			return err
 		}
-		t, err := parseTime(ts)
+		t, err := ParseTime(ts)
 		if err != nil {
 			return err
 		}
@@ -352,7 +353,7 @@ func (s EngineStrategy) Args() []any {
 
 // ReadStrategies reads every engine strategy from a snapshot of the SQLite file at path.
 func ReadStrategies(ctx context.Context, path string) ([]EngineStrategy, error) {
-	src, cleanup, err := openCopy(path)
+	src, cleanup, err := OpenCopy(path)
 	if err != nil {
 		return nil, err
 	}
@@ -375,7 +376,7 @@ func readStrategies(ctx context.Context, src *sql.DB) ([]EngineStrategy, error) 
 		if err := rows.Scan(&s.ID, &s.Name, &s.Version, &s.Prompt, &spec, &insts, &s.CreatedBy, &created, &active, &archived, &inst, &gran, &dedicated); err != nil {
 			return nil, err
 		}
-		if s.CreatedAt, err = parseTime(created); err != nil {
+		if s.CreatedAt, err = ParseTime(created); err != nil {
 			return nil, err
 		}
 		s.Active, s.Archived, s.Dedicated = active != 0, archived != 0, dedicated != 0
@@ -470,11 +471,11 @@ func (im *importer) trades() error {
 		if err := rows.Scan(&id, &pid, &inst, &gran, &side, &notional, &units, &ep, &et, &cp, &ct, &lev, &realized, &reason); err != nil {
 			return err
 		}
-		entry, err := parseTime(et)
+		entry, err := ParseTime(et)
 		if err != nil {
 			return err
 		}
-		closed, err := parseTime(ct)
+		closed, err := ParseTime(ct)
 		if err != nil {
 			return err
 		}
@@ -515,7 +516,7 @@ func (im *importer) journal() error {
 		if err := rows.Scan(&id, &at, &action, &pid, &reason, &c); err != nil {
 			return err
 		}
-		t, err := parseTime(at)
+		t, err := ParseTime(at)
 		if err != nil {
 			return err
 		}
@@ -547,7 +548,7 @@ func (im *importer) portfolio() error {
 		}
 		return err
 	}
-	t, err := parseTime(created)
+	t, err := ParseTime(created)
 	if err != nil {
 		return err
 	}
@@ -577,7 +578,7 @@ func (im *importer) chat() error {
 			rows.Close()
 			return err
 		}
-		t, err := parseTime(created)
+		t, err := ParseTime(created)
 		if err != nil {
 			rows.Close()
 			return err
@@ -610,7 +611,7 @@ func (im *importer) chat() error {
 		if err := mrows.Scan(&id, &tid, &role, &content, &c, &created); err != nil {
 			return err
 		}
-		t, err := parseTime(created)
+		t, err := ParseTime(created)
 		if err != nil {
 			return err
 		}
@@ -643,11 +644,11 @@ func (im *importer) rules() error {
 		if err := rows.Scan(&id, &content, &weight, &source, &archived, &created, &updated); err != nil {
 			return err
 		}
-		ct, err := parseTime(created)
+		ct, err := ParseTime(created)
 		if err != nil {
 			return err
 		}
-		ut, err := parseTime(updated)
+		ut, err := ParseTime(updated)
 		if err != nil {
 			return err
 		}
@@ -677,7 +678,7 @@ func (im *importer) prompts() error {
 		if err := rows.Scan(&gate, &version, &prompt, &by, &created, &active); err != nil {
 			return err
 		}
-		t, err := parseTime(created)
+		t, err := ParseTime(created)
 		if err != nil {
 			return err
 		}
@@ -708,11 +709,11 @@ func (im *importer) rechecks() error {
 		if err := rows.Scan(&id, &inst, &gran, &st, &at, &verdict, &reason, &pv); err != nil {
 			return err
 		}
-		sig, err := parseTime(st)
+		sig, err := ParseTime(st)
 		if err != nil {
 			return err
 		}
-		t, err := parseTime(at)
+		t, err := ParseTime(at)
 		if err != nil {
 			return err
 		}
