@@ -80,7 +80,7 @@ func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
 	if code, out := call(t, "PATCH", api+"/settings", "", `{"port":8788}`, nil); code != http.StatusBadRequest || out["code"] != "base_revision_required" {
 		t.Fatal(code, out)
 	}
-	for _, base := range []string{`"4"`, `1.5`, `-1`, `null`, `1e19`, `9223372036854775808`} {
+	for _, base := range []string{`"4"`, `1.5`, `-1`, `null`, `1e19`, `9007199254740992`, `9223372036854775807`, `9223372036854775808`} {
 		body := `{"baseRevision":` + base + `,"port":8788}`
 		if code, out := call(t, "PATCH", api+"/settings", "", body, nil); code != http.StatusBadRequest || out["code"] != "invalid_setting" {
 			t.Fatal(body, code, out)

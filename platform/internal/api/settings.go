@@ -32,8 +32,8 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {
 	raw, sent := patch["baseRevision"]
 	delete(patch, "baseRevision")
 	f, isNum := raw.(float64)
-	// int64(f) is implementation-defined beyond the int64 range, so refuse those values here.
-	if sent && (!isNum || f < 0 || f != math.Trunc(f) || f >= math.MaxInt64) {
+	// A JSON number decodes as float64, which holds integers exactly only up to 2^53-1.
+	if sent && (!isNum || f < 0 || f != math.Trunc(f) || f > 1<<53-1) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "baseRevision must be a non-negative integer", "code": "invalid_setting"})
 		return
 	}
