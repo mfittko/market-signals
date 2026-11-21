@@ -1588,6 +1588,34 @@ func TestStrategyWritesCheckTheBaseVersion(t *testing.T) {
 	}
 }
 
+func TestStrategySaveValidatesTheSpec(t *testing.T) {
+	hs, st := setup(t)
+	ctx := context.Background()
+	if _, err := st.Pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	u := hs.URL + "/api/v1/strategies/Trend/versions"
+	spec := `{"schema_version":1,"entry":{"minAxesAligned":2},"exit":{"stopAtr":1.5}}`
+	// an unknown field is refused with its path and nothing is stored
+	if c, out := call(t, "POST", u, "", `{"prompt":"v1","spec":{"schema_version":1,"entry":{"minAxesAligned":2},"exit":{"stopAtr":1,"stopATR":2}}}`, nil); c != 400 || !strings.Contains(out["error"].(string), "spec.exit.stopATR: unknown field") {
+		t.Fatalf("unknown field: %d %v", c, out)
+	}
+	var n int
+	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a refused spec stored a row: %d %v", n, err)
+	}
+	// a valid spec is stored, and a save without a spec carries the previous one over
+	if c, out := call(t, "POST", u, "", `{"prompt":"v1","spec":`+spec+`}`, nil); c != 200 {
+		t.Fatalf("valid spec: %d %v", c, out)
+	}
+	if c, out := call(t, "POST", u, "", `{"prompt":"v2","baseVersion":1}`, nil); c != 200 {
+		t.Fatalf("save without spec: %d %v", c, out)
+	}
+	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend' AND spec = $1::jsonb`, spec).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("stored specs: %d %v", n, err)
+	}
+}
+
 func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
 	hs, st := setup(t)
 	if _, err := st.Pool.Exec(context.Background(), `TRUNCATE strategies`); err != nil {
