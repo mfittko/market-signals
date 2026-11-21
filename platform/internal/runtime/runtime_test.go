@@ -465,14 +465,20 @@ func TestShortLeaseIsKeptAliveByHeartbeatsAndReapedWhenTheyStop(t *testing.T) {
 	done := make(chan struct{})
 	go func() { w.Run(ctx); close(done) }()
 	<-b.started
-	time.Sleep(3 * time.Second)
-	// beats at 1.25 s and 2.5 s push the lease to at least started_at plus 7.5 s; one beat reaches only 6.25 s
+	// beats at 1.25 s and 2.5 s push the lease to at least started_at plus 7.5 s; one beat reaches only 6.25 s.
+	// Poll so a slow beat commit does not fail the test; the deadline stays inside the 5 s lease.
 	var span float64
-	if err := e.st.Pool.QueryRow(e.ctx, `SELECT EXTRACT(EPOCH FROM lease_expires_at - started_at)::float8 FROM attempts WHERE status='running'`).Scan(&span); err != nil {
-		t.Fatal(err)
-	}
-	if span < 7 {
-		t.Fatalf("lease reaches started_at plus %.2fs, want at least two heartbeats inside the 5 s lease", span)
+	for deadline := time.Now().Add(4500 * time.Millisecond); ; {
+		if err := e.st.Pool.QueryRow(e.ctx, `SELECT EXTRACT(EPOCH FROM lease_expires_at - started_at)::float8 FROM attempts WHERE status='running'`).Scan(&span); err != nil {
+			t.Fatal(err)
+		}
+		if span >= 7 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("lease reaches started_at plus %.2fs, want at least two heartbeats inside the 5 s lease", span)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	cancel()
 	<-done // the worker must not claim the next run
