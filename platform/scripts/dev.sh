@@ -3,7 +3,7 @@
 # The only thing the two stacks share is the Postgres server on 127.0.0.1:5544. Each has its own database, run
 # directory, env file and ports.
 #   development (up, down, status, logs): run directory .dev/dev, database ms_dev with role ms_dev, API 8081, console 3000
-#   live (run, db; the launchd jobs):     run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
+#   live (run, db; the launchd jobs; main checkout only): run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
 #   scripts/dev.sh up      start the development stack (idempotent)
 #   scripts/dev.sh down    stop the development app processes (--db also stops the shared Postgres server, which
 #                          the live stack uses too)

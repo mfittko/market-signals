@@ -773,7 +773,7 @@ const liveCheckouts = () => {
   writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
   writeFileSync(join(bin, 'launchctl'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
-  Object.assign(env, { PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, DOCKER_HOST: 'unix:///nonexistent', MS_RUN_DIR: '', HOME: join(dir, 'home') });
+  Object.assign(env, { PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, DOCKER_HOST: 'unix:///nonexistent', MS_RUN_DIR: '', HOME: join(dir, 'home'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
   const git = (...a) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: main, env, encoding: 'utf8' }).status, 0);
   git('init', '-q'); git('add', '.'); git('commit', '-qm', 'x'); git('worktree', 'add', '-q', wt);
   const run = (checkout, ...args) => spawnSync('bash', [join(checkout, 'platform', 'scripts', args[0]), ...args.slice(1)], { env: { ...env, ...(args[0] === 'switch-launchd.sh' && { MS_ALLOW_LIVE_SWITCH: '1' }) }, encoding: 'utf8' });

@@ -57,7 +57,7 @@ scripts/dev.sh down      # --db also stops the shared Postgres server, which the
 
 The engine runs as the LaunchAgent `com.market-signals.signal-server`. Install it first, as described in [docs/launch-agents.md](docs/launch-agents.md).
 
-Then run `platform/scripts/switch-launchd.sh` from the main checkout. It points that LaunchAgent at the checkout and keeps `data/` in place. `up` refuses in any other checkout, such as a git worktree, because it sets the live database password. It also installs the console stack as three KeepAlive jobs (`com.market-signals.platform-api`, `-worker` and `-web`) and sets `consoleUrl` in `data/settings.json`, so alert links open the console.
+Then run `platform/scripts/switch-launchd.sh` from the main checkout. It points that LaunchAgent at the checkout and keeps `data/` in place. `up` refuses in a git worktree of the main checkout, because it sets the live database password. A separate clone counts as its own main checkout. It also installs the console stack as three KeepAlive jobs (`com.market-signals.platform-api`, `-worker` and `-web`) and sets `consoleUrl` in `data/settings.json`, so alert links open the console.
 
 ```sh
 platform/scripts/switch-launchd.sh status                          # read-only
