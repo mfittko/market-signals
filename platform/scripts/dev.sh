@@ -17,8 +17,10 @@
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
 #              control plane for strategy coaching; the console starts without them).
 # Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
-#          and ingest tokens and database password, generated once. It also holds MS_DATABASE_URL for the binaries
-#          and MS_TEST_DATABASE_URL for go test.
+#          and ingest tokens, generated once, and its stack's database password. It also holds MS_DATABASE_URL for the
+#          binaries and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
+#          $XDG_CONFIG_HOME/market-signals/dev-db-password (~/.config when XDG_CONFIG_HOME is unset or relative), so
+#          they share the role ms_dev.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
@@ -71,8 +73,32 @@ stop_one() {
 # start <name> <dir> <command...>: run detached, record the pid, log to .dev/<name>.log
 start() {
   local name="$1" dir="$2"; shift 2
+  # the parent empties the log before the launch, so a read right after start never sees a previous run's lines;
+  # the child only appends
+  : >"$RUN/$name.log"
   # exec makes the background pid the program itself, so alive() and stop_one see the real process
-  (cd "$dir" && exec "$@" </dev/null >"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+  (cd "$dir" && exec "$@" </dev/null >>"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+}
+
+# pid_running <name>: the recorded process still exists. Right after start it can still be the forked shell before
+# its exec, so alive() can fail although the program is about to run; this asks only whether the process is gone.
+pid_running() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+
+# wait_listening <name> <label> <line> <port> <url> <seconds>: wait for the log line this run's own process prints
+# only once it holds its port. The checkouts share the ports, so an answer on the port can come from another
+# checkout's stack and proves nothing. When the process exits first, an answer on the port means another checkout
+# holds it; no answer means the process failed for its own reason.
+wait_listening() {
+  local name="$1" label="$2" line="$3" port="$4" url="$5"
+  for _ in $(seq 1 "$6"); do
+    grep -q "$line" "$RUN/$name.log" 2>/dev/null && return 0
+    if ! pid_running "$name"; then
+      if curl -fsS -m 2 "$url" >/dev/null 2>&1; then port_taken "$port"; fi
+      die "$label exited before it listened (see $RUN/$name.log)"
+    fi
+    sleep 1
+  done
+  grep -q "$line" "$RUN/$name.log" 2>/dev/null || die "$label did not become ready (see $RUN/$name.log)"
 }
 
 wait_http() { # url name seconds
@@ -81,6 +107,37 @@ wait_http() { # url name seconds
     sleep 1
   done
   die "$2 did not become ready (see $RUN/*.log)"
+}
+
+# dev_config_home: $XDG_CONFIG_HOME when it is absolute, else ~/.config. The XDG spec ignores a relative value, and
+# dev.sh runs from each checkout's platform/, so a relative one would give every checkout its own password file.
+dev_config_home() { if [[ "${XDG_CONFIG_HOME:-}" == /* ]]; then echo "$XDG_CONFIG_HOME"; else echo "$HOME/.config"; fi; }
+
+# dev_db_password [seed]: the one ms_dev password of every checkout of this user. All checkouts share one Postgres
+# server and its role ms_dev, so a password per checkout would lock the other checkouts out. The file lives outside
+# every checkout, in dev_config_home. The first development command that loads the env file (up, status or down)
+# writes it from the seed (the password of an older env file, so that checkout keeps working) or a new random one.
+# load_env calls it in a command substitution, where set -e is off, so each step that could leave an invalid shared
+# file dies explicitly before the link.
+dev_db_password() {
+  local dir f tmp pw seed="${1:-}"
+  dir="$(dev_config_home)/market-signals"
+  f="$dir/dev-db-password"
+  if [ ! -e "$f" ]; then
+    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || seed="$(openssl rand -hex 24)" || true
+    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || die "could not generate a development database password with openssl"
+    mkdir -p "$dir" || die "cannot create $dir"
+    tmp="$(mktemp "$dir/.dev-db-password.XXXXXX")" || die "cannot create a temporary file in $dir"
+    echo "$seed" >"$tmp" || { rm -f "$tmp"; die "cannot write $tmp"; }
+    # ln refuses an existing name, so when two first runs race, both keep the file the faster one linked; any other
+    # ln failure leaves no shared file and dies here
+    ln "$tmp" "$f" 2>/dev/null || [ -e "$f" ] || { rm -f "$tmp"; die "cannot create $f"; }
+    rm -f "$tmp"
+  fi
+  pw="$(cat "$f")"
+  # the value goes into SQL and URLs, so only the generated form is accepted
+  [[ "$pw" =~ ^[0-9a-f]{48}$ ]] || die "$f does not hold a development database password (48 hex digits); delete it and run again"
+  echo "$pw"
 }
 
 load_env() {
@@ -96,13 +153,18 @@ load_env() {
   elif grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
     die "$RUN/env belongs to the development stack; the live stack needs its own run directory"
   fi
-  # the database password is generated once; an env file from before it existed gains it here
+  # the database password is generated once; an env file from before it existed gains it here. The development
+  # password is the shared one of dev_db_password, so an env file with another password gets the shared one.
   if [ "$STACK" = dev ]; then
-    if ! grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
-      local pw; pw="$(openssl rand -hex 24)"
-      { echo "MS_DEV_DB_PASSWORD=$pw"
+    local pw; pw="$(dev_db_password "$(grep -m1 '^MS_DEV_DB_PASSWORD=' "$RUN/env" | cut -d= -f2- || true)")"
+    if ! grep -qx "MS_DEV_DB_PASSWORD=$pw" "$RUN/env"; then
+      # a unique temp name (mode 600), so two commands in one checkout never write the same file
+      local tmp; tmp="$(mktemp "$RUN/.env.XXXXXX")"
+      { grep -v -e '^MS_DEV_DB_PASSWORD=' -e '^MS_DATABASE_URL=' -e '^MS_TEST_DATABASE_URL=' "$RUN/env" || true
+        echo "MS_DEV_DB_PASSWORD=$pw"
         echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
-        echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >>"$RUN/env"
+        echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >"$tmp"
+      mv -f "$tmp" "$RUN/env"
     fi
   elif ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
     local pw; pw="$(openssl rand -hex 24)"
@@ -199,13 +261,18 @@ dev_db() {
     dc exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
     sleep 1
   done
-  # the SQL goes through stdin, off the process list
-  printf "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;\nALTER ROLE ms_dev PASSWORD '%s';\n" \
-    "$MS_DEV_DB_PASSWORD" | dc exec -T postgres psql -q -v ON_ERROR_STOP=1 -U ms -d ms >/dev/null
-  for d in ms_dev ms_dev_test; do
-    dc exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='$d'" | grep -q 1 \
-      || dc exec -T postgres psql -U ms -d ms -c "CREATE DATABASE $d OWNER ms_dev" >/dev/null
-  done
+  # One psql session holds an advisory lock while it creates the role and the databases, so `dev.sh up` runs from
+  # several checkouts at once wait for each other here instead of failing on a duplicate role or database. The lock
+  # ends with the session. CREATE DATABASE cannot run in a DO block, so \gexec runs it only for a missing database.
+  # The password is the shared one, so setting it again changes nothing for the other checkouts. The SQL goes through
+  # stdin, off the process list.
+  { echo "SELECT pg_advisory_lock(hashtext('ms_dev'));"
+    echo "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;"
+    printf "ALTER ROLE ms_dev PASSWORD '%s';\n" "$MS_DEV_DB_PASSWORD"
+    for d in ms_dev ms_dev_test; do
+      echo "SELECT 'CREATE DATABASE $d OWNER ms_dev' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='$d')\\gexec"
+    done
+  } | dc exec -T postgres psql -q -v ON_ERROR_STOP=1 -U ms -d ms >/dev/null
 }
 
 # run <api|worker|web>: one service in the foreground, for a supervisor such as launchd.
@@ -226,8 +293,24 @@ run() {
   esac
 }
 
+port_taken() { # 8081|3000
+  case "$1" in
+    8081) die "port 8081 already serves a control plane from another checkout; stop that stack with scripts/dev.sh down there" ;;
+    3000) die "port 3000 already serves a console from another checkout; stop that stack with scripts/dev.sh down there" ;;
+  esac
+}
+
 up() {
+  # one up per checkout: a second concurrent up here would empty the first one's logs and overwrite its pid files.
+  # A killed run can leave the directory behind, so the refusal names it.
+  mkdir "$RUN/up.lock" 2>/dev/null \
+    || die "another scripts/dev.sh up runs in this checkout; if none runs, a killed run left $RUN/up.lock: remove it and run again"
+  trap 'rmdir "$RUN/up.lock" 2>/dev/null || true' EXIT
   need docker; need go; need pnpm; need jq; need openssl
+  # the checkouts share the ports, so an answer there with this checkout's service down comes from another
+  # checkout's stack; wait_http would take that answer as this stack being ready
+  if ! alive api && curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then port_taken 8081; fi
+  if ! alive web && curl -fsS -m 2 http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then port_taken 3000; fi
   load_env
   dev_db
 
@@ -236,8 +319,12 @@ up() {
 
   llm_env
 
+  # two concurrent ups both pass the preflight, so the other checkout's api can answer on 8081 while this api still
+  # starts; the api logs "control plane listening" only after its listen succeeded. An api that was already up needs
+  # no proof: alive() already showed it is this checkout's.
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
+    wait_listening api "control plane" "control plane listening" 8081 "$MS_API_URL/api/v1/health" 20
   fi
   wait_http "$MS_API_URL/api/v1/health" "control plane" 20
 
@@ -250,6 +337,8 @@ up() {
     # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
     start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
       -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
+    # next dev logs "Ready in" only once its server listens, and exits on a bound port, so the same proof applies
+    wait_listening web "console" "Ready in" 3000 http://127.0.0.1:3000/api/v1/health 90
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
 

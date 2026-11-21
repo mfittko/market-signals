@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from 'node:fs';
@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
+// dev.sh keeps the shared development database password under $XDG_CONFIG_HOME, so no test touches the real one.
+// Each test that reaches dev_db_password also sets its own scratch XDG_CONFIG_HOME, so no test sees another's password.
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'ms-xdg-'));
+after(() => rmSync(process.env.XDG_CONFIG_HOME, { recursive: true, force: true }));
 const sh = (script, env) => spawnSync('bash', ['-c', script], { env: { ...process.env, ...env }, encoding: 'utf8' });
 
 // Sources switch-launchd.sh (its dispatch only runs when executed directly) and calls edit_settings on a scratch file.
@@ -483,26 +487,46 @@ test('every line dev.sh prints for a launchd job carries a time and a level', ()
   }
 });
 
-// Runs `dev.sh up` from a scratch platform tree with stand-in docker, go, pnpm and curl first on PATH. The built
-// api and worker and the console record their address, API URL and database name; no real service is contacted.
-test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000', () => {
+// A scratch platform tree for `dev.sh up` with stand-in docker, go, pnpm and curl first on PATH. The built api and
+// worker and the console record their address, API URL and database name and then stay up (at most 30 s) until
+// stop() ends them, so up's post-start checks see them; the api logs the real api's listening line and the console
+// next dev's ready line. No real service is contacted. `api` replaces the built api's script, `web` the console's
+// and `curl` the curl stub.
+const devUpFixture = (dir, { api, web, curl } = {}) => {
+  const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
+  for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
+  for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+  writeFileSync(join(dir, 'none.json'), '{}');
+  const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  const stay = 'for _ in $(seq 1 30); do sleep 1; done';
+  const svc = `echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}" >>"$STUB_OUT"; ${stay}`;
+  stub(join(dir, 'svc'), svc);
+  stub(join(dir, 'api'), api ?? `echo 'level=INFO msg="control plane listening"'; ${svc}`);
+  stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_API" "$2/api"; cp "$STUB_SVC" "$2/worker"');
+  // the last field holds every secret the console must not inherit, so it is empty for the web line
+  stub(join(bin, 'pnpm'), web ?? `echo ' ✓ Ready in 1s'; echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
+  // by default a port answers only after the stubbed service on it started, so the preflight sees free ports
+  stub(join(bin, 'curl'), curl ?? 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
+  // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
+  stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
+  const run = join(plat, '.dev', 'dev');
+  const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_API: join(dir, 'api'), STUB_CURL: join(dir, 'curl.log'),
+    STUB_DOCKER: join(dir, 'docker.log'), STUB_API_PID: join(run, 'api.pid'), STUB_WEB_PID: join(run, 'web.pid'),
+    MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid', XDG_CONFIG_HOME: join(dir, 'xdg') };
+  const up = () => spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  const stop = () => {
+    for (const p of ['api', 'worker', 'web']) {
+      try { process.kill(Number(readFileSync(join(run, `${p}.pid`), 'utf8'))); } catch { /* not started or already gone */ }
+    }
+  };
+  return { bin, plat, out, env, up, stop };
+};
+
+test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000; a rerun with that stack up does not refuse', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devstack-'));
+  const { plat, out, env, up, stop } = devUpFixture(dir);
   try {
-    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
-    for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
-    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
-    writeFileSync(join(dir, 'none.json'), '{}');
-    const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-    stub(join(dir, 'svc'), 'echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}" >>"$STUB_OUT"');
-    stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_SVC" "$2/api"; cp "$STUB_SVC" "$2/worker"');
-    // the last field holds every secret the console must not inherit, so it is empty for the web line
-    stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}|${MS_DEV_DB_PASSWORD:-}${MS_WORKER_TOKEN:-}${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"');
-    stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"');
-    // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
-    stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
-    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log'),
-      MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid' };
-    const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    const r = up();
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
     assert.match(r.stdout, /Database: {7}ms_dev\n/);
@@ -518,17 +542,185 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     assert.match(curls, /http:\/\/127\.0\.0\.1:3000\/api\/v1\/health/);
     assert.doesNotMatch(curls, /:8080|:3737/);
     const docker = readFileSync(env.STUB_DOCKER, 'utf8');
-    assert.match(docker, /CREATE ROLE ms_dev LOGIN/);
+    assert.match(docker, /pg_advisory_lock[\s\S]*CREATE ROLE ms_dev LOGIN/);
     assert.match(docker, /ALTER ROLE ms_dev PASSWORD '[0-9a-f]{48}'/);
-    assert.match(docker, /CREATE DATABASE ms_dev OWNER ms_dev\n/);
-    assert.match(docker, /CREATE DATABASE ms_dev_test OWNER ms_dev\n/);
+    assert.match(docker, /'CREATE DATABASE ms_dev OWNER ms_dev' WHERE NOT EXISTS .*\\gexec\n/);
+    assert.match(docker, /'CREATE DATABASE ms_dev_test OWNER ms_dev' WHERE NOT EXISTS .*\\gexec\n/);
     assert.doesNotMatch(docker, /ALTER ROLE ms PASSWORD|compose up/);
     // the development build and pid files live in .dev/dev; the live run directory gets no env file or binary
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'bin', 'api')));
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'api.pid')));
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
     assert.deepEqual(readdirSync(join(plat, '.dev', 'bin')), []);
+    // the finished run released its lock
+    assert.equal(existsSync(join(plat, '.dev', 'dev', 'up.lock')), false);
+    // this checkout's api and console are alive and answer on 8081 and 3000: a second up passes the port checks
+    const again = up();
+    assert.equal(again.status, 0, again.stderr);
+    assert.match(again.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
   } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Another up runs in this checkout: its lock directory exists, and its api.pid must survive this run.
+test('dev.sh up refuses while another up holds this checkout\'s lock, names the lock, builds nothing and keeps api.pid', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devlock-'));
+  // nothing starts, and the pid in api.pid is not ours to kill, so this test never calls stop()
+  const { plat, env, up } = devUpFixture(dir);
+  try {
+    const run = join(plat, '.dev', 'dev'), lock = join(run, 'up.lock');
+    mkdirSync(lock, { recursive: true });
+    writeFileSync(join(run, 'api.pid'), '4242\n');
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`another scripts/dev.sh up runs in this checkout; if none runs, a killed run left ${lock}: remove it and run again`), r.stderr);
+    assert.equal(existsSync(join(run, 'bin', 'api')), false);
+    assert.equal(existsSync(env.STUB_DOCKER), false);
+    assert.equal(readFileSync(join(run, 'api.pid'), 'utf8'), '4242\n');
+    // the refused run leaves the other run's lock in place
+    assert.ok(existsSync(lock));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Another checkout's stack already answers on a shared port: curl answers before this checkout starts anything.
+test('dev.sh up refuses when another checkout serves port 8081 or 3000 and builds nothing and sets no role password', () => {
+  const cases = [
+    ['exit 0', /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/],
+    ['case "$*" in *:3000/*) exit 0 ;; esac; exit 1', /port 3000 already serves a console from another checkout; stop that stack with scripts\/dev\.sh down there/],
+  ];
+  for (const [curl, message] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-devbusy-'));
+    try {
+      const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'calls.log');
+      for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
+      for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+      const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      stub('curl', curl);
+      for (const name of ['go', 'pnpm']) stub(name, `echo "${name} $*" >>"$STUB_LOG"`);
+      stub('docker', 'echo "docker $*" >>"$STUB_LOG"; cat >>"$STUB_LOG"');
+      const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', XDG_CONFIG_HOME: join(dir, 'xdg') };
+      const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, message);
+      const calls = existsSync(log) ? readFileSync(log, 'utf8') : '';
+      assert.doesNotMatch(calls, /go build|ALTER ROLE ms_dev/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// Two concurrent ups both pass the preflight. The slower one's api exits on the bound port or the stack lock, and the
+// other checkout answers its health check: either after this api exited, or at once while this api still starts and
+// exits a moment later.
+test('dev.sh up fails with the port 8081 message when its started api exits while another checkout answers', () => {
+  const cases = [
+    ['exit 1', '[ -f "$STUB_API_PID" ] || exit 1; while kill -0 "$(cat "$STUB_API_PID")" 2>/dev/null; do sleep 0.1; done'],
+    ['sleep 1; exit 1', '[ -f "$STUB_API_PID" ]'],
+  ];
+  for (const [api, curl] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-'));
+    const { out, up, stop } = devUpFixture(dir, { api, curl });
+    try {
+      const r = up();
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/);
+      assert.doesNotMatch(r.stdout, /Control plane:/);
+      // up stops before the worker and the console start
+      assert.equal(existsSync(out), false);
+    } finally {
+      stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// The started api exits before it listens and nothing answers on 8081: a startup failure of its own, not a taken port.
+test('dev.sh up fails pointing at api.log when its started api exits and nothing answers on 8081', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devapifail-'));
+  const { plat, out, up, stop } = devUpFixture(dir, { api: 'exit 1', curl: 'exit 1' });
+  try {
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`control plane exited before it listened (see ${join(plat, '.dev', 'dev', 'api.log')})`), r.stderr);
+    assert.doesNotMatch(r.stderr, /another checkout/);
+    assert.equal(existsSync(out), false);
+    // a run that dies still releases its lock
+    assert.equal(existsSync(join(plat, '.dev', 'dev', 'up.lock')), false);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// api.log still holds the listening line of a previous run. The new api exits without listening while another
+// checkout answers on 8081, so that stale line must not count as this api's proof.
+test('dev.sh up ignores a previous run\'s listening line in api.log', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devstale-'));
+  const { plat, out, up, stop } = devUpFixture(dir, { api: 'sleep 1; exit 1', curl: '[ -f "$STUB_API_PID" ]' });
+  try {
+    mkdirSync(join(plat, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(plat, '.dev', 'dev', 'api.log'), 'level=INFO msg="control plane listening"\n');
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /port 8081 already serves a control plane from another checkout/);
+    assert.doesNotMatch(r.stdout, /Control plane:/);
+    assert.equal(existsSync(out), false);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// alive() matches the command line, and right after the launch the started pid can still be the forked shell before
+// its exec. The stand-in ps reports that shell for every pid, so only a gone pid may count as an exit.
+test('dev.sh up waits for its started api and console while their pids live, even before alive() matches them', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devexec-'));
+  const { bin, up, stop } = devUpFixture(dir);
+  try {
+    writeFileSync(join(bin, 'ps'), '#!/bin/sh\necho "bash scripts/dev.sh up"\n', { mode: 0o755 });
+    const r = up();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Console: {8}http:\/\/127\.0\.0\.1:3000/);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The slower up's console exits on the bound port 3000 four seconds after the other checkout's console answered at
+// once, later than a fixed settle window would look.
+test('dev.sh up fails with the port 3000 message when its started console exits after another checkout answers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-web-'));
+  const curl = 'case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) [ -f "$STUB_WEB_PID" ] ;; esac';
+  const { up, stop } = devUpFixture(dir, { web: 'sleep 4; exit 1', curl });
+  try {
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /port 3000 already serves a console from another checkout; stop that stack with scripts\/dev\.sh down there/);
+    assert.doesNotMatch(r.stdout, /Console:/);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The started console exits before it is ready and nothing answers on 3000: a startup failure of its own.
+test('dev.sh up fails pointing at web.log when its started console exits and nothing answers on 3000', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devwebfail-'));
+  const { plat, up, stop } = devUpFixture(dir, { web: 'exit 1' });
+  try {
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`console exited before it listened (see ${join(plat, '.dev', 'dev', 'web.log')})`), r.stderr);
+    assert.doesNotMatch(r.stderr, /another checkout/);
+    assert.doesNotMatch(r.stdout, /Console:/);
+  } finally {
+    stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -541,7 +733,7 @@ const devDbStopped = (container) => {
   for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
   for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
   writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"ps -a -q"*) echo "$STUB_CONTAINER" ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
-  const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, STUB_CONTAINER: container });
+  const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, STUB_CONTAINER: container, XDG_CONFIG_HOME: join(dir, 'xdg') });
   return { dir, plat, r, docker: existsSync(log) ? readFileSync(log, 'utf8') : '' };
 };
 
@@ -570,13 +762,155 @@ test('dev_db with no Postgres container refuses and names scripts/dev.sh db', ()
   }
 });
 
+// Several scratch checkouts share one scratch $XDG_CONFIG_HOME and one stand-in docker: Postgres reports running and
+// the psql stdin goes to the log.
+const checkouts = (n) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devshare-'));
+  const bin = join(dir, 'bin'), xdg = join(dir, 'xdg'), log = join(dir, 'docker.log');
+  mkdirSync(bin); mkdirSync(xdg);
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
+  const plats = Array.from({ length: n }, (_, i) => {
+    const plat = join(dir, `plat${i}`);
+    mkdirSync(join(plat, 'scripts'), { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    return plat;
+  });
+  const env = { MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, XDG_CONFIG_HOME: xdg };
+  const read = (plat) => Object.fromEntries(readFileSync(join(plat, '.dev', 'dev', 'env'), 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+  const passwords = () => [...readFileSync(log, 'utf8').matchAll(/ALTER ROLE ms_dev PASSWORD '(\w+)'/g)].map((m) => m[1]);
+  return { dir, xdg, plats, env, read, passwords };
+};
+
+test('a second checkout running dev_db keeps the ms_dev password of the first, and an older env file gets the shared one', () => {
+  const { dir, xdg, plats: [first, second, older], env, read, passwords } = checkouts(3);
+  try {
+    const a = 'a'.repeat(48), b = 'b'.repeat(48);
+    const envFile = (pw) => `MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\nMS_DEV_DB_PASSWORD=${pw}\nMS_DATABASE_URL=postgres://ms_dev:${pw}@127.0.0.1:5544/ms_dev\nMS_TEST_DATABASE_URL=postgres://ms_dev:${pw}@127.0.0.1:5544/ms_dev_test\n`;
+    // the first checkout was set up before the shared password existed; its password becomes the shared one
+    mkdirSync(join(first, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(first, '.dev', 'dev', 'env'), envFile(a), { mode: 0o600 });
+    mkdirSync(join(older, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(older, '.dev', 'dev', 'env'), envFile(b), { mode: 0o600 });
+    for (const plat of [first, second, older]) {
+      const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat });
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.deepEqual(passwords(), [a, a, a]);
+    assert.equal(readFileSync(join(xdg, 'market-signals', 'dev-db-password'), 'utf8').trim(), a);
+    assert.equal(statSync(join(xdg, 'market-signals', 'dev-db-password')).mode & 0o777, 0o600);
+    for (const plat of [first, second, older]) {
+      const e = read(plat);
+      assert.equal(e.MS_DEV_DB_PASSWORD, a);
+      assert.equal(e.MS_DATABASE_URL, `postgres://ms_dev:${a}@127.0.0.1:5544/ms_dev`);
+      assert.equal(e.MS_TEST_DATABASE_URL, `postgres://ms_dev:${a}@127.0.0.1:5544/ms_dev_test`);
+      assert.equal(statSync(join(plat, '.dev', 'dev', 'env')).mode & 0o777, 0o600);
+      assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+    }
+    // the rewritten env file keeps its own tokens and holds each database line once
+    assert.equal(readFileSync(join(older, '.dev', 'dev', 'env'), 'utf8'), envFile(a));
+    assert.doesNotMatch(readFileSync(env.STUB_DOCKER, 'utf8'), /ALTER ROLE ms PASSWORD|compose up/);
+
+    writeFileSync(join(xdg, 'market-signals', 'dev-db-password'), "x'; DROP ROLE ms; --\n");
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: second });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /does not hold a development database password/);
+    assert.equal(read(second).MS_DEV_DB_PASSWORD, a);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a malformed password in an older env file does not seed the shared file', () => {
+  const { dir, xdg, plats: [plat], env, read, passwords } = checkouts(1);
+  try {
+    mkdirSync(join(plat, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(plat, '.dev', 'dev', 'env'), 'MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\nMS_DEV_DB_PASSWORD=short\n', { mode: 0o600 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat });
+    assert.equal(r.status, 0, r.stderr);
+    const shared = readFileSync(join(xdg, 'market-signals', 'dev-db-password'), 'utf8').trim();
+    assert.match(shared, /^[0-9a-f]{48}$/);
+    assert.equal(read(plat).MS_DEV_DB_PASSWORD, shared);
+    assert.deepEqual(passwords(), [shared]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed password generation dies before it writes or links a shared file', () => {
+  const { dir, xdg, plats: [plat], env } = checkouts(1);
+  try {
+    // openssl that prints nothing and succeeds; load_env calls dev_db_password in a command substitution
+    writeFileSync(join(dir, 'bin', 'openssl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; load_env; echo loaded', { ...env, PLAT: plat });
+    assert.notEqual(r.status, 0);
+    assert.doesNotMatch(r.stdout, /loaded/);
+    assert.match(r.stderr, /could not generate a development database password/);
+    assert.equal(existsSync(join(xdg, 'market-signals', 'dev-db-password')), false);
+    assert.deepEqual(existsSync(join(xdg, 'market-signals')) ? readdirSync(join(xdg, 'market-signals')) : [], []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed link of the shared password file dies naming the file and leaves no shared file', () => {
+  const { dir, xdg, plats: [plat], env } = checkouts(1);
+  try {
+    // an ln that always fails, as on a config filesystem without hard links
+    writeFileSync(join(dir, 'bin', 'ln'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; load_env; echo loaded', { ...env, PLAT: plat });
+    assert.notEqual(r.status, 0);
+    assert.doesNotMatch(r.stdout, /loaded/);
+    assert.match(r.stderr, /cannot create .*market-signals\/dev-db-password/);
+    assert.doesNotMatch(r.stderr, /delete it and run again/);
+    assert.deepEqual(readdirSync(join(xdg, 'market-signals')), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev_config_home uses an absolute XDG_CONFIG_HOME and falls back to ~/.config for an unset or relative one', () => {
+  const home = (xdg) => sh('source platform/scripts/dev.sh; dev_config_home', { XDG_CONFIG_HOME: xdg, HOME: '/home/h', MS_RUN_DIR: tmpdir() }).stdout.trim();
+  for (const form of ['/tmp/xdg', '/Users/u/.config']) assert.equal(home(form), form);
+  for (const form of ['', '.config', 'relative/dir']) assert.equal(home(form), '/home/h/.config', form);
+  // a relative value would resolve inside each checkout; the password file lands under HOME instead
+  const { dir, plats: [plat], env } = checkouts(1);
+  try {
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat, XDG_CONFIG_HOME: '.config', HOME: join(dir, 'home') });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(readFileSync(join(dir, 'home', '.config', 'market-signals', 'dev-db-password'), 'utf8'), /^[0-9a-f]{48}\n$/);
+    assert.equal(existsSync(join(plat, '.config')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('two concurrent first runs of dev_db from two checkouts both succeed with one shared password', () => {
+  const { dir, xdg, plats: [one, two], env, read, passwords } = checkouts(2);
+  try {
+    // a stand-in ln waits until both runs reach it, so both always pass the missing-file check before either links
+    const realLn = spawnSync('sh', ['-c', 'command -v ln'], { encoding: 'utf8' }).stdout.trim();
+    const sync = join(dir, 'sync');
+    mkdirSync(sync);
+    writeFileSync(join(dir, 'bin', 'ln'), `#!/bin/sh\ntouch "$STUB_SYNC/$$"\ni=0\nwhile [ "$(ls "$STUB_SYNC" | wc -l)" -lt 2 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done\nexec ${realLn} "$@"\n`, { mode: 0o755 });
+    const run = `bash -c 'source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db'`;
+    const r = sh(`PLAT="$ONE" ${run} & a=$!; PLAT="$TWO" ${run} & b=$!; wait $a && wait $b`, { ...env, ONE: one, TWO: two, STUB_SYNC: sync });
+    assert.equal(readdirSync(sync).length, 2);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(read(one).MS_DEV_DB_PASSWORD, read(two).MS_DEV_DB_PASSWORD);
+    assert.deepEqual(passwords(), [read(one).MS_DEV_DB_PASSWORD, read(one).MS_DEV_DB_PASSWORD]);
+    assert.deepEqual(readdirSync(join(xdg, 'market-signals')), ['dev-db-password']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the development env file has its own tokens and password, mode 600, and the live env file keeps database ms', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devenv-'));
   try {
     const plat = join(dir, 'plat');
     mkdirSync(join(plat, 'scripts'), { recursive: true });
     for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
-    const r = sh('source "$PLAT/scripts/dev.sh"; load_env; use_stack dev; load_env', { PLAT: plat, MS_RUN_DIR: '' });
+    const r = sh('source "$PLAT/scripts/dev.sh"; load_env; use_stack dev; load_env', { PLAT: plat, MS_RUN_DIR: '', XDG_CONFIG_HOME: join(dir, 'xdg') });
     assert.equal(r.status, 0, r.stderr);
     const read = (p) => Object.fromEntries(readFileSync(p, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
     const devFile = join(plat, '.dev', 'dev', 'env');
