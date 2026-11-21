@@ -614,6 +614,22 @@ test('dev.sh up fails with the port 8081 message when its started api exits whil
   }
 });
 
+// The started api exits before it listens and nothing answers on 8081: a startup failure of its own, not a taken port.
+test('dev.sh up fails pointing at api.log when its started api exits and nothing answers on 8081', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devapifail-'));
+  const { plat, out, up, stop } = devUpFixture(dir, { api: 'exit 1', curl: 'exit 1' });
+  try {
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`control plane exited before it listened (see ${join(plat, '.dev', 'dev', 'api.log')})`), r.stderr);
+    assert.doesNotMatch(r.stderr, /another checkout/);
+    assert.equal(existsSync(out), false);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // The slower up's console exits on the bound port 3000 a moment after the other checkout's console answered at once.
 test('dev.sh up fails with the port 3000 message when its started console exits after another checkout answers', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-web-'));

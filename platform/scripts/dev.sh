@@ -294,10 +294,14 @@ up() {
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
   fi
   # two concurrent ups both pass the preflight, and the other checkout's api can answer on 8081 while this api still
-  # starts; only this api's own log line proves it holds the port, and when it exits first the port was taken
+  # starts; only this api's own log line proves it holds the port. When it exits first, an answer on 8081 means the
+  # port was taken; no answer means it failed for its own reason
   for _ in $(seq 1 20); do
     grep -q "control plane listening" "$RUN/api.log" 2>/dev/null && break
-    alive api || port_taken 8081
+    if ! alive api; then
+      if curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then port_taken 8081; fi
+      die "control plane exited before it listened (see $RUN/api.log)"
+    fi
     sleep 1
   done
   grep -q "control plane listening" "$RUN/api.log" 2>/dev/null || die "control plane did not become ready (see $RUN/api.log)"
@@ -307,7 +311,9 @@ up() {
     start worker "$ROOT" "$RUN/bin/worker"
   fi
 
+  local web_started=
   if ! alive web; then
+    web_started=1
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
     # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
     start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
@@ -315,9 +321,11 @@ up() {
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
   # next dev exits on a bound port only seconds after it starts, so the other checkout's console can answer first;
-  # this console must still run a few seconds after the answer
-  sleep 3
-  alive web || port_taken 3000
+  # this console must still run a few seconds after the answer. A console that was already up needs no wait.
+  if [ -n "$web_started" ]; then
+    sleep 3
+    alive web || port_taken 3000
+  fi
 
   echo
   echo "Console:        http://127.0.0.1:3000"
