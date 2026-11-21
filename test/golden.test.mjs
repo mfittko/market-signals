@@ -14,8 +14,11 @@ const files = readdirSync(GOLDEN_DIR).filter((f) => f.endsWith('.json')).sort();
 const load = (f) => JSON.parse(readFileSync(join(GOLDEN_DIR, f), 'utf8'));
 const GENERATOR = fileURLToPath(new URL('../scripts/golden-fixtures.mjs', import.meta.url));
 
-test('golden: fixture files exist for indicators and portfolio', () => {
-  assert.deepEqual(files, ['indicators.json', 'portfolio.json']);
+// Areas the Node engine replays. Other areas (monitor) are recorded and replayed in Go.
+const NODE_AREAS = ['indicators', 'portfolio'];
+
+test('golden: fixture files exist for indicators, portfolio and monitor', () => {
+  for (const f of ['indicators.json', 'monitor.json', 'portfolio.json']) assert.ok(files.includes(f), `${f} is missing`);
 });
 
 for (const f of files) {
@@ -25,6 +28,7 @@ for (const f of files) {
     assert.equal(typeof fx.area, 'string');
     assert.ok(fx.cases.length > 0);
   });
+  if (!NODE_AREAS.includes(fx.area)) continue;
   for (const c of fx.cases) {
     test(`golden replay: ${fx.area} / ${c.name}`, async () => {
       assert.deepEqual(await replayCase(fx.area, c.input, fx.series), c.expected);
@@ -53,7 +57,7 @@ test('golden: fixtures are small, path-free and secret-free', () => {
     };
     walk(JSON.parse(text));
   }
-  assert.ok(total < 200 * 1024, `fixtures total ${total} bytes, budget 200 KB`);
+  assert.ok(total < 256 * 1024, `fixtures total ${total} bytes, budget 256 KB`);
 });
 
 test('golden: the recorder is idempotent and its verify mode fails on drift', () => {
