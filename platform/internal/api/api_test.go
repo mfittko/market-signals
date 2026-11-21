@@ -372,7 +372,7 @@ func TestOperatorRunKeepsALongStrategyPromptUnescapedAndRefusesAnOversizedOne(t 
 	if code != 202 {
 		t.Fatalf("a full-size strategy prompt must fit the snapshot: %d %v", code, out)
 	}
-	c, err := st.Claim(ctx, "w", []string{"mock"}, 30*time.Second)
+	c, err := st.Claim(ctx, "w", []string{"mock"})
 	if err != nil || c == nil {
 		t.Fatal("claim", err)
 	}

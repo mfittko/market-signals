@@ -69,7 +69,7 @@ func (r *ruleRig) event(key string) (int, map[string]any) {
 // claim takes the next queued run and returns it with the payload the worker sees.
 func (r *ruleRig) claim() (*queue.Claim, map[string]any) {
 	r.t.Helper()
-	c, err := r.st.Claim(r.ctx, "w", []string{"mock"}, 30*time.Second)
+	c, err := r.st.Claim(r.ctx, "w", []string{"mock"})
 	if err != nil || c == nil {
 		r.t.Fatal("claim", err)
 	}
