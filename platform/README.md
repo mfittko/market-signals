@@ -153,8 +153,8 @@ Run everything:
 node --test test/control-plane.test.mjs                                          # from the repo root
 ```
 
-No database password is committed. `scripts/dev.sh up` generates the shared development password once (see
-above), writes it into `platform/.dev/dev/env` (mode 600, gitignored) and sets the role `ms_dev` to it. The live `platform/.dev/env` holds `MS_DB_PASSWORD` for the role `ms`,
+No database password is committed. The first development command creates the shared development password once
+(see above), and `scripts/dev.sh up` writes it into `platform/.dev/dev/env` (mode 600, gitignored) and sets the role `ms_dev` to it. The live `platform/.dev/env` holds `MS_DB_PASSWORD` for the role `ms`,
 which `dev.sh db` sets and Docker Compose reads. Each file holds `MS_DATABASE_URL`, which `cmd/api` and `cmd/import`
 require, and `MS_TEST_DATABASE_URL` for the Go tests. Tests skip without it, or fail when `MS_REQUIRE_DB=1` or `CI`
 is set. To run `docker compose` by hand, export the live file first with `set -a && . .dev/env`.

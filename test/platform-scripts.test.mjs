@@ -501,7 +501,8 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_SVC" "$2/api"; cp "$STUB_SVC" "$2/worker"');
     // the last field holds every secret the console must not inherit, so it is empty for the web line
     stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}|${MS_DEV_DB_PASSWORD:-}${MS_WORKER_TOKEN:-}${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"');
-    stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"');
+    // a port answers only after the stubbed service on it started, so the preflight sees free ports
+    stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
     // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
     stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
     const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log'),
@@ -532,6 +533,28 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'api.pid')));
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
     assert.deepEqual(readdirSync(join(plat, '.dev', 'bin')), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Another checkout's stack already answers on the shared ports: curl answers before this checkout starts anything.
+test('dev.sh up refuses when another checkout serves port 8081 and builds nothing and sets no role password', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devbusy-'));
+  try {
+    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'calls.log');
+    for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    stub('curl', 'exit 0');
+    for (const name of ['go', 'pnpm']) stub(name, `echo "${name} $*" >>"$STUB_LOG"`);
+    stub('docker', 'echo "docker $*" >>"$STUB_LOG"; cat >>"$STUB_LOG"');
+    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', XDG_CONFIG_HOME: join(dir, 'xdg') };
+    const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/);
+    const calls = existsSync(log) ? readFileSync(log, 'utf8') : '';
+    assert.doesNotMatch(calls, /go build|ALTER ROLE ms_dev/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -659,6 +682,22 @@ test('a failed password generation dies before it writes or links a shared file'
     assert.match(r.stderr, /could not generate a development database password/);
     assert.equal(existsSync(join(xdg, 'market-signals', 'dev-db-password')), false);
     assert.deepEqual(existsSync(join(xdg, 'market-signals')) ? readdirSync(join(xdg, 'market-signals')) : [], []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed link of the shared password file dies naming the file and leaves no shared file', () => {
+  const { dir, xdg, plats: [plat], env } = checkouts(1);
+  try {
+    // an ln that always fails, as on a config filesystem without hard links
+    writeFileSync(join(dir, 'bin', 'ln'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; load_env; echo loaded', { ...env, PLAT: plat });
+    assert.notEqual(r.status, 0);
+    assert.doesNotMatch(r.stdout, /loaded/);
+    assert.match(r.stderr, /cannot create .*market-signals\/dev-db-password/);
+    assert.doesNotMatch(r.stderr, /delete it and run again/);
+    assert.deepEqual(readdirSync(join(xdg, 'market-signals')), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

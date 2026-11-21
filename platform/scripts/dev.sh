@@ -105,8 +105,9 @@ dev_db_password() {
     mkdir -p "$dir" || die "cannot create $dir"
     tmp="$(mktemp "$dir/.dev-db-password.XXXXXX")" || die "cannot create a temporary file in $dir"
     echo "$seed" >"$tmp" || { rm -f "$tmp"; die "cannot write $tmp"; }
-    # ln refuses an existing name, so when two first runs race, both keep the file the faster one linked
-    ln "$tmp" "$f" 2>/dev/null || true
+    # ln refuses an existing name, so when two first runs race, both keep the file the faster one linked; any other
+    # ln failure leaves no shared file and dies here
+    ln "$tmp" "$f" 2>/dev/null || [ -e "$f" ] || { rm -f "$tmp"; die "cannot create $f"; }
     rm -f "$tmp"
   fi
   pw="$(cat "$f")"
@@ -270,6 +271,14 @@ run() {
 
 up() {
   need docker; need go; need pnpm; need jq; need openssl
+  # the checkouts share the ports, so an answer there with this checkout's service down comes from another
+  # checkout's stack; wait_http would take that answer as this stack being ready
+  if ! alive api && curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then
+    die "port 8081 already serves a control plane from another checkout; stop that stack with scripts/dev.sh down there"
+  fi
+  if ! alive web && curl -fsS -m 2 http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
+    die "port 3000 already serves a console from another checkout; stop that stack with scripts/dev.sh down there"
+  fi
   load_env
   dev_db
 
