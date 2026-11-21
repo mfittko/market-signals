@@ -1,0 +1,1 @@
+- Platform: a Go settings write names its base revision; a stale base gets 409 and stores nothing (#282)

@@ -25,6 +25,13 @@ func (e PairError) Error() string {
 	return "an enabled bot needs its pair in the watcher list: " + strings.Join(e.Pairs, ", ")
 }
 
+// StaleError refuses a write whose base revision is not the current revision.
+type StaleError struct{ Current int64 }
+
+func (e StaleError) Error() string {
+	return fmt.Sprintf("the settings changed since they were loaded; the current revision is %d", e.Current)
+}
+
 // lockKey serializes settings writers, so the revision and the bot-pair rule see one state.
 const lockKey = 727347
 
@@ -90,8 +97,9 @@ func Masked(vals map[string]any) map[string]any {
 // Write validates patch for the origin and stores it as one revision. Each value replaces
 // its key; a cleared value deletes it and a secret sent as Mask keeps the stored one. Keys
 // whose value does not change are skipped, and a patch that changes nothing adds no revision.
-// It returns the state after the write and the changed keys.
-func Write(ctx context.Context, pool *pgxpool.Pool, o Origin, patch map[string]any) (Snapshot, []string, error) {
+// A non-nil base must equal the current revision, else the write stores nothing and returns
+// StaleError. It returns the state after the write and the changed keys.
+func Write(ctx context.Context, pool *pgxpool.Pool, o Origin, patch map[string]any, base *int64) (Snapshot, []string, error) {
 	if err := CheckAll(o, patch); err != nil {
 		return Snapshot{}, nil, fmt.Errorf("%w: %s", ErrInvalid, err.Error())
 	}
@@ -104,6 +112,9 @@ func Write(ctx context.Context, pool *pgxpool.Pool, o Origin, patch map[string]a
 		cur, err := load(ctx, tx)
 		if err != nil {
 			return err
+		}
+		if base != nil && *base != cur.Revision {
+			return StaleError{cur.Revision}
 		}
 		next := maps.Clone(cur.Values)
 		changed = []string{} // an empty list, never JSON null
@@ -209,7 +220,7 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport,
 		patch[k] = v
 	}
 	sort.Strings(rep.Skipped)
-	snap, changed, err := Write(ctx, pool, FromImport, patch)
+	snap, changed, err := Write(ctx, pool, FromImport, patch, nil)
 	rep.Revision, rep.Changed = snap.Revision, changed
 	return rep, err
 }
