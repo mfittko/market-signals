@@ -31,12 +31,26 @@ type goldenExpected struct {
 	Steps []json.RawMessage `json:"steps"`
 }
 
-// replay feeds the bars through Step, carrying the position from one bar to the next.
-func replay(raw json.RawMessage) ([]Result, error) {
+func decodeInput(raw json.RawMessage) (goldenInput, error) {
 	var in goldenInput
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&in); err != nil {
+	err := dec.Decode(&in)
+	return in, err
+}
+
+// replay feeds the bars through Step, carrying the position from one bar to the next.
+func replay(raw json.RawMessage) ([]Result, error) { return replayWith(raw, Step) }
+
+func replayWith(raw json.RawMessage, step func(Position, Bar, Env) Result) ([]Result, error) {
+	in, err := decodeInput(raw)
+	if err != nil {
+		return nil, err
+	}
+	// A second decode gives a plan that shares no pointer or slice with the one Step receives,
+	// so an in-place edit through Trail, Invalidation or Tripwires cannot change both sides.
+	orig, err := decodeInput(raw)
+	if err != nil {
 		return nil, err
 	}
 	if in.Kind != "step" || len(in.Bars) == 0 {
@@ -51,10 +65,10 @@ func replay(raw json.RawMessage) ([]Result, error) {
 		if i > 0 && out[i-1].Exit != nil {
 			return nil, fmt.Errorf("bar %d follows the exit", i+1)
 		}
-		r := Step(p, b.Bar, b.Env)
+		r := step(p, b.Bar, b.Env)
 		p = r.Pos
 		// Step never edits the plan; checking that here keeps it out of every recorded step.
-		if !reflect.DeepEqual(r.Pos.Plan, in.Position.Plan) {
+		if !reflect.DeepEqual(r.Pos.Plan, orig.Position.Plan) {
 			return nil, fmt.Errorf("bar %d changed the plan to %+v", i+1, r.Pos.Plan)
 		}
 		r.Pos.Plan = domain.Plan{}
@@ -69,6 +83,23 @@ func TestReplayChecksPositionSide(t *testing.T) {
 		if _, err := replay(json.RawMessage(input)); (err == nil) != ok {
 			t.Errorf("side %q: replay error %v, want accepted=%v", side, err, ok)
 		}
+	}
+}
+
+// The plan Step receives shares its Trail pointer with the decoded input, so the guard
+// must compare against an independent copy to see an edit made through that pointer.
+func TestReplayCatchesPlanEditedThroughPointer(t *testing.T) {
+	input := json.RawMessage(`{"kind":"step","position":{"side":"long","entry":100,"stop":95,"plan":{"trail":{"kind":"atr","mult":2}}},"bars":[{"bar":{"open":100,"high":101,"low":99,"close":100},"env":{"atr":1}}]}`)
+	if _, err := replayWith(input, Step); err != nil {
+		t.Fatalf("unchanged plan: %v", err)
+	}
+	editTrail := func(p Position, b Bar, env Env) Result {
+		r := Step(p, b, env)
+		p.Plan.Trail.Mult = 3
+		return r
+	}
+	if _, err := replayWith(input, editTrail); err == nil {
+		t.Fatal("replay accepted a plan edited through the shared Trail pointer")
 	}
 }
 
