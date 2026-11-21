@@ -183,6 +183,14 @@ func TestTheStrategyIsFrozenWhenTheRunIsEnqueued(t *testing.T) {
 	if st, _ := p["strategy"].(map[string]any); st["version"] != float64(1) || st["prompt"] != "v1 rules" {
 		t.Fatalf("the run must keep the version from enqueue time: %v", p["strategy"])
 	}
+	// get_snapshot reads the same governed payload the claim returned
+	tc, err := r.st.AuthorizeTool(r.ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(tc.Snapshot.Payload) != string(c.Snapshot.Payload) {
+		t.Fatalf("get_snapshot payload differs from the claim:\n%s\n%s", tc.Snapshot.Payload, c.Snapshot.Payload)
+	}
 	// the run API names the frozen strategy without repeating its prompt
 	d, err := r.st.GetRun(r.ctx, c.Run.ID)
 	if err != nil {

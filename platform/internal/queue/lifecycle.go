@@ -102,25 +102,20 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, l
 // governed returns the payload a worker sees. Its strategy is the run's frozen console
 // strategy, or the engine's when the run has none, so one prompt governs entry and
 // management. engineStrategy stays beside it as a reference without its prompt. Ingest
-// checks the cap on this same output, so the claimed payload stays inside it. A snapshot stored before
-// engineStrategy existed, on a run without a frozen strategy, is returned as stored.
+// checks the cap on this same output, so the claimed payload stays inside it. Every object
+// payload is re-encoded compactly, because the jsonb column text that Claim reads carries
+// spaces the compact ingest payload does not.
 func governed(payload, frozen []byte) []byte {
 	var m map[string]any
 	if json.Unmarshal(payload, &m) != nil || m == nil {
 		return payload
 	}
 	engine, hasEngine := m["engineStrategy"].(map[string]any)
-	switch {
-	case frozen != nil && string(frozen) != "null":
-		var f any
-		if json.Unmarshal(frozen, &f) != nil {
-			return payload
-		}
+	var f any
+	if frozen != nil && string(frozen) != "null" && json.Unmarshal(frozen, &f) == nil {
 		m["strategy"] = f
-	case hasEngine:
+	} else if hasEngine {
 		m["strategy"] = engine
-	default:
-		return payload
 	}
 	if hasEngine {
 		ref := map[string]any{}

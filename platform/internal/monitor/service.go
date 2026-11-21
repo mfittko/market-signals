@@ -320,7 +320,9 @@ func (s *Service) wake(ctx context.Context, q queue.Position, tw domain.Tripwire
 		// a retry hits the same cap every tick, so ask the operator instead; the stop and target still apply
 		if err := s.Store.RaiseAttention(ctx, q.ID, "wake_refused", map[string]any{"tripwire": tw.Kind, "bar": barTime,
 			"why": "the wake snapshot plus the agent's strategy is over the size limit, so no run was queued; shorten the strategy prompt"}); err != nil {
+			// nothing was stored, so a later tick can retry the refusal and the attention
 			s.Log.Error("raise attention", "position", q.ID, "err", err)
+			return false
 		}
 		return true
 	}
