@@ -1,0 +1,1 @@
+- Platform: `go run ./cmd/ledger-import --book <file>` imports the Node paper book into the Go paper ledger with a reconciliation report of cash, equity and open positions; dry run by default, `--commit` writes, a position the Go ledger cannot hold is refused and listed in the report, and a second import books nothing new (#389)
