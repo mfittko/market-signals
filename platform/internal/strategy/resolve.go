@@ -181,8 +181,9 @@ func (s Store) NameByEngineID(ctx context.Context, id int64) (string, bool, erro
 	return found(n, err)
 }
 
-// ActiveByName takes the highest active version: the mirror never clears the active flag of an older
-// mirrored version, so after the engine activates a newer one both rows can be active here.
+// ActiveByName returns the one active version of a name: the engine, the console and Mirror each keep
+// one active version per name. ORDER BY version DESC only breaks a tie in a state no writer produces;
+// the engine's unordered read takes the first row in id order there, so the two differ only then.
 func (s Store) ActiveByName(ctx context.Context, name string) (Active, bool, error) {
 	var a Active
 	err := s.Q.QueryRow(ctx, `SELECT name, version, prompt FROM strategies WHERE name=$1 AND active ORDER BY version DESC LIMIT 1`, name).Scan(&a.Name, &a.Version, &a.Prompt)

@@ -41,7 +41,7 @@ A successful write returns `{"ok": true, "version": <n>}`, where `version` is th
 
 | Route | Body |
 |---|---|
-| `POST /api/v1/strategies/{name}/versions` | `{"prompt": "...", "baseVersion": n}`; omit `baseVersion` only for a new name |
+| `POST /api/v1/strategies/{name}/versions` | `{"prompt": "...", "baseVersion": n, "spec": {...}}`; omit `baseVersion` only for a new name. `spec` is optional: an absent or `null` spec keeps the previous version's spec, and an invalid spec answers `400` naming the field path |
 | `POST /api/v1/strategies/{name}/versions/{version}/activate` | `{"baseVersion": n}` |
 | `POST /api/v1/strategies/{name}/archive` | `{"archived": true or false, "baseVersion": n}` |
 

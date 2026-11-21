@@ -132,9 +132,13 @@ func ValidateSpec(raw json.RawMessage) error {
 }
 
 // scanStrings rejects raw dates and instrument symbols in any string, keys included, so a spec stays anonymous.
+// It also rejects a NUL character, which Postgres jsonb cannot store.
 func scanStrings(v any, path string, add func(string, ...any)) {
 	switch x := v.(type) {
 	case string:
+		if strings.ContainsRune(x, 0) {
+			add("%s: a NUL character is not allowed", path)
+		}
 		if dateRe.MatchString(x) {
 			add("%s: raw dates are forbidden in specs (anonymization)", path)
 		}

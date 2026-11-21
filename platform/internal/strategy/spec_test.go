@@ -19,6 +19,16 @@ func TestValidateSpecAcceptsTheExampleSpecs(t *testing.T) {
 	}
 }
 
+func TestScanStringsAcceptsPlainStringsAndRejectsNUL(t *testing.T) {
+	for s, bad := range map[string]bool{"bull": false, "a b": false, "\u0000": true, "a\u0000b": true} {
+		var errs []string
+		scanStrings(map[string]any{"k": s}, "spec", func(f string, a ...any) { errs = append(errs, f) })
+		if (len(errs) > 0) != bad {
+			t.Errorf("%q: errors %v, want rejected=%v", s, errs, bad)
+		}
+	}
+}
+
 func TestValidateSpecRejectsEachRuleNamingTheField(t *testing.T) {
 	for _, c := range []struct{ spec, want string }{
 		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1},"name":"x"}`, "spec.name: unknown field"},
@@ -43,6 +53,9 @@ func TestValidateSpecRejectsEachRuleNamingTheField(t *testing.T) {
 		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1},"risk":3}`, "risk must be an object"},
 		{`{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"2026-01-05"}},"exit":{"stopAtr":1}}`, "spec.entry.require.impulse: raw dates are forbidden"},
 		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1},"EUR/USD":1}`, "spec.<key>: instrument symbols are forbidden"},
+		{`{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"\u0000"}},"exit":{"stopAtr":1}}`, "spec.entry.require.impulse: a NUL character is not allowed"},
+		{`{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"a\u0000b"}},"exit":{"stopAtr":1}}`, "spec.entry.require.impulse: a NUL character is not allowed"},
+		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1},"a\u0000b":1}`, "spec.<key>: a NUL character is not allowed"},
 	} {
 		err := ValidateSpec([]byte(c.spec))
 		if !errors.Is(err, ErrInvalidSpec) || !strings.Contains(err.Error(), c.want) {

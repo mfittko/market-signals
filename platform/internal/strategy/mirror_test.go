@@ -67,7 +67,7 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "engine.db")
 	engineDB(t, path, [4]any{"alpha", 1, "alpha one", 0}, [4]any{"alpha", 2, "alpha two", 1}, [4]any{"beta", 1, "beta rules", 1}, [4]any{"gamma", 1, "engine rules", 1})
 
-	want := MirrorReport{Source: 4, Inserted: 2, Skipped: 1, Clashes: []Clash{{"gamma", 1}}}
+	want := MirrorReport{Source: 4, Inserted: 2, Skipped: 1, Clashes: []Clash{{"gamma", 1}}, Recreated: []Clash{}}
 	for run := 1; run <= 2; run++ {
 		rep, err := Mirror(ctx, pool, path)
 		if err != nil {
@@ -91,7 +91,7 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 	// new engine versions are the only rows the next run inserts; after the delta v1 clash, delta v2 is skipped too
 	engineDB(t, path, [4]any{"alpha", 3, "alpha three", 1}, [4]any{"beta", 2, "beta two", 1}, [4]any{"delta", 1, "engine delta", 1}, [4]any{"delta", 2, "engine delta two", 1})
 	rep, err := Mirror(ctx, pool, path)
-	want = MirrorReport{Source: 8, Inserted: 2, Skipped: 3, Clashes: []Clash{{"gamma", 1}, {"delta", 1}, {"delta", 2}}}
+	want = MirrorReport{Source: 8, Inserted: 2, Skipped: 3, Clashes: []Clash{{"gamma", 1}, {"delta", 1}, {"delta", 2}}, Recreated: []Clash{}}
 	if err != nil || !reflect.DeepEqual(rep, want) {
 		t.Fatalf("new version: %+v %v, want %+v", rep, err, want)
 	}
@@ -129,5 +129,74 @@ func TestMirrorImportsOnlyNewVersionsAndMapsJournalAttribution(t *testing.T) {
 		if a, ok, err := st.ActiveByName(ctx, name); err != nil || !ok || a.Version != v {
 			t.Fatalf("active %s: %+v %v %v", name, a, ok, err)
 		}
+	}
+}
+
+func TestMirrorReportsAnEngineIDStoredOnAnotherVersionAsAClash(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO strategies (engine_id,name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES (1,'alpha',1,'alpha one','test',now(),false,false,false)`); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "engine.db")
+	engineDB(t, path, [4]any{"alpha-renamed", 1, "alpha one", 0}) // engine row id 1 under another name
+	rep, err := Mirror(ctx, pool, path)
+	want := MirrorReport{Source: 1, Clashes: []Clash{{"alpha-renamed", 1}}, Recreated: []Clash{}}
+	if err != nil || !reflect.DeepEqual(rep, want) {
+		t.Fatalf("%+v %v, want %+v", rep, err, want)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM strategies`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("rows: %d %v", n, err)
+	}
+}
+
+func TestMirrorReportsARecreatedVersionAndKeepsImportingTheName(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "engine.db")
+	engineDB(t, path, [4]any{"alpha", 1, "alpha one", 0}, [4]any{"alpha", 2, "alpha two", 0}, [4]any{"beta", 1, "beta one", 0})
+	if _, err := Mirror(ctx, pool, path); err != nil {
+		t.Fatal(err)
+	}
+	// the engine deletes alpha v2 (id 2) and beta v1 (id 3) and saves them again under ids 4 and 5,
+	// alpha with another prompt and beta with the same one, then saves alpha v3 (id 6)
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DELETE FROM strategies WHERE id IN (2,3)`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	engineDB(t, path, [4]any{"alpha", 2, "alpha two b", 0}, [4]any{"beta", 1, "beta one", 0}, [4]any{"alpha", 3, "alpha three", 0})
+
+	want := MirrorReport{Source: 4, Inserted: 1, Skipped: 1, Clashes: []Clash{}, Recreated: []Clash{{"alpha", 2}, {"beta", 1}}}
+	rep, err := Mirror(ctx, pool, path)
+	if err != nil || !reflect.DeepEqual(rep, want) {
+		t.Fatalf("%+v %v, want %+v", rep, err, want)
+	}
+	st := Store{pool}
+	// the same prompt moves the engine id; another prompt keeps the stored row and its old id
+	for id, name := range map[int64]string{1: "alpha", 2: "alpha", 5: "beta", 6: "alpha"} {
+		if n, ok, err := st.NameByEngineID(ctx, id); err != nil || !ok || n != name {
+			t.Fatalf("engine id %d: %q %v %v", id, n, ok, err)
+		}
+	}
+	for _, id := range []int64{3, 4} {
+		if _, ok, err := st.NameByEngineID(ctx, id); ok || err != nil {
+			t.Fatalf("engine id %d is mapped: %v %v", id, ok, err)
+		}
+	}
+	// a rerun reports only the recreated version whose prompt differs
+	want = MirrorReport{Source: 4, Skipped: 3, Clashes: []Clash{}, Recreated: []Clash{{"alpha", 2}}}
+	if rep, err := Mirror(ctx, pool, path); err != nil || !reflect.DeepEqual(rep, want) {
+		t.Fatalf("rerun: %+v %v, want %+v", rep, err, want)
 	}
 }

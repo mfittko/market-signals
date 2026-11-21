@@ -1611,8 +1611,16 @@ func TestStrategySaveValidatesTheSpec(t *testing.T) {
 	if c, out := call(t, "POST", u, "", `{"prompt":"v2","baseVersion":1}`, nil); c != 200 {
 		t.Fatalf("save without spec: %d %v", c, out)
 	}
-	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend' AND spec = $1::jsonb`, spec).Scan(&n); err != nil || n != 2 {
+	// an explicit "spec": null is an absent spec: the previous spec carries over
+	if c, out := call(t, "POST", u, "", `{"prompt":"v3","baseVersion":2,"spec":null}`, nil); c != 200 {
+		t.Fatalf("save with spec null: %d %v", c, out)
+	}
+	if err := st.Pool.QueryRow(ctx, `SELECT count(*) FROM strategies WHERE name='Trend' AND spec = $1::jsonb`, spec).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("stored specs: %d %v", n, err)
+	}
+	// a NUL in a spec string answers 400 naming the field, not a 500 from the jsonb cast
+	if c, out := call(t, "POST", u, "", `{"prompt":"v4","baseVersion":3,"spec":{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"\u0000"}},"exit":{"stopAtr":1}}}`, nil); c != 400 || !strings.Contains(out["error"].(string), "spec.entry.require.impulse: a NUL character") {
+		t.Fatalf("NUL in spec: %d %v", c, out)
 	}
 }
 
