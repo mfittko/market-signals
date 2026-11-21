@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -173,6 +174,94 @@ func TestSecondCloseRefusedByUniqueKey(t *testing.T) {
 		t.Fatalf("trades = %d, want 1", n)
 	}
 	near(t, "cash", cash(t, pool), c)
+	if _, err := ClosePartial(ctx, pool, "c3", id, 1, 102, "manual", t0); !errors.Is(err, ErrClosed) {
+		t.Fatalf("partial close of a closed position: %v, want ErrClosed", err)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM ledger_trades`); n != 1 {
+		t.Fatalf("trades after partial = %d, want 1", n)
+	}
+	near(t, "cash after partial", cash(t, pool), c)
+}
+
+// A key replayed for another position is refused and books nothing on that position.
+func TestKeyBoundToTarget(t *testing.T) {
+	pool := setup(t, 10000)
+	in := OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Target: f(110)}
+	a, b, c, d := mustOpen(t, pool, "oa", in), mustOpen(t, pool, "ob", in), mustOpen(t, pool, "oc", in), mustOpen(t, pool, "od", in)
+	open := func(id int64) bool {
+		return count(t, pool, fmt.Sprintf(`SELECT count(*) FROM ledger_positions WHERE id = %d AND closed_at IS NULL`, id)) == 1
+	}
+	if err := Close(ctx, pool, "c1", a, 101, "manual", t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := Close(ctx, pool, "c1", b, 101, "manual", t0); !errors.Is(err, ErrInvalid) || !open(b) {
+		t.Fatalf("close key reused on another position: %v, open %v", err, open(b))
+	}
+	if _, err := ClosePartial(ctx, pool, "p1", b, 1, 101, "manual", t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ClosePartial(ctx, pool, "p1", c, 1, 101, "manual", t0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("partial key reused on another position: %v", err)
+	}
+	if closed, err := Fill(ctx, pool, "f1", c, Bar{Time: t0, Open: 100, High: 101, Low: 99}); err != nil || closed {
+		t.Fatalf("quiet bar: closed %v err %v", closed, err)
+	}
+	if _, err := Fill(ctx, pool, "f1", d, Bar{Time: t0, Open: 96, High: 97, Low: 94}); !errors.Is(err, ErrInvalid) || !open(d) {
+		t.Fatalf("quiet-bar fill key reused on another position: %v, open %v", err, open(d))
+	}
+	if n := count(t, pool, `SELECT count(*) FROM ledger_trades`); n != 2 {
+		t.Fatalf("trades = %d, want 2 (close a, partial of b)", n)
+	}
+}
+
+// Key "k1" and instrument " WTI " are accepted; the instrument is stored trimmed, so a "WTI" quote marks it.
+func TestTrimmedInstrumentIsMarked(t *testing.T) {
+	pool := setup(t, 10000)
+	id := mustOpen(t, pool, "k1", OpenInput{Instrument: " WTI ", Notional: 1000, Price: 100, Leverage: 10, Stop: 90})
+	if err := Mark(ctx, pool, "m1", map[string]float64{"WTI": 102}, t0); err != nil {
+		t.Fatal(err)
+	}
+	var instrument string
+	var mark float64
+	if err := pool.QueryRow(ctx, `SELECT instrument, last_mark FROM ledger_positions WHERE id = $1`, id).Scan(&instrument, &mark); err != nil || instrument != "WTI" || mark != 102 {
+		t.Fatalf("instrument %q mark %v err %v", instrument, mark, err)
+	}
+}
+
+// Input checks run before any database access, so a nil pool proves nothing was written.
+func TestInputRefusedBeforeWrite(t *testing.T) {
+	valid := OpenInput{Instrument: "WTI", Side: "short", Notional: 1000, Price: 100, Leverage: 10, Stop: 105}
+	for _, key := range []string{"", "   "} {
+		if _, err := Open(ctx, nil, key, valid, t0); !errors.Is(err, ErrNoKey) {
+			t.Fatalf("key %q: %v, want ErrNoKey", key, err)
+		}
+	}
+	for _, instrument := range []string{"", "   "} {
+		in := valid
+		in.Instrument = instrument
+		if _, err := Open(ctx, nil, "k1", in, t0); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("instrument %q: %v, want ErrInvalid", instrument, err)
+		}
+	}
+	for _, spread := range []float64{100, 101} {
+		in := valid
+		in.Spread = spread
+		if _, err := Open(ctx, nil, "k1", in, t0); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("spread %v at price 100: %v, want ErrInvalid", spread, err)
+		}
+	}
+	for name, bar := range map[string]Bar{
+		"zero":       {},
+		"no time":    {Open: 96, High: 97, Low: 94},
+		"open <= 0":  {Time: t0, Open: 0, High: 97, Low: 94},
+		"low > high": {Time: t0, Open: 96, High: 94, Low: 97},
+		"infinite":   {Time: t0, Open: 96, High: math.Inf(1), Low: 94},
+		"NaN low":    {Time: t0, Open: 96, High: 97, Low: math.NaN()},
+	} {
+		if _, err := Fill(ctx, nil, "k1", 1, bar); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("bar %s: %v, want ErrInvalid", name, err)
+		}
+	}
 }
 
 func TestMoney(t *testing.T) {

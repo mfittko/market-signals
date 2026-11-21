@@ -56,9 +56,11 @@ CREATE TABLE ledger_journal (
 );
 
 -- One row per applied operation. A repeated key replays the stored result and writes nothing.
+-- target_id is the requested position (NULL for account-wide ops); a replay for another target is refused.
 CREATE TABLE ledger_requests (
   idempotency_key text PRIMARY KEY,
   op              text NOT NULL,
+  target_id       bigint,
   position_id     bigint,
   created_at      timestamptz NOT NULL DEFAULT now()
 );
