@@ -74,10 +74,16 @@ func positive(v float64) bool { return v > 0 && !math.IsInf(v, 1) }
 
 func invalid(msg string) error { return fmt.Errorf("%w: %s", ErrInvalid, msg) }
 
+// errNoTime refuses a zero operation time, which would book rows dated 0001-01-01.
+var errNoTime = invalid("operation time required")
+
 // Seed creates the account with startingBalance when it does not exist yet.
 func Seed(ctx context.Context, pool *pgxpool.Pool, startingBalance float64, at time.Time) error {
 	if !positive(startingBalance) {
 		return invalid("starting balance must be > 0")
+	}
+	if at.IsZero() {
+		return errNoTime
 	}
 	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `INSERT INTO ledger_account (id, starting_balance, cash, created_at) VALUES (1, $1, $1, $2)
@@ -159,6 +165,8 @@ func Open(ctx context.Context, pool *pgxpool.Pool, key string, in OpenInput, at 
 		return 0, invalid("spread and commission must be >= 0")
 	case !(in.Spread < in.Price):
 		return 0, invalid("spread must be below the price")
+	case at.IsZero():
+		return 0, errNoTime
 	}
 	instrument := strings.TrimSpace(in.Instrument)
 	id, err := run(ctx, pool, "open", key, nil, func(tx pgx.Tx, halted bool) (*int64, error) {
@@ -199,6 +207,9 @@ func Close(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64
 	if !positive(price) || strings.TrimSpace(reason) == "" {
 		return invalid("close needs a price > 0 and a reason")
 	}
+	if at.IsZero() {
+		return errNoTime
+	}
 	_, err := run(ctx, pool, "close", key, &positionID, func(tx pgx.Tx, _ bool) (*int64, error) {
 		p, err := load(ctx, tx, positionID)
 		if err != nil {
@@ -214,6 +225,9 @@ func Close(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64
 func ClosePartial(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, units, price float64, reason string, at time.Time) (int64, error) {
 	if !positive(price) || strings.TrimSpace(reason) == "" {
 		return 0, invalid("close needs a price > 0 and a reason")
+	}
+	if at.IsZero() {
+		return 0, errNoTime
 	}
 	id, err := run(ctx, pool, "close_partial", key, &positionID, func(tx pgx.Tx, _ bool) (*int64, error) {
 		p, err := load(ctx, tx, positionID)
@@ -257,6 +271,9 @@ func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64,
 		if err != nil {
 			return nil, err
 		}
+		if p.closed {
+			return nil, ErrClosed
+		}
 		price, reason := fill.Check(p.side == "long", p.stop, p.target, bar.Open, bar.High, bar.Low)
 		if reason == "" {
 			return nil, nil
@@ -270,6 +287,9 @@ func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64,
 // loss reaches its margin closes with reason "margin". Equity <= 0 halts the account. Stops and targets
 // are judged by Fill.
 func Mark(ctx context.Context, pool *pgxpool.Pool, key string, quotes map[string]float64, at time.Time) error {
+	if at.IsZero() {
+		return errNoTime
+	}
 	_, err := run(ctx, pool, "mark", key, nil, func(tx pgx.Tx, halted bool) (*int64, error) {
 		open, err := openPositions(ctx, tx)
 		if err != nil {
@@ -305,6 +325,9 @@ func Mark(ctx context.Context, pool *pgxpool.Pool, key string, quotes map[string
 
 // Halt is the kill switch: it closes every open position at its last mark and halts the account.
 func Halt(ctx context.Context, pool *pgxpool.Pool, key, reason string, at time.Time) error {
+	if at.IsZero() {
+		return errNoTime
+	}
 	_, err := run(ctx, pool, "halt", key, nil, func(tx pgx.Tx, _ bool) (*int64, error) {
 		return nil, haltIn(ctx, tx, key, reason, at)
 	})
@@ -313,6 +336,9 @@ func Halt(ctx context.Context, pool *pgxpool.Pool, key, reason string, at time.T
 
 // ResetHalt lets the account open positions again.
 func ResetHalt(ctx context.Context, pool *pgxpool.Pool, key string, at time.Time) error {
+	if at.IsZero() {
+		return errNoTime
+	}
 	_, err := run(ctx, pool, "reset", key, nil, func(tx pgx.Tx, _ bool) (*int64, error) {
 		if _, err := tx.Exec(ctx, `UPDATE ledger_account SET halted = false WHERE id = 1`); err != nil {
 			return nil, err

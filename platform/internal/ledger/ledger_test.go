@@ -181,6 +181,34 @@ func TestSecondCloseRefusedByUniqueKey(t *testing.T) {
 		t.Fatalf("trades after partial = %d, want 1", n)
 	}
 	near(t, "cash after partial", cash(t, pool), c)
+	// A quiet bar on a closed position is refused like a hitting bar, and records no key.
+	if _, err := Fill(ctx, pool, "f1", id, Bar{Time: t0, Open: 100, High: 101, Low: 99}); !errors.Is(err, ErrClosed) {
+		t.Fatalf("quiet-bar fill of a closed position: %v, want ErrClosed", err)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM ledger_requests WHERE idempotency_key = 'f1'`); n != 0 {
+		t.Fatalf("refused fill recorded its key (%d rows)", n)
+	}
+}
+
+// Open with margin plus commission above cash is refused and leaves the ledger unchanged.
+func TestOpenRefusedOnInsufficientCash(t *testing.T) {
+	pool := setup(t, 100)
+	before := dump(t, pool)
+	// Margin 2000/10 = 200 exceeds cash 100.
+	_, err := Open(ctx, pool, "o1", OpenInput{Instrument: "WTI", Side: "long", Notional: 2000, Price: 100, Leverage: 10, Stop: 95}, t0)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("open over cash: %v, want ErrInvalid", err)
+	}
+	near(t, "cash", cash(t, pool), 100)
+	if n := count(t, pool, `SELECT count(*) FROM ledger_positions`); n != 0 {
+		t.Fatalf("positions = %d, want 0", n)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM ledger_requests WHERE idempotency_key = 'o1'`); n != 0 {
+		t.Fatalf("refused open recorded its key (%d rows)", n)
+	}
+	if after := dump(t, pool); after != before {
+		t.Fatalf("refused open changed the ledger:\n%s\n%s", before, after)
+	}
 }
 
 // A key replayed for another position is refused and books nothing on that position.
@@ -260,6 +288,23 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 	} {
 		if _, err := Fill(ctx, nil, "k1", 1, bar); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("bar %s: %v, want ErrInvalid", name, err)
+		}
+	}
+	var zero time.Time
+	for name, op := range map[string]func() error{
+		"seed":  func() error { return Seed(ctx, nil, 10000, zero) },
+		"open":  func() error { _, err := Open(ctx, nil, "k1", valid, zero); return err },
+		"close": func() error { return Close(ctx, nil, "k1", 1, 101, "manual", zero) },
+		"partial": func() error {
+			_, err := ClosePartial(ctx, nil, "k1", 1, 1, 101, "manual", zero)
+			return err
+		},
+		"mark":  func() error { return Mark(ctx, nil, "k1", map[string]float64{"WTI": 100}, zero) },
+		"halt":  func() error { return Halt(ctx, nil, "k1", "operator", zero) },
+		"reset": func() error { return ResetHalt(ctx, nil, "k1", zero) },
+	} {
+		if err := op(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s with a zero time: %v, want ErrInvalid", name, err)
 		}
 	}
 }
