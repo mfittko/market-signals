@@ -11,6 +11,7 @@ import (
 	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -53,7 +54,9 @@ func NormalizeSpec(raw json.RawMessage) (json.RawMessage, error) {
 	}
 	var spec map[string]any
 	if err := json.Unmarshal(raw, &spec); err != nil {
-		// an object that still fails to decode, such as a number outside float64 range; the decoder text names the field
+		if p := overflowPath(raw); p != "" {
+			return nil, fmt.Errorf("%w: %s: number outside float64 range", ErrInvalidSpec, p)
+		}
 		return nil, fmt.Errorf("%w: %v", ErrInvalidSpec, err)
 	}
 	var errs []string
@@ -169,6 +172,40 @@ func scanStrings(v any, path string, add func(string, ...any)) {
 			scanStrings(x[k], path+"."+k, add)
 		}
 	}
+}
+
+// overflowPath names the first number in raw that does not fit float64, or returns "".
+// The decode error cannot name it: whether it carries a map-key path depends on the Go toolchain.
+func overflowPath(raw json.RawMessage) string {
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
+	var v any
+	if d.Decode(&v) != nil {
+		return ""
+	}
+	return findOverflow(v, "spec")
+}
+
+func findOverflow(v any, path string) string {
+	switch x := v.(type) {
+	case json.Number:
+		if _, err := strconv.ParseFloat(string(x), 64); err != nil {
+			return path
+		}
+	case []any:
+		for i, e := range x {
+			if p := findOverflow(e, fmt.Sprintf("%s[%d]", path, i)); p != "" {
+				return p
+			}
+		}
+	case map[string]any:
+		for _, k := range slices.Sorted(maps.Keys(x)) {
+			if p := findOverflow(x[k], path+"."+k); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
 }
 
 func isInt(n float64) bool { return n == math.Trunc(n) }

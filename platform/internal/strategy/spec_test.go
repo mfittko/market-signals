@@ -57,7 +57,7 @@ func TestValidateSpecRejectsEachRuleNamingTheField(t *testing.T) {
 		{`{"schema_version":1,"entry":{"minAxesAligned":1,"require":{"impulse":"a\u0000b"}},"exit":{"stopAtr":1}}`, "spec.entry.require.impulse: a NUL character is not allowed"},
 		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1},"a\u0000b":1}`, "spec.<key>: a NUL character is not allowed"},
 		// an object whose number overflows float64 names the field, not "spec must be an object"
-		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1e400}}`, "exit.stopAtr"},
+		{`{"schema_version":1,"entry":{"minAxesAligned":1},"exit":{"stopAtr":1e400}}`, "spec.exit.stopAtr: number outside float64 range"},
 	} {
 		err := ValidateSpec([]byte(c.spec))
 		if !errors.Is(err, ErrInvalidSpec) || !strings.Contains(err.Error(), c.want) {
