@@ -269,16 +269,19 @@ run() {
   esac
 }
 
+port_taken() { # 8081|3000
+  case "$1" in
+    8081) die "port 8081 already serves a control plane from another checkout; stop that stack with scripts/dev.sh down there" ;;
+    3000) die "port 3000 already serves a console from another checkout; stop that stack with scripts/dev.sh down there" ;;
+  esac
+}
+
 up() {
   need docker; need go; need pnpm; need jq; need openssl
   # the checkouts share the ports, so an answer there with this checkout's service down comes from another
   # checkout's stack; wait_http would take that answer as this stack being ready
-  if ! alive api && curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then
-    die "port 8081 already serves a control plane from another checkout; stop that stack with scripts/dev.sh down there"
-  fi
-  if ! alive web && curl -fsS -m 2 http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
-    die "port 3000 already serves a console from another checkout; stop that stack with scripts/dev.sh down there"
-  fi
+  if ! alive api && curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then port_taken 8081; fi
+  if ! alive web && curl -fsS -m 2 http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then port_taken 3000; fi
   load_env
   dev_db
 
@@ -291,6 +294,9 @@ up() {
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
   fi
   wait_http "$MS_API_URL/api/v1/health" "control plane" 20
+  # two concurrent ups both pass the preflight; the slower api then exits on the bound port, and the answer came
+  # from the other checkout
+  alive api || port_taken 8081
 
   if ! alive worker; then
     start worker "$ROOT" "$RUN/bin/worker"
@@ -303,6 +309,7 @@ up() {
       -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
+  alive web || port_taken 3000
 
   echo
   echo "Console:        http://127.0.0.1:3000"

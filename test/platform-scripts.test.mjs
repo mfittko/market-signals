@@ -487,27 +487,45 @@ test('every line dev.sh prints for a launchd job carries a time and a level', ()
   }
 });
 
-// Runs `dev.sh up` from a scratch platform tree with stand-in docker, go, pnpm and curl first on PATH. The built
-// api and worker and the console record their address, API URL and database name; no real service is contacted.
-test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000', () => {
+// A scratch platform tree for `dev.sh up` with stand-in docker, go, pnpm and curl first on PATH. The built api and
+// worker and the console record their address, API URL and database name and then stay up (at most 30 s) until
+// stop() ends them, so up's post-start alive checks see them; no real service is contacted. `api` replaces the
+// built api's script and `curl` the curl stub.
+const devUpFixture = (dir, { api, curl } = {}) => {
+  const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
+  for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
+  for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+  writeFileSync(join(dir, 'none.json'), '{}');
+  const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  const stay = 'for _ in $(seq 1 30); do sleep 1; done';
+  const svc = `echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}" >>"$STUB_OUT"; ${stay}`;
+  stub(join(dir, 'svc'), svc);
+  stub(join(dir, 'api'), api ?? svc);
+  stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_API" "$2/api"; cp "$STUB_SVC" "$2/worker"');
+  // the last field holds every secret the console must not inherit, so it is empty for the web line
+  stub(join(bin, 'pnpm'), `echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
+  // by default a port answers only after the stubbed service on it started, so the preflight sees free ports
+  stub(join(bin, 'curl'), curl ?? 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
+  // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
+  stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
+  const run = join(plat, '.dev', 'dev');
+  const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_API: join(dir, 'api'), STUB_CURL: join(dir, 'curl.log'),
+    STUB_DOCKER: join(dir, 'docker.log'), STUB_API_PID: join(run, 'api.pid'),
+    MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid', XDG_CONFIG_HOME: join(dir, 'xdg') };
+  const up = () => spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+  const stop = () => {
+    for (const p of ['api', 'worker', 'web']) {
+      try { process.kill(Number(readFileSync(join(run, `${p}.pid`), 'utf8'))); } catch { /* not started or already gone */ }
+    }
+  };
+  return { plat, out, env, up, stop };
+};
+
+test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000; a rerun with that stack up does not refuse', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devstack-'));
+  const { plat, out, env, up, stop } = devUpFixture(dir);
   try {
-    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
-    for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
-    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
-    writeFileSync(join(dir, 'none.json'), '{}');
-    const stub = (path, body) => writeFileSync(path, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-    stub(join(dir, 'svc'), 'echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}" >>"$STUB_OUT"');
-    stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_SVC" "$2/api"; cp "$STUB_SVC" "$2/worker"');
-    // the last field holds every secret the console must not inherit, so it is empty for the web line
-    stub(join(bin, 'pnpm'), 'echo "web|$MS_API_ADDR|$MS_API_URL|${MS_DATABASE_URL##*/}|${MS_DEV_DB_PASSWORD:-}${MS_WORKER_TOKEN:-}${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"');
-    // a port answers only after the stubbed service on it started, so the preflight sees free ports
-    stub(join(bin, 'curl'), 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
-    // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
-    stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
-    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log'),
-      MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid', XDG_CONFIG_HOME: join(dir, 'xdg') };
-    const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    const r = up();
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
     assert.match(r.stdout, /Database: {7}ms_dev\n/);
@@ -533,29 +551,59 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'api.pid')));
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
     assert.deepEqual(readdirSync(join(plat, '.dev', 'bin')), []);
+    // this checkout's api and console are alive and answer on 8081 and 3000: a second up passes the port checks
+    const again = up();
+    assert.equal(again.status, 0, again.stderr);
+    assert.match(again.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
   } finally {
+    stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-// Another checkout's stack already answers on the shared ports: curl answers before this checkout starts anything.
-test('dev.sh up refuses when another checkout serves port 8081 and builds nothing and sets no role password', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ms-devbusy-'));
+// Another checkout's stack already answers on a shared port: curl answers before this checkout starts anything.
+test('dev.sh up refuses when another checkout serves port 8081 or 3000 and builds nothing and sets no role password', () => {
+  const cases = [
+    ['exit 0', /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/],
+    ['case "$*" in *:3000/*) exit 0 ;; esac; exit 1', /port 3000 already serves a console from another checkout; stop that stack with scripts\/dev\.sh down there/],
+  ];
+  for (const [curl, message] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-devbusy-'));
+    try {
+      const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'calls.log');
+      for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
+      for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+      const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+      stub('curl', curl);
+      for (const name of ['go', 'pnpm']) stub(name, `echo "${name} $*" >>"$STUB_LOG"`);
+      stub('docker', 'echo "docker $*" >>"$STUB_LOG"; cat >>"$STUB_LOG"');
+      const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', XDG_CONFIG_HOME: join(dir, 'xdg') };
+      const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, message);
+      const calls = existsSync(log) ? readFileSync(log, 'utf8') : '';
+      assert.doesNotMatch(calls, /go build|ALTER ROLE ms_dev/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// Two concurrent ups both pass the preflight. The slower one's api exits at once on the bound port, and its health
+// check gets the other checkout's answer: curl answers every URL once this checkout's api has started and exited.
+test('dev.sh up fails with the port 8081 message when its started api exits while another checkout answers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-'));
+  const curl = '[ -f "$STUB_API_PID" ] || exit 1; while kill -0 "$(cat "$STUB_API_PID")" 2>/dev/null; do sleep 0.1; done';
+  const { out, up, stop } = devUpFixture(dir, { api: 'exit 1', curl });
   try {
-    const bin = join(dir, 'bin'), plat = join(dir, 'plat'), log = join(dir, 'calls.log');
-    for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
-    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
-    const stub = (name, body) => writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-    stub('curl', 'exit 0');
-    for (const name of ['go', 'pnpm']) stub(name, `echo "${name} $*" >>"$STUB_LOG"`);
-    stub('docker', 'echo "docker $*" >>"$STUB_LOG"; cat >>"$STUB_LOG"');
-    const env = { PATH: `${bin}:${process.env.PATH}`, STUB_LOG: log, MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', XDG_CONFIG_HOME: join(dir, 'xdg') };
-    const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    const r = up();
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/);
-    const calls = existsSync(log) ? readFileSync(log, 'utf8') : '';
-    assert.doesNotMatch(calls, /go build|ALTER ROLE ms_dev/);
+    assert.doesNotMatch(r.stdout, /Control plane:/);
+    // up stops before the worker and the console start
+    assert.equal(existsSync(out), false);
   } finally {
+    stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
