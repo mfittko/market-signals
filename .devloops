@@ -109,6 +109,11 @@ tracker:
 # rather than several independent ones — that is the tradeoff being accepted.
 gates:
   requireFanoutEvidence: false
+  size:
+    tiers:
+      default:
+        # 800, not 400: clean feature PRs here run 400-800 code lines and escalation voids the standing merge approval.
+        softLoc: 800
 
 # Merge policy (operator, 2026-11-16): standing merge approval for this repo.
 # The agent may merge a PR once every gate is clean on the current head: CI,
