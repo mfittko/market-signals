@@ -57,7 +57,7 @@ Settings are one resource with one revision counter, so the settings route uses 
 | `baseRevision` differs from the current revision | `409` | `stale_base_revision` |
 | `baseRevision` is missing and the current revision is above 0 | `400` | `base_revision_required` |
 | `baseRevision` is missing and the current revision is 0 | `200` (creates revision 1) | none |
-| `baseRevision` is not a non-negative integer | `400` | `invalid_setting` |
+| `baseRevision` is not an integer from 0 to 2^63-1 | `400` | `invalid_setting` |
 
 The store compares the base inside the write transaction, after the settings advisory lock, so of two saves with the same base that both change a value, exactly one succeeds. A save that changes nothing keeps the revision. A refused write stores nothing, even when its patch would change nothing. The `stale_base_revision` body names the current revision in `currentRevision`. The strategy route uses `currentVersion` for the same value. A successful write returns `{"ok": true, "revision": <n>, "changed": [...], "settings": {...}}`.
 

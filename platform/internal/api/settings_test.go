@@ -104,4 +104,12 @@ func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
 	if code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":2,"port":9000}`, nil); code != http.StatusOK || out["revision"] != float64(3) {
 		t.Fatal(code, out)
 	}
+	// The operator job-owner route writes without a base above revision 0 and still raises the revision.
+	if code, out := call(t, "PUT", api+"/operator/job-owners", "op", `{"bot":"go"}`, nil); code != http.StatusOK || out["revision"] != float64(4) {
+		t.Fatal(code, out)
+	}
+	code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":3,"port":9001}`, nil)
+	if code != http.StatusConflict || out["code"] != "stale_base_revision" || out["currentRevision"] != float64(4) {
+		t.Fatal(code, out)
+	}
 }
