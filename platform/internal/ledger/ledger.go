@@ -297,12 +297,16 @@ func checkBar(bar Bar) error {
 // Replay judges, oldest first, every stored candle of the position's instrument and granularity after its
 // last judged bar, up to and including through. The caller sets through to the newest completed bar time,
 // so a forming bar is never judged, and only once every bar up to through is stored: a bar stored later behind
-// the last judged bar is never judged. Before the first replay, judging starts at the bar that contains the
-// entry time, the next bar to complete after the entry (docs/fill-spec.md, entry bar). The first bar that
-// reaches the stop or target closes the position at that bar's time and at the fill.Check price. The newest
-// judged bar time is stored in the same transaction, so after a restart no bar is skipped or judged twice.
-// A stored candle that fails the bar checks refuses the replay and writes nothing. A repeated key returns its
-// stored result, so the key must name both the position and through.
+// the last judged bar is never judged. The caller also replays through the newest completed bar before any
+// ClosePartial on the position, so a replayed close is never dated before a booked partial close. Before the
+// first replay, judging starts at the bar that contains the entry time, the next bar to complete after the
+// entry (docs/fill-spec.md, entry bar). That bar opened before the entry, so it is judged with the entry
+// price as its open: the gap rules cannot fire on it, and a fill on it is dated at the entry time. The first
+// bar that reaches the stop or target closes the position at that bar's time and at the fill.Check price.
+// The newest judged bar time is stored in the same transaction, so after a restart no bar is skipped or
+// judged twice. A judged candle that fails the bar checks refuses the replay and writes nothing; bars after
+// the fill bar are not judged. A repeated key returns its stored result, so the key must name both the
+// position and through.
 func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, through time.Time) (bool, error) {
 	if through.IsZero() {
 		return false, errNoTime
@@ -341,8 +345,12 @@ func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int6
 			if err := checkBar(bar); err != nil {
 				return nil, fmt.Errorf("candle at %s: %w", bar.Time.Format(time.RFC3339), err)
 			}
-			if price, reason := fill.Check(p.side == "long", p.stop, p.target, bar.Open, bar.High, bar.Low); reason != "" {
-				if err := closeIn(ctx, tx, key, p, price, reason, bar.Time); err != nil {
+			open, at := bar.Open, bar.Time
+			if bar.Time.Before(p.entryTime) {
+				open, at = p.entry, p.entryTime
+			}
+			if price, reason := fill.Check(p.side == "long", p.stop, p.target, open, bar.High, bar.Low); reason != "" {
+				if err := closeIn(ctx, tx, key, p, price, reason, at); err != nil {
 					return nil, err
 				}
 				closed, judged = &p.id, bar.Time

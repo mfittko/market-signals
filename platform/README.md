@@ -229,6 +229,8 @@ close of a position is refused by the UNIQUE key on `ledger_trades.position_id`.
 `009_ledger_replay.sql`) judges every stored candle of a position's instrument and granularity after its last judged
 bar (first the bar that contains the entry), up to the newest completed bar the caller names, and stores the newest
 judged bar in the same transaction. A stop touched between two evaluations fills at that bar's time and price, and a
-restart neither skips nor re-judges a bar. The caller replays only once every bar up to that bar is stored, and its
-idempotency key names the position and that bar. The Node ledger stays live until a
+restart neither skips nor re-judges a bar. The bar that contains the entry is judged with the entry price as its open,
+so the gap rules cannot fire on it, and a fill on it is dated at the entry time. The caller replays only once every bar
+up to that bar is stored, and before any partial close of that position, and its idempotency key names the position
+and that bar. The Node ledger stays live until a
 later slice of https://github.com/mfittko/market-signals/issues/343 switches the bots.

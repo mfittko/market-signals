@@ -102,6 +102,8 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 	a := mustOpen(t, pool, "a", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
 	b := mustOpen(t, pool, "b", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
 	c := mustOpen(t, pool, "c", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5})
+	// A quiet bar and a stop bar, so the replay case reaches the close and the last_judged_at update.
+	candles(t, pool, [4]float64{0, 100, 101, 99}, [4]float64{1, 99, 100, 94})
 	beforeCommit = func(string) error { return injected }
 
 	for name, op := range map[string]func() error{
@@ -119,7 +121,7 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 		"halt":  func() error { return Halt(ctx, pool, "x6", "operator", t0) },
 		"reset": func() error { return ResetHalt(ctx, pool, "x7", t0) },
 		"replay": func() error {
-			_, err := Replay(ctx, pool, "x8", c, t0)
+			_, err := Replay(ctx, pool, "x8", c, bar(1))
 			return err
 		},
 	} {
@@ -130,6 +132,11 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 		if after := dump(t, pool); after != before {
 			t.Fatalf("%s changed the ledger:\n%s\n%s", name, before, after)
 		}
+	}
+	// Without the injected error the same replay closes c, so the rolled-back case did reach the writes.
+	beforeCommit = nil
+	if !replay(t, pool, "x9", c, bar(1)) {
+		t.Fatal("replay over the stop bar did not close the position")
 	}
 }
 
