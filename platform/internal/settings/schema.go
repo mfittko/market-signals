@@ -156,7 +156,8 @@ func findPath(v any) string {
 	case string:
 		s := strings.ToLower(strings.TrimSpace(t))
 		if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~") || strings.HasPrefix(s, "./") ||
-			strings.HasPrefix(s, "../") || strings.HasPrefix(s, "file:") || strings.Contains(s, `\`) {
+			strings.HasPrefix(s, "../") || strings.HasPrefix(s, "file:") || strings.Contains(s, `\`) ||
+			s == ".." || strings.Contains(s, "/../") || strings.HasSuffix(s, "/..") {
 			return t
 		}
 	case map[string]any:
@@ -307,7 +308,7 @@ var (
 		"maxPositions": integer(1, math.MaxInt32), "watchers": text, "leverage": leverage, "bots": bots,
 	}
 	perBotSpec = map[string]func(any) error{
-		"enabled": boolean, "strategyId": integer(1, 1<<53), "strategyName": pattern(`^[a-z0-9][a-z0-9-]{1,47}$`),
+		"enabled": boolean, "strategyId": integer(-(1 << 53), 1<<53), "strategyName": pattern(`^[a-z0-9][a-z0-9-]{1,47}$`),
 		"riskPct": positive, "killSwitchDrawdownPct": positive, "allocationPct": func(v any) error {
 			if f, ok := v.(float64); !ok || f <= 0 || f > 100 {
 				return errors.New("must be in (0,100]")
@@ -401,9 +402,18 @@ func PairSet(csv string) map[string]bool {
 // shortcut: the legacy flat bot (bot.enabled without a bots map) is not checked; the
 // console has written the bots map since per-combo bots shipped.
 func botsWithoutPair(vals map[string]any) []string {
-	watched := map[string]bool{}
-	if w, ok := vals["watchers"].(string); ok {
-		watched = PairSet(w)
+	w, _ := vals["watchers"].(string)
+	watched := PairSet(w)
+	if len(watched) == 0 {
+		// The engine watches instrument|granularity (default BCO/USD|M5) when watchers is empty.
+		inst, gran := "BCO/USD", "M5"
+		if s, ok := vals["instrument"].(string); ok {
+			inst = s
+		}
+		if s, ok := vals["granularity"].(string); ok {
+			gran = s
+		}
+		watched[NormPair(inst+"|"+gran)] = true
 	}
 	b, _ := vals["bot"].(map[string]any)
 	bm, _ := b["bots"].(map[string]any)

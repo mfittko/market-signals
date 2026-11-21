@@ -204,10 +204,11 @@ stays the live source until the Go store owns settings writes
 
 - `go run ./cmd/settings-import --settings ../data/settings.json` copies the file into the store. It reads
   `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
-  the changed keys. Unknown or invalid keys keep their stored value. The report lists only their names.
+  the changed keys. Unknown or invalid keys keep their stored value. The report lists each refused key with the
+  reason it was refused, never a value.
 - `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
   refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the
-  watcher list. A refused write stores nothing. The next import overwrites what this route wrote.
+  watcher list. Secret values are opaque tokens and are not scanned for paths. A refused write stores nothing. The next import overwrites what this route wrote.
 - Job owner flags (`candles`, `alerts`, `bot`, `news`, each `node` or `go`, default `node`) exist only in Postgres.
   `GET` and `PUT /api/v1/operator/job-owners` read and set them with `Authorization: Bearer $MS_OPERATOR_TOKEN`.
   Without `MS_OPERATOR_TOKEN` the operator routes answer 401.

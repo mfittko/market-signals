@@ -45,7 +45,7 @@ func main() {
 		log.Error("import", "err", err)
 		os.Exit(1)
 	}
-	// The report names keys only, never values, so it is safe to print.
+	// The report lists each refused key with its reason, never a value, so it is safe to print.
 	b, _ := json.MarshalIndent(rep, "", "  ")
 	fmt.Println(string(b))
 }

@@ -40,6 +40,15 @@ func TestCheck(t *testing.T) {
 		{FromAPI, "model", "gpt-5", ""},
 		{FromAPI, "model", "FILE:///etc/passwd", "path is not accepted"},
 		{FromAPI, "model", " /usr/bin/env", "path is not accepted"},
+		// a traversal segment after the first character is a path too
+		{FromAPI, "model", "x/../../etc/passwd", "path is not accepted"},
+		{FromAPI, "model", "openai/../../../bin/sh", "path is not accepted"},
+		{FromAPI, "model", "openai/..", "path is not accepted"},
+		{FromAPI, "model", "..", "path is not accepted"},
+		// the engine accepts any integer strategy id, so the import does too
+		{FromImport, "bot", map[string]any{"bots": map[string]any{"WTICO/USD|M5": map[string]any{"enabled": true, "strategyId": float64(0)}}}, ""},
+		{FromImport, "bot", map[string]any{"bots": map[string]any{"WTICO/USD|M5": map[string]any{"strategyId": float64(-3)}}}, ""},
+		{FromImport, "bot", map[string]any{"bots": map[string]any{"WTICO/USD|M5": map[string]any{"strategyId": float64(1.5)}}}, "must be an integer"},
 		// a path used as a map key is refused like a path value
 		{FromAPI, "bot", map[string]any{"leverage": map[string]any{"/etc/passwd": float64(2)}}, "path is not accepted"},
 		{FromAPI, "bot", map[string]any{"bots": map[string]any{"/etc/passwd|M5": map[string]any{"enabled": false}}}, "path is not accepted"},
@@ -70,7 +79,7 @@ func TestCheck(t *testing.T) {
 }
 
 func TestFindPathInputForms(t *testing.T) {
-	for _, s := range []string{"XAU/USD", "XAU/USD|H1", "EUR/USD|M5", "gpt-5", "https://api.example.com"} {
+	for _, s := range []string{"XAU/USD", "XAU/USD|H1", "EUR/USD|M5", "gpt-5", "openai/gpt-5", "https://api.example.com"} {
 		if p := findPath(s); p != "" {
 			t.Errorf("value %q: refused as a path", s)
 		}
@@ -78,7 +87,8 @@ func TestFindPathInputForms(t *testing.T) {
 			t.Errorf("key %q: refused as a path", s)
 		}
 	}
-	for _, s := range []string{"/etc/passwd", "/etc/passwd|M5", "~/x|H1", "FILE:///etc/passwd", " /usr/bin/env", "\t~/bin/x", "File:x"} {
+	for _, s := range []string{"/etc/passwd", "/etc/passwd|M5", "~/x|H1", "FILE:///etc/passwd", " /usr/bin/env", "\t~/bin/x", "File:x",
+		"x/../../etc/passwd", "openai/../../../bin/sh", "openai/..", ".."} {
 		if p := findPath(s); p != s {
 			t.Errorf("value %q: got %q", s, p)
 		}
@@ -133,5 +143,30 @@ func TestBotsWithoutPair(t *testing.T) {
 	}
 	if got := botsWithoutPair(vals); !slices.Equal(got, []string{"NAS100/USD|M5"}) {
 		t.Fatal(got)
+	}
+}
+
+func TestBotsWithoutPairUsesTheEngineFallback(t *testing.T) {
+	bots := map[string]any{"bots": map[string]any{
+		"XAU/USD|H1":   map[string]any{"enabled": true},
+		"WTICO/USD|M5": map[string]any{"enabled": true},
+		"BCO/USD|M5":   map[string]any{"enabled": true},
+	}}
+	cases := []struct {
+		vals map[string]any
+		want []string
+	}{
+		// absent or empty watchers: the engine watches instrument|granularity
+		{map[string]any{"instrument": "XAU/USD", "granularity": "H1", "bot": bots}, []string{"BCO/USD|M5", "WTICO/USD|M5"}},
+		{map[string]any{"watchers": " , ", "instrument": "XAU/USD", "granularity": "H1", "bot": bots}, []string{"BCO/USD|M5", "WTICO/USD|M5"}},
+		// no instrument or granularity: the engine defaults to BCO/USD and M5
+		{map[string]any{"bot": bots}, []string{"WTICO/USD|M5", "XAU/USD|H1"}},
+		// a non-empty watcher list replaces the fallback
+		{map[string]any{"watchers": "WTICO/USD", "instrument": "XAU/USD", "granularity": "H1", "bot": bots}, []string{"BCO/USD|M5", "XAU/USD|H1"}},
+	}
+	for _, c := range cases {
+		if got := botsWithoutPair(c.vals); !slices.Equal(got, c.want) {
+			t.Errorf("%v: got %v, want %v", c.vals, got, c.want)
+		}
 	}
 }

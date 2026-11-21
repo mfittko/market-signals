@@ -117,6 +117,30 @@ func TestImportIsIdempotentAndImportsOnlyChanges(t *testing.T) {
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
+func TestImportRefusesAFileThatIsNotAJSONObject(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	writeFile(t, path, fileSettings())
+	if _, err := settings.Import(ctx, pool, path); err != nil {
+		t.Fatal(err)
+	}
+	before := load(t, pool)
+	// null decodes to a nil map; without the guard every stored key would be deleted.
+	for _, body := range []string{"null", "[]", "{"} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := settings.Import(ctx, pool, path); err == nil || !strings.Contains(err.Error(), "is not a JSON object") {
+			t.Fatalf("%s: got %v", body, err)
+		}
+		after := load(t, pool)
+		if after.Revision != before.Revision || string(mustJSON(after.Values)) != string(mustJSON(before.Values)) {
+			t.Fatalf("%s: store changed: revision %d, %s", body, after.Revision, mustJSON(after.Values))
+		}
+	}
+}
+
 func TestImportReportsAWideFileMode(t *testing.T) {
 	pool := testutil.Pool(t)
 	path := filepath.Join(t.TempDir(), "settings.json")

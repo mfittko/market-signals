@@ -166,7 +166,8 @@ func sameJSON(a, b any) bool {
 	return err1 == nil && err2 == nil && string(x) == string(y)
 }
 
-// ImportReport lists what one import run did. Skipped names each key the schema refused, without its value.
+// ImportReport lists what one import run did. Skipped lists each key the schema refused as
+// "key: reason". The reason can quote nested key names from the file, never a value.
 type ImportReport struct {
 	Revision int64    `json:"revision"`
 	Changed  []string `json:"changed"`
