@@ -14,46 +14,51 @@ import (
 // CooldownBars is how many held bars must pass before the same tripwire may fire again.
 const CooldownBars = 5
 
+// Bar is one completed bar. The JSON tags on the types below name the fields of test/golden/monitor.json.
 type Bar struct {
-	Time                           time.Time
-	Open, High, Low, Close, Volume float64
+	Time   time.Time `json:"time,omitzero"`
+	Open   float64   `json:"open"`
+	High   float64   `json:"high"`
+	Low    float64   `json:"low"`
+	Close  float64   `json:"close"`
+	Volume float64   `json:"volume,omitempty"`
 }
 
 // Position is the state Step needs and returns. It carries no clock and no I/O.
 type Position struct {
-	ID        int64
-	Side      string // long | short
-	Entry     float64
-	Stop      float64
-	Target    *float64
-	Plan      domain.Plan // Plan.Tripwires are the live wake conditions
-	BarsHeld  int
-	Best      float64        // best close since entry: highest for a long, lowest for a short; 0 means Entry
-	LastClose float64        // previous bar's close; 0 means Entry
-	LastFired map[string]int // tripwire key -> BarsHeld when it last fired
+	ID        int64          `json:"id,omitempty"`
+	Side      string         `json:"side"` // long | short
+	Entry     float64        `json:"entry"`
+	Stop      float64        `json:"stop"`
+	Target    *float64       `json:"target,omitempty"`
+	Plan      domain.Plan    `json:"plan,omitzero"` // Plan.Tripwires are the live wake conditions
+	BarsHeld  int            `json:"barsHeld,omitempty"`
+	Best      float64        `json:"best,omitempty"`      // best close since entry: highest for a long, lowest for a short; 0 means Entry
+	LastClose float64        `json:"lastClose,omitempty"` // previous bar's close; 0 means Entry
+	LastFired map[string]int `json:"lastFired,omitempty"` // tripwire key -> BarsHeld when it last fired
 }
 
 // Env is what the service knows about the market at this bar.
 type Env struct {
-	ATR              float64 // 0 when unknown
-	Supertrend       float64 // 0 when unknown
-	Halted           bool    // the engine's kill switch
-	OppositeFlip     bool
-	Impulse          bool
-	NewsEscalation   bool
-	FeedStaleMinutes float64
+	ATR              float64 `json:"atr,omitempty"`        // 0 when unknown
+	Supertrend       float64 `json:"supertrend,omitempty"` // 0 when unknown
+	Halted           bool    `json:"halted,omitempty"`     // the engine's kill switch
+	OppositeFlip     bool    `json:"oppositeFlip,omitempty"`
+	Impulse          bool    `json:"impulse,omitempty"`
+	NewsEscalation   bool    `json:"newsEscalation,omitempty"`
+	FeedStaleMinutes float64 `json:"feedStaleMinutes,omitempty"`
 }
 
 type Exit struct {
-	Price  float64
-	Reason string // stop | target | invalidated | time_stop | kill_switch
+	Price  float64 `json:"price"`
+	Reason string  `json:"reason"` // stop | target | invalidated | time_stop | kill_switch
 }
 
 type Result struct {
-	Pos     Position
-	Exit    *Exit
-	Trailed bool // the trail moved the stop this bar
-	Fired   []domain.Tripwire
+	Pos     Position          `json:"position"`
+	Exit    *Exit             `json:"exit,omitempty"`
+	Trailed bool              `json:"trailed"` // the trail moved the stop this bar
+	Fired   []domain.Tripwire `json:"fired,omitempty"`
 }
 
 func (p Position) dir() float64 {

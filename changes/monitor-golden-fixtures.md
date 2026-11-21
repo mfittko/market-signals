@@ -1,0 +1,1 @@
+- Platform: golden fixtures for the position monitor rules (`test/golden/monitor.json`) with a Go replay and a coverage guard that fail when a fill, exit, trail or tripwire changes (#284)
