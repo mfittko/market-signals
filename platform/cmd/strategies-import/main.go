@@ -21,8 +21,12 @@ import (
 
 func main() {
 	path := flag.String("sqlite", "../data/candles.db", "engine SQLite database to mirror (read only)")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL)")
+	// Empty default: the flag package prints defaults in its usage text, which would leak the URL's password.
+	dburl := flag.String("db", "", "postgres URL (default $MS_DATABASE_URL)")
 	flag.Parse()
+	if *dburl == "" {
+		*dburl = os.Getenv("MS_DATABASE_URL")
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if *dburl == "" {
 		log.Error("MS_DATABASE_URL or -db must be set")
