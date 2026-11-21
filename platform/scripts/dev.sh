@@ -18,7 +18,8 @@
 #              control plane for strategy coaching; the console starts without them).
 # Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
 #          and ingest tokens and database password, generated once. It also holds MS_DATABASE_URL for the binaries
-#          and MS_TEST_DATABASE_URL for go test.
+#          and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
+#          $XDG_CONFIG_HOME/market-signals/dev-db-password (default ~/.config), so they share the role ms_dev.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
@@ -83,6 +84,28 @@ wait_http() { # url name seconds
   die "$2 did not become ready (see $RUN/*.log)"
 }
 
+# dev_db_password [seed]: the one ms_dev password of every checkout of this user. All checkouts share one Postgres
+# server and its role ms_dev, so a password per checkout would lock the other checkouts out. The file lives outside
+# every checkout, in $XDG_CONFIG_HOME (default ~/.config). The first run writes it from the seed (the password of an
+# older env file, so that checkout keeps working) or a new random one.
+dev_db_password() {
+  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/market-signals" f tmp pw seed="${1:-}"
+  f="$dir/dev-db-password"
+  if [ ! -e "$f" ]; then
+    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || seed="$(openssl rand -hex 24)"
+    mkdir -p "$dir"
+    tmp="$(mktemp "$dir/.dev-db-password.XXXXXX")"
+    echo "$seed" >"$tmp"
+    # ln refuses an existing name, so when two first runs race, both keep the file the faster one linked
+    ln "$tmp" "$f" 2>/dev/null || true
+    rm -f "$tmp"
+  fi
+  pw="$(cat "$f")"
+  # the value goes into SQL and URLs, so only the generated form is accepted
+  [[ "$pw" =~ ^[0-9a-f]{48}$ ]] || die "$f does not hold a development database password (48 hex digits); delete it and run again"
+  echo "$pw"
+}
+
 load_env() {
   if [ ! -f "$RUN/env" ]; then
     # the file holds secrets, so it must never exist with wider permissions, even briefly
@@ -96,13 +119,17 @@ load_env() {
   elif grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
     die "$RUN/env belongs to the development stack; the live stack needs its own run directory"
   fi
-  # the database password is generated once; an env file from before it existed gains it here
+  # the database password is generated once; an env file from before it existed gains it here. The development
+  # password is the shared one of dev_db_password, so an env file with another password gets the shared one.
   if [ "$STACK" = dev ]; then
-    if ! grep -q '^MS_DEV_DB_PASSWORD=' "$RUN/env"; then
-      local pw; pw="$(openssl rand -hex 24)"
-      { echo "MS_DEV_DB_PASSWORD=$pw"
-        echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
-        echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >>"$RUN/env"
+    local pw; pw="$(dev_db_password "$(grep -m1 '^MS_DEV_DB_PASSWORD=' "$RUN/env" | cut -d= -f2- || true)")"
+    if ! grep -qx "MS_DEV_DB_PASSWORD=$pw" "$RUN/env"; then
+      ( umask 077
+        { grep -v -e '^MS_DEV_DB_PASSWORD=' -e '^MS_DATABASE_URL=' -e '^MS_TEST_DATABASE_URL=' "$RUN/env" || true
+          echo "MS_DEV_DB_PASSWORD=$pw"
+          echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
+          echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >"$RUN/env.new" )
+      mv -f "$RUN/env.new" "$RUN/env"
     fi
   elif ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
     local pw; pw="$(openssl rand -hex 24)"
@@ -199,13 +226,18 @@ dev_db() {
     dc exec -T postgres pg_isready -U ms -d ms >/dev/null 2>&1 && break
     sleep 1
   done
-  # the SQL goes through stdin, off the process list
-  printf "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;\nALTER ROLE ms_dev PASSWORD '%s';\n" \
-    "$MS_DEV_DB_PASSWORD" | dc exec -T postgres psql -q -v ON_ERROR_STOP=1 -U ms -d ms >/dev/null
-  for d in ms_dev ms_dev_test; do
-    dc exec -T postgres psql -U ms -d ms -tc "SELECT 1 FROM pg_database WHERE datname='$d'" | grep -q 1 \
-      || dc exec -T postgres psql -U ms -d ms -c "CREATE DATABASE $d OWNER ms_dev" >/dev/null
-  done
+  # One psql session holds an advisory lock while it creates the role and the databases, so `dev.sh up` runs from
+  # several checkouts at once take turns instead of failing on a duplicate role or database. The lock ends with the
+  # session. CREATE DATABASE cannot run in a DO block, so \gexec runs it only for a missing database. The password is
+  # the shared one, so setting it again changes nothing for the other checkouts. The SQL goes through stdin, off the
+  # process list.
+  { echo "SELECT pg_advisory_lock(hashtext('ms_dev'));"
+    echo "DO \$\$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='ms_dev') THEN CREATE ROLE ms_dev LOGIN; END IF; END\$\$;"
+    printf "ALTER ROLE ms_dev PASSWORD '%s';\n" "$MS_DEV_DB_PASSWORD"
+    for d in ms_dev ms_dev_test; do
+      echo "SELECT 'CREATE DATABASE $d OWNER ms_dev' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='$d')\\gexec"
+    done
+  } | dc exec -T postgres psql -q -v ON_ERROR_STOP=1 -U ms -d ms >/dev/null
 }
 
 # run <api|worker|web>: one service in the foreground, for a supervisor such as launchd.

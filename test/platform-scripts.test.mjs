@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
+// dev.sh keeps the shared development database password under $XDG_CONFIG_HOME, so no test touches the real one
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'ms-xdg-'));
 const sh = (script, env) => spawnSync('bash', ['-c', script], { env: { ...process.env, ...env }, encoding: 'utf8' });
 
 // Sources switch-launchd.sh (its dispatch only runs when executed directly) and calls edit_settings on a scratch file.
@@ -518,10 +520,10 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     assert.match(curls, /http:\/\/127\.0\.0\.1:3000\/api\/v1\/health/);
     assert.doesNotMatch(curls, /:8080|:3737/);
     const docker = readFileSync(env.STUB_DOCKER, 'utf8');
-    assert.match(docker, /CREATE ROLE ms_dev LOGIN/);
+    assert.match(docker, /pg_advisory_lock[\s\S]*CREATE ROLE ms_dev LOGIN/);
     assert.match(docker, /ALTER ROLE ms_dev PASSWORD '[0-9a-f]{48}'/);
-    assert.match(docker, /CREATE DATABASE ms_dev OWNER ms_dev\n/);
-    assert.match(docker, /CREATE DATABASE ms_dev_test OWNER ms_dev\n/);
+    assert.match(docker, /'CREATE DATABASE ms_dev OWNER ms_dev' WHERE NOT EXISTS .*\\gexec\n/);
+    assert.match(docker, /'CREATE DATABASE ms_dev_test OWNER ms_dev' WHERE NOT EXISTS .*\\gexec\n/);
     assert.doesNotMatch(docker, /ALTER ROLE ms PASSWORD|compose up/);
     // the development build and pid files live in .dev/dev; the live run directory gets no env file or binary
     assert.ok(existsSync(join(plat, '.dev', 'dev', 'bin', 'api')));
@@ -565,6 +567,78 @@ test('dev_db with no Postgres container refuses and names scripts/dev.sh db', ()
     assert.match(r.stderr, /run scripts\/dev\.sh db from the live checkout/);
     assert.doesNotMatch(docker, /compose up|compose start|ALTER ROLE/);
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Several scratch checkouts share one scratch $XDG_CONFIG_HOME and one stand-in docker: Postgres reports running and
+// the psql stdin goes to the log.
+const checkouts = (n) => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devshare-'));
+  const bin = join(dir, 'bin'), xdg = join(dir, 'xdg'), log = join(dir, 'docker.log');
+  mkdirSync(bin); mkdirSync(xdg);
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
+  const plats = Array.from({ length: n }, (_, i) => {
+    const plat = join(dir, `plat${i}`);
+    mkdirSync(join(plat, 'scripts'), { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
+    return plat;
+  });
+  const env = { MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, XDG_CONFIG_HOME: xdg };
+  const read = (plat) => Object.fromEntries(readFileSync(join(plat, '.dev', 'dev', 'env'), 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
+  const passwords = () => [...readFileSync(log, 'utf8').matchAll(/ALTER ROLE ms_dev PASSWORD '(\w+)'/g)].map((m) => m[1]);
+  return { dir, xdg, plats, env, read, passwords };
+};
+
+test('a second checkout running dev_db keeps the ms_dev password of the first, and an older env file gets the shared one', () => {
+  const { dir, xdg, plats: [first, second, older], env, read, passwords } = checkouts(3);
+  try {
+    const a = 'a'.repeat(48), b = 'b'.repeat(48);
+    const envFile = (pw) => `MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\nMS_DEV_DB_PASSWORD=${pw}\nMS_DATABASE_URL=postgres://ms_dev:${pw}@127.0.0.1:5544/ms_dev\nMS_TEST_DATABASE_URL=postgres://ms_dev:${pw}@127.0.0.1:5544/ms_dev_test\n`;
+    // the first checkout was set up before the shared password existed; its password becomes the shared one
+    mkdirSync(join(first, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(first, '.dev', 'dev', 'env'), envFile(a), { mode: 0o600 });
+    mkdirSync(join(older, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(older, '.dev', 'dev', 'env'), envFile(b), { mode: 0o600 });
+    for (const plat of [first, second, older]) {
+      const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat });
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.deepEqual(passwords(), [a, a, a]);
+    assert.equal(readFileSync(join(xdg, 'market-signals', 'dev-db-password'), 'utf8').trim(), a);
+    assert.equal(statSync(join(xdg, 'market-signals', 'dev-db-password')).mode & 0o777, 0o600);
+    for (const plat of [first, second, older]) {
+      const e = read(plat);
+      assert.equal(e.MS_DEV_DB_PASSWORD, a);
+      assert.equal(e.MS_DATABASE_URL, `postgres://ms_dev:${a}@127.0.0.1:5544/ms_dev`);
+      assert.equal(e.MS_TEST_DATABASE_URL, `postgres://ms_dev:${a}@127.0.0.1:5544/ms_dev_test`);
+      assert.equal(statSync(join(plat, '.dev', 'dev', 'env')).mode & 0o777, 0o600);
+      assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+    }
+    // the rewritten env file keeps its own tokens and holds each database line once
+    assert.equal(readFileSync(join(older, '.dev', 'dev', 'env'), 'utf8'), envFile(a));
+    assert.doesNotMatch(readFileSync(env.STUB_DOCKER, 'utf8'), /ALTER ROLE ms PASSWORD|compose up/);
+
+    writeFileSync(join(xdg, 'market-signals', 'dev-db-password'), "x'; DROP ROLE ms; --\n");
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: second });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /does not hold a development database password/);
+    assert.equal(read(second).MS_DEV_DB_PASSWORD, a);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('two concurrent first runs of dev_db from two checkouts both succeed with one shared password', () => {
+  const { dir, xdg, plats: [one, two], env, read, passwords } = checkouts(2);
+  try {
+    const run = `bash -c 'source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db'`;
+    const r = sh(`PLAT="$ONE" ${run} & a=$!; PLAT="$TWO" ${run} & b=$!; wait $a && wait $b`, { ...env, ONE: one, TWO: two });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(read(one).MS_DEV_DB_PASSWORD, read(two).MS_DEV_DB_PASSWORD);
+    assert.deepEqual(passwords(), [read(one).MS_DEV_DB_PASSWORD, read(one).MS_DEV_DB_PASSWORD]);
+    assert.deepEqual(readdirSync(join(xdg, 'market-signals')), ['dev-db-password']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

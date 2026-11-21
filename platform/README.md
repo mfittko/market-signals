@@ -45,6 +45,17 @@ Each env file holds its own worker token, ingest token and database password. `d
 `ms_dev` and its two databases in the running Postgres server and never changes the role `ms`. `backup.sh` dumps
 the live database `ms` only. `MS_RUN_DIR` overrides the run directory of both stacks, for tests.
 
+Several checkouts (the main checkout and its worktrees, or other clones) share the one development database. Each
+checkout has its own run directory and env file, but all of them use the role `ms_dev`, the databases `ms_dev` and
+`ms_dev_test`, and one password. The password lives once per user in
+`$XDG_CONFIG_HOME/market-signals/dev-db-password` (default `~/.config`, mode 600), outside every checkout. So a
+`dev.sh up` in a second checkout leaves the first checkout's stack able to connect. The first `dev.sh up` after
+this change keeps the password its env file already holds, and later checkouts adopt it. An env file with another
+password gets the shared one at its next `dev.sh up`; restart that checkout's running stack with `dev.sh down` and
+`dev.sh up`. Concurrent `dev.sh up` runs take turns on a Postgres advisory lock while they create the role and the
+databases. The checkouts also share the ports 8081 and 3000 and the one-control-plane rule below, so one
+development stack runs at a time.
+
 Upgrade step: a development stack started before the two stacks existed runs from `platform/.dev/`, and the new
 `dev.sh down` cannot see it. Stop it before the first `dev.sh up` or `switch-launchd.sh up`: run the old
 `scripts/dev.sh down` before you pull this change. After the pull, run
@@ -140,8 +151,8 @@ Run everything:
 node --test test/control-plane.test.mjs                                          # from the repo root
 ```
 
-No database password is committed. `scripts/dev.sh up` generates one into `platform/.dev/dev/env` (mode 600,
-gitignored) and sets the role `ms_dev` to it. The live `platform/.dev/env` holds `MS_DB_PASSWORD` for the role `ms`,
+No database password is committed. `scripts/dev.sh up` generates the shared development password once (see
+above), writes it into `platform/.dev/dev/env` (mode 600, gitignored) and sets the role `ms_dev` to it. The live `platform/.dev/env` holds `MS_DB_PASSWORD` for the role `ms`,
 which `dev.sh db` sets and Docker Compose reads. Each file holds `MS_DATABASE_URL`, which `cmd/api` and `cmd/import`
 require, and `MS_TEST_DATABASE_URL` for the Go tests. Tests skip without it, or fail when `MS_REQUIRE_DB=1` or `CI`
 is set. To run `docker compose` by hand, export the live file first with `set -a && . .dev/env`.

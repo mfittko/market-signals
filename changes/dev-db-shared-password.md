@@ -1,0 +1,1 @@
+- Platform: every development checkout shares one `ms_dev` password kept in `~/.config/market-signals/dev-db-password`, so `dev.sh up` in a second checkout no longer locks the first one out, and concurrent runs take turns on an advisory lock while they create the role and databases (#378)
