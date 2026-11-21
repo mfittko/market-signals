@@ -349,7 +349,7 @@
    }
   },
   {
-   "name": "long-gap-through-target-fills-at-target",
+   "name": "long-gap-through-target-fills-at-open",
    "input": {
     "kind": "step",
     "position": {
@@ -383,7 +383,7 @@
        "lastClose": 107.5
       },
       "exit": {
-       "price": 105,
+       "price": 107,
        "reason": "target"
       },
       "trailed": false
@@ -392,7 +392,7 @@
    }
   },
   {
-   "name": "short-gap-through-target-fills-at-target",
+   "name": "short-gap-through-target-fills-at-open",
    "input": {
     "kind": "step",
     "position": {
@@ -426,7 +426,7 @@
        "lastClose": 93.5
       },
       "exit": {
-       "price": 95,
+       "price": 93,
        "reason": "target"
       },
       "trailed": false

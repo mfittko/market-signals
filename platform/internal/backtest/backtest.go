@@ -5,7 +5,8 @@
 //
 // Conventions that keep the numbers honest:
 //   - A flip is known at the close of its bar. The trade enters at the next bar's open.
-//   - The stop is checked before the target inside one bar, the pessimistic order.
+//   - Stop and target fills follow docs/fill-spec.md: a gap at the open fills at the open,
+//     and inside one bar the stop wins over the target, the pessimistic order.
 //   - Results are in R, the multiples of the initial stop distance, so instruments compare.
 //   - Trades split chronologically into a training part and a test part. Settings are
 //     chosen on training only, and the test part is what the caller should trust.
@@ -15,6 +16,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/mfittko/market-signals/platform/internal/fill"
 )
 
 type Candle struct {
@@ -177,27 +180,21 @@ func runWith(c []Candle, f features, flips []Flip, p Params) []Trade {
 			continue
 		}
 		d := float64(fl.Dir)
-		stop, target := entry-d*dist, 0.0
+		stop := entry - d*dist
+		var target *float64
 		if p.RR > 0 {
-			target = entry + d*p.RR*dist
+			t := entry + d*p.RR*dist
+			target = &t
 		}
 		tr := Trade{Entry: c[i+1].Time, Dir: fl.Dir, Reason: "end"}
 		exit := c[len(c)-1].Close
 		last := len(c) - 1
 		for j := i + 1; j < len(c) && j <= i+maxBars; j++ {
 			b := c[j]
-			hitStop := (d > 0 && b.Low <= stop) || (d < 0 && b.High >= stop)
-			hitTarget := target != 0 && ((d > 0 && b.High >= target) || (d < 0 && b.Low <= target))
+			price, reason := fill.Check(d > 0, stop, target, b.Open, b.High, b.Low)
 			switch {
-			case hitStop:
-				// a bar that opens through the stop fills at its open, the worse price
-				exit = stop
-				if (d > 0 && b.Open < stop) || (d < 0 && b.Open > stop) {
-					exit = b.Open
-				}
-				tr.Reason, last = "stop", j
-			case hitTarget:
-				exit, tr.Reason, last = target, "target", j
+			case reason != "": // stop or target, per docs/fill-spec.md
+				exit, tr.Reason, last = price, reason, j
 			case flipBar[j] == -fl.Dir: // the entry bar counts: its close follows the entry at its open
 				exit, tr.Reason, last = b.Close, "reversal", j
 			case j == i+maxBars:
