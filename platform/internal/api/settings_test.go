@@ -36,7 +36,7 @@ func TestSettingsRouteMasksSecretsAndRefusesPaths(t *testing.T) {
 			t.Fatal(body, code, out)
 		}
 	}
-	code, out = call(t, "PATCH", api+"/settings", "", `{"bot":{"bots":{"XAU/USD|H1":{"enabled":true}}}}`, nil)
+	code, out = call(t, "PATCH", api+"/settings", "", `{"baseRevision":1,"bot":{"bots":{"XAU/USD|H1":{"enabled":true}}}}`, nil)
 	if code != http.StatusConflict || out["code"] != "bot_needs_pair" {
 		t.Fatal(code, out)
 	}
@@ -68,5 +68,36 @@ func TestJobOwnerFlagsOnlyThroughTheOperatorRoute(t *testing.T) {
 	_, out = call(t, "GET", api+"/settings", "", "", nil)
 	if s, _ := out["settings"].(map[string]any); len(s) != 0 {
 		t.Fatal("job owner flag visible on the settings route:", out)
+	}
+}
+
+func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
+	api := settingsServer(t)
+	// Only the first write to an empty store may omit the base.
+	if code, out := call(t, "PATCH", api+"/settings", "", `{"port":8787}`, nil); code != http.StatusOK || out["revision"] != float64(1) {
+		t.Fatal(code, out)
+	}
+	if code, out := call(t, "PATCH", api+"/settings", "", `{"port":8788}`, nil); code != http.StatusBadRequest || out["code"] != "base_revision_required" {
+		t.Fatal(code, out)
+	}
+	for _, body := range []string{`{"baseRevision":"1","port":8788}`, `{"baseRevision":1.5,"port":8788}`, `{"baseRevision":-1,"port":8788}`} {
+		if code, out := call(t, "PATCH", api+"/settings", "", body, nil); code != http.StatusBadRequest || out["code"] != "invalid_setting" {
+			t.Fatal(body, code, out)
+		}
+	}
+	if code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":1,"port":8789}`, nil); code != http.StatusOK || out["revision"] != float64(2) {
+		t.Fatal(code, out)
+	}
+	// A patch based on revision 1 is now stale and stores nothing.
+	code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":1,"port":9000}`, nil)
+	if code != http.StatusConflict || out["code"] != "stale_base_revision" || out["currentRevision"] != float64(2) {
+		t.Fatal(code, out)
+	}
+	_, out = call(t, "GET", api+"/settings", "", "", nil)
+	if s, _ := out["settings"].(map[string]any); out["revision"] != float64(2) || s["port"] != float64(8789) {
+		t.Fatal("stale write changed the settings:", out)
+	}
+	if code, out := call(t, "PATCH", api+"/settings", "", `{"baseRevision":2,"port":9000}`, nil); code != http.StatusOK || out["revision"] != float64(3) {
+		t.Fatal(code, out)
 	}
 }
