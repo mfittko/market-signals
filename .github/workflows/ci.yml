@@ -61,6 +61,8 @@ jobs:
           cache-dependency-path: platform/go.sum
       - name: Go tests (race detector, one package at a time because they share the database)
         run: go test -p 1 -race -count=1 ./...
+      - name: Golden replays (named in the log)
+        run: go test -count=1 -v -run 'TestGolden' ./internal/monitor/
 
   platform-console:
     runs-on: ubuntu-latest
