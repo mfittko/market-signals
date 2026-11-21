@@ -135,25 +135,23 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 	})
 }
 
-// StartReaper resolves expired leases, wakes follow-ups and expires stale queue entries.
-func (s *Server) StartReaper(ctx context.Context, every time.Duration) {
-	go func() {
-		t := time.NewTicker(every)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				res, err := s.st.Reap(ctx)
-				if err != nil && ctx.Err() == nil {
-					s.log.Error("reap failed", "err", err)
-				} else if res.Expired+res.Woken+res.Aged > 0 {
-					s.log.Info("reaped", "expiredLeases", res.Expired, "woken", res.Woken, "expiredInQueue", res.Aged)
-				}
+// RunReaper resolves expired leases, wakes follow-ups and expires stale queue entries until ctx ends.
+func (s *Server) RunReaper(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			res, err := s.st.Reap(ctx)
+			if err != nil && ctx.Err() == nil {
+				s.log.Error("reap failed", "err", err)
+			} else if res.Expired+res.Woken+res.Aged > 0 {
+				s.log.Info("reaped", "expiredLeases", res.Expired, "woken", res.Woken, "expiredInQueue", res.Aged)
 			}
 		}
-	}()
+	}
 }
 
 func (s *Server) routes() {
@@ -727,7 +725,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		s.fail500(w, err)
 		return
 	}
-	c, err := s.st.Claim(r.Context(), b.WorkerID, b.Runtimes, 30*time.Second)
+	c, err := s.st.Claim(r.Context(), b.WorkerID, b.Runtimes)
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -750,7 +748,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b, 4<<10) {
 		return
 	}
-	cancel, err := s.st.Heartbeat(r.Context(), b.AttemptID, b.Fence, 30*time.Second)
+	cancel, err := s.st.Heartbeat(r.Context(), b.AttemptID, b.Fence)
 	if err != nil {
 		s.runtimeErr(w, err)
 		return

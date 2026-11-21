@@ -1,0 +1,1 @@
+- Platform: an agent's `leaseSeconds` budget now sets its attempt lease at claim and heartbeat, the worker heartbeats at a quarter of the claimed lease, and the control plane binds its port before it starts the reaper and monitor and stops both before it closes the database pool (#290)

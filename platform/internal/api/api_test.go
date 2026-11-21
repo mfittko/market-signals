@@ -1607,3 +1607,13 @@ func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
 		t.Fatalf("rows %d %v", n, err)
 	}
 }
+
+func TestAgentLeaseOutsideFiveToSixHundredIsRefused(t *testing.T) {
+	hs, _ := setup(t)
+	for _, lease := range []string{"4", "601"} {
+		body := `{"id":"l1","instrument":"WTICO/USD","granularity":"M5","runtime":"mock","budgets":{"leaseSeconds":` + lease + `}}`
+		if c, out := call(t, "POST", hs.URL+"/api/v1/agents", "", body, nil); c != 400 || !strings.Contains(out["error"].(string), "between 5 and 600") {
+			t.Fatalf("leaseSeconds %s: %d %v", lease, c, out)
+		}
+	}
+}

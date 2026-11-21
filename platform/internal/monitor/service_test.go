@@ -46,7 +46,7 @@ func newRig(t *testing.T, plan *domain.Plan) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := st.Claim(ctx, "w", []string{"mock"}, 30*time.Second)
+	c, err := st.Claim(ctx, "w", []string{"mock"})
 	if err != nil || c == nil {
 		t.Fatal("claim", err)
 	}
