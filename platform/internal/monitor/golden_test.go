@@ -42,6 +42,10 @@ func replay(raw json.RawMessage) ([]Result, error) {
 	if in.Kind != "step" || len(in.Bars) == 0 {
 		return nil, fmt.Errorf("input kind %q with %d bars, want step with bars", in.Kind, len(in.Bars))
 	}
+	// Replay only positions the monitor can receive, so a typo cannot pin the wrong branch.
+	if err := in.Position.Plan.Check(in.Position.Side); err != nil {
+		return nil, fmt.Errorf("position: %w", err)
+	}
 	p, out := in.Position, []Result{}
 	for i, b := range in.Bars {
 		if i > 0 && out[i-1].Exit != nil {
@@ -57,6 +61,15 @@ func replay(raw json.RawMessage) ([]Result, error) {
 		out = append(out, r)
 	}
 	return out, nil
+}
+
+func TestReplayChecksPositionSide(t *testing.T) {
+	for side, ok := range map[string]bool{"long": true, "short": true, "Short": false, "": false, "buy": false} {
+		input := fmt.Sprintf(`{"kind":"step","position":{"side":%q,"entry":100,"stop":95},"bars":[{"bar":{},"env":{}}]}`, side)
+		if _, err := replay(json.RawMessage(input)); (err == nil) != ok {
+			t.Errorf("side %q: replay error %v, want accepted=%v", side, err, ok)
+		}
+	}
 }
 
 func loadGolden(t *testing.T) golden.File {
