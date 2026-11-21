@@ -19,7 +19,7 @@ Needs docker, go, pnpm, jq, openssl. Do not pipe the launcher into another comma
 
 ```sh
 cd platform
-scripts/dev.sh db        # once: creates the shared Postgres container on 127.0.0.1:5544
+scripts/dev.sh db        # once, main checkout only: creates the shared Postgres container on 127.0.0.1:5544
 scripts/dev.sh up        # development stack (needs the Postgres container dev.sh db creates): control plane :8081, worker, console :3000
 scripts/smoke.sh         # end-to-end check, about 10 seconds
 open http://127.0.0.1:3000
@@ -45,6 +45,13 @@ Each env file holds its own worker token and ingest token. The live env file hol
 and every development env file holds the shared `ms_dev` password described below. `dev.sh up` creates the role
 `ms_dev` and its two databases in the running Postgres server and never changes the role `ms`. `backup.sh` dumps
 the live database `ms` only. `MS_RUN_DIR` overrides the run directory of both stacks, for tests.
+
+The live-stack commands `dev.sh db` and `dev.sh run` run only in the main checkout, which `switch-launchd.sh` finds
+the same way: the checkout that holds the git directory. Every checkout shares the one Postgres container and its
+role `ms`. `dev.sh db` from a worktree would recreate that container and set a new `ms` password that the live jobs
+do not hold, so the live API would go down. In a worktree they refuse before they write a file or call Docker, and
+the message names the main checkout. A separate clone counts as its own main checkout. The development commands work
+in every checkout.
 
 Several checkouts (the main checkout and its worktrees, or other clones) share the one development database. Each
 checkout has its own run directory and env file, but all of them use the role `ms_dev`, the databases `ms_dev` and

@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -757,6 +757,56 @@ test('dev_db with no Postgres container refuses and names scripts/dev.sh db', ()
     assert.match(r.stderr, /run scripts\/dev\.sh db from the live checkout/);
     assert.doesNotMatch(docker, /compose up|compose start|ALTER ROLE/);
     assert.equal(existsSync(join(plat, '.dev', 'env')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A scratch git repo with the platform scripts committed, and a linked worktree of it. The stand-in docker logs every
+// call and launchctl fails; DOCKER_HOST points nowhere, so even a missed stand-in could not reach a real Docker daemon. GIT_* variables
+// from a calling hook would point git at the real repo, so they are dropped.
+const liveCheckouts = () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-livecheckout-')));
+  const bin = join(dir, 'bin'), main = join(dir, 'main'), wt = join(dir, 'wt'), log = join(dir, 'docker.log');
+  mkdirSync(bin); mkdirSync(join(main, 'platform', 'scripts'), { recursive: true });
+  for (const f of ['dev.sh', 'api-origins.sh', 'main-root.sh', 'switch-launchd.sh']) writeFileSync(join(main, 'platform', 'scripts', f), readFileSync(join('platform/scripts', f)), { mode: 0o755 });
+  writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'launchctl'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+  Object.assign(env, { PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, DOCKER_HOST: 'unix:///nonexistent', MS_RUN_DIR: '', HOME: join(dir, 'home') });
+  const git = (...a) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], { cwd: main, env, encoding: 'utf8' }).status, 0);
+  git('init', '-q'); git('add', '.'); git('commit', '-qm', 'x'); git('worktree', 'add', '-q', wt);
+  const run = (checkout, ...args) => spawnSync('bash', [join(checkout, 'platform', 'scripts', args[0]), ...args.slice(1)], { env: { ...env, ...(args[0] === 'switch-launchd.sh' && { MS_ALLOW_LIVE_SWITCH: '1' }) }, encoding: 'utf8' });
+  return { dir, main, wt, run, docker: () => (existsSync(log) ? readFileSync(log, 'utf8') : '') };
+};
+
+test('dev.sh db and run refuse in a worktree before they write a file or call docker, and name the main checkout', () => {
+  const { dir, main, wt, run, docker } = liveCheckouts();
+  try {
+    for (const args of [['dev.sh', 'db'], ['dev.sh', 'run', 'api']]) {
+      const r = run(wt, ...args);
+      assert.notEqual(r.status, 0);
+      assert.ok(r.stderr.includes(`runs only in the main checkout ${main}`), r.stderr);
+    }
+    assert.equal(docker(), '');
+    assert.equal(existsSync(join(wt, 'platform', '.dev')), false);
+    const s = run(wt, 'switch-launchd.sh', 'up', '-y');
+    assert.notEqual(s.status, 0);
+    assert.ok(s.stderr.includes(`up runs only in the main checkout ${main}`), s.stderr);
+    assert.equal(existsSync(join(dir, 'home')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev.sh db in the main checkout writes the live env file and sets the role ms password as before', () => {
+  const { dir, main, run, docker } = liveCheckouts();
+  try {
+    const r = run(main, 'dev.sh', 'db');
+    assert.equal(r.status, 0, r.stderr);
+    const pw = readFileSync(join(main, 'platform', '.dev', 'env'), 'utf8').match(/^MS_DB_PASSWORD=(\w+)$/m)[1];
+    assert.match(docker(), /^compose up -d postgres$/m);
+    assert.ok(docker().includes(`ALTER ROLE ms PASSWORD '${pw}';`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

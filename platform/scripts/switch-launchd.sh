@@ -4,7 +4,7 @@
 # the server's own watcher cycle. Every step is idempotent: run `up` again after a pull to rebuild and reload.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
-#   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   switch to this worktree (asks first; -y skips the question)
+#   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   install or update the live setup; main checkout only (asks first; -y skips the question)
 #   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the daily jobs and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
@@ -220,6 +220,8 @@ status() {
 
 up() {
   [ "${MS_ALLOW_LIVE_SWITCH:-}" = 1 ] || die "up repoints the live server; set MS_ALLOW_LIVE_SWITCH=1 to confirm this is an operator decision"
+  # install_console runs dev.sh db, which refuses outside the main checkout; refuse here before anything changes
+  [ "$WT" = "$MAIN" ] || die "up runs only in the main checkout $MAIN"
   command -v jq >/dev/null || die "jq is required"
   [ -f "$LA/$SRV.plist" ] || [ -f "$BK/$SRV.plist" ] || die "no $SRV plist found"
   [ -f "$WT/scripts/signal-server.mjs" ] || die "worktree has no engine scripts"
