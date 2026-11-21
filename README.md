@@ -44,13 +44,14 @@ Open http://127.0.0.1:8787. Press âš™ to configure the LLM provider, and press ð
 
 ```sh
 cd platform
-scripts/dev.sh up        # Postgres on 127.0.0.1:5544, control plane :8080, worker, console :3000
+scripts/dev.sh db        # once: creates the shared Postgres container on 127.0.0.1:5544
+scripts/dev.sh up        # development stack (needs the Postgres container dev.sh db creates; database ms_dev), control plane :8081, worker, console :3000
 scripts/smoke.sh         # end-to-end check with the mock agent, about 10 seconds
 # open http://127.0.0.1:3000 in a browser
-scripts/dev.sh down      # add --db to stop Postgres too
+scripts/dev.sh down      # --db also stops the shared Postgres server, which the live stack uses too
 ```
 
-`scripts/dev.sh status` shows what runs, and `scripts/dev.sh logs` tails the logs. Do not pipe the launcher into another command. The stack connects to the engine at `MS_ENGINE_URL`. Without it, the stack uses `127.0.0.1:8787` when that answers. `dev.sh up` generates the database password and tokens into `platform/.dev/env` (mode 600, gitignored). The LLM agent takes its endpoint, model and key from the engine's `data/settings.json`. Without a key only the mock agent runs. Details are in [platform/README.md](platform/README.md).
+`scripts/dev.sh status` shows what runs, and `scripts/dev.sh logs` tails the logs. Do not pipe the launcher into another command. The stack connects to the engine at `MS_ENGINE_URL`. Without it, the stack uses `127.0.0.1:8787` when that answers. `dev.sh up` generates its own database password and tokens into `platform/.dev/dev/env` (mode 600, gitignored). The launchd jobs run the live stack from `platform/.dev/env` on database `ms`, API 8080 and console 3737, so both stacks run at once. The LLM agent takes its endpoint, model and key from the engine's `data/settings.json`. Without a key only the mock agent runs. Details are in [platform/README.md](platform/README.md).
 
 ### 3. Install under launchd
 
@@ -102,10 +103,10 @@ npm run test:e2e
 Go suite. The tests need Postgres and run one package at a time because they share the database. With the dev stack up:
 
 ```sh
-(cd platform && set -a && . .dev/env && go test -p 1 -race -count=1 ./...)
+(cd platform && set -a && . .dev/dev/env && go test -p 1 -race -count=1 ./...)
 ```
 
-`platform/.dev/env` provides `MS_TEST_DATABASE_URL`. Without it the database tests skip. They fail instead when `MS_REQUIRE_DB=1` or `CI` is set. CI sets `MS_TEST_DATABASE_URL` to a throwaway Postgres service and `MS_REQUIRE_DB=1`.
+`platform/.dev/dev/env` provides `MS_TEST_DATABASE_URL` (database `ms_dev_test`). Without it the database tests skip. They fail instead when `MS_REQUIRE_DB=1` or `CI` is set. CI sets `MS_TEST_DATABASE_URL` to a throwaway Postgres service and `MS_REQUIRE_DB=1`.
 
 Console type check:
 

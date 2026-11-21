@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# End-to-end check of a running stack (scripts/dev.sh up). Uses only the mock agent, so it needs no model or network.
-# Safe against a live stack (set MS_CONSOLE_PORT when the console is not on port 3000): every agent, event and run it creates uses the private agent smoke-mock on the private
+# End-to-end check of the development stack (scripts/dev.sh up). Uses only the mock agent, so it needs no model or network.
+# Safe against the live stack (MS_RUN_DIR=.dev MS_API_URL=http://127.0.0.1:8080 MS_CONSOLE_PORT=3737): every agent, event and run it creates uses the private agent smoke-mock on the private
 # instrument SMOKE/TEST, which no real agent shares, so no real agent receives its events or opens a position.
 # On exit the smoke agent is switched off and its private shadow position is deleted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-. .dev/env
-API=http://127.0.0.1:8080/api/v1
+. "${MS_RUN_DIR:-.dev/dev}/env"
+API=${MS_API_URL:-http://127.0.0.1:8081}/api/v1
 WEB=http://127.0.0.1:${MS_CONSOLE_PORT:-3000}/api/v1
 fail() { echo "FAIL: $*" >&2; exit 1; }
 ok() { echo "ok   $*"; }
@@ -34,7 +34,7 @@ smoke_agent() { # enabled: true or false
 smoke_cleanup() {
   smoke_agent false >/dev/null 2>&1 || true
   printf "DELETE FROM shadow_positions WHERE agent_id='smoke-mock' AND instrument='SMOKE/TEST';\n" \
-    | MS_DB_PASSWORD="$MS_DB_PASSWORD" docker compose exec -T postgres psql -q -U ms -d ms >/dev/null 2>&1 || true
+    | MS_DB_PASSWORD="${MS_DB_PASSWORD:-${MS_DEV_DB_PASSWORD:-}}" docker compose exec -T postgres psql -q -U ms -d "${MS_DATABASE_URL##*/}" >/dev/null 2>&1 || true
 }
 trap smoke_cleanup EXIT
 smoke_agent true || fail "could not create the mock agent"

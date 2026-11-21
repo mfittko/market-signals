@@ -32,14 +32,14 @@ func env(k, d string) string {
 
 func main() {
 	addr := flag.String("addr", env("MS_API_ADDR", "127.0.0.1:8080"), "listen address (keep it on loopback)")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env)")
+	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 	engine := flag.String("engine", env("MS_ENGINE_URL", ""), "engine base URL for read tools and operator snapshots, e.g. http://127.0.0.1:4123")
 	seed := flag.Bool("seed", false, "create the default demo agents when missing")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if *dburl == "" {
-		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env)")
+		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 		os.Exit(2)
 	}
 	worker, ingest := os.Getenv("MS_WORKER_TOKEN"), os.Getenv("MS_INGEST_TOKEN")
@@ -59,6 +59,21 @@ func main() {
 		log.Error("migrate", "err", err)
 		os.Exit(1)
 	}
+	// One control plane per database: a second reaper and monitor would duplicate or reap the first one's runs.
+	// The connection stays open until the process ends; os.Exit and kill -9 both end the session and the lock.
+	lock, err := db.HoldStackLock(ctx, *dburl, "ms-api "+*addr)
+	if err != nil {
+		log.Error("refusing to start", "err", err)
+		os.Exit(1)
+	}
+	// A lost lock session (Postgres restart, dropped connection) would let a second control plane start beside this
+	// one, so exit; the supervisor restarts the process, which retakes the lock or refuses.
+	go func() {
+		if err := db.WatchStackLock(ctx, lock, 5*time.Second); err != nil {
+			log.Error("exiting: stack lock lost", "err", err)
+			os.Exit(1)
+		}
+	}()
 	st := queue.New(pool)
 	if *seed {
 		if err := seedAgents(ctx, st); err != nil {
