@@ -1,1 +1,1 @@
-- Platform: Go paper ledger replay judges every stored candle after a position's last judged bar, so a stop touched between two evaluations fills at that bar's time and price and a restart neither skips nor re-judges a bar (#388)
+- Platform: Go paper ledger replay judges every stored candle after a position's last judged bar, so a stop touched between two evaluations fills at that bar's time and price and a restart neither skips nor re-judges a bar; Go ledger Open now refuses, with ErrInvalid, a target that does not lie strictly beyond the entry price after spread (#388)
