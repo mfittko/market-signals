@@ -161,6 +161,9 @@ func Open(ctx context.Context, pool *pgxpool.Pool, key string, in OpenInput, at 
 		return 0, invalid("leverage must be > 0")
 	case !positive(in.Stop) || (in.Target != nil && !positive(*in.Target)):
 		return 0, invalid("stop must be > 0, and target when set")
+	case in.Side == "long" && (!(in.Stop < in.Price) || (in.Target != nil && !(*in.Target > in.Price))),
+		in.Side == "short" && (!(in.Stop > in.Price) || (in.Target != nil && !(*in.Target < in.Price))):
+		return 0, invalid("stop and target must be on the loss and profit side of the price")
 	case !(in.Spread >= 0) || math.IsInf(in.Spread, 1) || !(in.Commission >= 0) || math.IsInf(in.Commission, 1):
 		return 0, invalid("spread and commission must be >= 0")
 	case !(in.Spread < in.Price):
@@ -263,8 +266,8 @@ func ClosePartial(ctx context.Context, pool *pgxpool.Pool, key string, positionI
 
 // Fill closes the position when the bar reaches its stop or target, at the price fill.Check returns.
 func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, bar Bar) (bool, error) {
-	if !positive(bar.Open) || !positive(bar.High) || !positive(bar.Low) || !(bar.Low <= bar.High) || bar.Time.IsZero() {
-		return false, invalid("bar needs open, high and low > 0, low <= high and a time")
+	if !positive(bar.Open) || !positive(bar.High) || !positive(bar.Low) || !(bar.Low <= bar.Open && bar.Open <= bar.High) || bar.Time.IsZero() {
+		return false, invalid("bar needs open, high and low > 0, low <= open <= high and a time")
 	}
 	id, err := run(ctx, pool, "fill", key, &positionID, func(tx pgx.Tx, _ bool) (*int64, error) {
 		p, err := load(ctx, tx, positionID)

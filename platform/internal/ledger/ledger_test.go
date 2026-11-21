@@ -278,16 +278,49 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 			t.Fatalf("spread %v at price 100: %v, want ErrInvalid", spread, err)
 		}
 	}
+	for name, in := range map[string]OpenInput{
+		"long stop above price":    {Side: "long", Stop: 105},
+		"long stop at price":       {Side: "long", Stop: 100},
+		"long target below price":  {Side: "long", Stop: 95, Target: f(98)},
+		"short stop below price":   {Side: "short", Stop: 95},
+		"short target above price": {Side: "short", Stop: 105, Target: f(102)},
+	} {
+		in.Instrument, in.Notional, in.Price, in.Leverage = "WTI", 1000, 100, 10
+		if _, err := Open(ctx, nil, "k1", in, t0); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
+	// An empty key fails after validation, so ErrNoKey proves the input passed.
+	for name, in := range map[string]OpenInput{
+		"long":  {Side: "long", Stop: 95, Target: f(110)},
+		"short": {Side: "short", Stop: 105, Target: f(90)},
+	} {
+		in.Instrument, in.Notional, in.Price, in.Leverage = "WTI", 1000, 100, 10
+		if _, err := Open(ctx, nil, "", in, t0); !errors.Is(err, ErrNoKey) {
+			t.Fatalf("%s on the correct side: %v, want ErrNoKey", name, err)
+		}
+	}
 	for name, bar := range map[string]Bar{
-		"zero":       {},
-		"no time":    {Open: 96, High: 97, Low: 94},
-		"open <= 0":  {Time: t0, Open: 0, High: 97, Low: 94},
-		"low > high": {Time: t0, Open: 96, High: 94, Low: 97},
-		"infinite":   {Time: t0, Open: 96, High: math.Inf(1), Low: 94},
-		"NaN low":    {Time: t0, Open: 96, High: 97, Low: math.NaN()},
+		"zero":                     {},
+		"no time":                  {Open: 96, High: 97, Low: 94},
+		"open <= 0":                {Time: t0, Open: 0, High: 97, Low: 94},
+		"low > high":               {Time: t0, Open: 96, High: 94, Low: 97},
+		"infinite":                 {Time: t0, Open: 96, High: math.Inf(1), Low: 94},
+		"NaN low":                  {Time: t0, Open: 96, High: 97, Low: math.NaN()},
+		"Open 120 High 100 Low 99": {Time: t0, Open: 120, High: 100, Low: 99},
+		"Open 98 High 101 Low 99":  {Time: t0, Open: 98, High: 101, Low: 99},
 	} {
 		if _, err := Fill(ctx, nil, "k1", 1, bar); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("bar %s: %v, want ErrInvalid", name, err)
+		}
+	}
+	for name, bar := range map[string]Bar{
+		"Open 100 High 101 Low 99": {Time: t0, Open: 100, High: 101, Low: 99},
+		"Open 99 High 101 Low 99":  {Time: t0, Open: 99, High: 101, Low: 99},
+		"Open 101 High 101 Low 99": {Time: t0, Open: 101, High: 101, Low: 99},
+	} {
+		if _, err := Fill(ctx, nil, "", 1, bar); !errors.Is(err, ErrNoKey) {
+			t.Fatalf("bar %s: %v, want ErrNoKey", name, err)
 		}
 	}
 	var zero time.Time
