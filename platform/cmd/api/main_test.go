@@ -198,7 +198,13 @@ func TestShutdownDrainsAnInFlightRequestBeforeThePoolCloses(t *testing.T) {
 		resp.Body.Close()
 		status <- resp.StatusCode
 	}()
-	<-entered
+	select {
+	case <-entered:
+	case got := <-status:
+		t.Fatalf("the request never reached the handler, status %d", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request never reached the handler")
+	}
 	cancel()
 	time.Sleep(200 * time.Millisecond) // shutdown has started and is waiting on the request
 	close(release)
