@@ -227,6 +227,8 @@ reused for another position is refused. Seed takes no key; it creates the single
 NOTHING`). Fills use the shared fill function (`internal/fill`). A second
 close of a position is refused by the UNIQUE key on `ledger_trades.position_id`. Replay (migration
 `009_ledger_replay.sql`) judges every stored candle of a position's instrument and granularity after its last judged
-bar, up to the newest completed bar the caller names, and stores the newest judged bar in the same transaction. A stop
-touched between two evaluations fills at that bar's time and price, and a restart neither skips nor re-judges a bar. The Node ledger stays live until a
+bar (first the bar that contains the entry), up to the newest completed bar the caller names, and stores the newest
+judged bar in the same transaction. A stop touched between two evaluations fills at that bar's time and price, and a
+restart neither skips nor re-judges a bar. The caller replays only once every bar up to that bar is stored, and its
+idempotency key names the position and that bar. The Node ledger stays live until a
 later slice of https://github.com/mfittko/market-signals/issues/343 switches the bots.

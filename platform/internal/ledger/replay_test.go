@@ -16,12 +16,18 @@ var m5 = "M5"
 // bar returns the time of the i-th M5 bar after t0.
 func bar(i int) time.Time { return t0.Add(time.Duration(i) * 5 * time.Minute) }
 
-// candles replaces the stored WTI M5 candles with rows {i, open, high, low}, timed bar(i).
+// candles replaces the stored WTI M5 candles with rows {i, open, high, low}, timed bar(i), and removes them after the test.
 func candles(t *testing.T, pool *pgxpool.Pool, rows ...[4]float64) {
 	t.Helper()
-	if _, err := pool.Exec(ctx, `DELETE FROM candles WHERE instrument = 'WTI' AND granularity = 'M5'`); err != nil {
+	const del = `DELETE FROM candles WHERE instrument = 'WTI' AND granularity = 'M5'`
+	if _, err := pool.Exec(ctx, del); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, del); err != nil {
+			t.Error(err)
+		}
+	})
 	for _, r := range rows {
 		if _, err := pool.Exec(ctx, `INSERT INTO candles VALUES ('WTI', 'M5', $1, $2, $3, $4, $2, NULL)`,
 			bar(int(r[0])), r[1], r[2], r[3]); err != nil {
@@ -124,12 +130,35 @@ func TestReplayAfterRestart(t *testing.T) {
 	}
 }
 
-// A position without granularity and a stored candle that fails the bar checks are refused and write nothing.
+// An entry inside a bar is judged from that bar, the next bar to complete after the entry; the bar that
+// ended before the entry is not judged.
+func TestReplayJudgesTheBarContainingTheEntry(t *testing.T) {
+	pool := setup(t, 10000)
+	id, err := Open(ctx, pool, "o", OpenInput{Instrument: "WTI", Side: "long", Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5},
+		bar(0).Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	candles(t, pool, [4]float64{-1, 100, 101, 90}, [4]float64{0, 100, 101, 94}, [4]float64{1, 100, 101, 99})
+	if !replay(t, pool, "r1", id, bar(1)) {
+		t.Fatal("the bar containing the entry was not judged")
+	}
+	if price, at, reason := trade(t, pool, id); price != 95 || !at.Equal(bar(0)) || reason != "stop" {
+		t.Fatalf("fill at %v %v %q, want 95 at %v stop", price, at, reason, bar(0))
+	}
+}
+
+// A position without granularity, or with one that is not M<n> or H<n>, and a stored candle that fails the bar checks are refused and write nothing.
 func TestReplayRefusals(t *testing.T) {
 	pool := setup(t, 10000)
 	plain := mustOpen(t, pool, "o1", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
 	if _, err := Replay(ctx, pool, "r1", plain, bar(1)); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("replay without granularity: %v, want ErrInvalid", err)
+	}
+	day := "D"
+	daily := mustOpen(t, pool, "o3", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &day})
+	if _, err := Replay(ctx, pool, "r3", daily, bar(1)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("replay with granularity D: %v, want ErrInvalid", err)
 	}
 	id := mustOpen(t, pool, "o2", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5})
 	candles(t, pool, [4]float64{0, 100, 101, 99}, [4]float64{1, 120, 101, 99})

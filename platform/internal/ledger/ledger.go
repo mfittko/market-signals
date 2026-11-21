@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/mfittko/market-signals/platform/internal/domain"
 	"github.com/mfittko/market-signals/platform/internal/fill"
 )
 
@@ -295,10 +296,13 @@ func checkBar(bar Bar) error {
 
 // Replay judges, oldest first, every stored candle of the position's instrument and granularity after its
 // last judged bar, up to and including through. The caller sets through to the newest completed bar time,
-// so a forming bar is never judged. Before the first replay, judging starts at the first bar at or after the
-// entry time. The first bar that reaches the stop or target closes the position at that bar's time and at
-// the fill.Check price. The newest judged bar time is stored in the same transaction, so after a restart no
-// bar is skipped or judged twice. A stored candle that fails the bar checks refuses the replay and writes nothing.
+// so a forming bar is never judged, and only once every bar up to through is stored: a bar stored later behind
+// the last judged bar is never judged. Before the first replay, judging starts at the bar that contains the
+// entry time, the next bar to complete after the entry (docs/fill-spec.md, entry bar). The first bar that
+// reaches the stop or target closes the position at that bar's time and at the fill.Check price. The newest
+// judged bar time is stored in the same transaction, so after a restart no bar is skipped or judged twice.
+// A stored candle that fails the bar checks refuses the replay and writes nothing. A repeated key returns its
+// stored result, so the key must name both the position and through.
 func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, through time.Time) (bool, error) {
 	if through.IsZero() {
 		return false, errNoTime
@@ -314,10 +318,16 @@ func Replay(ctx context.Context, pool *pgxpool.Pool, key string, positionID int6
 		if p.granularity == nil {
 			return nil, invalid(fmt.Sprintf("position %d has no granularity to replay", p.id))
 		}
+		length, err := domain.GranularityDuration(*p.granularity)
+		if err != nil {
+			return nil, invalid(err.Error())
+		}
+		// A bar starting after entry_time - length still runs at the entry time, so it contains the entry.
 		rows, err := tx.Query(ctx, `SELECT c.time, c.open, c.high, c.low FROM candles c JOIN ledger_positions p
 			ON c.instrument = p.instrument AND c.granularity = p.granularity
 			WHERE p.id = $1 AND c.time <= $2
-			AND (c.time > p.last_judged_at OR (p.last_judged_at IS NULL AND c.time >= p.entry_time)) ORDER BY c.time`, p.id, through)
+			AND (c.time > p.last_judged_at OR (p.last_judged_at IS NULL AND c.time > p.entry_time - make_interval(secs => $3)))
+			ORDER BY c.time`, p.id, through, length.Seconds())
 		if err != nil {
 			return nil, err
 		}
