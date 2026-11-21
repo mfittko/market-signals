@@ -3,7 +3,7 @@
 # The only thing the two stacks share is the Postgres server on 127.0.0.1:5544. Each has its own database, run
 # directory, env file and ports.
 #   development (up, down, status, logs): run directory .dev/dev, database ms_dev with role ms_dev, API 8081, console 3000
-#   live (run, db; the launchd jobs):     run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
+#   live (run, db; the launchd jobs; main checkout only): run directory .dev, database ms with role ms, API 8080, console MS_CONSOLE_PORT (3737)
 #   scripts/dev.sh up      start the development stack (idempotent)
 #   scripts/dev.sh down    stop the development app processes (--db also stops the shared Postgres server, which
 #                          the live stack uses too)
@@ -39,12 +39,24 @@ use_stack() {
   fi
   mkdir -p "$RUN/bin"
 }
-use_stack live
 
 # every line this script prints carries a time and a level, like the Go services' slog text output
 log() { local level="$1"; shift; echo "time=$(date +%Y-%m-%dT%H:%M:%S%z) level=$level msg=\"$*\""; }
 die() { log ERROR "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null || die "$1 is required"; }
+
+# live_checkout_only <command>: the live stack (db, run) belongs to the main checkout, found the way switch-launchd.sh
+# finds it. Every checkout shares the one Postgres container and its role ms, so `db` from another checkout would
+# recreate that container and set a new ms password that the live jobs do not hold, and the live API would go down.
+live_checkout_only() {
+  . "$ROOT/scripts/main-root.sh"
+  local main; main="$(main_root "$ROOT")" || die "scripts/dev.sh $1 cannot find the main checkout: git rev-parse failed in $ROOT"
+  [ "$(cd "$ROOT/.." && pwd -P)" = "$main" ] \
+    || die "scripts/dev.sh $1 uses the live stack and runs only in the main checkout $main; use scripts/dev.sh up for the development stack here"
+}
+# the check runs before use_stack creates the run directory, so a refused command writes nothing
+if [[ "${BASH_SOURCE[0]}" == "$0" ]] && [[ "${1:-}" == db || "${1:-}" == run ]]; then live_checkout_only "$1"; fi
+use_stack live
 
 # A pid file can outlive its process, and the number can then belong to an unrelated program. So a pid counts as
 # ours only when it is running and its command line is the expected program: the built binary for api and worker,
