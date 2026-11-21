@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from 'node:fs';
@@ -6,8 +6,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
-// dev.sh keeps the shared development database password under $XDG_CONFIG_HOME, so no test touches the real one
+// dev.sh keeps the shared development database password under $XDG_CONFIG_HOME, so no test touches the real one.
+// Each test that reaches dev_db_password also sets its own scratch XDG_CONFIG_HOME, so no test sees another's password.
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'ms-xdg-'));
+after(() => rmSync(process.env.XDG_CONFIG_HOME, { recursive: true, force: true }));
 const sh = (script, env) => spawnSync('bash', ['-c', script], { env: { ...process.env, ...env }, encoding: 'utf8' });
 
 // Sources switch-launchd.sh (its dispatch only runs when executed directly) and calls edit_settings on a scratch file.
@@ -503,7 +505,7 @@ test('dev.sh up runs the development stack: run directory .dev/dev, role and dat
     // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
     stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
     const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_CURL: join(dir, 'curl.log'), STUB_DOCKER: join(dir, 'docker.log'),
-      MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid' };
+      MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid', XDG_CONFIG_HOME: join(dir, 'xdg') };
     const r = spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Control plane: {2}http:\/\/127\.0\.0\.1:8081\/api\/v1\/health/);
@@ -543,7 +545,7 @@ const devDbStopped = (container) => {
   for (const d of [bin, join(plat, 'scripts')]) mkdirSync(d, { recursive: true });
   for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
   writeFileSync(join(bin, 'docker'), '#!/bin/sh\necho "$*" >>"$STUB_DOCKER"; case "$*" in *"ps -a -q"*) echo "$STUB_CONTAINER" ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac\n', { mode: 0o755 });
-  const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, STUB_CONTAINER: container });
+  const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { PLAT: plat, MS_RUN_DIR: '', PATH: `${bin}:${process.env.PATH}`, STUB_DOCKER: log, STUB_CONTAINER: container, XDG_CONFIG_HOME: join(dir, 'xdg') });
   return { dir, plat, r, docker: existsSync(log) ? readFileSync(log, 'utf8') : '' };
 };
 
@@ -630,11 +632,65 @@ test('a second checkout running dev_db keeps the ms_dev password of the first, a
   }
 });
 
+test('a malformed password in an older env file does not seed the shared file', () => {
+  const { dir, xdg, plats: [plat], env, read, passwords } = checkouts(1);
+  try {
+    mkdirSync(join(plat, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(plat, '.dev', 'dev', 'env'), 'MS_WORKER_TOKEN=w\nMS_INGEST_TOKEN=i\nMS_DEV_DB_PASSWORD=short\n', { mode: 0o600 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat });
+    assert.equal(r.status, 0, r.stderr);
+    const shared = readFileSync(join(xdg, 'market-signals', 'dev-db-password'), 'utf8').trim();
+    assert.match(shared, /^[0-9a-f]{48}$/);
+    assert.equal(read(plat).MS_DEV_DB_PASSWORD, shared);
+    assert.deepEqual(passwords(), [shared]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a failed password generation dies before it writes or links a shared file', () => {
+  const { dir, xdg, plats: [plat], env } = checkouts(1);
+  try {
+    // openssl that prints nothing and succeeds; load_env calls dev_db_password in a command substitution
+    writeFileSync(join(dir, 'bin', 'openssl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; load_env; echo loaded', { ...env, PLAT: plat });
+    assert.notEqual(r.status, 0);
+    assert.doesNotMatch(r.stdout, /loaded/);
+    assert.match(r.stderr, /could not generate a development database password/);
+    assert.equal(existsSync(join(xdg, 'market-signals', 'dev-db-password')), false);
+    assert.deepEqual(existsSync(join(xdg, 'market-signals')) ? readdirSync(join(xdg, 'market-signals')) : [], []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev_config_home uses an absolute XDG_CONFIG_HOME and falls back to ~/.config for an unset or relative one', () => {
+  const home = (xdg) => sh('source platform/scripts/dev.sh; dev_config_home', { XDG_CONFIG_HOME: xdg, HOME: '/home/h', MS_RUN_DIR: tmpdir() }).stdout.trim();
+  for (const form of ['/tmp/xdg', '/Users/u/.config']) assert.equal(home(form), form);
+  for (const form of ['', '.config', 'relative/dir']) assert.equal(home(form), '/home/h/.config', form);
+  // a relative value would resolve inside each checkout; the password file lands under HOME instead
+  const { dir, plats: [plat], env } = checkouts(1);
+  try {
+    const r = sh('source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db', { ...env, PLAT: plat, XDG_CONFIG_HOME: '.config', HOME: join(dir, 'home') });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(readFileSync(join(dir, 'home', '.config', 'market-signals', 'dev-db-password'), 'utf8'), /^[0-9a-f]{48}\n$/);
+    assert.equal(existsSync(join(plat, '.config')), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('two concurrent first runs of dev_db from two checkouts both succeed with one shared password', () => {
   const { dir, xdg, plats: [one, two], env, read, passwords } = checkouts(2);
   try {
+    // a stand-in ln waits until both runs reach it, so both always pass the missing-file check before either links
+    const realLn = spawnSync('sh', ['-c', 'command -v ln'], { encoding: 'utf8' }).stdout.trim();
+    const sync = join(dir, 'sync');
+    mkdirSync(sync);
+    writeFileSync(join(dir, 'bin', 'ln'), `#!/bin/sh\ntouch "$STUB_SYNC/$$"\ni=0\nwhile [ "$(ls "$STUB_SYNC" | wc -l)" -lt 2 ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done\nexec ${realLn} "$@"\n`, { mode: 0o755 });
     const run = `bash -c 'source "$PLAT/scripts/dev.sh"; use_stack dev; dev_db'`;
-    const r = sh(`PLAT="$ONE" ${run} & a=$!; PLAT="$TWO" ${run} & b=$!; wait $a && wait $b`, { ...env, ONE: one, TWO: two });
+    const r = sh(`PLAT="$ONE" ${run} & a=$!; PLAT="$TWO" ${run} & b=$!; wait $a && wait $b`, { ...env, ONE: one, TWO: two, STUB_SYNC: sync });
+    assert.equal(readdirSync(sync).length, 2);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(read(one).MS_DEV_DB_PASSWORD, read(two).MS_DEV_DB_PASSWORD);
     assert.deepEqual(passwords(), [read(one).MS_DEV_DB_PASSWORD, read(one).MS_DEV_DB_PASSWORD]);
@@ -650,7 +706,7 @@ test('the development env file has its own tokens and password, mode 600, and th
     const plat = join(dir, 'plat');
     mkdirSync(join(plat, 'scripts'), { recursive: true });
     for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
-    const r = sh('source "$PLAT/scripts/dev.sh"; load_env; use_stack dev; load_env', { PLAT: plat, MS_RUN_DIR: '' });
+    const r = sh('source "$PLAT/scripts/dev.sh"; load_env; use_stack dev; load_env', { PLAT: plat, MS_RUN_DIR: '', XDG_CONFIG_HOME: join(dir, 'xdg') });
     assert.equal(r.status, 0, r.stderr);
     const read = (p) => Object.fromEntries(readFileSync(p, 'utf8').trim().split('\n').map((l) => l.split(/=(.*)/s).slice(0, 2)));
     const devFile = join(plat, '.dev', 'dev', 'env');

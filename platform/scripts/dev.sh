@@ -17,9 +17,10 @@
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
 #              control plane for strategy coaching; the console starts without them).
 # Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
-#          and ingest tokens and database password, generated once. It also holds MS_DATABASE_URL for the binaries
-#          and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
-#          $XDG_CONFIG_HOME/market-signals/dev-db-password (default ~/.config), so they share the role ms_dev.
+#          and ingest tokens, generated once, and its stack's database password. It also holds MS_DATABASE_URL for the
+#          binaries and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
+#          $XDG_CONFIG_HOME/market-signals/dev-db-password (~/.config when XDG_CONFIG_HOME is unset or relative), so
+#          they share the role ms_dev.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$(pwd)"
@@ -84,18 +85,26 @@ wait_http() { # url name seconds
   die "$2 did not become ready (see $RUN/*.log)"
 }
 
+# dev_config_home: $XDG_CONFIG_HOME when it is absolute, else ~/.config. The XDG spec ignores a relative value, and
+# dev.sh runs from each checkout's platform/, so a relative one would give every checkout its own password file.
+dev_config_home() { if [[ "${XDG_CONFIG_HOME:-}" == /* ]]; then echo "$XDG_CONFIG_HOME"; else echo "$HOME/.config"; fi; }
+
 # dev_db_password [seed]: the one ms_dev password of every checkout of this user. All checkouts share one Postgres
 # server and its role ms_dev, so a password per checkout would lock the other checkouts out. The file lives outside
-# every checkout, in $XDG_CONFIG_HOME (default ~/.config). The first run writes it from the seed (the password of an
-# older env file, so that checkout keeps working) or a new random one.
+# every checkout, in dev_config_home. The first development command that loads the env file (up, status or down)
+# writes it from the seed (the password of an older env file, so that checkout keeps working) or a new random one.
+# load_env calls it in a command substitution, where set -e is off, so each step that could leave an invalid shared
+# file dies explicitly before the link.
 dev_db_password() {
-  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/market-signals" f tmp pw seed="${1:-}"
+  local dir f tmp pw seed="${1:-}"
+  dir="$(dev_config_home)/market-signals"
   f="$dir/dev-db-password"
   if [ ! -e "$f" ]; then
-    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || seed="$(openssl rand -hex 24)"
-    mkdir -p "$dir"
-    tmp="$(mktemp "$dir/.dev-db-password.XXXXXX")"
-    echo "$seed" >"$tmp"
+    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || seed="$(openssl rand -hex 24)" || true
+    [[ "$seed" =~ ^[0-9a-f]{48}$ ]] || die "could not generate a development database password with openssl"
+    mkdir -p "$dir" || die "cannot create $dir"
+    tmp="$(mktemp "$dir/.dev-db-password.XXXXXX")" || die "cannot create a temporary file in $dir"
+    echo "$seed" >"$tmp" || { rm -f "$tmp"; die "cannot write $tmp"; }
     # ln refuses an existing name, so when two first runs race, both keep the file the faster one linked
     ln "$tmp" "$f" 2>/dev/null || true
     rm -f "$tmp"
@@ -124,12 +133,13 @@ load_env() {
   if [ "$STACK" = dev ]; then
     local pw; pw="$(dev_db_password "$(grep -m1 '^MS_DEV_DB_PASSWORD=' "$RUN/env" | cut -d= -f2- || true)")"
     if ! grep -qx "MS_DEV_DB_PASSWORD=$pw" "$RUN/env"; then
-      ( umask 077
-        { grep -v -e '^MS_DEV_DB_PASSWORD=' -e '^MS_DATABASE_URL=' -e '^MS_TEST_DATABASE_URL=' "$RUN/env" || true
-          echo "MS_DEV_DB_PASSWORD=$pw"
-          echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
-          echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >"$RUN/env.new" )
-      mv -f "$RUN/env.new" "$RUN/env"
+      # a unique temp name (mode 600), so two commands in one checkout never write the same file
+      local tmp; tmp="$(mktemp "$RUN/.env.XXXXXX")"
+      { grep -v -e '^MS_DEV_DB_PASSWORD=' -e '^MS_DATABASE_URL=' -e '^MS_TEST_DATABASE_URL=' "$RUN/env" || true
+        echo "MS_DEV_DB_PASSWORD=$pw"
+        echo "MS_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev"
+        echo "MS_TEST_DATABASE_URL=postgres://ms_dev:$pw@127.0.0.1:5544/ms_dev_test"; } >"$tmp"
+      mv -f "$tmp" "$RUN/env"
     fi
   elif ! grep -q '^MS_DB_PASSWORD=' "$RUN/env"; then
     local pw; pw="$(openssl rand -hex 24)"
