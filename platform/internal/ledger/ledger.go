@@ -304,9 +304,10 @@ func checkBar(bar Bar) error {
 // the last judged bar is never judged. The caller also replays through the newest completed bar before any
 // ClosePartial on the position, so a replayed close is never dated before a booked partial close. Before the
 // first replay, judging starts at the bar that contains the entry time, the next bar to complete after the
-// entry (docs/fill-spec.md, entry bar). That bar opened before the entry, so it is judged with the entry
-// price as its open: Open keeps the stop and target strictly beyond the entry after spread, so the gap rules
-// cannot fire on it, and a fill on it is dated at the entry time. The first
+// entry (docs/fill-spec.md, entry bar). A bar that opened before the entry is judged with the entry price
+// as its open: Open keeps the stop and target strictly beyond the entry after spread, so the gap rules cannot
+// fire on it, and a fill on it is dated at the entry time. A bar that opens exactly at the entry time is
+// judged with its own stored open, so a gap fill can fire on it. The first
 // bar that reaches the stop or target closes the position at that bar's time and at the fill.Check price.
 // The newest judged bar time is stored in the same transaction, so after a restart no bar is skipped or
 // judged twice. A judged candle that fails the bar checks refuses the replay and writes nothing; bars after

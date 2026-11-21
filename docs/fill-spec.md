@@ -19,6 +19,7 @@ A gap event happens at the open, before any price inside the bar can trade. So a
 
 - Node bot and Go monitor: the position is opened from a decision, and fills are checked from the next completed bar after entry.
 - Go backtest: a flip is known at the close of its bar. The trade enters at the next bar's open and fills are checked on that entry bar too. The open of the entry bar is the entry price, so rules 1 and 2 cannot fire on it, because the stop and the target lie a positive distance away from the entry.
+- Go ledger replay (`ledger.Replay`): fills are checked from the bar that contains the entry time. A bar that opened before the entry is judged with the entry price as its open, so rules 1 and 2 cannot fire on it, and a fill on it is dated at the entry time. A bar that opens exactly at the entry time is judged with its own open, so a gap fill can fire on it.
 
 ## Spread and cost
 
