@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,16 +52,22 @@ type Server struct {
 	bld  map[string]any
 	hub  *sigHub
 	tri  *newsTriage
+	// streamsDone closes once at shutdown and ends every open event stream; other requests keep their context.
+	streamsDone chan struct{}
+	stopOnce    sync.Once
 }
 
 func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	eng := tools.NewEngine(cfg.EngineURL)
-	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage()}
+	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage(), streamsDone: make(chan struct{})}
 	bi, _ := debug.ReadBuildInfo()
 	s.bld = buildFields(bi, executableTime())
 	s.routes()
 	return s
 }
+
+// StopStreams ends every open event stream, so a graceful shutdown does not wait on them. Safe to call twice.
+func (s *Server) StopStreams() { s.stopOnce.Do(func() { close(s.streamsDone) }) }
 
 // buildFields reports the commit from the Go VCS stamp. A binary built without VCS info (go test) reports "unknown".
 func buildFields(bi *debug.BuildInfo, builtAt *time.Time) map[string]any {
@@ -138,25 +145,23 @@ func (s *Server) hostGuard(next http.Handler) http.Handler {
 	})
 }
 
-// StartReaper resolves expired leases, wakes follow-ups and expires stale queue entries.
-func (s *Server) StartReaper(ctx context.Context, every time.Duration) {
-	go func() {
-		t := time.NewTicker(every)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				res, err := s.st.Reap(ctx)
-				if err != nil && ctx.Err() == nil {
-					s.log.Error("reap failed", "err", err)
-				} else if res.Expired+res.Woken+res.Aged > 0 {
-					s.log.Info("reaped", "expiredLeases", res.Expired, "woken", res.Woken, "expiredInQueue", res.Aged)
-				}
+// RunReaper resolves expired leases, wakes follow-ups and expires stale queue entries until ctx ends.
+func (s *Server) RunReaper(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			res, err := s.st.Reap(ctx)
+			if err != nil && ctx.Err() == nil {
+				s.log.Error("reap failed", "err", err)
+			} else if res.Expired+res.Woken+res.Aged > 0 {
+				s.log.Info("reaped", "expiredLeases", res.Expired, "woken", res.Woken, "expiredInQueue", res.Aged)
 			}
 		}
-	}()
+	}
 }
 
 func (s *Server) routes() {
@@ -629,6 +634,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.streamsDone:
+			return
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")
 			fl.Flush()
@@ -732,7 +739,7 @@ func (s *Server) claim(w http.ResponseWriter, r *http.Request) {
 		s.fail500(w, err)
 		return
 	}
-	c, err := s.st.Claim(r.Context(), b.WorkerID, b.Runtimes, 30*time.Second)
+	c, err := s.st.Claim(r.Context(), b.WorkerID, b.Runtimes)
 	if err != nil {
 		s.fail500(w, err)
 		return
@@ -755,7 +762,7 @@ func (s *Server) heartbeat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b, 4<<10) {
 		return
 	}
-	cancel, err := s.st.Heartbeat(r.Context(), b.AttemptID, b.Fence, 30*time.Second)
+	cancel, err := s.st.Heartbeat(r.Context(), b.AttemptID, b.Fence)
 	if err != nil {
 		s.runtimeErr(w, err)
 		return

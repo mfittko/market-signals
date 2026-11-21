@@ -110,7 +110,7 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 	var mu sync.Mutex
 	lost, cancelled := false, false
 	go func() { // heartbeat: extends the lease, learns about cancellation and reassignment
-		t := time.NewTicker(w.heartbeat())
+		t := time.NewTicker(w.heartbeat(cl.Agent.Budgets))
 		defer t.Stop()
 		for {
 			select {
@@ -210,10 +210,10 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 	}
 }
 
-// heartbeat defaults to a quarter of the 30-second server lease.
-func (w *Worker) heartbeat() time.Duration {
+// heartbeat defaults to a quarter of the claimed agent's lease, so a lease survives three missed beats.
+func (w *Worker) heartbeat(b queue.Budgets) time.Duration {
 	if w.Heartbeat > 0 {
 		return w.Heartbeat
 	}
-	return 8 * time.Second
+	return time.Duration(b.WithDefaults().LeaseSeconds) * time.Second / 4
 }

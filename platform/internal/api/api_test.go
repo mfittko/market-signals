@@ -270,6 +270,26 @@ func TestStreamResumesFromLastEventID(t *testing.T) {
 	_ = st
 }
 
+// Shutdown calls StopStreams; an open stream then ends while the client still holds it.
+func TestStopStreamsEndsAnOpenStream(t *testing.T) {
+	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, queue.New(testutil.Pool(t)), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	hs := httptest.NewServer(srv.Handler())
+	t.Cleanup(hs.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", hs.URL+"/api/v1/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	srv.StopStreams()
+	srv.StopStreams() // a second call is harmless
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("the stream must end cleanly after StopStreams: %v", err)
+	}
+}
+
 func TestStreamDeliversAnEventThatCommitsAfterAHigherID(t *testing.T) {
 	hs, st := setup(t)
 	_, out := call(t, "POST", hs.URL+"/api/v1/runs", "", `{"agentId":"a1","source":"demo"}`, nil)
@@ -1605,5 +1625,15 @@ func TestSimultaneousSavesOnOneBaseGiveOneSuccessAndOneConflict(t *testing.T) {
 	var n int
 	if err := st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM strategies WHERE name='Race'`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("rows %d %v", n, err)
+	}
+}
+
+func TestAgentLeaseOutsideFiveToSixHundredIsRefused(t *testing.T) {
+	hs, _ := setup(t)
+	for _, lease := range []string{"4", "601"} {
+		body := `{"id":"l1","instrument":"WTICO/USD","granularity":"M5","runtime":"mock","budgets":{"leaseSeconds":` + lease + `}}`
+		if c, out := call(t, "POST", hs.URL+"/api/v1/agents", "", body, nil); c != 400 || !strings.Contains(out["error"].(string), "between 5 and 600") {
+			t.Fatalf("leaseSeconds %s: %d %v", lease, c, out)
+		}
 	}
 }
