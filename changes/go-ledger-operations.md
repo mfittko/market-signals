@@ -1,0 +1,1 @@
+- Platform: Go paper ledger in Postgres with open, close, partial close, fill, mark, halt and halt reset, each one transaction with an idempotency key; a second close of a position is refused by a UNIQUE key (#387)
