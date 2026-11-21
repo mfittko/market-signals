@@ -35,7 +35,7 @@ func TestStackLockRefusesASecondHolderAndReleasesWithTheSession(t *testing.T) {
 		t.Skip(err)
 	}
 	ctx := context.Background()
-	first, err := db.HoldStackLock(ctx, url, "ms-api first")
+	first, err := holdAfterClose(ctx, url, "ms-api first")
 	if err != nil {
 		if testutil.Required() {
 			t.Fatal(err)

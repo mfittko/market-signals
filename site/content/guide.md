@@ -21,7 +21,8 @@ The agent console runs next to it.
 
 ```sh
 cd platform
-scripts/dev.sh up                     # Postgres, control plane, worker, console
+scripts/dev.sh db                     # once: creates the Postgres container
+scripts/dev.sh up                     # control plane, worker, console (needs the Postgres container dev.sh db creates)
 open http://127.0.0.1:3000
 ```
 

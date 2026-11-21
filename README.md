@@ -44,7 +44,8 @@ Open http://127.0.0.1:8787. Press âš™ to configure the LLM provider, and press ð
 
 ```sh
 cd platform
-scripts/dev.sh up        # development stack: Postgres on 127.0.0.1:5544 (database ms_dev), control plane :8081, worker, console :3000
+scripts/dev.sh db        # once: creates the shared Postgres container on 127.0.0.1:5544
+scripts/dev.sh up        # development stack (needs the Postgres container dev.sh db creates; database ms_dev), control plane :8081, worker, console :3000
 scripts/smoke.sh         # end-to-end check with the mock agent, about 10 seconds
 # open http://127.0.0.1:3000 in a browser
 scripts/dev.sh down      # --db also stops the shared Postgres server, which the live stack uses too
