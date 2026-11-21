@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -378,6 +379,33 @@ func TestWakeForAnAgentThatMovedMarketsAsksForAttention(t *testing.T) {
 	r.tick()
 	if r.pos().Status != "closed" {
 		t.Fatalf("the plan still applies: status=%s", r.pos().Status)
+	}
+}
+
+// A wake over the size cap hits the same cap on every retry, so it is handled once: no run, attention on the position.
+func TestAWakeOverTheSizeCapAsksForAttentionAndIsNotRetried(t *testing.T) {
+	r := newRig(t, &domain.Plan{Tripwires: []domain.Tripwire{{Kind: "adverse_atr", ATR: 1.5}}})
+	r.feed.m.ATR = 1
+	// each control byte escapes to six, so the frozen strategy alone is over the cap
+	name := fmt.Sprintf("Long-%d", time.Now().UnixNano())
+	if _, err := r.st.Pool.Exec(r.ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES ($1,1,$2,'test',now(),true,false,false)`,
+		name, strings.Repeat("\x01", queue.MaxSnapshotBytes/6+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.st.UpsertAgent(r.ctx, queue.Agent{ID: "a1", Name: "a1", Instrument: "WTICO/USD", Granularity: "M5", Runtime: "mock", StrategyName: name,
+		AllowedTools: []string{"get_snapshot"}, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	r.bar(0, 100, 100.2, 98.3, 98.4) // the tripwire fires on the newest bar
+	r.tick()
+	p := r.pos()
+	if r.wakeRuns() != 0 || !p.NeedsAttention || r.events()["wake_refused"] != 1 || len(p.LastFired) != 1 || p.Status != "open" {
+		t.Fatalf("runs=%d attention=%v events=%v fired=%v status=%s", r.wakeRuns(), p.NeedsAttention, r.events(), p.LastFired, p.Status)
+	}
+	r.bar(1, 98.4, 98.6, 98.3, 98.4) // still 1.6 ATR against the entry, inside the cooldown
+	r.tick()
+	if r.wakeRuns() != 0 || r.events()["wake_refused"] != 1 {
+		t.Fatalf("a refused wake is not retried: runs=%d events=%v", r.wakeRuns(), r.events())
 	}
 }
 

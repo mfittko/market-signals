@@ -127,6 +127,7 @@ type Run struct {
 	Proposal        json.RawMessage `json:"proposal,omitempty"`
 	Validation      json.RawMessage `json:"validation,omitempty"`
 	LegacyDecision  json.RawMessage `json:"legacyDecision,omitempty"`
+	Strategy        json.RawMessage `json:"strategy,omitempty"` // name and version of the console strategy frozen at enqueue; absent when the engine's strategy governs
 	Comparison      string          `json:"comparison"`
 	Usage           json.RawMessage `json:"usage"`
 	CreatedAt       time.Time       `json:"createdAt"`

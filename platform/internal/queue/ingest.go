@@ -9,6 +9,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mfittko/market-signals/platform/internal/domain"
 )
 
 // IngestInput is one immutable decision-point snapshot to fan out to agents.
@@ -104,27 +106,40 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 		return res, err
 	}
 
-	rows, err := tx.Query(ctx, `SELECT a.id, a.budgets, s.id FROM agents a JOIN sessions s ON s.agent_id=a.id
+	// Each run freezes its agent's console strategy now: the active, unarchived version of the assigned name.
+	// The shared snapshot stays as the event delivered it, so one event can serve agents with different strategies.
+	rows, err := tx.Query(ctx, `SELECT a.id, a.budgets, s.id, st.name, st.version, st.prompt FROM agents a JOIN sessions s ON s.agent_id=a.id
+		LEFT JOIN LATERAL (SELECT name, version, prompt FROM strategies WHERE name=a.strategy_name AND NOT archived
+			ORDER BY active DESC, version DESC LIMIT 1) st ON true
 		WHERE (a.enabled OR $3<>'') AND a.instrument=$1 AND a.granularity=$2 AND ($3='' OR a.id=$3) ORDER BY a.id`,
 		in.Instrument, in.Granularity, in.AgentID)
 	if err != nil {
 		return res, err
 	}
 	type target struct {
-		agent   string
-		budgets Budgets
-		session int64
+		agent    string
+		budgets  Budgets
+		session  int64
+		strategy []byte // nil when the engine's strategy governs
 	}
 	var targets []target
 	for rows.Next() {
 		var t target
 		var b []byte
-		if err := rows.Scan(&t.agent, &b, &t.session); err != nil {
+		var name, prompt *string
+		var version *int
+		if err := rows.Scan(&t.agent, &b, &t.session, &name, &version, &prompt); err != nil {
 			rows.Close()
 			return res, err
 		}
 		_ = json.Unmarshal(b, &t.budgets)
 		t.budgets = t.budgets.WithDefaults()
+		if name != nil {
+			if t.strategy, err = domain.EncodeSnapshot(map[string]any{"name": *name, "version": *version, "prompt": *prompt}); err != nil {
+				rows.Close()
+				return res, err
+			}
+		}
 		targets = append(targets, t)
 	}
 	rows.Close()
@@ -132,10 +147,14 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 		return res, err
 	}
 	for _, t := range targets {
+		// the cap counts exactly the payload the worker claims, so get_snapshot always returns whole JSON
+		if n := len(governed(in.Payload, t.strategy)); n > MaxSnapshotBytes {
+			return res, fmt.Errorf("%w: %d bytes with the strategy of agent %s, the limit is %d", ErrSnapshotTooLarge, n, t.agent, MaxSnapshotBytes)
+		}
 		var runID int64
-		err := tx.QueryRow(ctx, `INSERT INTO runs (agent_id,session_id,snapshot_id,trigger,max_attempts)
-			VALUES ($1,$2,$3,$4,$5) ON CONFLICT (agent_id,snapshot_id) DO NOTHING RETURNING id`,
-			t.agent, t.session, res.SnapshotID, in.Trigger, t.budgets.MaxAttempts).Scan(&runID)
+		err := tx.QueryRow(ctx, `INSERT INTO runs (agent_id,session_id,snapshot_id,trigger,max_attempts,strategy)
+			VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (agent_id,snapshot_id) DO NOTHING RETURNING id`,
+			t.agent, t.session, res.SnapshotID, in.Trigger, t.budgets.MaxAttempts, t.strategy).Scan(&runID)
 		ref := RunRef{AgentID: t.agent}
 		switch {
 		case err == nil:

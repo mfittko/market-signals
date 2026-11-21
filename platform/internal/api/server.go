@@ -27,6 +27,9 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
 
+// snapshotTooLargeHint covers both refusals: the snapshot alone, or with the agent's strategy prompt in it.
+const snapshotTooLargeHint = "the snapshot, alone or with the agent's strategy prompt, is over the size limit; shorten the strategy prompt or the snapshot"
+
 type Config struct {
 	WorkerToken    string
 	IngestToken    string
@@ -522,10 +525,7 @@ func (s *Server) triggerRun(w http.ResponseWriter, r *http.Request) {
 		src = "demo"
 		payload, err = demoSnapshot(agent)
 	default:
-		payload, err = buildEngineSnapshot(r.Context(), s.eng, agent)
-		if err == nil {
-			payload, err = s.withStrategy(r.Context(), payload, agent)
-		}
+		payload, err = operatorSnapshot(r.Context(), s.eng, agent)
 	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "hint": "start the engine or trigger a demo run"})
@@ -536,7 +536,7 @@ func (s *Server) triggerRun(w http.ResponseWriter, r *http.Request) {
 		Event: "operator", Source: src, Trigger: "operator:" + src, Payload: payload, AgentID: agent.ID,
 	})
 	if errors.Is(err, queue.ErrSnapshotTooLarge) {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "hint": "shorten the agent's strategy prompt"})
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "hint": snapshotTooLargeHint})
 		return
 	}
 	if err != nil {
@@ -690,7 +690,12 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &b, 512<<10) {
 		return
 	}
-	res, err := s.st.Ingest(r.Context(), queue.IngestInput{IdemKey: b.IdempotencyKey, Instrument: b.Instrument, Granularity: b.Granularity, Event: b.Event, Source: "engine", Payload: s.withIndicators(r.Context(), b.Instrument, b.Granularity, b.Payload)})
+	payload := s.withIndicators(r.Context(), b.Instrument, b.Granularity, engineEventSnapshot(b.Instrument, b.Granularity, b.Event, b.Payload))
+	res, err := s.st.Ingest(r.Context(), queue.IngestInput{IdemKey: b.IdempotencyKey, Instrument: b.Instrument, Granularity: b.Granularity, Event: b.Event, Source: "engine", Payload: payload})
+	if errors.Is(err, queue.ErrSnapshotTooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]any{"error": err.Error(), "hint": snapshotTooLargeHint})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return

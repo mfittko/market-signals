@@ -38,13 +38,13 @@ func (s *Store) ListRuns(ctx context.Context, f RunFilter) ([]RunRow, error) {
 	out := []RunRow{}
 	for rows.Next() {
 		var x RunRow
-		var prop, val, leg, usage []byte
+		var prop, val, leg, usage, strat []byte
 		if err := rows.Scan(&x.ID, &x.AgentID, &x.SnapshotID, &x.Trigger, &x.Status, &x.AttemptsMade, &x.MaxAttempts, &x.FollowupsUsed, &x.CancelRequested,
-			&x.WaitReason, &x.WaitUntil, &x.StopReason, &prop, &val, &leg, &x.Comparison, &usage, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt,
+			&x.WaitReason, &x.WaitUntil, &x.StopReason, &prop, &val, &leg, &x.Comparison, &usage, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt, &strat,
 			&x.AgentName, &x.Runtime, &x.Instrument, &x.Granularity, &x.Event, &x.Source, &x.SnapTakenAt); err != nil {
 			return nil, err
 		}
-		x.Proposal, x.Validation, x.LegacyDecision, x.Usage = prop, val, leg, usage
+		x.Proposal, x.Validation, x.LegacyDecision, x.Usage, x.Strategy = prop, val, leg, usage, strat
 		out = append(out, x)
 	}
 	return out, rows.Err()

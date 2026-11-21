@@ -24,14 +24,14 @@ func (s *Store) RegisterWorker(ctx context.Context, id string, runtimes []string
 
 const runCols = `r.id,r.agent_id,r.snapshot_id,r.trigger,r.status,r.attempts_made,r.max_attempts,r.followups_used,r.cancel_requested,
 	COALESCE(r.wait_reason,''),r.wait_until,COALESCE(r.stop_reason,''),r.proposal,r.validation,r.legacy_decision,r.comparison,r.usage,
-	r.created_at,r.updated_at,r.finished_at`
+	r.created_at,r.updated_at,r.finished_at,CASE WHEN jsonb_typeof(r.strategy)='object' THEN r.strategy - 'prompt' END`
 
 func scanRun(r scanner) (Run, error) {
 	var x Run
-	var prop, val, leg, usage []byte
+	var prop, val, leg, usage, strat []byte
 	err := r.Scan(&x.ID, &x.AgentID, &x.SnapshotID, &x.Trigger, &x.Status, &x.AttemptsMade, &x.MaxAttempts, &x.FollowupsUsed, &x.CancelRequested,
-		&x.WaitReason, &x.WaitUntil, &x.StopReason, &prop, &val, &leg, &x.Comparison, &usage, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt)
-	x.Proposal, x.Validation, x.LegacyDecision, x.Usage = prop, val, leg, usage
+		&x.WaitReason, &x.WaitUntil, &x.StopReason, &prop, &val, &leg, &x.Comparison, &usage, &x.CreatedAt, &x.UpdatedAt, &x.FinishedAt, &strat)
+	x.Proposal, x.Validation, x.LegacyDecision, x.Usage, x.Strategy = prop, val, leg, usage, strat
 	if len(usage) == 0 {
 		x.Usage = json.RawMessage(`{}`)
 	}
@@ -80,7 +80,11 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string) (
 		Scan(&c.Snapshot.ID, &c.Snapshot.IdemKey, &c.Snapshot.Instrument, &c.Snapshot.Granularity, &c.Snapshot.Event, &c.Snapshot.Source, &payload, &c.Snapshot.Digest, &c.Snapshot.TakenAt); err != nil {
 		return nil, err
 	}
-	c.Snapshot.Payload = payload
+	var frozen []byte
+	if err := tx.QueryRow(ctx, `SELECT strategy FROM runs WHERE id=$1`, runID).Scan(&frozen); err != nil {
+		return nil, err
+	}
+	c.Snapshot.Payload = governed(payload, frozen)
 	var notes []byte
 	if err := tx.QueryRow(ctx, `SELECT notes FROM sessions WHERE id=(SELECT session_id FROM runs WHERE id=$1)`, runID).Scan(&notes); err != nil {
 		return nil, err
@@ -93,6 +97,40 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string) (
 		return nil, err
 	}
 	return &c, nil
+}
+
+// governed returns the payload a worker sees. Its strategy is the run's frozen console
+// strategy, or the engine's when the run has none, so one prompt governs entry and
+// management. engineStrategy stays beside it as a reference without its prompt. Ingest
+// checks the cap on this same output, so the claimed payload stays inside it. Every object
+// payload is re-encoded compactly, because the jsonb column text that Claim reads carries
+// spaces the compact ingest payload does not.
+func governed(payload, frozen []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(payload, &m) != nil || m == nil {
+		return payload
+	}
+	engine, hasEngine := m["engineStrategy"].(map[string]any)
+	var f any
+	if frozen != nil && string(frozen) != "null" && json.Unmarshal(frozen, &f) == nil {
+		m["strategy"] = f
+	} else if hasEngine {
+		m["strategy"] = engine
+	}
+	if hasEngine {
+		ref := map[string]any{}
+		for k, v := range engine {
+			if k != "prompt" {
+				ref[k] = v
+			}
+		}
+		m["engineStrategy"] = ref
+	}
+	out, err := domain.EncodeSnapshot(m)
+	if err != nil {
+		return payload
+	}
+	return out
 }
 
 type live struct {
@@ -213,7 +251,8 @@ func (s *Store) AuthorizeTool(ctx context.Context, attemptID, fence int64, name 
 	var tc ToolContext
 	tc.RunID = l.runID
 	var agentID string
-	if err := tx.QueryRow(ctx, `SELECT agent_id, snapshot_id FROM runs WHERE id=$1`, l.runID).Scan(&agentID, &tc.Snapshot.ID); err != nil {
+	var frozen []byte
+	if err := tx.QueryRow(ctx, `SELECT agent_id, snapshot_id, strategy FROM runs WHERE id=$1`, l.runID).Scan(&agentID, &tc.Snapshot.ID, &frozen); err != nil {
 		return nil, err
 	}
 	if tc.Agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, agentID)); err != nil {
@@ -248,7 +287,7 @@ func (s *Store) AuthorizeTool(ctx context.Context, attemptID, fence int64, name 
 		Scan(&tc.Snapshot.Instrument, &tc.Snapshot.Granularity, &payload, &tc.Snapshot.TakenAt); err != nil {
 		return nil, err
 	}
-	tc.Snapshot.Payload = payload
+	tc.Snapshot.Payload = governed(payload, frozen)
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

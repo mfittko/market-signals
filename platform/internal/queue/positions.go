@@ -88,6 +88,18 @@ func (s *Store) ListPositions(ctx context.Context, status string, limit int) ([]
 	return out, rows.Err()
 }
 
+// EngineStrategy returns the engine's strategy in a run's snapshot: engineStrategy, or
+// strategy on an engine snapshot stored before engineStrategy existed. Nil when there is none.
+func (s *Store) EngineStrategy(ctx context.Context, runID int64) (json.RawMessage, error) {
+	var b []byte
+	err := s.Pool.QueryRow(ctx, `SELECT COALESCE(sn.payload->'engineStrategy', CASE WHEN sn.source='engine' THEN sn.payload->'strategy' END)
+		FROM runs r JOIN snapshots sn ON sn.id=r.snapshot_id WHERE r.id=$1`, runID).Scan(&b)
+	if err != nil || string(b) == "null" {
+		return nil, err
+	}
+	return b, nil
+}
+
 func (s *Store) GetPosition(ctx context.Context, id int64) (*Position, []PositionEvent, error) {
 	p, err := scanPosition(s.Pool.QueryRow(ctx, `SELECT `+positionCols+` FROM shadow_positions WHERE id=$1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
