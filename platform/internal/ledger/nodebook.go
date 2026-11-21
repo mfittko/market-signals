@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -60,8 +61,11 @@ func (n *nodePosition) refusal() string {
 	switch {
 	case n.side != "long" && n.side != "short":
 		return "side must be long|short"
-	case n.instrument == "":
+	case strings.TrimSpace(n.instrument) == "":
 		return "instrument required"
+	// Open stores the trimmed instrument, and a padded one never matches a Mark quote key.
+	case strings.TrimSpace(n.instrument) != n.instrument:
+		return "instrument has surrounding spaces"
 	case !positive(n.notional) || !positive(n.units) || !positive(n.entry) || !positive(n.leverage) ||
 		!positive(n.margin) || !positive(n.lastMark):
 		return "notional, units, entry price, leverage, margin and last mark must be > 0"
@@ -135,9 +139,11 @@ func readNodeBook(path string) (nodeAccount, []nodePosition, error) {
 
 // ImportNode copies the Node paper book at path (a SQLite file, read through a private copy) into the
 // ledger in one transaction and reconciles cash, equity and open positions. It commits only when commit
-// is set; a dry run computes the same report and rolls back. An existing account is left unchanged. A
-// position the Go ledger cannot hold is refused and listed, never adjusted. Each position is booked once
-// under the key node-import:position:<node id>:<entry time>, so a repeated import books nothing new.
+// is set, also when the report lists a difference; a dry run computes the same report and rolls back. A
+// new account takes the Node cash. Into an existing account, each newly booked position's margin is taken
+// from cash, and a position whose margin exceeds the cash is refused. A position the Go ledger cannot hold
+// is refused and listed in the report unchanged. Each position is booked once under the key
+// node-import:position:<node id>:<entry time>, so a repeated import books nothing new.
 func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit bool, at time.Time) (*ImportReport, error) {
 	if at.IsZero() {
 		return nil, errNoTime
@@ -181,7 +187,12 @@ func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit boo
 			rep.differ("%s refused: %s", n.name(), reason)
 			continue
 		}
-		id, booked, err := importPosition(ctx, tx, *n, at)
+		id, booked, err := importPosition(ctx, tx, *n, !rep.AccountCreated, at)
+		if errors.Is(err, errNoMargin) {
+			rep.Refused++
+			rep.differ("%s refused: %s", n.name(), err)
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", n.name(), err)
 		}
@@ -235,22 +246,35 @@ func ImportNode(ctx context.Context, pool *pgxpool.Pool, path string, commit boo
 	return rep, nil
 }
 
+// errNoMargin refuses a position whose margin exceeds the cash of an existing account.
+var errNoMargin = errors.New("insufficient cash for margin")
+
 // importPosition books n once under its key and returns the Go position id; a known key books nothing.
-func importPosition(ctx context.Context, tx pgx.Tx, n nodePosition, at time.Time) (*int64, bool, error) {
+// With debit set it takes the margin from cash, as Open does, before the key is written.
+func importPosition(ctx context.Context, tx pgx.Tx, n nodePosition, debit bool, at time.Time) (*int64, bool, error) {
 	key := n.key()
-	err := tx.QueryRow(ctx, `INSERT INTO ledger_requests (idempotency_key, op) VALUES ($1, 'import')
-		ON CONFLICT DO NOTHING RETURNING true`, key).Scan(new(bool))
-	if errors.Is(err, pgx.ErrNoRows) {
-		var op string
-		var id *int64
-		if err := tx.QueryRow(ctx, `SELECT op, position_id FROM ledger_requests WHERE idempotency_key = $1`, key).Scan(&op, &id); err != nil {
-			return nil, false, err
-		}
+	var op string
+	var known *int64
+	err := tx.QueryRow(ctx, `SELECT op, position_id FROM ledger_requests WHERE idempotency_key = $1`, key).Scan(&op, &known)
+	if err == nil {
 		if op != "import" {
 			return nil, false, invalid(fmt.Sprintf("idempotency key %q was used for %s", key, op))
 		}
-		return id, false, nil
-	} else if err != nil {
+		return known, false, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, err
+	}
+	if debit {
+		tag, err := tx.Exec(ctx, `UPDATE ledger_account SET cash = cash - $1 WHERE id = 1 AND cash >= $1`, n.margin)
+		if err != nil {
+			return nil, false, err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, false, errNoMargin
+		}
+	}
+	// The caller holds the account row lock, so no keyed operation can write this key in between.
+	if _, err := tx.Exec(ctx, `INSERT INTO ledger_requests (idempotency_key, op) VALUES ($1, 'import')`, key); err != nil {
 		return nil, false, err
 	}
 	var target *float64

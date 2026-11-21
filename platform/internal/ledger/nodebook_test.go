@@ -159,8 +159,34 @@ func TestImportNodeShowsExistingAccountDifferences(t *testing.T) {
 	if rep.AccountCreated {
 		t.Fatal("an existing account must be left alone")
 	}
-	if !hasDifference(rep, "cash: node 9850, go 9900") || !hasDifference(rep, "go position", "is open and not in the node book") {
+	// 9900 after the extra position, less the margins 100 and 50 of the two booked positions.
+	if !hasDifference(rep, "cash: node 9850, go 9750") || !hasDifference(rep, "go position", "is open and not in the node book") {
 		t.Fatalf("differences %q (extra position %d)", rep.Differences, extra)
+	}
+}
+
+func TestImportNodeDebitsMarginIntoExistingAccount(t *testing.T) {
+	pool := testutil.Pool(t)
+	importNode(t, pool, nodeBook(t, 9850, cleanPositions...), true)
+	// Node opens a third position: its cash drops by the margin 100, and equity stays 10015.
+	third := `(3, 'GOLD', 'long', 1000, 1, 1000, '2026-01-05T10:10:00.000Z', 10, 100, 990, NULL, 1000, 'M5', NULL)`
+	rep := importNode(t, pool, nodeBook(t, 9750, append(cleanPositions, third)...), true)
+	if !rep.OK() || rep.Booked != 1 || rep.AlreadyImported != 2 || rep.Go != rep.Node {
+		t.Fatalf("report %+v", rep)
+	}
+	near(t, "cash", cash(t, pool), 9750)
+	near(t, "equity", rep.Go.Equity, 10015)
+}
+
+func TestImportNodeRefusesMarginAboveCash(t *testing.T) {
+	pool := setup(t, 50)
+	rep := importNode(t, pool, nodeBook(t, 9850, cleanPositions...), true)
+	if rep.Refused != 1 || rep.Booked != 1 || !hasDifference(rep, "node position 1 WTI long refused", "insufficient cash for margin") {
+		t.Fatalf("report %+v", rep)
+	}
+	near(t, "cash", cash(t, pool), 0)
+	if n := count(t, pool, `SELECT count(*) FROM ledger_requests WHERE idempotency_key LIKE 'node-import:position:1:%'`); n != 0 {
+		t.Fatalf("a refused position left %d keys", n)
 	}
 }
 
@@ -170,6 +196,9 @@ func TestNodeBookReadAndRefusals(t *testing.T) {
 		return "(" + strconv.Itoa(id) + ", 'WTI', '" + side + "', 1000, 10, 100, '" + entryTime + "', 10, 100, " + stop + ", " + target + ", 100, 'M5', NULL)"
 	}
 	ok := "2026-01-05T10:00:00.000Z"
+	instrument := func(id int, name string) string {
+		return "(" + strconv.Itoa(id) + ", '" + name + "', 'long', 1000, 10, 100, '" + ok + "', 10, 100, 95, NULL, 100, 'M5', NULL)"
+	}
 	acct, nodes, err := readNodeBook(nodeBook(t, 9850,
 		row(1, "long", "95", "110", ok),
 		row(2, "short", "105", "NULL", ok),
@@ -180,14 +209,22 @@ func TestNodeBookReadAndRefusals(t *testing.T) {
 		row(7, "short", "105", "100", ok),
 		row(8, "long", "95", "NULL", "yesterday"),
 		row(9, "long", "-1", "NULL", ok),
+		"(10, 'WTI', 'long', 1000, 10, 100, '"+ok+"', 10, 0, 95, NULL, 100, 'M5', NULL)",
+		"(11, 'WTI', 'long', 1000, 10, 100, '"+ok+"', 10, 100, 95, NULL, 100, 'M5', 'yesterday')",
+		instrument(12, "EUR_USD"),
+		instrument(13, ""),
+		instrument(14, "  "),
+		instrument(15, " WTI"),
+		instrument(16, "WTI "),
 	))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if acct.cash != 9850 || acct.startingBalance != 10000 || acct.halted || acct.createdAt.IsZero() || len(nodes) != 9 {
+	if acct.cash != 9850 || acct.startingBalance != 10000 || acct.halted || acct.createdAt.IsZero() || len(nodes) != 16 {
 		t.Fatalf("account %+v, %d positions", acct, len(nodes))
 	}
-	want := []string{"", "", "no stop", "loss side", "loss side", "beyond the entry", "beyond the entry", "entry time", "stop must be > 0"}
+	want := []string{"", "", "no stop", "loss side", "loss side", "beyond the entry", "beyond the entry", "entry time", "stop must be > 0",
+		"must be > 0", "last mark time", "", "instrument required", "instrument required", "surrounding spaces", "surrounding spaces"}
 	for i, n := range nodes {
 		got := n.refusal()
 		if (want[i] == "") != (got == "") || !strings.Contains(got, want[i]) {
@@ -196,5 +233,18 @@ func TestNodeBookReadAndRefusals(t *testing.T) {
 	}
 	if !nodes[0].markAt.Equal(nodes[0].entryAt) || nodes[0].key() != "node-import:position:1:"+ok {
 		t.Fatalf("mark time falls back to the entry time; key %q", nodes[0].key())
+	}
+
+	noBalance := nodeBook(t, 9850)
+	db, err := sql.Open("sqlite", noBalance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE portfolio SET starting_balance = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := readNodeBook(noBalance); err == nil || !strings.Contains(err.Error(), "starting balance > 0") {
+		t.Fatalf("a starting balance of 0 must be refused: %v", err)
 	}
 }

@@ -1,5 +1,6 @@
 // Command ledger-import copies the Node paper book into the Go paper ledger and prints the
-// reconciliation report as JSON. It exits 3 when the report lists a difference.
+// reconciliation report as JSON. It exits 3 when the report lists a difference. With --commit it
+// writes even then, and the report's committed field shows the write.
 //
 //	go run ./cmd/ledger-import --book ../data/candles.db           # dry run
 //	go run ./cmd/ledger-import --book ../data/candles.db --commit  # write
