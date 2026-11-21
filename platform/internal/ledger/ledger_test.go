@@ -101,6 +101,9 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 	}
 	a := mustOpen(t, pool, "a", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
 	b := mustOpen(t, pool, "b", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95})
+	c := mustOpen(t, pool, "c", OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95, Granularity: &m5})
+	// A quiet bar and a stop bar, so the replay case reaches the close and the last_judged_at update.
+	candles(t, pool, [4]float64{0, 100, 101, 99}, [4]float64{1, 99, 100, 94})
 	beforeCommit = func(string) error { return injected }
 
 	for name, op := range map[string]func() error{
@@ -117,6 +120,10 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 		"mark":  func() error { return Mark(ctx, pool, "x5", map[string]float64{"WTI": 80}, t0) },
 		"halt":  func() error { return Halt(ctx, pool, "x6", "operator", t0) },
 		"reset": func() error { return ResetHalt(ctx, pool, "x7", t0) },
+		"replay": func() error {
+			_, err := Replay(ctx, pool, "x8", c, bar(1))
+			return err
+		},
 	} {
 		before := dump(t, pool)
 		if err := op(); !errors.Is(err, injected) {
@@ -125,6 +132,11 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 		if after := dump(t, pool); after != before {
 			t.Fatalf("%s changed the ledger:\n%s\n%s", name, before, after)
 		}
+	}
+	// Without the injected error the same replay closes c, so the rolled-back case did reach the writes.
+	beforeCommit = nil
+	if !replay(t, pool, "x9", c, bar(1)) {
+		t.Fatal("replay over the stop bar did not close the position")
 	}
 }
 
@@ -290,6 +302,18 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 			t.Fatalf("%s: %v, want ErrInvalid", name, err)
 		}
 	}
+	// The target sits beyond the price but at or within the entry after spread.
+	for name, in := range map[string]OpenInput{
+		"long target at entry":  {Side: "long", Stop: 95, Target: f(102), Spread: 2},
+		"long target inside":    {Side: "long", Stop: 95, Target: f(101), Spread: 2},
+		"short target at entry": {Side: "short", Stop: 105, Target: f(98), Spread: 2},
+		"short target inside":   {Side: "short", Stop: 105, Target: f(99), Spread: 2},
+	} {
+		in.Instrument, in.Notional, in.Price, in.Leverage = "WTI", 1000, 100, 10
+		if _, err := Open(ctx, nil, "k1", in, t0); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
 	// An empty key fails after validation, so ErrNoKey proves the input passed.
 	for name, in := range map[string]OpenInput{
 		"long":  {Side: "long", Stop: 95, Target: f(110)},
@@ -335,6 +359,10 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 		"mark":  func() error { return Mark(ctx, nil, "k1", map[string]float64{"WTI": 100}, zero) },
 		"halt":  func() error { return Halt(ctx, nil, "k1", "operator", zero) },
 		"reset": func() error { return ResetHalt(ctx, nil, "k1", zero) },
+		"replay": func() error {
+			_, err := Replay(ctx, nil, "k1", 1, zero)
+			return err
+		},
 	} {
 		if err := op(); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("%s with a zero time: %v, want ErrInvalid", name, err)
