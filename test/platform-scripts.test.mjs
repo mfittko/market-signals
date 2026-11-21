@@ -489,9 +489,9 @@ test('every line dev.sh prints for a launchd job carries a time and a level', ()
 
 // A scratch platform tree for `dev.sh up` with stand-in docker, go, pnpm and curl first on PATH. The built api and
 // worker and the console record their address, API URL and database name and then stay up (at most 30 s) until
-// stop() ends them, so up's post-start alive checks see them; no real service is contacted. `api` replaces the
-// built api's script and `curl` the curl stub.
-const devUpFixture = (dir, { api, curl } = {}) => {
+// stop() ends them, so up's post-start alive checks see them; the api also logs the real api's listening line. No
+// real service is contacted. `api` replaces the built api's script, `web` the console's and `curl` the curl stub.
+const devUpFixture = (dir, { api, web, curl } = {}) => {
   const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
   for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
   for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(plat, 'scripts', f), readFileSync(join('platform/scripts', f)));
@@ -500,17 +500,17 @@ const devUpFixture = (dir, { api, curl } = {}) => {
   const stay = 'for _ in $(seq 1 30); do sleep 1; done';
   const svc = `echo "$(basename "$0")|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}" >>"$STUB_OUT"; ${stay}`;
   stub(join(dir, 'svc'), svc);
-  stub(join(dir, 'api'), api ?? svc);
+  stub(join(dir, 'api'), api ?? `echo 'level=INFO msg="control plane listening"'; ${svc}`);
   stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_API" "$2/api"; cp "$STUB_SVC" "$2/worker"');
   // the last field holds every secret the console must not inherit, so it is empty for the web line
-  stub(join(bin, 'pnpm'), `echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
+  stub(join(bin, 'pnpm'), web ?? `echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
   // by default a port answers only after the stubbed service on it started, so the preflight sees free ports
   stub(join(bin, 'curl'), curl ?? 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
   // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
   stub(join(bin, 'docker'), 'echo "$*" >>"$STUB_DOCKER"; case "$*" in *"ps --status"*) echo postgres ;; *"psql -q"*) cat >>"$STUB_DOCKER" ;; esac');
   const run = join(plat, '.dev', 'dev');
   const env = { PATH: `${bin}:${process.env.PATH}`, STUB_OUT: out, STUB_SVC: join(dir, 'svc'), STUB_API: join(dir, 'api'), STUB_CURL: join(dir, 'curl.log'),
-    STUB_DOCKER: join(dir, 'docker.log'), STUB_API_PID: join(run, 'api.pid'),
+    STUB_DOCKER: join(dir, 'docker.log'), STUB_API_PID: join(run, 'api.pid'), STUB_WEB_PID: join(run, 'web.pid'),
     MS_RUN_DIR: '', MS_API_ADDR: '', MS_API_URL: '', MS_SETTINGS: join(dir, 'none.json'), MS_ENGINE_URL: 'http://engine.invalid', XDG_CONFIG_HOME: join(dir, 'xdg') };
   const up = () => spawnSync('bash', [join(plat, 'scripts', 'dev.sh'), 'up'], { env: { ...process.env, ...env }, encoding: 'utf8' });
   const stop = () => {
@@ -589,19 +589,41 @@ test('dev.sh up refuses when another checkout serves port 8081 or 3000 and build
   }
 });
 
-// Two concurrent ups both pass the preflight. The slower one's api exits at once on the bound port, and its health
-// check gets the other checkout's answer: curl answers every URL once this checkout's api has started and exited.
+// Two concurrent ups both pass the preflight. The slower one's api exits on the bound port or the stack lock, and the
+// other checkout answers its health check: either after this api exited, or at once while this api still starts and
+// exits a moment later.
 test('dev.sh up fails with the port 8081 message when its started api exits while another checkout answers', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-'));
-  const curl = '[ -f "$STUB_API_PID" ] || exit 1; while kill -0 "$(cat "$STUB_API_PID")" 2>/dev/null; do sleep 0.1; done';
-  const { out, up, stop } = devUpFixture(dir, { api: 'exit 1', curl });
+  const cases = [
+    ['exit 1', '[ -f "$STUB_API_PID" ] || exit 1; while kill -0 "$(cat "$STUB_API_PID")" 2>/dev/null; do sleep 0.1; done'],
+    ['sleep 1; exit 1', '[ -f "$STUB_API_PID" ]'],
+  ];
+  for (const [api, curl] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-'));
+    const { out, up, stop } = devUpFixture(dir, { api, curl });
+    try {
+      const r = up();
+      assert.notEqual(r.status, 0);
+      assert.match(r.stderr, /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/);
+      assert.doesNotMatch(r.stdout, /Control plane:/);
+      // up stops before the worker and the console start
+      assert.equal(existsSync(out), false);
+    } finally {
+      stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// The slower up's console exits on the bound port 3000 a moment after the other checkout's console answered at once.
+test('dev.sh up fails with the port 3000 message when its started console exits after another checkout answers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-web-'));
+  const curl = 'case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) [ -f "$STUB_WEB_PID" ] ;; esac';
+  const { up, stop } = devUpFixture(dir, { web: 'sleep 1; exit 1', curl });
   try {
     const r = up();
     assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /port 8081 already serves a control plane from another checkout; stop that stack with scripts\/dev\.sh down there/);
-    assert.doesNotMatch(r.stdout, /Control plane:/);
-    // up stops before the worker and the console start
-    assert.equal(existsSync(out), false);
+    assert.match(r.stderr, /port 3000 already serves a console from another checkout; stop that stack with scripts\/dev\.sh down there/);
+    assert.doesNotMatch(r.stdout, /Console:/);
   } finally {
     stop();
     rmSync(dir, { recursive: true, force: true });

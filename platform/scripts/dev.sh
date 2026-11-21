@@ -293,10 +293,15 @@ up() {
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
   fi
+  # two concurrent ups both pass the preflight, and the other checkout's api can answer on 8081 while this api still
+  # starts; only this api's own log line proves it holds the port, and when it exits first the port was taken
+  for _ in $(seq 1 20); do
+    grep -q "control plane listening" "$RUN/api.log" 2>/dev/null && break
+    alive api || port_taken 8081
+    sleep 1
+  done
+  grep -q "control plane listening" "$RUN/api.log" 2>/dev/null || die "control plane did not become ready (see $RUN/api.log)"
   wait_http "$MS_API_URL/api/v1/health" "control plane" 20
-  # two concurrent ups both pass the preflight; the slower api then exits on the bound port, and the answer came
-  # from the other checkout
-  alive api || port_taken 8081
 
   if ! alive worker; then
     start worker "$ROOT" "$RUN/bin/worker"
@@ -309,6 +314,9 @@ up() {
       -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
+  # next dev exits on a bound port only seconds after it starts, so the other checkout's console can answer first;
+  # this console must still run a few seconds after the answer
+  sleep 3
   alive web || port_taken 3000
 
   echo
