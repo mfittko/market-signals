@@ -29,7 +29,7 @@ Every file is plain JSON:
 The position monitor rules are Go code (`platform/internal/monitor`, function `Step`), so this file is recorded and replayed in Go. The Node replay skips it.
 
 - A case is a multi-bar scenario. `input` is `{ "kind": "step", "position", "bars": [ { "bar", "env" } ] }`.
-- `position` is `{ side, entry, stop, target?, plan, barsHeld?, best?, lastClose?, lastFired? }`. `plan` holds `invalidation`, `trail` (`{ kind: "atr" | "supertrend", mult }`), `maxBars` and `tripwires`. A missing number means 0.
+- `position` is `{ side, entry, stop, target?, plan?, barsHeld?, best?, lastClose?, lastFired? }`. `plan` holds `invalidation`, `trail` (`{ kind: "atr" | "supertrend", mult }`), `maxBars` and `tripwires`. A missing `target` means no target, so no target exit fires. Every other missing number means 0.
 - `bar` is `{ open, high, low, close }`. `env` is `{ atr, supertrend, halted, oppositeFlip, impulse, newsEscalation, feedStaleMinutes }`; a missing field is 0 or false.
 - The replay feeds the bars in order and carries the returned position into the next bar. No bar follows an exit.
 - `expected.steps` holds one result per bar: `{ position, exit?, trailed, fired? }`. `exit` is `{ price, reason }`. The recorded `position` omits `plan`, because `Step` never changes it; the replay asserts that instead.
