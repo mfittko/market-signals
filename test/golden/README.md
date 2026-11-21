@@ -5,7 +5,7 @@ Recorded inputs and expected outputs of the Node engine and, for the monitor are
 ## Files
 
 - `indicators.json`: Supertrend, ATR, ADX, RSI, EMA, MACD, Bollinger, VWAP, volume ratio, resampling, higher-timeframe Supertrend and the axis snapshot.
-- `portfolio.json`: scenarios for sizing, fills, mark-to-market exits, halts, the drawdown kill-switch, the halt reset, attribution and the strategy scoreboard.
+- `portfolio.json`: scenarios for sizing, fills (rules in [the fill spec](../../docs/fill-spec.md)), mark-to-market exits, halts, the drawdown kill-switch, the halt reset, attribution and the strategy scoreboard.
 - `monitor.json`: position monitor scenarios (fills, trailing, time stop, kill switch, invalidation, tripwires and their cooldown), recorded from Go.
 
 ## Format (version 1)
@@ -29,11 +29,12 @@ Every file is plain JSON:
 The position monitor rules are Go code (`platform/internal/monitor`, function `Step`), so this file is recorded and replayed in Go. The Node replay skips it.
 
 - A case is a multi-bar scenario. `input` is `{ "kind": "step", "position", "bars": [ { "bar", "env" } ] }`.
-- `position` is `{ side, entry, stop, target?, plan?, barsHeld?, best?, lastClose?, lastFired? }`. `plan` holds `invalidation`, `trail` (`{ kind: "atr" | "supertrend", mult }`), `maxBars` and `tripwires`. A missing `target` means no target, so no target exit fires. Every other missing number means 0.
+- `position` is `{ side, entry, stop, target?, plan?, barsHeld?, best?, lastClose?, lastFired? }`. `plan` holds `invalidation`, `trail` (`{ kind: "atr" | "supertrend", mult }`), `maxBars` and `tripwires`. A missing `target` means no target, so no target exit fires. A missing `plan.invalidation` means no invalidation, so no invalidation exit fires. Every other missing number means 0.
 - `bar` is `{ open, high, low, close }`. `env` is `{ atr, supertrend, halted, oppositeFlip, impulse, newsEscalation, feedStaleMinutes }`; a missing field is 0 or false.
 - The replay feeds the bars in order and carries the returned position into the next bar. No bar follows an exit.
 - `expected.steps` holds one result per bar: `{ position, exit?, trailed, fired? }`. `exit` is `{ price, reason }`. The recorded `position` omits `plan`, because `Step` never changes it; the replay asserts that instead.
 - A `lastFired` key is the tripwire as compact JSON, its value the `barsHeld` count when it last fired. The replay compares keys as exact strings, so a port must build the same bytes: the fields in `domain.Tripwire` order (`kind`, `level`, `dir`, `pct`, `atr`, `bars`, `minProfitAtr`, `minutes`), zero and empty fields omitted, no whitespace, and numbers in the shortest round-trip form of Go `encoding/json`. Example: `{"kind":"close_beyond","level":99.5,"dir":"below"}`.
+- Stop and target fills follow [the fill spec](../../docs/fill-spec.md). `Step` calls the shared Go function `fill.Check`.
 - A ledger fill function can reuse the same shape: a position, ordered bars and one expected result per bar.
 
 ## Comparing numbers

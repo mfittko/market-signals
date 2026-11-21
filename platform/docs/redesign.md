@@ -30,7 +30,7 @@ The gap: the wake conditions are fixed and global. The model cannot express "wak
      accepts this tripwire and it never fires.
    - `feed_stale(minutes)`
 3. A monitor loop in the control plane evaluates the plan on every closed M1 candle for an open position. It calls no model. It does four things:
-   - Fills stops and targets with the existing pessimistic rule (stop wins when both touch).
+   - Fills stops and targets per [the fill spec](../../docs/fill-spec.md): a gap at the open fills at the open, and the stop wins when both touch inside the bar.
    - Applies the trailing rule. A stop may only move toward price.
    - Enforces the time stop and the kill switch.
    - Raises a wake event when a tripwire fires.

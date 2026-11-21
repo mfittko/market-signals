@@ -169,3 +169,17 @@ func TestAGapThroughTheStopFillsAtTheOpen(t *testing.T) {
 		t.Fatalf("a gap through the stop must fill at the open, got R %v", tr[0].R)
 	}
 }
+
+func TestAGapThroughTheTargetFillsAtTheOpen(t *testing.T) {
+	c := series(ramp(200, 100, 1))
+	// bar 62 gaps far above the target of a buy at bar 60 and also trades below its stop
+	c[62].Open, c[62].High, c[62].Low, c[62].Close = 200, 201, 150, 200
+	tr := Run(c, []Flip{{Time: c[60].Time, Dir: 1}}, Params{StopATR: 1.5, RR: 2, Direction: "both"})
+	if len(tr) != 1 || tr[0].Reason != "target" {
+		t.Fatalf("%+v", tr)
+	}
+	// entry is bar 61's open (160): a fill at 200 is far better than the 2R target
+	if tr[0].R < 10 {
+		t.Fatalf("a gap through the target must fill at the open, got R %v", tr[0].R)
+	}
+}
