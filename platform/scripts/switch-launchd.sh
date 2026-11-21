@@ -8,8 +8,8 @@
 #   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the daily jobs and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
-# The engine reads and writes data/ (settings, candles, portfolio). The worktree gets a symlink to the
-# main checkout's data/, so no state is copied or lost. Original plists are kept in ~/Library/LaunchAgents/.ms-backup.
+# The engine reads and writes data/ (settings, candles, portfolio) in the main checkout, so no state is copied or lost.
+# Original plists are kept in ~/Library/LaunchAgents/.ms-backup.
 #
 # `up` repoints the live KeepAlive server, which the spike itself must never do. It refuses to run
 # unless MS_ALLOW_LIVE_SWITCH=1 is set, so only an explicit operator decision can move the live engine.
@@ -228,7 +228,7 @@ up() {
   status; echo
   echo "This will:"
   echo "  1. back up the two plists to $BK (only when no backup exists)"
-  if [ "$WT" = "$MAIN" ]; then echo "  2. keep $MAIN/data as it is (this is the main checkout)"; else echo "  2. link $WT/data to $MAIN/data"; fi
+  echo "  2. keep $MAIN/data as it is (this is the main checkout)"
   echo "  3. point $SRV at $WT and reload it"
   echo "  4. stop and disable $WATCH (the old five-minute watcher)"
   echo "  5. set consoleUrl in $SETTINGS, so alerts open the new console"
@@ -241,12 +241,6 @@ up() {
   before="$(equity || echo unavailable)"
   mkdir -p "$BK"
   for p in "$SRV" "$WATCH"; do [ -f "$BK/$p.plist" ] || { [ -f "$LA/$p.plist" ] && command cp -f "$LA/$p.plist" "$BK/$p.plist"; }; done
-
-  # In the main checkout data/ is the real state: never move it aside or link it to itself.
-  if [ "$WT" != "$MAIN" ] && [ ! -L "$WT/data" ]; then
-    [ -e "$WT/data" ] && command mv "$WT/data" "$WT/data.test-artifacts.$(date +%s)"
-    ln -s "$MAIN/data" "$WT/data"
-  fi
 
   /usr/libexec/PlistBuddy -c "Set :WorkingDirectory $WT" "$LA/$SRV.plist"
   # A LaunchAgent starts with PATH=/usr/bin:/bin:/usr/sbin:/sbin, which has no node. The news tools and any script
