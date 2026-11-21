@@ -73,7 +73,7 @@ func TestJobOwnerFlagsOnlyThroughTheOperatorRoute(t *testing.T) {
 
 func TestSettingsWriteNeedsTheCurrentBaseRevision(t *testing.T) {
 	api := settingsServer(t)
-	// Only the first write to an empty store may omit the base.
+	// Only a write at revision 0 may omit the base.
 	if code, out := call(t, "PATCH", api+"/settings", "", `{"port":8787}`, nil); code != http.StatusOK || out["revision"] != float64(1) {
 		t.Fatal(code, out)
 	}
