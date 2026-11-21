@@ -5,10 +5,10 @@ package monitor
 
 import (
 	"encoding/json"
-	"math"
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/domain"
+	"github.com/mfittko/market-signals/platform/internal/fill"
 )
 
 // CooldownBars is how many held bars must pass before the same tripwire may fire again.
@@ -72,7 +72,7 @@ func (p Position) dir() float64 {
 func Key(t domain.Tripwire) string { b, _ := json.Marshal(t); return string(b) }
 
 // Step applies one completed bar. Order matters and is fixed:
-// fills (the stop wins when both touch), kill switch, invalidation, time stop,
+// fills (docs/fill-spec.md), kill switch, invalidation, time stop,
 // trailing, tripwires. The trailed stop takes effect from the next bar, so a
 // bar never fills against a stop it could not have known about.
 func Step(p Position, b Bar, env Env) Result {
@@ -96,20 +96,9 @@ func Step(p Position, b Bar, env Env) Result {
 	}
 	long := p.Side != "short"
 
-	// 1. fills against the stop in force when the bar opened. A gap through the stop fills at the open.
-	if long && b.Low <= p.Stop {
-		return exit(math.Min(p.Stop, b.Open), "stop")
-	}
-	if !long && b.High >= p.Stop {
-		return exit(math.Max(p.Stop, b.Open), "stop")
-	}
-	if p.Target != nil {
-		if long && b.High >= *p.Target {
-			return exit(*p.Target, "target")
-		}
-		if !long && b.Low <= *p.Target {
-			return exit(*p.Target, "target")
-		}
+	// 1. fills against the stop in force when the bar opened, per docs/fill-spec.md
+	if price, reason := fill.Check(long, p.Stop, p.Target, b.Open, b.High, b.Low); reason != "" {
+		return exit(price, reason)
 	}
 	// 2. the engine's kill switch closes everything at the bar close
 	if env.Halted {

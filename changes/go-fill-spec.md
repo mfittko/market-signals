@@ -1,0 +1,1 @@
+- Platform: one fill spec for stop and target fills, and one Go fill function shared by the position monitor and the backtest; a gap through the target now fills at the open, as in the Node engine (#386)
