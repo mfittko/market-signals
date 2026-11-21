@@ -127,7 +127,10 @@ func Write(ctx context.Context, pool *pgxpool.Pool, o Origin, patch map[string]a
 		}
 		sort.Strings(changed)
 		// The import mirrors the live file as it is; the rule binds the writers that the Go store owns.
-		if o != FromImport && (slices.Contains(changed, "watchers") || slices.Contains(changed, "bot")) {
+		// instrument and granularity count because they define the watched pair when watchers is empty.
+		if o != FromImport && slices.ContainsFunc(changed, func(k string) bool {
+			return k == "watchers" || k == "bot" || k == "instrument" || k == "granularity"
+		}) {
 			if missing := botsWithoutPair(next); len(missing) > 0 {
 				return PairError{missing}
 			}

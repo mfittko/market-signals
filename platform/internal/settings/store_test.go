@@ -214,6 +214,28 @@ func TestBotWithoutWatcherPairIsRefusedInTheTransaction(t *testing.T) {
 	}
 }
 
+func TestInstrumentChangeUnderAFallbackWatchedBotIsRefused(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	// No watchers: the engine watches instrument|granularity, so the bot's pair is XAU/USD|H1.
+	seed := map[string]any{
+		"instrument": "XAU/USD", "granularity": "H1",
+		"bot": map[string]any{"bots": map[string]any{"XAU/USD|H1": map[string]any{"enabled": true}}},
+	}
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, seed); err != nil {
+		t.Fatal(err)
+	}
+	for _, patch := range []map[string]any{{"instrument": "BCO/USD"}, {"granularity": "M5"}} {
+		var pe settings.PairError
+		if _, _, err := settings.Write(ctx, pool, settings.FromAPI, patch); !errors.As(err, &pe) || !slices.Equal(pe.Pairs, []string{"XAU/USD|H1"}) {
+			t.Fatalf("%v: got %v", patch, err)
+		}
+	}
+	if snap := load(t, pool); snap.Revision != 1 || snap.Values["instrument"] != "XAU/USD" || snap.Values["granularity"] != "H1" {
+		t.Fatalf("state changed: %+v", snap)
+	}
+}
+
 func TestImportKeepsTheStoredValueOfARefusedKey(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
