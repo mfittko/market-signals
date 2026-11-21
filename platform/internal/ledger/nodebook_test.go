@@ -242,13 +242,13 @@ func TestNodeBookReadAndRefusals(t *testing.T) {
 	}
 	want := []string{"", "", "no stop", "loss side", "loss side", "beyond the entry", "beyond the entry", "entry time", "stop must be > 0",
 		"must be > 0", "last mark time", "", "instrument required", "instrument required", "surrounding spaces", "surrounding spaces"}
-	for i, n := range nodes {
-		got := n.refusal()
+	for i := range nodes {
+		got := nodes[i].refusal()
 		if (want[i] == "") != (got == "") || !strings.Contains(got, want[i]) {
-			t.Fatalf("position %d: refusal %q, want %q", n.id, got, want[i])
+			t.Fatalf("position %d: refusal %q, want %q", nodes[i].id, got, want[i])
 		}
 	}
-	if !nodes[0].markAt.Equal(nodes[0].entryAt) || nodes[0].key() != "node-import:position:1:"+ok {
+	if nodes[0].markAt.IsZero() || !nodes[0].markAt.Equal(nodes[0].entryAt) || nodes[0].key() != "node-import:position:1:"+ok {
 		t.Fatalf("mark time falls back to the entry time; key %q", nodes[0].key())
 	}
 
