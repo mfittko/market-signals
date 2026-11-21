@@ -169,6 +169,10 @@ func Open(ctx context.Context, pool *pgxpool.Pool, key string, in OpenInput, at 
 		return 0, invalid("spread and commission must be >= 0")
 	case !(in.Spread < in.Price):
 		return 0, invalid("spread must be below the price")
+	// The entry bar is judged with the entry as its open, so a target at or before the entry would gap-fill at once.
+	case in.Target != nil && (in.Side == "long" && !(*in.Target > in.Price+in.Spread) ||
+		in.Side == "short" && !(*in.Target < in.Price-in.Spread)):
+		return 0, invalid("target must lie beyond the entry price after spread")
 	case at.IsZero():
 		return 0, errNoTime
 	}
@@ -301,7 +305,8 @@ func checkBar(bar Bar) error {
 // ClosePartial on the position, so a replayed close is never dated before a booked partial close. Before the
 // first replay, judging starts at the bar that contains the entry time, the next bar to complete after the
 // entry (docs/fill-spec.md, entry bar). That bar opened before the entry, so it is judged with the entry
-// price as its open: the gap rules cannot fire on it, and a fill on it is dated at the entry time. The first
+// price as its open: Open keeps the stop and target strictly beyond the entry after spread, so the gap rules
+// cannot fire on it, and a fill on it is dated at the entry time. The first
 // bar that reaches the stop or target closes the position at that bar's time and at the fill.Check price.
 // The newest judged bar time is stored in the same transaction, so after a restart no bar is skipped or
 // judged twice. A judged candle that fails the bar checks refuses the replay and writes nothing; bars after

@@ -23,7 +23,7 @@ A gap event happens at the open, before any price inside the bar can trade. So a
 ## Spread and cost
 
 - Node ledger (`scripts/portfolio.mjs`): a fixed per-instrument spread is paid once on entry. A long enters at `price + spread`, a short at `price - spread`. Exits fill at the fill price with no spread. Commission defaults to 0 and is charged once, at open.
-- `fill.Check` only decides the exit price and reason. Spread and commission are the ledger's concern and are applied around it.
+- `fill.Check` only decides the exit price and reason. Spread and commission are the ledger's concern and are applied around it. The Go ledger refuses an open whose target does not lie strictly beyond the entry price after spread, so a replay of the entry bar cannot gap-fill the target at the entry.
 - The Go monitor records the entry it is given and applies no spread or cost. The Go backtest measures results in R from the next bar's open and applies no spread or cost.
 
 ## Spec cases

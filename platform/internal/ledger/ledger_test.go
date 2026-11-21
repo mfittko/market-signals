@@ -302,6 +302,18 @@ func TestInputRefusedBeforeWrite(t *testing.T) {
 			t.Fatalf("%s: %v, want ErrInvalid", name, err)
 		}
 	}
+	// The target sits beyond the price but at or within the entry after spread.
+	for name, in := range map[string]OpenInput{
+		"long target at entry":  {Side: "long", Stop: 95, Target: f(102), Spread: 2},
+		"long target inside":    {Side: "long", Stop: 95, Target: f(101), Spread: 2},
+		"short target at entry": {Side: "short", Stop: 105, Target: f(98), Spread: 2},
+		"short target inside":   {Side: "short", Stop: 105, Target: f(99), Spread: 2},
+	} {
+		in.Instrument, in.Notional, in.Price, in.Leverage = "WTI", 1000, 100, 10
+		if _, err := Open(ctx, nil, "k1", in, t0); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s: %v, want ErrInvalid", name, err)
+		}
+	}
 	// An empty key fails after validation, so ErrNoKey proves the input passed.
 	for name, in := range map[string]OpenInput{
 		"long":  {Side: "long", Stop: 95, Target: f(110)},
