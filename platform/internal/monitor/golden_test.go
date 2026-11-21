@@ -45,13 +45,13 @@ func replay(raw json.RawMessage) ([]Result, error) {
 	p, out := in.Position, []Result{}
 	for i, b := range in.Bars {
 		if i > 0 && out[i-1].Exit != nil {
-			return nil, fmt.Errorf("bar %d follows the exit", i)
+			return nil, fmt.Errorf("bar %d follows the exit", i+1)
 		}
 		r := Step(p, b.Bar, b.Env)
 		p = r.Pos
 		// Step never edits the plan; checking that here keeps it out of every recorded step.
 		if !reflect.DeepEqual(r.Pos.Plan, in.Position.Plan) {
-			return nil, fmt.Errorf("bar %d changed the plan to %+v", i, r.Pos.Plan)
+			return nil, fmt.Errorf("bar %d changed the plan to %+v", i+1, r.Pos.Plan)
 		}
 		r.Pos.Plan = domain.Plan{}
 		out = append(out, r)
