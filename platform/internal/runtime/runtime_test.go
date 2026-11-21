@@ -384,7 +384,7 @@ func TestReassignedWorkerCannotOverwriteTheNewOwnersResult(t *testing.T) {
 	if _, err := e.st.Pool.Exec(e.ctx, `UPDATE runs SET run_after = now()`); err != nil {
 		t.Fatal(err)
 	}
-	c, err := e.st.Claim(e.ctx, "w2", []string{"mock"}, time.Minute)
+	c, err := e.st.Claim(e.ctx, "w2", []string{"mock"})
 	if err != nil || c == nil {
 		t.Fatalf("second claim: %v %v", c, err)
 	}
@@ -449,4 +449,65 @@ func (failing) Name() string                       { return "mock" }
 func (failing) Capabilities() runtime.Capabilities { return runtime.Mock{}.Capabilities() }
 func (failing) Run(context.Context, runtime.Input) (*runtime.Output, error) {
 	return nil, errors.New("provider unavailable")
+}
+
+func TestShortLeaseIsKeptAliveByHeartbeatsAndReapedWhenTheyStop(t *testing.T) {
+	e := newEnv(t)
+	if err := e.st.UpsertAgent(e.ctx, queue.Agent{ID: "a1", Name: "a1", Instrument: "WTICO/USD", Granularity: "M5", Runtime: "mock",
+		AllowedTools: []string{"get_snapshot", "get_portfolio", "schedule_followup"}, Enabled: true, Budgets: queue.Budgets{LeaseSeconds: 5}}); err != nil {
+		t.Fatal(err)
+	}
+	e.ingest(t, "k-lease-live")
+	b := &blocking{started: make(chan struct{}), release: make(chan struct{})}
+	w := e.worker(b) // no Heartbeat override: the interval comes from the 5 s lease
+	ctx, cancel := context.WithCancel(e.ctx)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	<-b.started
+	// beats at 1.25 s and 2.5 s push the lease to at least started_at plus 7.5 s; one beat reaches only 6.25 s.
+	// Poll so a slow beat commit does not fail the test; the deadline stays inside the 5 s lease.
+	var span float64
+	for deadline := time.Now().Add(4500 * time.Millisecond); ; {
+		if err := e.st.Pool.QueryRow(e.ctx, `SELECT EXTRACT(EPOCH FROM lease_expires_at - started_at)::float8 FROM attempts WHERE status='running'`).Scan(&span); err != nil {
+			t.Fatal(err)
+		}
+		if span >= 7 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("lease reaches started_at plus %.2fs, want at least two heartbeats inside the 5 s lease", span)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	cancel()
+	<-done // the worker must not claim the next run
+
+	// a claimer that never heartbeats keeps its attempt only for the lease
+	e.ingest(t, "k-lease-stalled")
+	c, err := e.st.Claim(e.ctx, "stalled", []string{"mock"})
+	if err != nil || c == nil {
+		t.Fatalf("claim: %v %v", c, err)
+	}
+	if res, err := e.st.Reap(e.ctx); err != nil || res.Expired != 0 {
+		t.Fatalf("reap inside the lease: %+v %v", res, err)
+	}
+	// Reap compares against the database clock, so poll it instead of sleeping on the host clock.
+	for deadline := c.Attempt.LeaseUntil.Add(5 * time.Second); ; {
+		res, err := e.st.Reap(e.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Expired == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reap after the lease: %+v", res)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	var status string
+	if err := e.st.Pool.QueryRow(e.ctx, `SELECT status FROM attempts WHERE id=$1`, c.Attempt.ID).Scan(&status); err != nil || status != "expired" {
+		t.Fatalf("stalled attempt status %q %v", status, err)
+	}
 }

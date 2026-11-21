@@ -38,9 +38,9 @@ func scanRun(r scanner) (Run, error) {
 	return x, err
 }
 
-// Claim leases the oldest runnable run this worker can execute. FOR UPDATE SKIP
-// LOCKED makes concurrent claimers pick different runs, never the same one.
-func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, lease time.Duration) (*Claim, error) {
+// Claim leases the oldest runnable run this worker can execute for its agent's leaseSeconds budget.
+// FOR UPDATE SKIP LOCKED makes concurrent claimers pick different runs, never the same one.
+func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string) (*Claim, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -57,6 +57,9 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, l
 		return nil, err
 	}
 	var c Claim
+	if c.Agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=(SELECT agent_id FROM runs WHERE id=$1)`, runID)); err != nil {
+		return nil, err
+	}
 	var attemptNo int
 	if err := tx.QueryRow(ctx, `UPDATE runs SET status='running', attempts_made=attempts_made+1, updated_at=now() WHERE id=$1 RETURNING attempts_made`, runID).Scan(&attemptNo); err != nil {
 		return nil, err
@@ -64,15 +67,12 @@ func (s *Store) Claim(ctx context.Context, workerID string, runtimes []string, l
 	var usage []byte
 	if err := tx.QueryRow(ctx, `INSERT INTO attempts (run_id,attempt_no,worker_id,lease_expires_at)
 		VALUES ($1,$2,$3, now() + make_interval(secs => $4)) RETURNING id,run_id,attempt_no,worker_id,fence,status,tool_calls,started_at,lease_expires_at,usage`,
-		runID, attemptNo, workerID, lease.Seconds()).Scan(&c.Attempt.ID, &c.Attempt.RunID, &c.Attempt.AttemptNo, &c.Attempt.WorkerID, &c.Attempt.Fence,
+		runID, attemptNo, workerID, float64(c.Agent.Budgets.LeaseSeconds)).Scan(&c.Attempt.ID, &c.Attempt.RunID, &c.Attempt.AttemptNo, &c.Attempt.WorkerID, &c.Attempt.Fence,
 		&c.Attempt.Status, &c.Attempt.ToolCalls, &c.Attempt.StartedAt, &c.Attempt.LeaseUntil, &usage); err != nil {
 		return nil, err
 	}
 	c.Attempt.Usage = usage
 	if c.Run, err = scanRun(tx.QueryRow(ctx, `SELECT `+runCols+` FROM runs r WHERE r.id=$1`, runID)); err != nil {
-		return nil, err
-	}
-	if c.Agent, err = scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=$1`, c.Run.AgentID)); err != nil {
 		return nil, err
 	}
 	var payload []byte
@@ -133,8 +133,8 @@ func (l live) current() error {
 	return nil
 }
 
-// Heartbeat extends the lease and reports a pending cancellation.
-func (s *Store) Heartbeat(ctx context.Context, attemptID, fence int64, lease time.Duration) (cancel bool, err error) {
+// Heartbeat extends the lease by the run's agent leaseSeconds budget and reports a pending cancellation.
+func (s *Store) Heartbeat(ctx context.Context, attemptID, fence int64) (cancel bool, err error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -147,7 +147,11 @@ func (s *Store) Heartbeat(ctx context.Context, attemptID, fence int64, lease tim
 	if err := l.current(); err != nil {
 		return false, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + make_interval(secs => $2) WHERE id=$1`, attemptID, lease.Seconds()); err != nil {
+	ag, err := scanAgent(tx.QueryRow(ctx, `SELECT `+agentCols+` FROM agents WHERE id=(SELECT agent_id FROM runs WHERE id=$1)`, l.runID))
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + make_interval(secs => $2) WHERE id=$1`, attemptID, float64(ag.Budgets.LeaseSeconds)); err != nil {
 		return false, err
 	}
 	// a worker with every slot busy sends no claim, so its heartbeat keeps it online

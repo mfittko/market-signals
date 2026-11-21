@@ -78,7 +78,7 @@ func ingest(t *testing.T, s *Store, ctx context.Context) IngestResult {
 
 func claim(t *testing.T, s *Store, ctx context.Context, worker string) *Claim {
 	t.Helper()
-	c, err := s.Claim(ctx, worker, []string{"mock"}, 30*time.Second)
+	c, err := s.Claim(ctx, worker, []string{"mock"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestConcurrentClaimsNeverDuplicate(t *testing.T) {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			c, err := s.Claim(ctx, fmt.Sprintf("w%d", w), []string{"mock"}, time.Minute)
+			c, err := s.Claim(ctx, fmt.Sprintf("w%d", w), []string{"mock"})
 			if err != nil {
 				t.Error(err)
 				return
@@ -193,7 +193,7 @@ func TestStaleWorkerCannotResurrectAReassignedRun(t *testing.T) {
 	if res.Expired != 1 {
 		t.Fatalf("reap: %+v", res)
 	}
-	if _, err := s.Heartbeat(ctx, a.Attempt.ID, a.Attempt.Fence, time.Minute); !errors.Is(err, ErrStale) {
+	if _, err := s.Heartbeat(ctx, a.Attempt.ID, a.Attempt.Fence); !errors.Is(err, ErrStale) {
 		t.Fatalf("stale heartbeat must be rejected, got %v", err)
 	}
 	if _, err := testPool.Exec(ctx, `UPDATE runs SET run_after=now()`); err != nil {
@@ -246,7 +246,7 @@ func TestCancelWhileRunningDiscardsTheProposal(t *testing.T) {
 	if out != "cancel_requested" {
 		t.Fatal(out)
 	}
-	cancel, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence, time.Minute)
+	cancel, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence)
 	must(t, err)
 	if !cancel {
 		t.Fatal("heartbeat must report the cancellation")
@@ -549,11 +549,58 @@ func TestHeartbeatKeepsABusyWorkerOnline(t *testing.T) {
 	if _, err := testPool.Exec(ctx, `UPDATE workers SET last_seen = now() - interval '1 minute' WHERE id='busy'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence, time.Minute); err != nil {
+	if _, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence); err != nil {
 		t.Fatal(err)
 	}
 	var online bool
 	if err := testPool.QueryRow(ctx, `SELECT last_seen > now() - interval '15 seconds' FROM workers WHERE id='busy'`).Scan(&online); err != nil || !online {
 		t.Fatalf("a heartbeat must refresh the worker: %v %v", online, err)
+	}
+}
+
+// leaseLeft is the attempt's remaining lease in seconds by the database clock.
+func leaseLeft(t *testing.T, attemptID int64) float64 {
+	t.Helper()
+	var left float64
+	must(t, testPool.QueryRow(context.Background(), `SELECT EXTRACT(EPOCH FROM lease_expires_at - now())::float8 FROM attempts WHERE id=$1`, attemptID).Scan(&left))
+	return left
+}
+
+func TestClaimAndHeartbeatHonorTheAgentLease(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1")
+	a.Budgets.LeaseSeconds = 10
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	if d := c.Attempt.LeaseUntil.Sub(c.Attempt.StartedAt); d < 9*time.Second || d > 11*time.Second {
+		t.Fatalf("claim lease = %v after claim, want 10s", d)
+	}
+	if _, err := testPool.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + interval '2 seconds' WHERE id=$1`, c.Attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence)
+	must(t, err)
+	if left := leaseLeft(t, c.Attempt.ID); left < 9 || left > 10.5 {
+		t.Fatalf("heartbeat lease left = %.2fs, want heartbeat time plus 10s", left)
+	}
+}
+
+func TestClaimKeepsTheDefaultLeaseWithoutABudget(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	if d := c.Attempt.LeaseUntil.Sub(c.Attempt.StartedAt); d < 29*time.Second || d > 31*time.Second {
+		t.Fatalf("default lease = %v after claim, want 30s", d)
+	}
+	// Shorten the lease first, so only a real extension passes the check below.
+	if _, err := testPool.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + interval '2 seconds' WHERE id=$1`, c.Attempt.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Heartbeat(ctx, c.Attempt.ID, c.Attempt.Fence)
+	must(t, err)
+	if left := leaseLeft(t, c.Attempt.ID); left < 29 || left > 30.5 {
+		t.Fatalf("default heartbeat lease left = %.2fs, want heartbeat time plus 30s", left)
 	}
 }
