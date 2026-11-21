@@ -1,0 +1,1 @@
+- Platform: Go strategy store rules: spec validation that rejects unknown fields by path, a rerunnable mirror of the engine strategy versions with their engine ids and `bot_journal` prompt-hash mapping, and per-combo strategy resolution that matches the engine on golden cases (#348)

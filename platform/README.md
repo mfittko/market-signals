@@ -218,6 +218,17 @@ stays the live source until the Go store owns settings writes
   `GET` and `PUT /api/v1/operator/job-owners` read and set them with `Authorization: Bearer $MS_OPERATOR_TOKEN`.
   Without `MS_OPERATOR_TOKEN` the operator routes answer 401.
 
+## Strategy store
+
+`internal/strategy` holds the Go strategy rules. The engine stays the strategy writer until
+https://github.com/mfittko/market-signals/issues/365.
+
+- `go run ./cmd/strategies-import --sqlite ../data/candles.db` mirrors the engine strategy versions. It inserts only
+  versions Postgres does not hold, with the engine flags and row id (`engine_id`), and never changes a stored version.
+  The JSON report counts inserted and skipped versions and lists clashes: a stored version with another prompt.
+- A console save may carry a `spec`. An invalid spec, an unknown field included, answers `400` with the field path and
+  stores nothing.
+
 ## Paper ledger
 
 `internal/ledger` is the Go paper ledger in Postgres (`ledger_*` tables, migration `008_ledger.sql`). Open, close,
