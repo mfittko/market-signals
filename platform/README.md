@@ -212,3 +212,11 @@ stays the live source until the Go store owns settings writes
 - Job owner flags (`candles`, `alerts`, `bot`, `news`, each `node` or `go`, default `node`) exist only in Postgres.
   `GET` and `PUT /api/v1/operator/job-owners` read and set them with `Authorization: Bearer $MS_OPERATOR_TOKEN`.
   Without `MS_OPERATOR_TOKEN` the operator routes answer 401.
+
+## Paper ledger
+
+`internal/ledger` is the Go paper ledger in Postgres (`ledger_*` tables, migration `008_ledger.sql`). Open, close,
+partial close, fill, mark, halt and halt reset each run in one transaction and take an idempotency key: a repeated key
+books nothing, and a failed operation writes nothing. Fills use the shared fill function (`internal/fill`). A second
+close of a position is refused by the UNIQUE key on `ledger_trades.position_id`. The Node ledger stays live until a
+later slice of https://github.com/mfittko/market-signals/issues/343 switches the bots.

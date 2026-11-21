@@ -1,0 +1,379 @@
+// Package ledger is the Go paper ledger in Postgres. Every operation runs in one
+// transaction under a row lock on the account and records its idempotency key, so a
+// failed operation writes nothing and a repeated key books nothing twice. The money
+// rules follow the Node ledger in scripts/portfolio.mjs.
+package ledger
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mfittko/market-signals/platform/internal/fill"
+)
+
+var (
+	ErrNoKey     = errors.New("ledger: idempotency key required")
+	ErrNoAccount = errors.New("ledger: no account (run Seed first)")
+	ErrHalted    = errors.New("ledger: account halted")
+	ErrInvalid   = errors.New("ledger: invalid input")
+	ErrClosed    = errors.New("ledger: position already closed")
+)
+
+// beforeCommit runs after an operation's writes and before its commit. Tests set it to inject an error.
+var beforeCommit func(op string) error
+
+func commitHook(op string) error {
+	if beforeCommit == nil {
+		return nil
+	}
+	return beforeCommit(op)
+}
+
+// OpenInput is one position request. Sizing caps (risk, allocation, max positions) are caller policy.
+type OpenInput struct {
+	Instrument, Side                                    string
+	Notional, Price, Spread, Leverage, Commission, Stop float64
+	Target                                              *float64
+	Granularity                                         *string
+}
+
+// Bar is the part of one candle that fill.Check reads.
+type Bar struct {
+	Time            time.Time
+	Open, High, Low float64
+}
+
+type position struct {
+	id                                                       int64
+	instrument, side                                         string
+	notional, units, entry, leverage, margin, stop, lastMark float64
+	target                                                   *float64
+	entryTime                                                time.Time
+	granularity                                              *string
+	closed                                                   bool
+}
+
+// unrealized is the profit of p at mark; commission is charged once, at open.
+func unrealized(side string, entry, units, mark float64) float64 {
+	if side == "long" {
+		return (mark - entry) * units
+	}
+	return (entry - mark) * units
+}
+
+func positive(v float64) bool { return v > 0 && !math.IsInf(v, 1) }
+
+func invalid(msg string) error { return fmt.Errorf("%w: %s", ErrInvalid, msg) }
+
+// Seed creates the account with startingBalance when it does not exist yet.
+func Seed(ctx context.Context, pool *pgxpool.Pool, startingBalance float64, at time.Time) error {
+	if !positive(startingBalance) {
+		return invalid("starting balance must be > 0")
+	}
+	return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `INSERT INTO ledger_account (id, starting_balance, cash, created_at) VALUES (1, $1, $1, $2)
+			ON CONFLICT DO NOTHING`, startingBalance, at)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 1 {
+			if err := journal(ctx, tx, at, "init", nil, "", "", map[string]any{"startingBalance": startingBalance}); err != nil {
+				return err
+			}
+		}
+		return commitHook("seed")
+	})
+}
+
+// run applies body once per idempotency key. A known key replays the stored position id and writes nothing.
+func run(ctx context.Context, pool *pgxpool.Pool, op, key string, body func(tx pgx.Tx, halted bool) (*int64, error)) (*int64, error) {
+	if key == "" {
+		return nil, ErrNoKey
+	}
+	var out *int64
+	err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		var halted bool
+		err := tx.QueryRow(ctx, `SELECT halted FROM ledger_account WHERE id = 1 FOR UPDATE`).Scan(&halted)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoAccount
+		} else if err != nil {
+			return err
+		}
+		err = tx.QueryRow(ctx, `INSERT INTO ledger_requests (idempotency_key, op) VALUES ($1, $2)
+			ON CONFLICT DO NOTHING RETURNING true`, key, op).Scan(new(bool))
+		if errors.Is(err, pgx.ErrNoRows) {
+			var stored string
+			if err := tx.QueryRow(ctx, `SELECT op, position_id FROM ledger_requests WHERE idempotency_key = $1`, key).Scan(&stored, &out); err != nil {
+				return err
+			}
+			if stored != op {
+				return invalid(fmt.Sprintf("idempotency key %q was used for %s", key, stored))
+			}
+			return nil
+		} else if err != nil {
+			return err
+		}
+		if out, err = body(tx, halted); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ledger_requests SET position_id = $2 WHERE idempotency_key = $1`, key, out); err != nil {
+			return err
+		}
+		return commitHook(op)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Open books a position and returns its id. A replayed key returns the same id.
+func Open(ctx context.Context, pool *pgxpool.Pool, key string, in OpenInput, at time.Time) (int64, error) {
+	switch {
+	case strings.TrimSpace(in.Instrument) == "":
+		return 0, invalid("instrument required")
+	case in.Side != "long" && in.Side != "short":
+		return 0, invalid("side must be long|short")
+	case !positive(in.Notional) || !positive(in.Price):
+		return 0, invalid("notional and price must be > 0")
+	case !positive(in.Leverage):
+		return 0, invalid("leverage must be > 0")
+	case !positive(in.Stop) || (in.Target != nil && !positive(*in.Target)):
+		return 0, invalid("stop must be > 0, and target when set")
+	case !(in.Spread >= 0) || math.IsInf(in.Spread, 1) || !(in.Commission >= 0) || math.IsInf(in.Commission, 1):
+		return 0, invalid("spread and commission must be >= 0")
+	}
+	id, err := run(ctx, pool, "open", key, func(tx pgx.Tx, halted bool) (*int64, error) {
+		if halted {
+			return nil, ErrHalted
+		}
+		margin := in.Notional / in.Leverage
+		tag, err := tx.Exec(ctx, `UPDATE ledger_account SET cash = cash - $1 WHERE id = 1 AND cash >= $1`, margin+in.Commission)
+		if err != nil {
+			return nil, err
+		}
+		if tag.RowsAffected() == 0 {
+			return nil, invalid("insufficient cash for margin + commission")
+		}
+		entry := in.Price + in.Spread
+		if in.Side == "short" {
+			entry = in.Price - in.Spread
+		}
+		var id int64
+		if err := tx.QueryRow(ctx, `INSERT INTO ledger_positions (instrument, side, notional, units, entry_price, entry_time,
+			leverage, margin, stop, target, last_mark, last_mark_at, granularity)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $6, $12) RETURNING id`,
+			in.Instrument, in.Side, in.Notional, in.Notional/in.Price, entry, at, in.Leverage, margin, in.Stop, in.Target,
+			in.Price, in.Granularity).Scan(&id); err != nil {
+			return nil, err
+		}
+		return &id, journal(ctx, tx, at, "open", &id, "", key, map[string]any{
+			"price": in.Price, "entry": entry, "spread": in.Spread, "margin": margin, "commission": in.Commission})
+	})
+	if err != nil {
+		return 0, err
+	}
+	return *id, nil
+}
+
+// Close closes a position at price. A second close of the same position fails with ErrClosed.
+func Close(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, price float64, reason string, at time.Time) error {
+	if !positive(price) || strings.TrimSpace(reason) == "" {
+		return invalid("close needs a price > 0 and a reason")
+	}
+	_, err := run(ctx, pool, "close", key, func(tx pgx.Tx, _ bool) (*int64, error) {
+		p, err := load(ctx, tx, positionID)
+		if err != nil {
+			return nil, err
+		}
+		return &p.id, closeIn(ctx, tx, key, p, price, reason, at)
+	})
+	return err
+}
+
+// ClosePartial closes units of a position. The closed part becomes a child position
+// (parent_id set) with proportional notional and margin, so each trade maps to one position.
+func ClosePartial(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, units, price float64, reason string, at time.Time) (int64, error) {
+	if !positive(price) || strings.TrimSpace(reason) == "" {
+		return 0, invalid("close needs a price > 0 and a reason")
+	}
+	id, err := run(ctx, pool, "close_partial", key, func(tx pgx.Tx, _ bool) (*int64, error) {
+		p, err := load(ctx, tx, positionID)
+		if err != nil {
+			return nil, err
+		}
+		if p.closed {
+			return nil, ErrClosed
+		}
+		if !(units > 0 && units < p.units) {
+			return nil, invalid("partial units must be > 0 and below the position units")
+		}
+		frac := units / p.units
+		child := p
+		child.notional, child.units, child.margin = p.notional*frac, units, p.margin*frac
+		if err := tx.QueryRow(ctx, `INSERT INTO ledger_positions (instrument, side, notional, units, entry_price, entry_time,
+			leverage, margin, stop, target, last_mark, last_mark_at, granularity, parent_id)
+			SELECT instrument, side, $2::float8, $3::float8, entry_price, entry_time, leverage, $4::float8, stop, target, last_mark, last_mark_at, granularity, id
+			FROM ledger_positions WHERE id = $1 RETURNING id`, p.id, child.notional, child.units, child.margin).Scan(&child.id); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ledger_positions SET units = units - $2, notional = notional - $3, margin = margin - $4 WHERE id = $1`,
+			p.id, child.units, child.notional, child.margin); err != nil {
+			return nil, err
+		}
+		return &child.id, closeIn(ctx, tx, key, child, price, reason, at)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return *id, nil
+}
+
+// Fill closes the position when the bar reaches its stop or target, at the price fill.Check returns.
+func Fill(ctx context.Context, pool *pgxpool.Pool, key string, positionID int64, bar Bar) (bool, error) {
+	id, err := run(ctx, pool, "fill", key, func(tx pgx.Tx, _ bool) (*int64, error) {
+		p, err := load(ctx, tx, positionID)
+		if err != nil {
+			return nil, err
+		}
+		price, reason := fill.Check(p.side == "long", p.stop, p.target, bar.Open, bar.High, bar.Low)
+		if reason == "" {
+			return nil, nil
+		}
+		return &p.id, closeIn(ctx, tx, key, p, price, reason, bar.Time)
+	})
+	return id != nil, err
+}
+
+// Mark sets the last mark of each open position whose instrument has a quote > 0. A position whose
+// loss reaches its margin closes with reason "margin". Equity <= 0 halts the account. Stops and targets
+// are judged by Fill.
+func Mark(ctx context.Context, pool *pgxpool.Pool, key string, quotes map[string]float64, at time.Time) error {
+	_, err := run(ctx, pool, "mark", key, func(tx pgx.Tx, halted bool) (*int64, error) {
+		open, err := openPositions(ctx, tx)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range open {
+			q, ok := quotes[p.instrument]
+			if !ok || !positive(q) {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `UPDATE ledger_positions SET last_mark = $2, last_mark_at = $3 WHERE id = $1`, p.id, q, at); err != nil {
+				return nil, err
+			}
+			if unrealized(p.side, p.entry, p.units, q) <= -p.margin {
+				if err := closeIn(ctx, tx, key, p, q, "margin", at); err != nil {
+					return nil, err
+				}
+			}
+		}
+		var equity float64
+		if err := tx.QueryRow(ctx, `SELECT a.cash + COALESCE(sum(p.margin + CASE WHEN p.side = 'long'
+			THEN (p.last_mark - p.entry_price) ELSE (p.entry_price - p.last_mark) END * p.units), 0)
+			FROM ledger_account a LEFT JOIN ledger_positions p ON p.closed_at IS NULL WHERE a.id = 1 GROUP BY a.cash`).Scan(&equity); err != nil {
+			return nil, err
+		}
+		if equity <= 0 && !halted {
+			return nil, haltIn(ctx, tx, key, "equity <= 0", at)
+		}
+		return nil, journal(ctx, tx, at, "mark", nil, "", key, map[string]any{"equity": equity})
+	})
+	return err
+}
+
+// Halt is the kill switch: it closes every open position at its last mark and halts the account.
+func Halt(ctx context.Context, pool *pgxpool.Pool, key, reason string, at time.Time) error {
+	_, err := run(ctx, pool, "halt", key, func(tx pgx.Tx, _ bool) (*int64, error) {
+		return nil, haltIn(ctx, tx, key, reason, at)
+	})
+	return err
+}
+
+// ResetHalt lets the account open positions again.
+func ResetHalt(ctx context.Context, pool *pgxpool.Pool, key string, at time.Time) error {
+	_, err := run(ctx, pool, "reset", key, func(tx pgx.Tx, _ bool) (*int64, error) {
+		if _, err := tx.Exec(ctx, `UPDATE ledger_account SET halted = false WHERE id = 1`); err != nil {
+			return nil, err
+		}
+		return nil, journal(ctx, tx, at, "reset", nil, "", key, nil)
+	})
+	return err
+}
+
+func haltIn(ctx context.Context, tx pgx.Tx, key, reason string, at time.Time) error {
+	open, err := openPositions(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, p := range open {
+		if err := closeIn(ctx, tx, key, p, p.lastMark, "halt", at); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger_account SET halted = true WHERE id = 1`); err != nil {
+		return err
+	}
+	return journal(ctx, tx, at, "halt", nil, reason, key, nil)
+}
+
+// closeIn inserts the trade first, so the UNIQUE key on ledger_trades.position_id refuses a second close.
+func closeIn(ctx context.Context, tx pgx.Tx, key string, p position, price float64, reason string, at time.Time) error {
+	realized := unrealized(p.side, p.entry, p.units, price)
+	_, err := tx.Exec(ctx, `INSERT INTO ledger_trades (position_id, instrument, side, notional, units, entry_price, entry_time,
+		close_price, close_time, leverage, realized, close_reason, granularity)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+		p.id, p.instrument, p.side, p.notional, p.units, p.entry, p.entryTime, price, at, p.leverage, realized, reason, p.granularity)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" {
+		return fmt.Errorf("%w: %w", ErrClosed, err)
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger_account SET cash = cash + $1 WHERE id = 1`, p.margin+realized); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ledger_positions SET closed_at = $2 WHERE id = $1`, p.id, at); err != nil {
+		return err
+	}
+	return journal(ctx, tx, at, "close", &p.id, reason, key, map[string]any{"price": price, "realized": realized})
+}
+
+const positionCols = `id, instrument, side, notional, units, entry_price, leverage, margin, stop, last_mark, target, entry_time, granularity, closed_at IS NOT NULL`
+
+func scanPosition(row pgx.Row) (position, error) {
+	var p position
+	err := row.Scan(&p.id, &p.instrument, &p.side, &p.notional, &p.units, &p.entry, &p.leverage, &p.margin, &p.stop,
+		&p.lastMark, &p.target, &p.entryTime, &p.granularity, &p.closed)
+	return p, err
+}
+
+func load(ctx context.Context, tx pgx.Tx, id int64) (position, error) {
+	p, err := scanPosition(tx.QueryRow(ctx, `SELECT `+positionCols+` FROM ledger_positions WHERE id = $1`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return p, invalid(fmt.Sprintf("unknown position %d", id))
+	}
+	return p, err
+}
+
+func openPositions(ctx context.Context, tx pgx.Tx) ([]position, error) {
+	rows, err := tx.Query(ctx, `SELECT `+positionCols+` FROM ledger_positions WHERE closed_at IS NULL ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (position, error) { return scanPosition(r) })
+}
+
+func journal(ctx context.Context, tx pgx.Tx, at time.Time, action string, positionID *int64, reason, key string, detail map[string]any) error {
+	_, err := tx.Exec(ctx, `INSERT INTO ledger_journal (at, action, position_id, reason, context, idempotency_key)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, NULLIF($6, ''))`, at, action, positionID, reason, detail, key)
+	return err
+}
