@@ -123,7 +123,7 @@ changes or delays a bot decision.
 | A worker that lost its lease cannot complete, heartbeat or overwrite | `queue_test.go`, `runtime_test.go` reassigned worker |
 | Duplicate completion is a no-op | `queue_test.go` duplicate completion |
 | An agent's `leaseSeconds` budget sets the lease at claim and heartbeat; without it the lease is 30 s | `queue_test.go` agent lease, `runtime_test.go` short lease |
-| A taken port fails before any reaper or monitor pass; shutdown ends open streams and stops both loops before the pool closes | `cmd/api/main_test.go` |
+| A taken port fails before any reaper or monitor pass; shutdown ends open streams, lets in-flight requests finish and stops both loops before the pool closes | `cmd/api/main_test.go`, `api_test.go` stop streams |
 | Cancel discards a racing completion and leaves no proposal | `queue_test.go`, `runtime_test.go` cancel |
 | Tool allowlist and budget are enforced at execution, every denial audited | `queue_test.go`, `api_test.go` |
 | Instrument scope comes from the snapshot and ignores model arguments | `api_test.go` |

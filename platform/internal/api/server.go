@@ -17,6 +17,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,16 +49,22 @@ type Server struct {
 	bld  map[string]any
 	hub  *sigHub
 	tri  *newsTriage
+	// streamsDone closes once at shutdown and ends every open event stream; other requests keep their context.
+	streamsDone chan struct{}
+	stopOnce    sync.Once
 }
 
 func New(cfg Config, st *queue.Store, log *slog.Logger) *Server {
 	eng := tools.NewEngine(cfg.EngineURL)
-	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage()}
+	s := &Server{cfg: cfg, st: st, eng: eng, gw: &tools.Gateway{Store: st, Engine: eng}, log: log, mux: http.NewServeMux(), boot: time.Now(), hub: newSigHub(), tri: newNewsTriage(), streamsDone: make(chan struct{})}
 	bi, _ := debug.ReadBuildInfo()
 	s.bld = buildFields(bi, executableTime())
 	s.routes()
 	return s
 }
+
+// StopStreams ends every open event stream, so a graceful shutdown does not wait on them. Safe to call twice.
+func (s *Server) StopStreams() { s.stopOnce.Do(func() { close(s.streamsDone) }) }
 
 // buildFields reports the commit from the Go VCS stamp. A binary built without VCS info (go test) reports "unknown".
 func buildFields(bi *debug.BuildInfo, builtAt *time.Time) map[string]any {
@@ -626,6 +633,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-s.streamsDone:
 			return
 		case <-ping.C:
 			fmt.Fprint(w, ": ping\n\n")

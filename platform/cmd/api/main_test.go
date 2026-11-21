@@ -131,11 +131,16 @@ func TestShutdownEndsAnOpenStreamBeforeThePoolCloses(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	addr := freeAddr(t)
 	p := testPlane(addr, &rec, &passes, served)
-	// Like the event stream, the handler only ends when its request context does.
+	// Like the event stream, the handler ends when the streams stop or its request context ends.
+	stop := make(chan struct{})
+	p.stopStreams = func() { close(stop) }
 	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.(http.Flusher).Flush()
-		<-r.Context().Done()
+		select {
+		case <-stop:
+		case <-r.Context().Done():
+		}
 		rec.add("stream returned")
 	})
 	done := make(chan error, 1)
@@ -159,6 +164,56 @@ func TestShutdownEndsAnOpenStreamBeforeThePoolCloses(t *testing.T) {
 	ev := rec.list()
 	if s, c := slices.Index(ev, "stream returned"), slices.Index(ev, "pool closed"); s < 0 || c < s {
 		t.Fatalf("the stream handler must return before the pool closes: %q", ev)
+	}
+}
+
+// A worker completion in flight at shutdown keeps a live context and finishes before the pool closes.
+func TestShutdownDrainsAnInFlightRequestBeforeThePoolCloses(t *testing.T) {
+	var rec recorder
+	var passes atomic.Int32
+	served := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	addr := freeAddr(t)
+	p := testPlane(addr, &rec, &passes, served)
+	entered, release := make(chan struct{}), make(chan struct{})
+	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+		if r.Context().Err() != nil {
+			rec.add("request cancelled")
+		}
+		rec.add("request finished")
+		w.WriteHeader(http.StatusNoContent)
+	})
+	done := make(chan error, 1)
+	go func() { done <- run(ctx, p) }()
+	awaitServe(t, served, done)
+	status := make(chan int, 1)
+	go func() {
+		resp, err := http.Post("http://"+addr+"/runtime/complete", "application/json", nil)
+		if err != nil {
+			status <- 0
+			return
+		}
+		resp.Body.Close()
+		status <- resp.StatusCode
+	}()
+	<-entered
+	cancel()
+	time.Sleep(200 * time.Millisecond) // shutdown has started and is waiting on the request
+	close(release)
+	if got := <-status; got != http.StatusNoContent {
+		t.Fatalf("the in-flight request must complete during shutdown, got status %d", got)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	ev := rec.list()
+	if slices.Contains(ev, "request cancelled") {
+		t.Fatalf("shutdown must not cancel an in-flight request: %q", ev)
+	}
+	if f, c := slices.Index(ev, "request finished"), slices.Index(ev, "pool closed"); f < 0 || c < f {
+		t.Fatalf("the request must finish before the pool closes: %q", ev)
 	}
 }
 
