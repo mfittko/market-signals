@@ -129,7 +129,7 @@ func TestInjectedErrorLeavesLedgerUnchanged(t *testing.T) {
 
 func TestSameKeyBooksOnce(t *testing.T) {
 	pool := setup(t, 10000)
-	in := OpenInput{Notional: 1000, Price: 100, Leverage: 10, Stop: 95}
+	in := OpenInput{Instrument: "WTI", Side: "long", Notional: 1000, Price: 100, Leverage: 10, Stop: 95}
 	a, b := mustOpen(t, pool, "open-a", in), mustOpen(t, pool, "open-a", in)
 	if a != b || count(t, pool, `SELECT count(*) FROM ledger_positions`) != 1 {
 		t.Fatalf("open replay: ids %d %d", a, b)
