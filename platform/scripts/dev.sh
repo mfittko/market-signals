@@ -73,8 +73,32 @@ stop_one() {
 # start <name> <dir> <command...>: run detached, record the pid, log to .dev/<name>.log
 start() {
   local name="$1" dir="$2"; shift 2
+  # the parent empties the log before the launch, so a read right after start never sees a previous run's lines;
+  # the child only appends
+  : >"$RUN/$name.log"
   # exec makes the background pid the program itself, so alive() and stop_one see the real process
-  (cd "$dir" && exec "$@" </dev/null >"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+  (cd "$dir" && exec "$@" </dev/null >>"$RUN/$name.log" 2>&1 & echo $! >"$RUN/$name.pid")
+}
+
+# pid_running <name>: the recorded process still exists. Right after start it can still be the forked shell before
+# its exec, so alive() can fail although the program is about to run; this asks only whether the process is gone.
+pid_running() { [ -f "$RUN/$1.pid" ] && kill -0 "$(cat "$RUN/$1.pid")" 2>/dev/null; }
+
+# wait_listening <name> <label> <line> <port> <url> <seconds>: wait for the log line this run's own process prints
+# only once it holds its port. The checkouts share the ports, so an answer on the port can come from another
+# checkout's stack and proves nothing. When the process exits first, an answer on the port means another checkout
+# holds it; no answer means the process failed for its own reason.
+wait_listening() {
+  local name="$1" label="$2" line="$3" port="$4" url="$5"
+  for _ in $(seq 1 "$6"); do
+    grep -q "$line" "$RUN/$name.log" 2>/dev/null && return 0
+    if ! pid_running "$name"; then
+      if curl -fsS -m 2 "$url" >/dev/null 2>&1; then port_taken "$port"; fi
+      die "$label exited before it listened (see $RUN/$name.log)"
+    fi
+    sleep 1
+  done
+  grep -q "$line" "$RUN/$name.log" 2>/dev/null || die "$label did not become ready (see $RUN/$name.log)"
 }
 
 wait_http() { # url name seconds
@@ -290,42 +314,28 @@ up() {
 
   llm_env
 
+  # two concurrent ups both pass the preflight, so the other checkout's api can answer on 8081 while this api still
+  # starts; the api logs "control plane listening" only after its listen succeeded. An api that was already up needs
+  # no proof: alive() already showed it is this checkout's.
   if ! alive api; then
     MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
+    wait_listening api "control plane" "control plane listening" 8081 "$MS_API_URL/api/v1/health" 20
   fi
-  # two concurrent ups both pass the preflight, and the other checkout's api can answer on 8081 while this api still
-  # starts; only this api's own log line proves it holds the port. When it exits first, an answer on 8081 means the
-  # port was taken; no answer means it failed for its own reason
-  for _ in $(seq 1 20); do
-    grep -q "control plane listening" "$RUN/api.log" 2>/dev/null && break
-    if ! alive api; then
-      if curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then port_taken 8081; fi
-      die "control plane exited before it listened (see $RUN/api.log)"
-    fi
-    sleep 1
-  done
-  grep -q "control plane listening" "$RUN/api.log" 2>/dev/null || die "control plane did not become ready (see $RUN/api.log)"
   wait_http "$MS_API_URL/api/v1/health" "control plane" 20
 
   if ! alive worker; then
     start worker "$ROOT" "$RUN/bin/worker"
   fi
 
-  local web_started=
   if ! alive web; then
-    web_started=1
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
     # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
     start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
       -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
+    # next dev logs "Ready in" only once its server listens, and exits on a bound port, so the same proof applies
+    wait_listening web "console" "Ready in" 3000 http://127.0.0.1:3000/api/v1/health 90
   fi
   wait_http http://127.0.0.1:3000/api/v1/health "console" 90
-  # next dev exits on a bound port only seconds after it starts, so the other checkout's console can answer first;
-  # this console must still run a few seconds after the answer. A console that was already up needs no wait.
-  if [ -n "$web_started" ]; then
-    sleep 3
-    alive web || port_taken 3000
-  fi
 
   echo
   echo "Console:        http://127.0.0.1:3000"

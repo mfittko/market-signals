@@ -489,8 +489,9 @@ test('every line dev.sh prints for a launchd job carries a time and a level', ()
 
 // A scratch platform tree for `dev.sh up` with stand-in docker, go, pnpm and curl first on PATH. The built api and
 // worker and the console record their address, API URL and database name and then stay up (at most 30 s) until
-// stop() ends them, so up's post-start alive checks see them; the api also logs the real api's listening line. No
-// real service is contacted. `api` replaces the built api's script, `web` the console's and `curl` the curl stub.
+// stop() ends them, so up's post-start checks see them; the api logs the real api's listening line and the console
+// next dev's ready line. No real service is contacted. `api` replaces the built api's script, `web` the console's
+// and `curl` the curl stub.
 const devUpFixture = (dir, { api, web, curl } = {}) => {
   const bin = join(dir, 'bin'), plat = join(dir, 'plat'), out = join(dir, 'services.log');
   for (const d of [bin, join(plat, 'scripts'), join(plat, 'web', 'node_modules')]) mkdirSync(d, { recursive: true });
@@ -503,7 +504,7 @@ const devUpFixture = (dir, { api, web, curl } = {}) => {
   stub(join(dir, 'api'), api ?? `echo 'level=INFO msg="control plane listening"'; ${svc}`);
   stub(join(bin, 'go'), 'while [ "$1" != -o ]; do shift; done; mkdir -p "$2"; cp "$STUB_API" "$2/api"; cp "$STUB_SVC" "$2/worker"');
   // the last field holds every secret the console must not inherit, so it is empty for the web line
-  stub(join(bin, 'pnpm'), web ?? `echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
+  stub(join(bin, 'pnpm'), web ?? `echo ' ✓ Ready in 1s'; echo "web|$MS_API_ADDR|$MS_API_URL|\${MS_DATABASE_URL##*/}|\${MS_DEV_DB_PASSWORD:-}\${MS_WORKER_TOKEN:-}\${MS_INGEST_TOKEN:-}" >>"$STUB_OUT"; ${stay}`);
   // by default a port answers only after the stubbed service on it started, so the preflight sees free ports
   stub(join(bin, 'curl'), curl ?? 'echo "$*" >>"$STUB_CURL"; case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) grep -q "^web|" "$STUB_OUT" 2>/dev/null ;; esac');
   // Postgres reports running, so `compose up` must not run; psql stdin (the role SQL) goes to the log
@@ -518,7 +519,7 @@ const devUpFixture = (dir, { api, web, curl } = {}) => {
       try { process.kill(Number(readFileSync(join(run, `${p}.pid`), 'utf8'))); } catch { /* not started or already gone */ }
     }
   };
-  return { plat, out, env, up, stop };
+  return { bin, plat, out, env, up, stop };
 };
 
 test('dev.sh up runs the development stack: run directory .dev/dev, role and database ms_dev, API 8081, console 3000; a rerun with that stack up does not refuse', () => {
@@ -630,15 +631,67 @@ test('dev.sh up fails pointing at api.log when its started api exits and nothing
   }
 });
 
-// The slower up's console exits on the bound port 3000 a moment after the other checkout's console answered at once.
+// api.log still holds the listening line of a previous run. The new api exits without listening while another
+// checkout answers on 8081, so that stale line must not count as this api's proof.
+test('dev.sh up ignores a previous run\'s listening line in api.log', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devstale-'));
+  const { plat, out, up, stop } = devUpFixture(dir, { api: 'sleep 1; exit 1', curl: '[ -f "$STUB_API_PID" ]' });
+  try {
+    mkdirSync(join(plat, '.dev', 'dev'), { recursive: true });
+    writeFileSync(join(plat, '.dev', 'dev', 'api.log'), 'level=INFO msg="control plane listening"\n');
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.match(r.stderr, /port 8081 already serves a control plane from another checkout/);
+    assert.doesNotMatch(r.stdout, /Control plane:/);
+    assert.equal(existsSync(out), false);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// alive() matches the command line, and right after the launch the started pid can still be the forked shell before
+// its exec. The stand-in ps reports that shell for every pid, so only a gone pid may count as an exit.
+test('dev.sh up waits for its started api and console while their pids live, even before alive() matches them', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devexec-'));
+  const { bin, up, stop } = devUpFixture(dir);
+  try {
+    writeFileSync(join(bin, 'ps'), '#!/bin/sh\necho "bash scripts/dev.sh up"\n', { mode: 0o755 });
+    const r = up();
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Console: {8}http:\/\/127\.0\.0\.1:3000/);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The slower up's console exits on the bound port 3000 four seconds after the other checkout's console answered at
+// once, later than a fixed settle window would look.
 test('dev.sh up fails with the port 3000 message when its started console exits after another checkout answers', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devrace-web-'));
   const curl = 'case "$*" in *:8081/*) grep -q "^api|" "$STUB_OUT" 2>/dev/null ;; *:3000/*) [ -f "$STUB_WEB_PID" ] ;; esac';
-  const { up, stop } = devUpFixture(dir, { web: 'sleep 1; exit 1', curl });
+  const { up, stop } = devUpFixture(dir, { web: 'sleep 4; exit 1', curl });
   try {
     const r = up();
     assert.notEqual(r.status, 0);
     assert.match(r.stderr, /port 3000 already serves a console from another checkout; stop that stack with scripts\/dev\.sh down there/);
+    assert.doesNotMatch(r.stdout, /Console:/);
+  } finally {
+    stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The started console exits before it is ready and nothing answers on 3000: a startup failure of its own.
+test('dev.sh up fails pointing at web.log when its started console exits and nothing answers on 3000', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-devwebfail-'));
+  const { plat, up, stop } = devUpFixture(dir, { web: 'exit 1' });
+  try {
+    const r = up();
+    assert.notEqual(r.status, 0);
+    assert.ok(r.stderr.includes(`console exited before it listened (see ${join(plat, '.dev', 'dev', 'web.log')})`), r.stderr);
+    assert.doesNotMatch(r.stderr, /another checkout/);
     assert.doesNotMatch(r.stdout, /Console:/);
   } finally {
     stop();
