@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mfittko/market-signals/platform/internal/strategy"
 )
 
 // Strategies are versioned prompts. An agent judges entries with the active
@@ -183,10 +185,11 @@ func (s *Server) getStrategy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var b struct {
-		Prompt      string `json:"prompt"`
-		Instrument  string `json:"instrument"`  // scope for a brand new strategy
-		Granularity string `json:"granularity"` // ignored when an earlier version exists
-		BaseVersion *int   `json:"baseVersion"` // omitted only to create a new strategy
+		Prompt      string          `json:"prompt"`
+		Instrument  string          `json:"instrument"`  // scope for a brand new strategy
+		Granularity string          `json:"granularity"` // ignored when an earlier version exists
+		BaseVersion *int            `json:"baseVersion"` // omitted only to create a new strategy
+		Spec        json.RawMessage `json:"spec"`        // optional; when absent the previous version's spec carries over
 	}
 	if !decode(w, r, &b, maxPromptBody) {
 		return
@@ -197,6 +200,16 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
+	}
+	var spec any // nil keeps the previous spec
+	if len(b.Spec) > 0 && string(b.Spec) != "null" {
+		// store the validated value, never the raw request bytes
+		norm, err := strategy.NormalizeSpec(b.Spec)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			return
+		}
+		spec = string(norm)
 	}
 	switch {
 	case !strategyName.MatchString(name):
@@ -244,10 +257,10 @@ func (s *Server) saveVersion(w http.ResponseWriter, r *http.Request) {
 		return tx.QueryRow(r.Context(), `
 			INSERT INTO strategies (name,version,prompt,spec,instruments,created_by,created_at,active,archived,instrument,granularity,dedicated)
 			SELECT $1, COALESCE((SELECT max(version) FROM strategies WHERE name=$1),0)+1, $2,
-			  p.spec, p.instruments, 'console', now(), true, false, COALESCE(p.instrument, NULLIF($3,'')), COALESCE(p.granularity, NULLIF($4,'')), COALESCE(p.dedicated, $3 <> '')
+			  COALESCE($5::jsonb, p.spec), p.instruments, 'console', now(), true, false, COALESCE(p.instrument, NULLIF($3,'')), COALESCE(p.granularity, NULLIF($4,'')), COALESCE(p.dedicated, $3 <> '')
 			FROM (SELECT 1) one
 			LEFT JOIN LATERAL (SELECT * FROM strategies WHERE name=$1 ORDER BY version DESC LIMIT 1) p ON true
-			RETURNING version`, name, b.Prompt, b.Instrument, b.Granularity).Scan(&version)
+			RETURNING version`, name, b.Prompt, b.Instrument, b.Granularity, spec).Scan(&version)
 	})
 	if errors.Is(err, errArchived) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "this strategy is archived; restore it before editing"})
@@ -318,8 +331,8 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // archived retires a strategy: every version is archived, so no snapshot uses it and
-// the console hides it by default. It is refused while an agent still points at it,
-// so a live agent never loses its rules by accident. Restore clears archived on every version,
+// the console hides it by default. The console refuses it while an agent still points at it;
+// the strategy mirror can still archive an engine version that an agent uses. Restore clears archived on every version,
 // including a version that was archived before the strategy was.
 func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")

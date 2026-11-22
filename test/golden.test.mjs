@@ -15,16 +15,16 @@ const load = (f) => JSON.parse(readFileSync(join(GOLDEN_DIR, f), 'utf8'));
 const GENERATOR = fileURLToPath(new URL('../scripts/golden-fixtures.mjs', import.meta.url));
 
 // Areas the Node engine replays, and areas recorded and replayed in Go (TestGoldenReplay).
-const NODE_AREAS = ['indicators', 'portfolio'];
+const NODE_AREAS = ['indicators', 'portfolio', 'strategies'];
 const GO_AREAS = ['monitor'];
 // A fixture whose area no replay owns would pass the shape test and never be compared.
 const hasReplay = (area) => NODE_AREAS.includes(area) || GO_AREAS.includes(area);
 
-test('golden: fixture files exist for indicators, portfolio and monitor', () => {
-  for (const f of ['indicators.json', 'monitor.json', 'portfolio.json']) assert.ok(files.includes(f), `${f} is missing`);
+test('golden: fixture files exist for indicators, portfolio, strategies and monitor', () => {
+  for (const f of ['indicators.json', 'monitor.json', 'portfolio.json', 'strategies.json']) assert.ok(files.includes(f), `${f} is missing`);
 });
 
-for (const [area, owned] of [['indicators', true], ['portfolio', true], ['monitor', true], ['monitr', false], ['ledger', false], ['', false]]) {
+for (const [area, owned] of [['indicators', true], ['portfolio', true], ['strategies', true], ['monitor', true], ['monitr', false], ['ledger', false], ['', false]]) {
   test(`golden: area "${area}" ${owned ? 'has' : 'has no'} replay`, () => {
     assert.equal(hasReplay(area), owned);
   });

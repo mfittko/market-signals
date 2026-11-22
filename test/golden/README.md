@@ -7,17 +7,18 @@ Recorded inputs and expected outputs of the Node engine and, for the monitor are
 - `indicators.json`: Supertrend, ATR, ADX, RSI, EMA, MACD, Bollinger, VWAP, volume ratio, resampling, higher-timeframe Supertrend and the axis snapshot.
 - `portfolio.json`: scenarios for sizing, fills (rules in [the fill spec](../../docs/fill-spec.md)), mark-to-market exits, halts, the drawdown kill-switch, the halt reset, attribution and the strategy scoreboard.
 - `monitor.json`: position monitor scenarios (fills, trailing, time stop, kill switch, invalidation, tripwires and their cooldown), recorded from Go.
+- `strategies.json`: per-combo bot resolution (`resolveBotFor` and `resolvedStrategy` in `scripts/bot.mjs`), recorded from Node and replayed in Go (`platform/internal/strategy`). An input is `{ "kind": "resolve", instrument, granularity, settings, rows }`. A row is `[name, version, active, archived]`, its prompt is `<name> v<version> rules` and its engine id is its 1-based position. `expected` is `{ botFor, resolved }`, where `resolved` is `{ name, version }` or `null`.
 
 ## Format (version 1)
 
 Every file is plain JSON:
 
 ```
-{ "version": 1, "area": "indicators" | "portfolio" | "monitor", "series": { "<name>": [candle, ...] }, "cases": [ { "name", "input", "expected" } ] }
+{ "version": 1, "area": "indicators" | "portfolio" | "strategies" | "monitor", "series": { "<name>": [candle, ...] }, "cases": [ { "name", "input", "expected" } ] }
 ```
 
 - `series` exists only in `indicators.json`. A candle is `{ time, open, high, low, close, volume, complete }`. Times are ISO-8601 UTC.
-- `input.kind` is `indicators`, `axis-snapshot`, `scenario` or, in `monitor.json`, `step`.
+- `input.kind` is `indicators`, `axis-snapshot`, `scenario`, in `strategies.json` `resolve`, or, in `monitor.json`, `step`.
 - `indicators` and `axis-snapshot` inputs name a `series`. Their expected values are the engine outputs; `null` marks a warm-up slot; `{ "error": "<message>" }` marks a thrown error.
 - A `scenario` has `config` (`bot` settings, inline `spreads`, optional `allocationPct`), an optional `settings` object for `runBot`, and ordered `steps`. Step ops: `open`, `close`, `fills`, `mark`, `journal`, `journalRaw`, `runBot`, `resetHalt`, `attribution`. `expected.steps` holds one result per step. `expected.final` holds the portfolio state after the last step. Wall-clock fields (timestamps) are not recorded.
 - The age-based stale path of `markToMarket` depends on the wall clock and never fires in these scenarios. The unusable-quote stale path is recorded.
@@ -48,7 +49,7 @@ node scripts/golden-fixtures.mjs           # verify: exit 1 when the engine outp
 node scripts/golden-fixtures.mjs --write   # re-record after an intended engine change
 ```
 
-Review the fixture diff like any other change: it is the behaviour change. `npm test` runs `test/golden.test.mjs`, which replays every indicators and portfolio case. The monitor cases replay in Go through `TestGoldenReplay`.
+Review the fixture diff like any other change: it is the behaviour change. `npm test` runs `test/golden.test.mjs`, which replays every indicators, portfolio and strategies case. The monitor cases replay in Go through `TestGoldenReplay`, the strategies cases also through `TestGoldenResolve`.
 
 The monitor fixtures are recorded from Go:
 

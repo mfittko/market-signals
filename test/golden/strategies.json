@@ -1,0 +1,553 @@
+{
+ "version": 1,
+ "area": "strategies",
+ "cases": [
+  {
+   "name": "per-combo-name-follows-active-version",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyName": "alpha",
+        "riskPct": 1,
+        "allocationPct": 0,
+        "killSwitchDrawdownPct": "5"
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": "alpha",
+     "riskPct": 1,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": {
+     "name": "alpha",
+     "version": 2
+    }
+   }
+  },
+  {
+   "name": "unnormalized-key-scan-fallback",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       " SYNTH/USD | M5 ": {
+        "enabled": true,
+        "strategyName": "beta"
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": "beta",
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": {
+     "name": "beta",
+     "version": 1
+    }
+   }
+  },
+  {
+   "name": "legacy-id-resolves-archived-row-name",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyId": 1
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": 1,
+     "strategyName": "alpha",
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": {
+     "name": "alpha",
+     "version": 2
+    }
+   }
+  },
+  {
+   "name": "legacy-id-unknown",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyId": 99
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": 99,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "explicit-null-name-detaches",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyName": null,
+        "strategyId": 1
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "empty-name-keeps-id-without-fallback",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyName": "",
+        "strategyId": 3
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": 3,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "name-without-active-version",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": true,
+        "strategyName": "gamma"
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": "gamma",
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "disabled-and-invalid-numbers",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": {
+        "enabled": "yes",
+        "riskPct": -1,
+        "allocationPct": 5,
+        "strategyId": 2.5
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": false,
+     "strategyId": null,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": 5,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "non-object-entry",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": true
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "enabled": false,
+     "configured": false
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "array-entry-is-configured",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "bots": {
+       "SYNTH/USD|M5": []
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": false,
+     "strategyId": null,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "bots-map-disables-legacy-flat",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": true,
+      "bots": {
+       "OTHER/USD|H1": {
+        "enabled": true
+       }
+      }
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "enabled": false,
+     "configured": false
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "legacy-flat-watcher-match",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": true,
+      "watchers": "OTHER/USD|H1, SYNTH/USD | M5"
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": "alpha",
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": {
+     "name": "alpha",
+     "version": 2
+    }
+   }
+  },
+  {
+   "name": "legacy-flat-watcher-miss",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": true,
+      "watchers": "OTHER/USD|H1"
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "enabled": false,
+     "configured": false
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "legacy-flat-all-combos",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": true,
+      "watchers": "  "
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": "alpha",
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": {
+     "name": "alpha",
+     "version": 2
+    }
+   }
+  },
+  {
+   "name": "legacy-flat-no-active-strategy",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": true
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "configured": true,
+     "enabled": true,
+     "strategyId": null,
+     "strategyName": null,
+     "riskPct": null,
+     "allocationPct": null,
+     "killSwitchDrawdownPct": null
+    },
+    "resolved": null
+   }
+  },
+  {
+   "name": "legacy-flat-disabled",
+   "input": {
+    "kind": "resolve",
+    "instrument": "SYNTH/USD",
+    "granularity": "M5",
+    "settings": {
+     "bot": {
+      "enabled": "true"
+     }
+    },
+    "rows": [
+     ["alpha", 1, 0, 1],
+     ["alpha", 2, 1, 0],
+     ["beta", 1, 1, 0],
+     ["gamma", 1, 0, 0]
+    ]
+   },
+   "expected": {
+    "botFor": {
+     "enabled": false,
+     "configured": false
+    },
+    "resolved": null
+   }
+  }
+ ]
+}
