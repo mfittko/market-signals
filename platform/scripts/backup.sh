@@ -140,7 +140,10 @@ restore_sqlite() {
   # the rollback copy is taken only now, so no engine write lands between it and the restore
   pre="$data/.pre-restore-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$pre" && chmod 700 "$pre"
-  for f in candles.db signals.db; do [ -f "$data/$f" ] && sqlite3 "$data/$f" ".backup '$pre/$f'"; done
+  for f in candles.db signals.db; do
+    [ -f "$data/$f" ] || continue
+    sqlite3 -cmd ".timeout $BUSY_TIMEOUT_MS" "$data/$f" ".backup '$pre/$f'" || die "the rollback copy failed: $data/$f; nothing was restored"
+  done
   if [ -f "$data/settings.json" ]; then command cp -p "$data/settings.json" "$pre/settings.json"; fi
   echo "the current files are kept in $pre"
   # the rollback copy above can take seconds, so a prune can still remove the folder before this copy
