@@ -1,9 +1,11 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 
 // dev.sh keeps the shared development database password under $XDG_CONFIG_HOME, so no test touches the real one.
@@ -140,7 +142,7 @@ const backupFixture = (dir) => {
   stub('pg_dump', 'echo dump');
   stub('pg_restore', 'exit 0');
   // STUB_BACKUP_RM: the rollback .backup also removes that folder, like a prune landing during the rollback copy
-  stub('sqlite3', `case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")"; rm -rf "\${STUB_BACKUP_RM:-/nonexistent-ms-stub}" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
+  stub('sqlite3', `[ "$1" = -cmd ] && shift 2; case "$2" in .backup*) cp "$1" "$(echo "$2" | sed "s/^.backup '//; s/'$//")"; rm -rf "\${STUB_BACKUP_RM:-/nonexistent-ms-stub}" ;; pragma*) if [ "$1" = "$STUB_CORRUPT" ]; then echo corrupt; else echo ok; fi ;; esac`);
   // STUB_STUCK keeps the job loaded after bootout for that many print calls, like a slow engine shutdown; like
   // launchd, bootstrap fails while the job is loaded; sleep returns at once
   stub('sleep', 'exit 0');
@@ -228,6 +230,51 @@ test('scheduled backup writes a marked folder into backupDir and refuses an unse
     assert.deepEqual(readdirSync(readonly), []);
     assert.equal(readdirSync(target).length, 1);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('backup waits for a locked SQLite database, and a lock past the timeout fails it, names the file and leaves no folder', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-backup-lock-'));
+  let writer;
+  try {
+    const { data, env } = backupFixture(dir);
+    rmSync(join(dir, 'bin', 'sqlite3')); // the real sqlite3 makes the copy
+    for (const f of ['candles.db', 'signals.db']) {
+      rmSync(join(data, f));
+      const db = new DatabaseSync(join(data, f));
+      db.exec('CREATE TABLE t (x)');
+      db.close();
+    }
+    const dest = join(dir, 'dest');
+    mkdirSync(dest);
+    // asynchronous, so this process can release its lock while the backup waits
+    const backup = (setup = '') => new Promise((resolve) => {
+      execFile('bash', ['-c', `source platform/scripts/backup.sh; MAIN="$MAIN_DIR"; ${setup} backup "${dest}"`], { env: { ...process.env, ...env }, timeout: 20000 },
+        (error, stdout, stderr) => resolve({ status: error ? error.code : 0, stderr }));
+    });
+    // the second database is locked, so a failed run also has the finished copy of the first to remove
+    writer = new DatabaseSync(join(data, 'signals.db'));
+
+    writer.exec('BEGIN EXCLUSIVE');
+    const waiting = backup();
+    const early = await Promise.race([waiting, delay(1000, null)]);
+    assert.equal(early, null, `the backup ended while the lock was held: ${early?.stderr}`);
+    writer.exec('COMMIT');
+    let r = await waiting;
+    assert.equal(r.status, 0, r.stderr);
+    const [folder] = readdirSync(dest);
+    assert.deepEqual(readdirSync(join(dest, folder)).sort(), ['.ms-backup', 'candles.db', 'console.pgdump', 'signals.db']);
+    rmSync(join(dest, folder), { recursive: true });
+
+    writer.exec('BEGIN EXCLUSIVE');
+    r = await backup('BUSY_TIMEOUT_MS=200;');
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /database is locked/);
+    assert.ok(r.stderr.includes(`the SQLite copy failed: ${join(data, 'signals.db')}`), r.stderr);
+    assert.deepEqual(readdirSync(dest), []);
+  } finally {
+    writer?.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

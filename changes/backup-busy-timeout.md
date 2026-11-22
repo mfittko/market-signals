@@ -1,0 +1,1 @@
+- Platform: the backup waits up to 60 seconds for a locked SQLite database, and a longer lock fails it with the name of that database file (#401)

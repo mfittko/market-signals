@@ -25,6 +25,7 @@ WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAIN="$(main_root "$WT")"
 PG="${MS_PG_CONTAINER:-platform-postgres-1}"
 KEEP=14
+BUSY_TIMEOUT_MS=60000 # how long one SQLite copy waits each time a writer holds the lock
 
 die() { echo "error: $*" >&2; exit 1; }
 command -v docker >/dev/null || die "docker is required"
@@ -57,7 +58,10 @@ backup() {
   # a failed run leaves no folder behind; the path is expanded now because bash 3.2 (/bin/bash) drops locals before EXIT
   trap "rm -rf -- $(printf '%q' "$out")" EXIT
   docker exec "$PG" pg_dump -U ms -d ms --format=custom --no-owner > "$out/console.pgdump"
-  for f in candles.db signals.db; do [ -f "$MAIN/data/$f" ] && sqlite3 "$MAIN/data/$f" ".backup '$out/$f'"; done
+  for f in candles.db signals.db; do
+    [ -f "$MAIN/data/$f" ] || continue
+    sqlite3 -cmd ".timeout $BUSY_TIMEOUT_MS" "$MAIN/data/$f" ".backup '$out/$f'" || die "the SQLite copy failed: $MAIN/data/$f"
+  done
   for f in settings.json notes.md; do [ -f "$MAIN/data/$f" ] && command cp -p "$MAIN/data/$f" "$out/$f"; done
   chmod 600 "$out"/*
   # prove the dump is readable before trusting it
