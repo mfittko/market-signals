@@ -71,11 +71,9 @@ func TestIngestFreezesOnlyAnActiveUnarchivedStrategyVersion(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		// assign the name directly: UpsertAgent refuses a name whose versions are all archived
-		must(t, s.UpsertAgent(ctx, agent("a1")))
-		if _, err := testPool.Exec(ctx, `UPDATE agents SET strategy_name=$1 WHERE id='a1'`, name); err != nil {
-			t.Fatal(err)
-		}
+		a := agent("a1")
+		a.StrategyName = name
+		must(t, s.UpsertAgent(ctx, a))
 		r := ingest(t, s, ctx)
 		if len(r.Runs) != 1 {
 			t.Fatalf("%s: runs %+v", c.name, r.Runs)
