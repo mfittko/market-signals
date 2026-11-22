@@ -60,7 +60,7 @@ func TestIngestFreezesOnlyAnActiveUnarchivedStrategyVersion(t *testing.T) {
 	}{
 		{"a name with drafts only leaves the engine's strategy", [][2]bool{{false, false}, {false, false}}, ""},
 		{"the active version wins over a newer inactive draft", [][2]bool{{true, false}, {false, false}}, "p1"},
-		{"an archived active version leaves the engine's strategy", [][2]bool{{true, true}}, ""},
+		{"an archived active version next to a draft leaves the engine's strategy", [][2]bool{{true, true}, {false, false}}, ""},
 	}
 	for i, c := range cases {
 		s, ctx := fresh(t)
