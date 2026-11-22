@@ -4,7 +4,7 @@
 // so a later port or refactor can be tested differentially. Format and rules:
 // test/golden/README.md. Usage:
 //   node scripts/golden-fixtures.mjs           verify committed fixtures (exit 1 on drift)
-//   node scripts/golden-fixtures.mjs --write   regenerate indicators.json and portfolio.json
+//   node scripts/golden-fixtures.mjs --write   regenerate indicators.json, portfolio.json and strategies.json
 // monitor.json is recorded and verified in Go (platform/internal/monitor, TestGoldenReplay).
 // Inputs live in this file; expected values are always produced by the engine.
 process.env.MS_NO_NOTIFY ||= '1'; // the recorder must never notify
@@ -20,7 +20,8 @@ import { axisSnapshot } from './axis-snapshot.mjs';
 import {
   botConfig, openPosition, closePosition, markToMarket, portfolioView,
 } from './portfolio.mjs';
-import { runBot, simulateFills, performHaltReset } from './bot.mjs';
+import { runBot, simulateFills, performHaltReset, resolveBotFor, resolvedStrategy } from './bot.mjs';
+import { listStrategies } from './strategies.mjs';
 import { positionAttribution, granularityOf, comboOf, strategyScoreboard } from './evaluation.mjs';
 
 export const FORMAT_VERSION = 1;
@@ -331,6 +332,7 @@ async function replayScenario(input) {
 export async function replayCase(area, input, series) {
   if (area === 'indicators') return input.kind === 'axis-snapshot' ? replaySnapshot(input, series) : replayIndicators(input, series);
   if (area === 'portfolio') return replayScenario(input);
+  if (area === 'strategies') return replayStrategies(input);
   throw new Error(`unknown area: ${area}`);
 }
 
@@ -343,6 +345,47 @@ const INDICATOR_CASES = [
   { name: 'axis-snapshot-sell-flip', input: { kind: 'axis-snapshot', series: 'walk240', flip: 'sell' } },
   { name: 'axis-snapshot-too-few-candles', input: { kind: 'axis-snapshot', series: 'short5', flip: 'buy' } },
 ];
+
+// --- per-combo strategy resolution ---------------------------------------------
+
+// A row is [name, version, active, archived]; its engine id is its 1-based position.
+const ROWS = [['alpha', 1, 0, 1], ['alpha', 2, 1, 0], ['beta', 1, 1, 0], ['gamma', 1, 0, 0]];
+const COMBO = `${INSTR}|M5`;
+const STRATEGY_CASES = {
+  'per-combo-name-follows-active-version': { bot: { bots: { [COMBO]: { enabled: true, strategyName: 'alpha', riskPct: 1, allocationPct: 0, killSwitchDrawdownPct: '5' } } } },
+  'unnormalized-key-scan-fallback': { bot: { bots: { ' SYNTH/USD | M5 ': { enabled: true, strategyName: 'beta' } } } },
+  'legacy-id-resolves-archived-row-name': { bot: { bots: { [COMBO]: { enabled: true, strategyId: 1 } } } },
+  'legacy-id-unknown': { bot: { bots: { [COMBO]: { enabled: true, strategyId: 99 } } } },
+  'explicit-null-name-detaches': { bot: { bots: { [COMBO]: { enabled: true, strategyName: null, strategyId: 1 } } } },
+  'empty-name-keeps-id-without-fallback': { bot: { bots: { [COMBO]: { enabled: true, strategyName: '', strategyId: 3 } } } },
+  'name-without-active-version': { bot: { bots: { [COMBO]: { enabled: true, strategyName: 'gamma' } } } },
+  'disabled-and-invalid-numbers': { bot: { bots: { [COMBO]: { enabled: 'yes', riskPct: -1, allocationPct: 5, strategyId: 2.5 } } } },
+  'non-object-entry': { bot: { bots: { [COMBO]: true } } },
+  'array-entry-is-configured': { bot: { bots: { [COMBO]: [] } } },
+  'bots-map-disables-legacy-flat': { bot: { enabled: true, bots: { 'OTHER/USD|H1': { enabled: true } } } },
+  'legacy-flat-watcher-match': { bot: { enabled: true, watchers: 'OTHER/USD|H1, SYNTH/USD | M5' } },
+  'legacy-flat-watcher-miss': { bot: { enabled: true, watchers: 'OTHER/USD|H1' } },
+  'legacy-flat-all-combos': { bot: { enabled: true, watchers: '  ' } },
+  'legacy-flat-no-active-strategy': { bot: { enabled: true }, rows: [['alpha', 1, 0, 0]] },
+  'legacy-flat-disabled': { bot: { enabled: 'true' } },
+};
+
+function replayStrategies(input) {
+  const dir = mkdtempSync(join(tmpdir(), 'golden-'));
+  const dbPath = join(dir, 'golden.sqlite');
+  try {
+    listStrategies(dbPath); // creates the schema
+    withDb(dbPath, (db) => {
+      const ins = db.prepare('INSERT INTO strategies (name, version, prompt, created_at, active, archived) VALUES (?,?,?,?,?,?)');
+      for (const [name, version, active, archived] of input.rows) ins.run(name, version, `${name} v${version} rules`, new Date(T0).toISOString(), active, archived);
+    });
+    const botFor = resolveBotFor(input.settings, input.instrument, input.granularity, dbPath);
+    const row = resolvedStrategy(dbPath, botFor);
+    return { botFor, resolved: row ? { name: row.name, version: row.version } : null };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 export async function buildFixtures() {
   const usedSeries = (names) => Object.fromEntries(names.map((n) => [n, SERIES[n]]));
@@ -359,7 +402,12 @@ export async function buildFixtures() {
     const input = { kind: 'scenario', ...scenario };
     portfolio.cases.push({ name, input, expected: await replayCase('portfolio', input) });
   }
-  return { 'indicators.json': indicators, 'portfolio.json': portfolio };
+  const strategies = { version: FORMAT_VERSION, area: 'strategies', cases: [] };
+  for (const [name, { bot, rows = ROWS }] of Object.entries(STRATEGY_CASES)) {
+    const input = { kind: 'resolve', instrument: INSTR, granularity: 'M5', settings: { bot }, rows };
+    strategies.cases.push({ name, input, expected: await replayCase('strategies', input) });
+  }
+  return { 'indicators.json': indicators, 'portfolio.json': portfolio, 'strategies.json': strategies };
 }
 
 // Indented, but arrays of scalars stay on one line to keep the files small.
