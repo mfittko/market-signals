@@ -32,8 +32,9 @@ type MirrorReport struct {
 // Mirror copies the engine strategy versions that Postgres does not hold yet, with the engine's
 // flags and row id, so a rerun on unchanged input inserts nothing. For a version it took from the
 // engine (the same engine id, not created by the console) each run copies `active` and `archived`,
-// and an active one clears `active` on every other version of the name: until the engine stops
-// writing, it wins over the console. Mirror also fills a missing engine id and moves the engine id
+// and an active one clears `active` on every other version of the name, so for these versions the
+// engine wins over the console until it stops writing. The flags of a console-created version never
+// change, even when it carries an engine id. Mirror also fills a missing engine id and moves the engine id
 // of a recreated version with the same prompt. It finds every clashed name before the first write
 // and leaves such a name untouched, so one name never mixes console and engine histories. A
 // recreated version does not stop the name. Specs are mirrored as the engine stores them.

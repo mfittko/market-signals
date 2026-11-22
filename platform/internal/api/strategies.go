@@ -331,8 +331,8 @@ func (s *Server) activateVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 // archived retires a strategy: every version is archived, so no snapshot uses it and
-// the console hides it by default. It is refused while an agent still points at it,
-// so a live agent never loses its rules by accident. Restore clears archived on every version,
+// the console hides it by default. The console refuses it while an agent still points at it;
+// the strategy mirror can still archive an engine version that an agent uses. Restore clears archived on every version,
 // including a version that was archived before the strategy was.
 func (s *Server) setArchived(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
