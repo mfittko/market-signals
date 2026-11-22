@@ -3,8 +3,10 @@ package queue
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestIngestCapCountsTheClaimedPayloadOfAnAgentWithoutAConsoleStrategy(t *testing.T) {
@@ -45,6 +47,41 @@ func TestGovernedPicksTheFrozenStrategyThenTheEngines(t *testing.T) {
 		}
 		if got := string(governed([]byte(c.payload), frozen)); got != c.want {
 			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// A run freezes only an active, unarchived version of the agent's strategy. Without one the engine's strategy governs.
+func TestIngestFreezesOnlyAnActiveUnarchivedStrategyVersion(t *testing.T) {
+	cases := []struct {
+		name     string
+		versions [][2]bool // per version 1..n: active, archived
+		want     string    // the frozen prompt, empty when the engine's strategy governs
+	}{
+		{"a name with drafts only leaves the engine's strategy", [][2]bool{{false, false}, {false, false}}, ""},
+		{"the active version wins over a newer inactive draft", [][2]bool{{true, false}, {false, false}}, "p1"},
+		{"an archived active version next to a draft leaves the engine's strategy", [][2]bool{{true, true}, {false, false}}, ""},
+	}
+	for i, c := range cases {
+		s, ctx := fresh(t)
+		name := fmt.Sprintf("Draft-%d-%d", time.Now().UnixNano(), i)
+		for v, f := range c.versions {
+			if _, err := testPool.Exec(ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES ($1,$2,$3,'test',now(),$4,$5,false)`,
+				name, v+1, fmt.Sprintf("p%d", v+1), f[0], f[1]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		a := agent("a1")
+		a.StrategyName = name
+		must(t, s.UpsertAgent(ctx, a))
+		r := ingest(t, s, ctx)
+		if len(r.Runs) != 1 {
+			t.Fatalf("%s: runs %+v", c.name, r.Runs)
+		}
+		var got *string
+		must(t, testPool.QueryRow(ctx, `SELECT strategy->>'prompt' FROM runs WHERE id=$1`, r.Runs[0].RunID).Scan(&got))
+		if (got == nil) != (c.want == "") || (got != nil && *got != c.want) {
+			t.Errorf("%s: frozen prompt %v, want %q", c.name, got, c.want)
 		}
 	}
 }

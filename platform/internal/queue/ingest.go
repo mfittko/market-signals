@@ -107,10 +107,11 @@ func (s *Store) Ingest(ctx context.Context, in IngestInput) (IngestResult, error
 	}
 
 	// Each run freezes its agent's console strategy now: the active, unarchived version of the assigned name.
+	// Without such a version the engine's strategy governs, so an inactive draft never reaches a run.
 	// The shared snapshot stays as the event delivered it, so one event can serve agents with different strategies.
 	rows, err := tx.Query(ctx, `SELECT a.id, a.budgets, s.id, st.name, st.version, st.prompt FROM agents a JOIN sessions s ON s.agent_id=a.id
-		LEFT JOIN LATERAL (SELECT name, version, prompt FROM strategies WHERE name=a.strategy_name AND NOT archived
-			ORDER BY active DESC, version DESC LIMIT 1) st ON true
+		LEFT JOIN LATERAL (SELECT name, version, prompt FROM strategies WHERE name=a.strategy_name AND active AND NOT archived
+			ORDER BY version DESC LIMIT 1) st ON true
 		WHERE (a.enabled OR $3<>'') AND a.instrument=$1 AND a.granularity=$2 AND ($3='' OR a.id=$3) ORDER BY a.id`,
 		in.Instrument, in.Granularity, in.AgentID)
 	if err != nil {
