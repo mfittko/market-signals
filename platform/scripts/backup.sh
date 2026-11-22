@@ -25,7 +25,7 @@ WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAIN="$(main_root "$WT")"
 PG="${MS_PG_CONTAINER:-platform-postgres-1}"
 KEEP=14
-BUSY_TIMEOUT_MS=60000 # how long one SQLite copy waits each time a writer holds the lock
+BUSY_TIMEOUT_MS=60000 # how long the copy of one database waits for locks, in total
 
 die() { echo "error: $*" >&2; exit 1; }
 command -v docker >/dev/null || die "docker is required"

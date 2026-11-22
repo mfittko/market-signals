@@ -258,7 +258,15 @@ test('backup waits for a locked SQLite database, and a lock past the timeout fai
 
     writer.exec('BEGIN EXCLUSIVE');
     const waiting = backup();
-    const early = await Promise.race([waiting, delay(1000, null)]);
+    // sqlite3 creates the destination file before it first asks for the source lock, so the 1 s wait starts at the copy
+    const copying = () => readdirSync(dest).some((f) => existsSync(join(dest, f, 'signals.db')));
+    const deadline = Date.now() + 10000;
+    let early = null;
+    while (!early && !copying()) {
+      assert.ok(Date.now() < deadline, 'the backup did not start the copy of the locked database');
+      early = await Promise.race([waiting, delay(20, null)]);
+    }
+    early ??= await Promise.race([waiting, delay(1000, null)]);
     assert.equal(early, null, `the backup ended while the lock was held: ${early?.stderr}`);
     writer.exec('COMMIT');
     let r = await waiting;
