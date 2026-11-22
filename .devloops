@@ -7,8 +7,8 @@ version: 1
 # login recipe; flows are the explicit allowlist for /loop-review-ui.
 # Worktrees get tracked files only: no worktree.entries copy or link of data/
 # (about 42 GB of live market data). The server below creates an empty
-# data/candles.db in the worktree on first start; a missing data/settings.json
-# reads as {} and is written on the first settings save.
+# data/candles.db in the worktree on first db access; a missing
+# data/settings.json reads as {} and is written on the first settings save.
 uiReview:
   run:
     command: "node scripts/signal-server.mjs --port 4123"
