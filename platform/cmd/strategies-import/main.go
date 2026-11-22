@@ -1,5 +1,6 @@
 // Command strategies-import mirrors the engine's strategy versions into the Go strategy store.
-// It is one way and rerunnable: only versions Postgres does not hold are inserted. The engine stays the writer.
+// It is one way and rerunnable: only versions Postgres does not hold are inserted, and the active and archived
+// flags of versions taken from the engine follow the engine. The engine stays the writer.
 //
 //	go run ./cmd/strategies-import --sqlite ../data/candles.db
 package main

@@ -202,3 +202,92 @@ func TestMirrorReportsARecreatedVersionAndKeepsImportingTheName(t *testing.T) {
 		t.Fatalf("rerun: %+v %v, want %+v", rep, err, want)
 	}
 }
+
+func TestMirrorFollowsEngineActivationRollbackAndArchive(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	// alpha v5 exists only in the console; beta v1 is a console row with the engine's prompt; gamma v1 came in without an engine id
+	if _, err := pool.Exec(ctx, `INSERT INTO strategies (name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES
+		('alpha',5,'console five','console',now(),true,false,false),
+		('beta',1,'beta one','console',now(),false,false,false),
+		('gamma',1,'gamma one','manual',now(),true,false,false)`); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "engine.db")
+	engineDB(t, path, [4]any{"alpha", 1, "alpha one", 0}, [4]any{"alpha", 2, "alpha two", 0}, [4]any{"beta", 1, "beta one", 0}, [4]any{"gamma", 1, "gamma one", 0})
+	engine, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer engine.Close()
+
+	for _, step := range []struct{ name, engine, console, active, archived string }{
+		{name: "save", active: "alpha5"},
+		{name: "activate", engine: `UPDATE strategies SET active=1 WHERE id IN (1,3)`, active: "alpha1"},
+		{name: "activate a newer version", engine: `UPDATE strategies SET active=(id=2) WHERE name='alpha'`, active: "alpha2"},
+		{name: "roll back", engine: `UPDATE strategies SET active=(id=1) WHERE name='alpha'`, active: "alpha1"},
+		{name: "console activates its own version", console: `UPDATE strategies SET active=(version=5) WHERE name='alpha'`, active: "alpha1"},
+		{name: "console activates an engine version", console: `UPDATE strategies SET active=(version=2) WHERE name='alpha'`, active: "alpha1"},
+		{name: "archive", engine: `UPDATE strategies SET active=0, archived=1 WHERE id=1`, archived: "alpha1"},
+		{name: "console restores", console: `UPDATE strategies SET archived=false WHERE name='alpha'`, archived: "alpha1"},
+		{name: "recreate and activate", engine: `UPDATE strategies SET id=5, active=1 WHERE id=2`, active: "alpha2", archived: "alpha1"},
+	} {
+		if step.engine != "" {
+			if _, err := engine.Exec(step.engine); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if step.console != "" {
+			if _, err := pool.Exec(ctx, step.console); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if rep, err := Mirror(ctx, pool, path); err != nil || len(rep.Clashes) != 0 {
+			t.Fatalf("%s: %+v %v", step.name, rep, err)
+		}
+		var active, archived string
+		if err := pool.QueryRow(ctx, `SELECT COALESCE(string_agg(name||version, ' ' ORDER BY name, version) FILTER (WHERE active),''),
+			COALESCE(string_agg(name||version, ' ' ORDER BY name, version) FILTER (WHERE archived),'') FROM strategies`).Scan(&active, &archived); err != nil || active != step.active || archived != step.archived {
+			t.Fatalf("%s: active %q archived %q %v, want %q %q", step.name, active, archived, err, step.active, step.archived)
+		}
+	}
+}
+
+func TestMirrorNeverTouchesAClashedName(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, `TRUNCATE strategies`); err != nil {
+		t.Fatal(err)
+	}
+	// alpha v1 is mirrored, alpha v2 clashes, alpha v4 lacks its engine id; Trend differs from the engine's trend only in case
+	if _, err := pool.Exec(ctx, `INSERT INTO strategies (engine_id,name,version,prompt,created_by,created_at,active,archived,dedicated) VALUES
+		(1,'alpha',1,'alpha one','manual',now(),false,false,false),
+		(NULL,'alpha',2,'console two','console',now(),true,false,false),
+		(NULL,'alpha',4,'alpha four','manual',now(),false,false,false),
+		(NULL,'Trend',1,'trend one','console',now(),true,false,false)`); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() (s string) {
+		t.Helper()
+		if err := pool.QueryRow(ctx, `SELECT string_agg(s::text, ',' ORDER BY name, version) FROM strategies s`).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	before := snapshot()
+	path := filepath.Join(t.TempDir(), "engine.db")
+	// the engine activated alpha v1, which comes before the clash
+	engineDB(t, path, [4]any{"alpha", 1, "alpha one", 1}, [4]any{"alpha", 2, "engine two", 0}, [4]any{"alpha", 3, "alpha three", 0}, [4]any{"alpha", 4, "alpha four", 0},
+		[4]any{"trend", 1, "trend one", 1}, [4]any{"trend", 2, "trend two", 0})
+	rep, err := Mirror(ctx, pool, path)
+	want := MirrorReport{Source: 6, Clashes: []Clash{{"alpha", 1}, {"alpha", 2}, {"alpha", 3}, {"alpha", 4}, {"trend", 1}, {"trend", 2}}, Recreated: []Clash{}}
+	if err != nil || !reflect.DeepEqual(rep, want) {
+		t.Fatalf("%+v %v, want %+v", rep, err, want)
+	}
+	if after := snapshot(); after != before {
+		t.Fatalf("a clashed name changed:\n%s\n%s", before, after)
+	}
+}

@@ -228,18 +228,30 @@ stays the live source until the Go store owns settings writes
 https://github.com/mfittko/market-signals/issues/365.
 
 - `go run ./cmd/strategies-import --sqlite ../data/candles.db` mirrors the engine strategy versions. It inserts only
-  versions Postgres does not hold, with the engine flags and row id (`engine_id`). It changes a stored version only to
-  fill a missing `engine_id`, to move the `engine_id` of a recreated version with the same prompt, or to clear `active`
-  when it inserts an active version of the same name. Every engine version it takes holds the same per-name locks as a
-  console save. After a clash it skips every later engine version of that name.
-  The JSON report counts inserted and skipped versions and lists two kinds of version it leaves unimported:
-  - `clashes`: a stored version with another prompt, an engine version whose `engine_id` is stored on another version,
-    or a later engine version of a name that already clashed. A later version is not stored at all.
+  versions Postgres does not hold, with the engine flags and row id (`engine_id`). It also fills a missing `engine_id`
+  and moves the `engine_id` of a recreated version with the same prompt. Every engine version holds the same per-name
+  locks as a console save.
+- On each run the mirror copies `active` and `archived` for the versions it took from the engine: rows with the engine's
+  `engine_id` and a `created_by` other than `console`. An active one clears `active` on every other version of that
+  name, a console version included. The engine wins until the ownership switch, so a run can undo a console
+  activation, archive or restore.
+- A clashed name is never touched. The mirror finds every clashed name before its first write, then inserts nothing and
+  changes no flag or `engine_id` for that name. A name clashes when one of its engine versions is stored with another
+  prompt, when the `engine_id` of a version to insert is stored on another version, or when it differs only in case
+  from a console name.
+  The JSON report counts inserted and skipped versions and lists two other kinds of version:
+  - `clashes`: every engine version of a clashed name.
   - `recreated`: a version the engine deleted and saved again under a new id, while Postgres still holds the old id.
     The name keeps importing. With the same prompt the stored version takes the new `engine_id`. With another prompt
     the stored version stays as it is; to take the engine's version, delete the stored row and run the import again.
+- The mirror has two known gaps, which https://github.com/mfittko/market-signals/issues/365 must settle:
+  - The engine deletes its active version, and Go keeps that version active.
+  - The engine recreates a version with another prompt and activates it. The stored version keeps its flags while the
+    previously active engine version becomes inactive, so Go resolves no active version of that name.
 - A console save may carry a `spec`. An invalid spec, an unknown field or a NUL character included, answers `400` with
   the field path and stores nothing. An absent or `null` spec keeps the previous version's spec.
+- Two differences from Node are accepted. Invalid Unicode in a saved spec becomes U+FFFD. A legacy `strategyId` above
+  2^53 is dropped from the resolved bot config.
 
 ## Paper ledger
 

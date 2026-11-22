@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -13,9 +12,9 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/legacy"
 )
 
-// Clash is an engine version whose (name, version) is stored with a different prompt and no engine
-// id, or whose engine id is stored on another version, or a later engine version of a name that
-// already clashed in this run. The stored rows are kept and the clash is left unimported.
+// Clash is an engine version of a clashed name. A name clashes when one of its engine versions is
+// stored with a different prompt, when the engine id of a version to insert is stored on another
+// version, or when it differs only in case from a console name.
 // Recreated uses the same shape for a version the engine deleted and saved again under a new id.
 type Clash struct {
 	Name    string `json:"name"`
@@ -27,15 +26,17 @@ type MirrorReport struct {
 	Inserted  int     `json:"inserted"`
 	Skipped   int     `json:"skipped"` // already stored with the same prompt
 	Clashes   []Clash `json:"clashes"`
-	Recreated []Clash `json:"recreated"` // stored under another engine id; the stored row is kept
+	Recreated []Clash `json:"recreated"` // stored under another engine id; the prompt is kept
 }
 
 // Mirror copies the engine strategy versions that Postgres does not hold yet, with the engine's
-// flags and row id. It changes a stored version only to fill a missing engine id, to move the
-// engine id of a recreated version with the same prompt, or to clear `active` when it inserts an
-// active version of the same name, so a rerun on unchanged input inserts nothing. After a clash it
-// skips the rest of that name, so one name never mixes console and engine histories. A recreated
-// version does not stop the name. Specs are mirrored as the engine stores them.
+// flags and row id, so a rerun on unchanged input inserts nothing. For a version it took from the
+// engine (the same engine id, not created by the console) each run copies `active` and `archived`,
+// and an active one clears `active` on every other version of the name: until the engine stops
+// writing, it wins over the console. Mirror also fills a missing engine id and moves the engine id
+// of a recreated version with the same prompt. It finds every clashed name before the first write
+// and leaves such a name untouched, so one name never mixes console and engine histories. A
+// recreated version does not stop the name. Specs are mirrored as the engine stores them.
 func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorReport, error) {
 	rows, err := legacy.ReadStrategies(ctx, sqlitePath)
 	if err != nil {
@@ -45,10 +46,6 @@ func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorR
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		clashed := map[string]bool{}
 		for _, s := range rows {
-			if clashed[s.Name] {
-				rep.Clashes = append(rep.Clashes, Clash{s.Name, s.Version})
-				continue
-			}
 			// the same locks in the same order as the console save, so a concurrent save waits
 			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy-name:"+strings.ToLower(s.Name)); err != nil {
 				return err
@@ -56,47 +53,61 @@ func Mirror(ctx context.Context, pool *pgxpool.Pool, sqlitePath string) (MirrorR
 			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "strategy:"+s.Name); err != nil {
 				return err
 			}
+			var clash bool
+			if err := tx.QueryRow(ctx, `SELECT
+				EXISTS (SELECT 1 FROM strategies WHERE name<>$1 AND lower(name)=lower($1) AND created_by='console')
+				OR EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND version=$2 AND prompt<>$3 AND (engine_id IS NULL OR engine_id=$4))
+				OR (EXISTS (SELECT 1 FROM strategies WHERE engine_id=$4) AND NOT EXISTS (SELECT 1 FROM strategies WHERE name=$1 AND version=$2))`,
+				s.Name, s.Version, s.Prompt, s.ID).Scan(&clash); err != nil {
+				return err
+			}
+			if clash {
+				clashed[s.Name] = true
+			}
+		}
+		for _, s := range rows {
+			if clashed[s.Name] {
+				rep.Clashes = append(rep.Clashes, Clash{s.Name, s.Version})
+				continue
+			}
 			tag, err := tx.Exec(ctx, legacy.StrategyInsert, s.Args()...)
 			if err != nil {
 				return err
 			}
 			if tag.RowsAffected() == 1 {
 				rep.Inserted++
-				// one active version per name, as the engine and the console keep it
-				if s.Active {
-					if _, err := tx.Exec(ctx, `UPDATE strategies SET active=false WHERE name=$1 AND version<>$2 AND active`, s.Name, s.Version); err != nil {
-						return err
-					}
+			} else {
+				var same bool
+				var engineID *int64
+				if err := tx.QueryRow(ctx, `SELECT prompt = $3, engine_id FROM strategies WHERE name=$1 AND version=$2`, s.Name, s.Version, s.Prompt).Scan(&same, &engineID); err != nil {
+					return err
 				}
-				continue
-			}
-			var same bool
-			var engineID *int64
-			err = tx.QueryRow(ctx, `SELECT prompt = $3, engine_id FROM strategies WHERE name=$1 AND version=$2`, s.Name, s.Version, s.Prompt).Scan(&same, &engineID)
-			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-				return err
-			}
-			if engineID != nil && *engineID != s.ID {
-				// the engine deleted this version and saved it again under a new id
-				rep.Recreated = append(rep.Recreated, Clash{s.Name, s.Version})
-				if same { // the deleted id carried no journal row, so the new id takes its place
+				if engineID != nil && *engineID != s.ID {
+					// the engine deleted this version and saved it again under a new id
+					rep.Recreated = append(rep.Recreated, Clash{s.Name, s.Version})
+				} else {
+					rep.Skipped++
+				}
+				// a version stored before engine ids existed gets its id now; the deleted id of a
+				// recreated version carried no journal row, so the new id takes its place
+				if same {
 					if _, err := tx.Exec(ctx, `UPDATE strategies SET engine_id=$3 WHERE name=$1 AND version=$2
 						AND NOT EXISTS (SELECT 1 FROM strategies WHERE engine_id=$3)`, s.Name, s.Version, s.ID); err != nil {
 						return err
 					}
 				}
-				continue
 			}
-			if !same {
-				clashed[s.Name] = true
-				rep.Clashes = append(rep.Clashes, Clash{s.Name, s.Version})
-				continue
-			}
-			rep.Skipped++
-			// a version stored by the one-shot import before engine ids existed gets its id now
-			if _, err := tx.Exec(ctx, `UPDATE strategies SET engine_id=$3 WHERE name=$1 AND version=$2 AND engine_id IS NULL
-				AND NOT EXISTS (SELECT 1 FROM strategies WHERE engine_id=$3)`, s.Name, s.Version, s.ID); err != nil {
+			// a console row can carry an engine id for journal attribution; its flags stay the console's
+			tag, err = tx.Exec(ctx, `UPDATE strategies SET active=$4, archived=$5
+				WHERE name=$1 AND version=$2 AND engine_id=$3 AND created_by<>'console'`, s.Name, s.Version, s.ID, s.Active, s.Archived)
+			if err != nil {
 				return err
+			}
+			// one active version per name, as the engine and the console keep it
+			if s.Active && tag.RowsAffected() == 1 {
+				if _, err := tx.Exec(ctx, `UPDATE strategies SET active=false WHERE name=$1 AND version<>$2 AND active`, s.Name, s.Version); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
