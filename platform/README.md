@@ -253,10 +253,10 @@ https://github.com/mfittko/market-signals/issues/365.
     prompt first. The mirror fills its `engine_id` but never changes the flags of a console-created row. That row stays
     as the console left it, and the other versions of the name keep their flags: the previous engine version becomes
     inactive and a console version stays active.
-- Do not run `strategies-import` on the live database until the fix for
-  https://github.com/mfittko/market-signals/issues/406 is deployed. A mirror run can archive or deactivate the active
-  version of a name an agent uses. Run ingest then freezes the highest unarchived version of that name, active or not,
-  or the engine's strategy when every version is archived.
+- A mirror run can archive or deactivate the active version of a name an agent uses. Run ingest freezes only the
+  highest active, unarchived version of that name. Without such a version the engine's strategy governs, so an inactive
+  draft never reaches a run. Deploy this ingest rule
+  (https://github.com/mfittko/market-signals/issues/406) before the first `strategies-import` run on the live database.
 - A console save may carry a `spec`. An invalid spec, an unknown field or a NUL character included, answers `400` with
   the field path and stores nothing. An absent or `null` spec keeps the previous version's spec.
 - Two differences from Node are accepted. Invalid Unicode in a saved spec becomes U+FFFD. A legacy `strategyId` above
