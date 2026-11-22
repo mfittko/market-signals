@@ -15,7 +15,9 @@
 #              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
 #              the console proxy also forwards POST /settings, POST /chat and DELETE /threads.
 #              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
-#              control plane for strategy coaching; the console starts without them).
+#              control plane for strategy coaching; the console starts without them). Without MS_SETTINGS the
+#              launcher reads only this checkout's own data/settings.json. A worktree never reads the main
+#              checkout's file.
 # Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
 #          and ingest tokens, generated once, and its stack's database password. It also holds MS_DATABASE_URL for the
 #          binaries and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
@@ -196,12 +198,8 @@ engine_url() {
 
 settings_file() {
   if [ -n "${MS_SETTINGS:-}" ]; then echo "$MS_SETTINGS"; return; fi
-  local common main
-  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-  main="$(dirname "$common")"
-  for f in "$ROOT/../data/settings.json" "$ROOT/../../data/settings.json" "$main/data/settings.json"; do
-    [ -f "$f" ] && { echo "$f"; return; }
-  done
+  # only this checkout's own file: a worktree never falls back to the main checkout's live settings
+  if [ -f "$ROOT/../data/settings.json" ]; then echo "$ROOT/../data/settings.json"; fi
   return 0
 }
 
