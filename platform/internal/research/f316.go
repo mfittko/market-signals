@@ -236,12 +236,9 @@ func Join(e0 Spec, cats []category, bid, ask []backtest.Candle, vs []Verdict) ([
 		if !done {
 			s := e0
 			s.Feed.Granularity, s.Feed.BarSeconds = v.Granularity, sec
-			b, a := bid, ask
-			if sec != e0.Feed.BarSeconds {
-				b, a = Resample(bid, sec), Resample(ask, sec)
-			}
 			m = map[key]Trade{}
-			for _, tr := range Run(s, b, a).Trades {
+			// resampling minute-aligned M1 bars to 60 seconds returns them unchanged
+			for _, tr := range Run(s, Resample(bid, sec), Resample(ask, sec)).Trades {
 				m[key{tr.Flip.UnixNano(), int64(tr.Dir)}] = tr
 			}
 			trades[v.Granularity] = m
@@ -360,7 +357,9 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 	n := len(sc)
 	var days []string
 	rows := map[string][]int{}
+	var all []int // every row index
 	for i, x := range sc {
+		all = append(all, i)
 		d := x.Time.UTC().Format(time.DateOnly)
 		if rows[d] == nil {
 			days = append(days, d)
@@ -396,10 +395,6 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 			}
 		}
 		return sum / float64(c), c
-	}
-	all := make([]int, n)
-	for i := range all {
-		all[i] = i
 	}
 	type group struct {
 		name string

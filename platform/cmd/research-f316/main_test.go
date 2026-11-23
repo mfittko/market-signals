@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// layout copies the frozen F316 and E0 specs into a temporary repository root.
-func layout(t *testing.T) (root, spec string) {
+// layout copies the frozen F316 and E0 specs into a temporary root, with the
+// platform/go.mod repository marker when inRepo is set.
+func layout(t *testing.T, inRepo bool) (root, spec string) {
 	t.Helper()
 	root = t.TempDir()
 	for _, rel := range []string{"docs/research/experiments/f316/spec.json", "docs/research/experiments/e0/spec.json"} {
@@ -24,17 +25,19 @@ func layout(t *testing.T) (root, spec string) {
 			t.Fatal(err)
 		}
 	}
+	if inRepo {
+		if err := os.MkdirAll(filepath.Join(root, "platform"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "platform", "go.mod"), []byte("module x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return root, filepath.Join(root, "docs/research/experiments/f316/spec.json")
 }
 
 func TestRunRefusesAnOutputThatIsAnInput(t *testing.T) {
-	root, spec := layout(t)
-	if err := os.MkdirAll(filepath.Join(root, "platform"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "platform", "go.mod"), []byte("module x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	root, spec := layout(t, true)
 	e0 := filepath.Join(root, "docs/research/experiments/e0/spec.json")
 	before, _ := os.ReadFile(e0)
 	for _, out := range []string{spec, e0} {
@@ -48,13 +51,7 @@ func TestRunRefusesAnOutputThatIsAnInput(t *testing.T) {
 }
 
 func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
-	root, spec := layout(t)
-	if err := os.MkdirAll(filepath.Join(root, "platform"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "platform", "go.mod"), []byte("module x\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	_, spec := layout(t, true)
 	good, err := os.ReadFile(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +74,7 @@ func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
 }
 
 func TestRunRefusesASpecOutsideTheRepository(t *testing.T) {
-	_, spec := layout(t)
+	_, spec := layout(t, false)
 	if err := run(spec, filepath.Join(t.TempDir(), "report.md")); err == nil || !strings.Contains(err.Error(), "platform/go.mod") {
 		t.Fatalf("want a repository-root refusal, got %v", err)
 	}
