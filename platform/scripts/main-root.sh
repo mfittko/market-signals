@@ -1,4 +1,4 @@
-# Sourced by switch-launchd.sh and backup.sh. Prints the main checkout for the git repo at $1.
+# Prints the main checkout for the git repo at $1.
 # The absolute path format keeps the result independent of the caller's cwd: on the main checkout
 # plain --git-common-dir prints a relative ".git".
 # A git failure returns nonzero instead of printing "/", and pwd -P gives the physical path that callers compare.
