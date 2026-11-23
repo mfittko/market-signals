@@ -44,7 +44,7 @@ Mean net R per signal with its block-bootstrap CI.
 
 ## Blocking rules and recommendations
 
-Delta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of 500 random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules only and is no evidence of a profitable strategy.
+Delta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of 500 random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules and makes no claim about profitability.
 
 | Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Recommendation |
 |---|---|---|---|---|---|---|---|---|
@@ -77,7 +77,7 @@ Counts and mean net R without CIs. `unknown` is a signal without a snapshot row.
 
 ## filter316 reference
 
-Source: filter316 result comment, https://github.com/mfittko/market-signals/issues/316#issuecomment-6055138146, labelled measured. These numbers describe a different management and a different population, so they are a reference and no target. filter316 used another management (1.5 ATR stop, breakeven after 1 R, 3 R target, opposite flip exit, 72-bar horizon, overlapping trades allowed) and another population (all live instruments with bid/ask history except DE30/EUR, 2026-07-22 to 2026-10-08). Its random-thinning percentile ranks kept-minus-all, which falls when blocked-minus-all rises, so it reads roughly as 100 minus the percentile here. Its keep rule also needed the null q97.5 and a Holm-adjusted p below 0.05.
+Source: filter316 result comment, https://github.com/mfittko/market-signals/issues/316#issuecomment-6055138146, labelled measured. These numbers describe a different management and a different population, so they serve only as a reference. filter316 used another management (1.5 ATR stop, breakeven after 1 R, 3 R target, opposite flip exit, 72-bar horizon, overlapping trades allowed) and another population (all live instruments with bid/ask history except DE30/EUR, 2026-07-22 to 2026-10-08). Its random-thinning percentile ranks kept-minus-all, which falls when blocked-minus-all rises, so it reads roughly as 100 minus the percentile here. Its keep rule also needed the null q97.5 and a Holm-adjusted p below 0.05.
 
 - Scored: 5,455 signals over 61 trading days; 1,007 allowed, 4,448 suppressed (82%).
 - Mean net R: all -0.286 [-0.338, -0.233]; allowed -0.276 [-0.373, -0.167]; suppressed -0.288 [-0.339, -0.236].
@@ -93,7 +93,7 @@ Source: filter316 result comment, https://github.com/mfittko/market-signals/issu
 
 ## Limits
 
-- The filter316 outcomes were seen before this spec was written, so this run is a reproduction and no independent test.
+- The filter316 outcomes were seen before this spec was written, so this run can only reproduce filter316 and cannot confirm it independently.
 - One instrument, WTICO/USD. The outcome export ends at 2026-09-30T23:59:00Z.
 - No multiple-comparison correction across the rules.
 - The filter316 drop rule also fired on a delta below the null q2.5 of its random thinning. This rule drops on the delta CI alone, so a filter316 drop can read here as insufficient evidence.

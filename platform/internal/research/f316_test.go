@@ -77,6 +77,7 @@ func f316Spec(t *testing.T, verdicts []byte) (F316Spec, []byte) {
 	e0JSON, _ := fixture(t)
 	s.E0Spec.Path, s.E0Spec.SHA256 = "platform/internal/research/testdata/spec.json", sha(e0JSON)
 	s.Verdicts.Path, s.Verdicts.SHA256, s.Verdicts.Rows = "platform/internal/research/testdata/verdicts.csv", sha(verdicts), 11
+	s.Verdicts.First, s.Verdicts.Last = time.Date(2024, 3, 8, 19, 36, 0, 0, time.UTC), time.Date(2024, 3, 9, 6, 55, 0, 0, time.UTC)
 	s.Analysis.BlockDays.Value, s.Analysis.BootstrapReps.Value, s.Analysis.ThinningDraws.Value = 1, 50, 20
 	out, err := json.Marshal(s)
 	if err != nil {
@@ -104,6 +105,10 @@ func TestLoadVerdictsRefusesABadExport(t *testing.T) {
 	wrongSum.Verdicts.SHA256 = strings.Repeat("0", 64)
 	wrongRows := s
 	wrongRows.Verdicts.Rows = 10
+	wrongFirst := s
+	wrongFirst.Verdicts.First = s.Verdicts.First.Add(-time.Minute)
+	wrongLast := s
+	wrongLast.Verdicts.Last = time.Date(2024, 3, 9, 23, 59, 0, 0, time.UTC)
 	edit := func(from, to string) []byte {
 		b := bytes.Replace(good, []byte(from), []byte(to), 1)
 		if bytes.Equal(b, good) {
@@ -124,10 +129,25 @@ func TestLoadVerdictsRefusesABadExport(t *testing.T) {
 		{"unparsable time", "parsing time", s, edit("2024-03-08T19:36:00.000000000Z", "2024-03-08 19:36")},
 		{"unknown side", "not buy or sell", s, edit(",sell,alert,Clean", ",short,alert,Clean")},
 		{"unknown verdict", "not alert or suppress", s, edit(",sell,alert,Clean", ",sell,unfiltered,Clean")},
+		{"wrong first time", "manifest first 2024-03-08T19:35:00Z", wrongFirst, good},
+		{"wrong last time", "last 2024-03-09T23:59:00Z", wrongLast, good},
+		{"model with a pipe", "filter_model", s, edit(",model-a\n", ",model|x\n")},
+		{"model with a newline", "filter_model", s, edit(",model-a\n", ",\"model\nx\"\n")},
+		{"model with a carriage return", "filter_model", s, edit(",model-a\n", ",\"model\rx\"\n")},
+		{"model with markup", "filter_model", s, edit(",model-a\n", ",<b>model</b>\n")},
 	} {
 		_, err := LoadVerdicts(c.spec, bytes.NewReader(c.data))
 		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "re-export the file or change the manifest in a reviewed commit") {
 			t.Errorf("%s: want a refusal naming %q and the recovery, got %v", c.name, c.want, err)
+		}
+	}
+	for model, want := range map[string]string{"gpt-4o-mini": "gpt-4o-mini", "glm-4.6": "glm-4.6", "": "unknown"} {
+		data := edit(",model-a\n", ","+model+"\n")
+		ok := s
+		ok.Verdicts.SHA256 = sha(data)
+		vs, err := LoadVerdicts(ok, bytes.NewReader(data))
+		if err != nil || vs[0].Model != want {
+			t.Errorf("filter_model %q: want %q loaded, got %v", model, want, err)
 		}
 	}
 }
@@ -287,6 +307,9 @@ func TestParseF316SpecRefusesAnUnlabelledValueAndABadRegex(t *testing.T) {
 	for _, c := range []struct{ from, to, want string }{
 		{`"label": "assumed"`, `"label": "guessed"`, "assumed or measured"},
 		{`"value": 1000`, `"value": 0`, "whole numbers"},
+		{"\"blockDays\": {\n      \"value\": 5", "\"blockDays\": {\n      \"value\": 1.5", "whole numbers >= 1"},
+		{"\"seed\": {\n      \"value\": 316", "\"seed\": {\n      \"value\": -1", "analysis.seed"},
+		{"\"seed\": {\n      \"value\": 316", "\"seed\": {\n      \"value\": 316.5", "analysis.seed"},
 		{`"regex": "counter|`, `"regex": "(counter|`, "against_trend"},
 	} {
 		changed := bytes.Replace(b, []byte(c.from), []byte(c.to), 1)
@@ -312,6 +335,38 @@ func TestRunF316RefusesAChangedE0Spec(t *testing.T) {
 	in.E0JSON = append(slices.Clone(in.E0JSON), ' ')
 	if _, err := RunF316(in); err == nil || !strings.Contains(err.Error(), "change the reference in a reviewed commit") {
 		t.Fatalf("want an e0 sha256 refusal, got %v", err)
+	}
+}
+
+func TestRunF316RefusesAVerdictInstrumentOtherThanE0s(t *testing.T) {
+	in := f316Inputs(t)
+	s, _ := f316Spec(t, verdictFixture(t))
+	s.Verdicts.Instrument = "XAU/USD"
+	b, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.F316JSON = b
+	if _, err := RunF316(in); err == nil || !strings.Contains(err.Error(), "is not the E0 instrument WTICO/USD") {
+		t.Fatalf("want an E0 instrument refusal, got %v", err)
+	}
+}
+
+func TestRenderPrintsNAWhenARuleBlocksEveryScoredSignal(t *testing.T) {
+	e0, _, _ := load(t)
+	s, _ := f316Spec(t, verdictFixture(t))
+	sc := []Scored{
+		{Verdict: Verdict{Suppress: true, Model: "m"}, NetR: 1, Cats: []string{"other"}},
+		{Verdict: Verdict{Suppress: true, Model: "m"}, NetR: -1, Cats: []string{"other"}},
+	}
+	r := string(render(s, e0, "sum", 2, Analyze(s, nil, sc, map[string]int{})))
+	for _, rule := range []string{"all suppressions", "other"} {
+		if want := "| " + rule + " | 2 | 100.0% | +0.000 | n/a | +0.000 | +0.000 [n/a] | n/a | insufficient evidence |"; !strings.Contains(r, want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+	if strings.Contains(r, "NaN") {
+		t.Error("report prints NaN")
 	}
 }
 
@@ -348,7 +403,10 @@ func TestRunF316ReportIsByteIdenticalAndCarriesEveryTable(t *testing.T) {
 		"| unknown | 0 | n/a | 1 | ",
 		"## filter316 reference",
 		"| late_chasing | 50% | +0.024 [-0.013, +0.058] | 9th | insufficient evidence |",
-		"no independent test",
+		"cannot confirm it independently",
+		"Supertrend 10/3 on bid bars",
+		"so they serve only as a reference.",
+		"makes no claim about profitability.",
 	} {
 		if !strings.Contains(r, want) {
 			t.Errorf("report lacks %q", want)

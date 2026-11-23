@@ -80,8 +80,9 @@ type category struct {
 	re   *regexp.Regexp
 }
 
-// ParseF316Spec decodes the spec, refuses an unknown field, an unlabelled value or a
-// non-positive analysis setting, and compiles the reason categories case-insensitively.
+// ParseF316Spec decodes the spec, refuses an unknown field, an unlabelled value, a
+// non-positive or fractional analysis count and a negative or fractional seed, and
+// compiles the reason categories case-insensitively.
 func ParseF316Spec(b []byte) (F316Spec, []category, error) {
 	var s F316Spec
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -116,6 +117,10 @@ func ParseF316Spec(b []byte) (F316Spec, []category, error) {
 			return s, nil, fmt.Errorf("f316 spec: blockDays, bootstrapReps, thinningDraws and minBlocked must be whole numbers >= 1")
 		}
 	}
+	// Analyze converts the seed to uint64, which Go leaves implementation-defined for a negative float
+	if v := a.Seed.Value; v < 0 || v != math.Trunc(v) {
+		return s, nil, fmt.Errorf("f316 spec: analysis.seed must be a whole number >= 0")
+	}
 	var cats []category
 	for _, c := range s.Categories.List {
 		re, err := regexp.Compile("(?i)" + c.Regex)
@@ -140,7 +145,8 @@ type Verdict struct {
 }
 
 // LoadVerdicts reads the verdict export and refuses it unless its header, instrument,
-// times, sides and verdicts are the export's and its sha256 matches the manifest.
+// times, sides, verdicts and model names are the export's and its sha256, row count and
+// first and last times match the manifest.
 func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 	const fix = "re-export the file or change the manifest in a reviewed commit"
 	h := sha256.New()
@@ -150,6 +156,7 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 		return nil, fmt.Errorf("verdicts: header %v (%v), want %v; %s", rec, err, verdictHeader, fix)
 	}
 	var out []Verdict
+	var first, last time.Time
 	for {
 		rec, err = cr.Read()
 		if err == io.EOF {
@@ -173,8 +180,18 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 		if !v.Suppress && rec[4] != "alert" {
 			return nil, fmt.Errorf("verdicts line %d: verdict %q is not alert or suppress; %s", line, rec[4], fix)
 		}
+		// the model name lands raw in a markdown table cell
+		if strings.ContainsAny(v.Model, "|\r\n<") {
+			return nil, fmt.Errorf("verdicts line %d: filter_model %q holds a pipe, a line break or <; %s", line, v.Model, fix)
+		}
 		if v.Model == "" {
 			v.Model = "unknown"
+		}
+		if len(out) == 0 || t.Before(first) {
+			first = t
+		}
+		if len(out) == 0 || t.After(last) {
+			last = t
 		}
 		out = append(out, v)
 	}
@@ -183,6 +200,9 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 	}
 	if len(out) != s.Verdicts.Rows {
 		return nil, fmt.Errorf("verdicts: %d rows, manifest %d; %s", len(out), s.Verdicts.Rows, fix)
+	}
+	if len(out) > 0 && (!first.Equal(s.Verdicts.First) || !last.Equal(s.Verdicts.Last)) {
+		return nil, fmt.Errorf("verdicts: times %s to %s, manifest first %s and last %s; %s", first.Format(time.RFC3339), last.Format(time.RFC3339), s.Verdicts.First.Format(time.RFC3339), s.Verdicts.Last.Format(time.RFC3339), fix)
 	}
 	return out, nil
 }
@@ -522,8 +542,8 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 	p("| Verdict export | `%s`, sha256 `%s`, %d rows |\n\n", s.Verdicts.Path, s.Verdicts.SHA256, verdictRows)
 	p("Both exports are one-time owner exports and are not committed. Every cost and timing value is the E0 value, labelled in the [E0 declared values](../e0/report.md#declared-values). Every F316 setting is labelled assumed or measured with a source in the F316 spec.\n\n")
 
-	p("## Rules\n\nThe granularities, join, exclusions, reason categories, statistics and decision rule are preregistered in the [F316 spec](spec.json). For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend 10/3 on bid bars, %.1f ATR stop, %.0f R target, reversal, %d-bar time stop in bars of that granularity, %.0f ms decision delay, spread and financing). A suppressed signal is scored as if traded.\n\n",
-		e0.Experiment.Strategy.StopATR, e0.Experiment.Strategy.RR, e0.Experiment.Strategy.MaxBars, e0.Experiment.Timing.DecisionDelayMs.Value)
+	p("## Rules\n\nThe granularities, join, exclusions, reason categories, statistics and decision rule are preregistered in the [F316 spec](spec.json). For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend %d/%g on bid bars, %.1f ATR stop, %.0f R target, reversal, %d-bar time stop in bars of that granularity, %.0f ms decision delay, spread and financing). A suppressed signal is scored as if traded.\n\n",
+		e0.Experiment.Strategy.SupertrendPeriod, e0.Experiment.Strategy.SupertrendMult, e0.Experiment.Strategy.StopATR, e0.Experiment.Strategy.RR, e0.Experiment.Strategy.MaxBars, e0.Experiment.Timing.DecisionDelayMs.Value)
 
 	p("## Population\n\nScored: %d of %d verdicts, over %d UTC days.\n\n", len(a.Scored), verdictRows, a.Days)
 	p("Excluded verdicts by reason. E0 holds every flip that arrives while a trade is open, so `unmatched` can be large.\n\n| Reason | Verdicts |\n|---|---|\n")
@@ -540,7 +560,7 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 		p("| %s | %d | %s |\n", m.Name, m.N, ci(m.Mean))
 	}
 
-	p("\n## Blocking rules and recommendations\n\nDelta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of %.0f random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules only and is no evidence of a profitable strategy.\n\n", s.Analysis.ThinningDraws.Value)
+	p("\n## Blocking rules and recommendations\n\nDelta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of %.0f random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules and makes no claim about profitability.\n\n", s.Analysis.ThinningDraws.Value)
 	p("| Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Recommendation |\n|---|---|---|---|---|---|---|---|---|\n")
 	for _, r := range a.Rules {
 		if r.Blocked == 0 {
@@ -579,7 +599,7 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 	}
 
 	ref := s.Reference
-	p("\n## filter316 reference\n\nSource: %s, labelled %s. These numbers describe a different management and a different population, so they are a reference and no target. %s\n\n", ref.Source, ref.Label, ref.Differences)
+	p("\n## filter316 reference\n\nSource: %s, labelled %s. These numbers describe a different management and a different population, so they serve only as a reference. %s\n\n", ref.Source, ref.Label, ref.Differences)
 	for _, line := range ref.Summary {
 		p("- %s\n", line)
 	}
@@ -591,7 +611,7 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 	}
 
 	p("\n## Limits\n\n")
-	p("- The filter316 outcomes were seen before this spec was written, so this run is a reproduction and no independent test.\n")
+	p("- The filter316 outcomes were seen before this spec was written, so this run can only reproduce filter316 and cannot confirm it independently.\n")
 	p("- One instrument, %s. The outcome export ends at %s.\n", s.Verdicts.Instrument, e0.Dataset.Last.Format(time.RFC3339))
 	p("- No multiple-comparison correction across the rules.\n")
 	p("- The filter316 drop rule also fired on a delta below the null q2.5 of its random thinning. This rule drops on the delta CI alone, so a filter316 drop can read here as insufficient evidence.\n")
