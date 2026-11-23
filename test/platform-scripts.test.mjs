@@ -406,6 +406,68 @@ test('restore-sqlite refuses a damaged backup file and a held database with noth
   }
 });
 
+test('restore-sqlite rollback copy waits for a locked SQLite database, and a lock past the timeout fails it with nothing restored', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-restore-lock-'));
+  const writers = [];
+  try {
+    const files = (folder) => ['candles.db', 'signals.db'].map((f) => readFileSync(join(folder, f)));
+    // the real sqlite3 makes the rollback copy and checks integrity, so every file is a real database with its own row
+    const fixture = (name) => {
+      const case_ = join(dir, name); mkdirSync(case_);
+      const { data, env } = backupFixture(case_);
+      rmSync(join(case_, 'bin', 'sqlite3'));
+      const bk = backupFolder(case_);
+      for (const [folder, tag] of [[data, 'old'], [bk, 'new']]) for (const f of ['candles.db', 'signals.db']) {
+        rmSync(join(folder, f));
+        const db = new DatabaseSync(join(folder, f));
+        db.exec(`CREATE TABLE t (x); INSERT INTO t VALUES ('${tag} ${f}')`);
+        db.close();
+      }
+      // read before the lock: closing any descriptor on a file drops this process's POSIX locks on it
+      const before = files(data);
+      const writer = new DatabaseSync(join(data, 'signals.db'));
+      writers.push(writer);
+      writer.exec('BEGIN EXCLUSIVE');
+      // asynchronous, so this process can release its lock while the restore waits
+      const restore = (setup = '') => new Promise((resolve) => {
+        execFile('bash', ['-c', `source platform/scripts/backup.sh; MAIN="$MAIN_DIR"; ${setup} echo restore | restore_sqlite "${bk}"`], { env: { ...process.env, ...env }, timeout: 20000 },
+          (error, stdout, stderr) => resolve({ status: error ? error.code : 0, stdout, stderr }));
+      });
+      return { data, bk, before, writer, restore };
+    };
+
+    let { data, bk, before, writer, restore } = fixture('released');
+    const waiting = restore();
+    // sqlite3 creates the destination file before it first asks for the source lock, so the 1 s wait starts at the copy
+    const copying = () => readdirSync(data).some((f) => f.startsWith('.pre-restore-') && existsSync(join(data, f, 'signals.db')));
+    const deadline = Date.now() + 10000;
+    let early = null;
+    while (!early && !copying()) {
+      assert.ok(Date.now() < deadline, 'the restore did not start the rollback copy of the locked database');
+      early = await Promise.race([waiting, delay(20, null)]);
+    }
+    early ??= await Promise.race([waiting, delay(1000, null)]);
+    assert.equal(early, null, `the restore ended while the lock was held: ${early?.stderr}`);
+    writer.exec('COMMIT');
+    let r = await waiting;
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(files(data), files(bk));
+
+    // a fresh fixture, so the held lock is on a file no restore has overwritten
+    ({ data, before, restore } = fixture('timeout'));
+    r = await restore('BUSY_TIMEOUT_MS=200;');
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /database is locked/);
+    assert.ok(r.stderr.includes(`the rollback copy failed: ${join(data, 'signals.db')}; nothing was restored`), r.stderr);
+    assert.doesNotMatch(r.stdout, /restored\./);
+    assert.deepEqual(files(data), before);
+    assert.equal(existsSync(join(data, 'settings.json')), false);
+  } finally {
+    for (const w of writers) w.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('switch-launchd writes a daily backup plist without KeepAlive and passes backupDir to the api job', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-plist-'));
   try {
