@@ -1,7 +1,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync, statSync, realpathSync, symlinkSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -491,7 +491,7 @@ test('switch-launchd writes a daily backup plist without KeepAlive and passes ba
 
 // Sources switch-launchd.sh with LA in a scratch dir and a stand-in launchctl that treats a job as loaded while
 // its loaded-<label> file exists.
-test('rollback removal unloads the backup job and deletes its plist', () => {
+test('rollback removal unloads the backup job and deletes its plist and the watchdog plist', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-remove-'));
   try {
     const bin = join(dir, 'bin'), la = join(dir, 'la');
@@ -499,10 +499,11 @@ test('rollback removal unloads the backup job and deletes its plist', () => {
     writeFileSync(join(bin, 'launchctl'), '#!/bin/sh\ncase "$1" in print) [ -f "$DIR/loaded-${2##*/}" ] ;; bootout) echo "bootout $2" >>"$DIR/launchctl.log"; rm -f "$DIR/loaded-${2##*/}" ;; esac\n', { mode: 0o755 });
     const label = 'com.market-signals.platform-backup';
     writeFileSync(join(dir, `loaded-${label}`), '');
-    const r = sh(`source platform/scripts/switch-launchd.sh; LA="$DIR/la"; write_backup_plist; remove_console`, { DIR: dir, PATH: `${bin}:${process.env.PATH}` });
+    const r = sh(`source platform/scripts/switch-launchd.sh; LA="$DIR/la"; write_backup_plist; write_watchdog_plist; remove_console`, { DIR: dir, PATH: `${bin}:${process.env.PATH}` });
     assert.equal(r.status, 0, r.stderr);
     const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
     assert.deepEqual(readFileSync(join(dir, 'launchctl.log'), 'utf8').trim().split('\n'), [`bootout gui/${uid}/${label}`]);
+    assert.equal(existsSync(join(la, 'com.market-signals.platform-watchdog.plist')), false);
     assert.deepEqual(readdirSync(la), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1193,6 +1194,219 @@ test('switch-launchd writes the live console port into the web plist: 3737 by de
     const plist = readFileSync(join(dir, 'com.market-signals.platform-web.plist'), 'utf8');
     assert.match(plist, /dev\.sh<\/string>\s*<string>run<\/string>\s*<string>web<\/string>/);
     assert.match(plist, /<key>MS_CONSOLE_PORT<\/key>\s*<string>3737<\/string>/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Sources watchdog.sh with a scratch settings file, backupDir and state folder, a fixed clock, and stand-in curl and
+// osascript first on PATH. curl exits STUB_HEALTH for the health URL; osascript logs each notification to notify.log.
+const watchdogFixture = (dir) => {
+  const bin = join(dir, 'bin'), backups = join(dir, 'backups');
+  mkdirSync(bin); mkdirSync(backups);
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ backupDir: backups }));
+  writeFileSync(join(bin, 'curl'), '#!/bin/sh\nfor a; do case "$a" in */api/v1/health) exit "${STUB_HEALTH:-0}" ;; https://api.pushover.net/*) echo "$*" >"$DIR/push.args"; cat >"$DIR/push.body"; exit 0 ;; esac; done\necho "unexpected curl $*" >&2; exit 99\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'osascript'), '#!/bin/sh\nfor a; do last="$a"; done\necho "$last" >>"$DIR/notify.log"\n', { mode: 0o755 });
+  const marker = (ageHours) => {
+    const d = join(backups, `20261120-0330${String(ageHours).padStart(2, '0')}`);
+    mkdirSync(d);
+    writeFileSync(join(d, '.ms-backup'), '');
+    const t = (Date.now() - ageHours * 3600e3) / 1000;
+    utimesSync(join(d, '.ms-backup'), t, t);
+  };
+  const run = (t, health = 0) => sh('source platform/scripts/watchdog.sh; SETTINGS="$DIR/settings.json"; STATE="$DIR/state"; now() { echo "$T"; }; run', {
+    DIR: dir, T: String(t), STUB_HEALTH: String(health), PATH: `${bin}:${process.env.PATH}`,
+  });
+  const notes = () => (existsSync(join(dir, 'notify.log')) ? readFileSync(join(dir, 'notify.log'), 'utf8').trim().split('\n') : []);
+  return { marker, run, notes };
+};
+
+test('watchdog notifies once when the newest backup is older than 26 hours, then a fresh backup gives one recovery notification and no further notifications', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(30);
+    for (const t of [1000, 1300]) assert.equal(run(t).status, 0);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /backup/i);
+    assert.equal(existsSync(join(dir, 'push.body')), false, 'no Pushover settings means no push');
+    marker(2);
+    assert.equal(run(1600).status, 0);
+    assert.equal(notes().length, 2);
+    assert.match(notes()[1], /backup/i);
+    assert.equal(run(1900).status, 0);
+    assert.equal(notes().length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog notifies once when the health check fails for longer than 10 minutes', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    assert.equal(run(1000, 7).status, 0);
+    assert.equal(run(1300, 7).status, 0);
+    assert.deepEqual(notes(), []);
+    for (const t of [1600, 1900, 2200]) assert.equal(run(t, 7).status, 0);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /health/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog failure, failure, recovery gives two notifications, and a short failure gives none', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    assert.equal(run(1000, 7).status, 0);
+    assert.equal(run(1000 + 600, 7).status, 0);
+    assert.equal(run(1900, 0).status, 0);
+    assert.equal(run(2200, 0).status, 0);
+    assert.equal(notes().length, 2);
+    assert.match(notes()[1], /health/i);
+    assert.notEqual(notes()[0], notes()[1]);
+    assert.equal(run(3000, 7).status, 0);
+    assert.equal(run(3300, 0).status, 0);
+    assert.equal(notes().length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog survives an empty or malformed state file and restarts that check from now', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(30);
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'state', 'backup'), '');
+    writeFileSync(join(dir, 'state', 'health'), '123');
+    const r = run(5000, 7);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /backup/i);
+    assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), '5000 0\n');
+    assert.equal(readFileSync(join(dir, 'state', 'backup'), 'utf8'), '5000 1\n');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog accepts only an epoch of at most 12 digits without a leading zero and a 0 or 1 alert flag in a state file', () => {
+  const since = 1795420591, t = since + 600;
+  const cases = [
+    ['1795420591 0', 1, `${since} 1\n`],
+    ['1795420591 1', 0, `${since} 1\n`],
+    ['99999999999999999999 0', 0, `${t} 0\n`],
+    ['0999 0', 0, `${t} 0\n`],
+    ['0 0', 0, `${t} 0\n`],
+    ['', 0, `${t} 0\n`],
+    ['abc 1', 0, `${t} 0\n`],
+  ];
+  for (const [state, notified, after] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { marker, run, notes } = watchdogFixture(dir);
+      marker(1);
+      mkdirSync(join(dir, 'state'));
+      writeFileSync(join(dir, 'state', 'health'), state);
+      const r = run(t, 7);
+      assert.equal(r.status, 0, `${JSON.stringify(state)}: ${r.stderr}`);
+      assert.equal(notes().length, notified, JSON.stringify(state));
+      assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), after, JSON.stringify(state));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('watchdog restarts the health failure clock after a gap of more than 15 minutes since the last run and keeps the alert flag', () => {
+  for (const alerted of [0, 1]) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { marker, run, notes } = watchdogFixture(dir);
+      marker(1);
+      const t = Math.floor(Date.now() / 1000);
+      mkdirSync(join(dir, 'state'));
+      writeFileSync(join(dir, 'state', 'health'), `${t - 7200} ${alerted}\n`);
+      utimesSync(join(dir, 'state', 'health'), t - 7200, t - 7200);
+      const r = run(t, 7);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(notes(), [], `alert flag ${alerted}`);
+      assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), `${t} ${alerted}\n`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('watchdog resets a failing-since value in the future to now, so a backward clock change does not hold the alert back', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    const t = Math.floor(Date.now() / 1000);
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'state', 'health'), `${t + 3600} 0\n`);
+    assert.equal(run(t, 7).status, 0);
+    const [since, alerted] = readFileSync(join(dir, 'state', 'health'), 'utf8').trim().split(' ').map(Number);
+    assert.ok(since <= t, `since ${since} is later than now ${t}`);
+    assert.equal(alerted, 0);
+    assert.deepEqual(notes(), []);
+    assert.equal(run(t + 600, 7).status, 0);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /health/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog notifies once for the backup when backupDir is unset or names a missing folder', () => {
+  for (const settings of [{}, { backupDir: '/nonexistent/ms-watchdog-backups' }]) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { run, notes } = watchdogFixture(dir);
+      writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings));
+      assert.equal(run(1000).status, 0);
+      assert.equal(notes().length, 1, JSON.stringify(settings));
+      assert.match(notes()[0], /backup/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('switch-launchd writes a watchdog plist that runs every 300 seconds without KeepAlive', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-plist-'));
+  try {
+    const r = sh('source platform/scripts/switch-launchd.sh; LA="$DIR"; write_watchdog_plist', { DIR: dir });
+    assert.equal(r.status, 0, r.stderr);
+    const plist = readFileSync(join(dir, 'com.market-signals.platform-watchdog.plist'), 'utf8');
+    assert.match(plist, /watchdog\.sh<\/string>\s*<\/array>/);
+    assert.match(plist, /<key>StartInterval<\/key>\s*<integer>300<\/integer>/);
+    assert.doesNotMatch(plist, /KeepAlive|StartCalendarInterval/);
+    if (spawnSync('which', ['plutil']).status === 0) assert.equal(spawnSync('plutil', ['-lint', join(dir, 'com.market-signals.platform-watchdog.plist')]).status, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog sends the Pushover push with the token on stdin when Pushover is set in settings', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { run, notes } = watchdogFixture(dir);
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ backupDir: join(dir, 'backups'), PUSHOVER_ENABLED: '1', PUSHOVER_TOKEN: 'tok&1', PUSHOVER_USER: 'usr' }));
+    assert.equal(run(1000).status, 0);
+    assert.equal(notes().length, 1);
+    const body = new URLSearchParams(readFileSync(join(dir, 'push.body'), 'utf8'));
+    assert.equal(body.get('token'), 'tok&1');
+    assert.equal(body.get('user'), 'usr');
+    assert.match(body.get('message'), /backup/i);
+    assert.doesNotMatch(readFileSync(join(dir, 'push.args'), 'utf8'), /tok|usr/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

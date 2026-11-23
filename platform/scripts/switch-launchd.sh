@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Install the live Market Signals setup under launchd: the engine from this checkout, and the console stack
-# (control plane, worker, web) as three KeepAlive jobs, plus a daily backup job and a daily log rotation job. Also retires the old five-minute watcher, which duplicates
+# (control plane, worker, web) as three KeepAlive jobs, plus a daily backup job, a daily log rotation job and a five-minute watchdog job. Also retires the old five-minute watcher, which duplicates
 # the server's own watcher cycle. Every step is idempotent: run `up` again after a pull to rebuild and reload.
 #
 #   scripts/switch-launchd.sh status     show what launchd runs and from where (read-only)
 #   MS_ALLOW_LIVE_SWITCH=1 scripts/switch-launchd.sh up   install or update the live setup; main checkout only (asks first; -y skips the question)
-#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the daily jobs and consoleUrl, restore the original server plist and the main checkout;
+#   scripts/switch-launchd.sh rollback [--with-watcher]   remove the console jobs, the daily jobs, the watchdog job and consoleUrl, restore the original server plist and the main checkout;
 #                                        the old five-minute watcher stays off unless you add --with-watcher
 #
 # The engine reads and writes data/ (settings, candles, portfolio) in the main checkout, so no state is copied or lost.
@@ -105,11 +105,14 @@ PLIST
 }
 
 # The daily jobs run once per day at a fixed local time and are not kept alive:
-# `backup.sh scheduled` at 03:30 and `rotate-logs.sh` at 04:00.
-DAILY_JOBS="backup rotate-logs"
-write_backup_plist() { write_daily_plist backup 3 30 scheduled; }
-write_rotate_plist() { write_daily_plist rotate-logs 4 0; }
-write_daily_plist() { # name hour minute [arg]
+# `backup.sh scheduled` at 03:30 and `rotate-logs.sh` at 04:00. The watchdog job runs `watchdog.sh` every 300 seconds.
+TIMED_JOBS="backup rotate-logs watchdog"
+at_time() { printf '<key>StartCalendarInterval</key>\n\t<dict>\n\t\t<key>Hour</key>\n\t\t<integer>%s</integer>\n\t\t<key>Minute</key>\n\t\t<integer>%s</integer>\n\t</dict>' "$1" "$2"; }
+write_backup_plist() { write_timed_plist backup "$(at_time 3 30)" scheduled; }
+write_rotate_plist() { write_timed_plist rotate-logs "$(at_time 4 0)"; }
+write_watchdog_plist() { write_timed_plist watchdog '<key>StartInterval</key>
+	<integer>300</integer>'; }
+write_timed_plist() { # name schedule-xml [arg]
   cat >"$LA/$(plabel "$1").plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -121,7 +124,7 @@ write_daily_plist() { # name hour minute [arg]
 	<array>
 		<string>/bin/bash</string>
 		<string>$PLAT/scripts/$1.sh</string>
-		${4:+<string>$4</string>}
+		${3:+<string>$3</string>}
 	</array>
 	<key>WorkingDirectory</key>
 	<string>$PLAT</string>
@@ -130,13 +133,7 @@ write_daily_plist() { # name hour minute [arg]
 		<key>PATH</key>
 		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
 	</dict>
-	<key>StartCalendarInterval</key>
-	<dict>
-		<key>Hour</key>
-		<integer>$2</integer>
-		<key>Minute</key>
-		<integer>$3</integer>
-	</dict>
+	$2
 	<key>StandardOutPath</key>
 	<string>$PLAT/.dev/$1.launchd.log</string>
 	<key>StandardErrorPath</key>
@@ -192,9 +189,9 @@ install_console() {
   command mv -f "$bin.stage"/* "$bin/"
   command rm -rf "$bin.stage"
   reload_jobs
-  for j in $DAILY_JOBS; do unload "$(plabel "$j")"; done
-  write_backup_plist; write_rotate_plist
-  for j in $DAILY_JOBS; do load "$(plabel "$j")"; done
+  for j in $TIMED_JOBS; do unload "$(plabel "$j")"; done
+  write_backup_plist; write_rotate_plist; write_watchdog_plist
+  for j in $TIMED_JOBS; do load "$(plabel "$j")"; done
   for _ in $(seq 1 60); do served="$(served_commit)"; [ -n "$served" ] && break; sleep 1; done
   [ -n "$served" ] || restore_build "the console did not answer on port $PORT (see $PLAT/.dev/web.launchd.log)"
   [ "$served" = "$want" ] || restore_build "the console serves commit $served, but the build is $want"
@@ -202,11 +199,11 @@ install_console() {
 }
 
 remove_console() {
-  for j in $PLAT_JOBS $DAILY_JOBS; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
+  for j in $PLAT_JOBS $TIMED_JOBS; do unload "$(plabel "$j")"; rm -f "$LA/$(plabel "$j").plist"; done
 }
 
 status() {
-  for j in $PLAT_JOBS $DAILY_JOBS; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
+  for j in $PLAT_JOBS $TIMED_JOBS; do loaded "$(plabel "$j")" && echo "loaded:         $(plabel "$j")" || echo "not loaded:     $(plabel "$j")"; done
   console_health && echo "console:        answering on http://127.0.0.1:$PORT" || echo "console:        not answering on port $PORT"
   echo "worktree:       $WT ($(git -C "$WT" branch --show-current))"
   echo "main checkout:  $MAIN"
@@ -235,7 +232,7 @@ up() {
   echo "  6. build the console stack and run it as three launchd jobs on port $PORT (replaces the dev.sh processes);"
   echo "     a failed build, a console that does not answer on port $PORT within 60 seconds, a console that serves"
   echo "     another commit than HEAD, or a deploy that stops before that check restores the previous build"
-  echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS) and log rotation (04:00)"
+  echo "  7. install the daily backup job (03:30, backup.sh scheduled into backupDir from $SETTINGS), log rotation (04:00) and the watchdog (every 5 minutes)"
   if [ "${1:-}" != "-y" ]; then read -r -p "Continue? [y/N] " a; [ "$a" = y ] || die "cancelled"; fi
 
   before="$(equity || echo unavailable)"

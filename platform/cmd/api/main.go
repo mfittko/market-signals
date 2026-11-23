@@ -36,13 +36,14 @@ func env(k, d string) string {
 
 func main() {
 	addr := flag.String("addr", env("MS_API_ADDR", "127.0.0.1:8080"), "listen address (keep it on loopback)")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
+	dbURL := db.URLFlag(flag.CommandLine, "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 	engine := flag.String("engine", env("MS_ENGINE_URL", ""), "engine base URL for read tools and operator snapshots, e.g. http://127.0.0.1:4123")
 	seed := flag.Bool("seed", false, "create the default demo agents when missing")
 	flag.Parse()
+	dburl := dbURL()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if *dburl == "" {
+	if dburl == "" {
 		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 		os.Exit(2)
 	}
@@ -52,7 +53,7 @@ func main() {
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := start(ctx, log, *addr, *dburl, *engine, *seed, worker, ingest)
+	err := start(ctx, log, *addr, dburl, *engine, *seed, worker, ingest)
 	stop()
 	// start has returned, so its deferred cleanup (pool close) already ran.
 	if err != nil {

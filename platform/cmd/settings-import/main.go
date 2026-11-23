@@ -21,16 +21,17 @@ import (
 
 func main() {
 	path := flag.String("settings", "../data/settings.json", "legacy settings.json to mirror (read only)")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL)")
+	dbURL := db.URLFlag(flag.CommandLine, "postgres URL (default $MS_DATABASE_URL)")
 	flag.Parse()
+	dburl := dbURL()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if *dburl == "" {
+	if dburl == "" {
 		log.Error("MS_DATABASE_URL or -db must be set")
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := db.Connect(ctx, *dburl)
+	pool, err := db.Connect(ctx, dburl)
 	if err != nil {
 		log.Error("database", "err", err)
 		os.Exit(1)
