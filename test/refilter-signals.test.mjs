@@ -45,7 +45,7 @@ test('runRefilter: an errored signal at a real flip is updated to the fake provi
   const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
   const { dbPath, flipTime } = seedErroredSignal(dir);
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": false, "reason": "chop, thin volume"}'`);
-  const settings = { provider: 'pi', piBin };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin };
 
   const summary = await runRefilter(dbPath, settings, { predicate: 'errored' });
   assert.equal(summary.scanned, 1);
@@ -63,7 +63,7 @@ test('runRefilter: --dry-run computes the verdict but writes nothing', async () 
   const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
   const { dbPath, flipTime } = seedErroredSignal(dir);
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "real signal"}'`);
-  const settings = { provider: 'pi', piBin };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin };
 
   const summary = await runRefilter(dbPath, settings, { predicate: 'errored', dryRun: true });
   assert.equal(summary.updated.length, 1, 'summary reports what WOULD change');
@@ -84,7 +84,7 @@ test('runRefilter: a signal whose stored flip cannot be reconstructed from the c
     'INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)',
   ).run('WTICO/USD', 'M5', bogusTime, 'sell', candles[5].close, 50, 'alert', 'filter error: boom', 1));
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "should never run"}'`);
-  const settings = { provider: 'pi', piBin };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin };
 
   const summary = await runRefilter(dbPath, settings, { predicate: 'errored' });
   assert.equal(summary.updated.length, 0);
@@ -100,7 +100,7 @@ test('runRefilter: a re-filter call that itself errors leaves the row untouched 
   const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
   const { dbPath, flipTime } = seedErroredSignal(dir);
   // Missing pi binary -> the llmVerdict call itself throws.
-  const settings = { provider: 'pi', piBin: join(dir, 'missing-pi') };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin: join(dir, 'missing-pi') };
 
   const summary = await runRefilter(dbPath, settings, { predicate: 'errored' });
   assert.equal(summary.updated.length, 0);
@@ -116,7 +116,7 @@ test('runRefilter: idempotent — re-running only touches rows still matching th
   const dir = mkdtempSync(join(tmpdir(), 'refilter-'));
   const { dbPath, flipTime } = seedErroredSignal(dir);
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "real signal"}'`);
-  const settings = { provider: 'pi', piBin };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin };
 
   const first = await runRefilter(dbPath, settings, { predicate: 'errored' });
   assert.equal(first.updated.length, 1);
@@ -136,7 +136,7 @@ test('runRefilter: --instrument/--granularity/--since/--limit narrow the predica
     'INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)',
   ).run('BCO/USD', 'M5', candles[15].time, 'sell', candles[15].close, 50, 'alert', 'filter error: boom', 1));
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "ok"}'`);
-  const settings = { provider: 'pi', piBin };
+  const settings = { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin };
 
   const byInstrument = await runRefilter(dbPath, settings, { predicate: 'errored', instrument: 'WTICO/USD' });
   assert.equal(byInstrument.scanned, 1);
@@ -189,7 +189,7 @@ test('runRefilter: a row whose DIRECTION no longer matches the reconstructed fli
   withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)')
     .run('WTICO/USD', 'M5', flipTime, 'buy', candles[15].close, 50, 'alert', 'filter error: boom', 1)); // stored as 'buy' -> mismatch
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "must not run"}'`);
-  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  const summary = await runRefilter(dbPath, { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin }, { predicate: 'errored' });
   assert.equal(summary.updated.length, 0, 'direction mismatch -> not updated');
   assert.equal(summary.skipped.length, 1);
   const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
@@ -204,7 +204,7 @@ test('runRefilter: a row whose PRICE no longer matches the reconstructed flip is
   withDb(dbPath, (db) => db.prepare('INSERT INTO signals (instrument, granularity, time, signal, price, win_rate, verdict, reason, notified) VALUES (?,?,?,?,?,?,?,?,?)')
     .run('WTICO/USD', 'M5', flipTime, 'sell', candles[15].close + 5, 50, 'alert', 'filter error: boom', 1)); // right dir, wrong price
   const piBin = fakeBin(dir, 'pi', `echo '{"alert": true, "reason": "must not run"}'`);
-  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  const summary = await runRefilter(dbPath, { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin }, { predicate: 'errored' });
   assert.equal(summary.updated.length, 0, 'price mismatch -> not updated');
   assert.equal(summary.skipped.length, 1);
   const row = withDb(dbPath, (db) => db.prepare('SELECT * FROM signals WHERE time=?').get(flipTime));
@@ -221,7 +221,7 @@ test('runRefilter: a row fixed concurrently (between select and update) is skipp
   writeFileSync(fixer, "import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[2]); db.prepare(\"UPDATE signals SET verdict='alert', reason='recheck: real signal' WHERE time=?\").run(process.argv[3]); db.close();\n");
   // pi bin: first run the concurrent fixer (clears 'filter error' from reason), then emit a verdict.
   const piBin = fakeBin(dir, 'pi', `node '${fixer}' '${dbPath}' '${flipTime}'\necho '{"alert": false, "reason": "backfill would-be verdict"}'`);
-  const summary = await runRefilter(dbPath, { provider: 'pi', piBin }, { predicate: 'errored' });
+  const summary = await runRefilter(dbPath, { provider: 'pi', notesFile: join(dir, 'notes.md'), piBin }, { predicate: 'errored' });
   assert.equal(summary.updated.length, 0, 'concurrently-fixed row not overwritten');
   assert.equal(summary.skipped.length, 1);
   assert.match(summary.skipped[0].reason, /concurrently/);

@@ -815,7 +815,7 @@ test('chat: a thread that already fetched news carries newsAlreadyFetched into t
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\necho "ack"\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const first = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'any news?', instrument: INSTRUMENT, granularity: 'M5' }) });
     const threadId = sseEvents(await first.text()).find((e) => e.type === 'done').threadId;
@@ -847,7 +847,7 @@ test('chat: a halted turn is named by the replacement and dropped — no orphan 
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\nsleep 2\necho "late answer"\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const seed = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'first', instrument: INSTRUMENT, granularity: 'M5' }) });
     const threadId = sseEvents(await seed.text()).find((e) => e.type === 'done').threadId;
@@ -905,7 +905,7 @@ test('chat: a discard id naming an assistant turn is inert — only a question c
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\necho "keep me"\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'opening', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
     const threadId = ev.find((e) => e.type === 'done').threadId;
@@ -924,7 +924,7 @@ test('chat: an OLDER question named in discard is inert — forward-delete canno
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\necho "ok"\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'oldest question', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
     const threadId = ev.find((e) => e.type === 'done').threadId;
@@ -948,7 +948,7 @@ test('chat: an unknown tool still sends its done event, so the chip stops runnin
     const res = (text) => JSON.stringify({ type: 'result', is_error: false, result: text, usage: { input_tokens: 1, output_tokens: 1 } });
     writeFileSync(bin, `#!/bin/sh\ncase "$*" in *"[tool result]"*) echo '${res('no such tool')}';; *) echo '${res('TOOL_CALL {"name":"nope","input":{}}')}';; esac\n`);
     chmodSync(bin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'claude-code', claudeBin: bin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'claude-code', claudeBin: bin }));
 
     const ev = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
     const tool = ev.filter((e) => e.type === 'tool' && e.name === 'nope').map((e) => e.state);
@@ -963,7 +963,7 @@ test('chat: a discard id from another thread is inert', async () => {
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\necho "ok"\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const a = sseEvents(await (await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'thread A', instrument: INSTRUMENT, granularity: 'M5' }) })).text());
     const threadA = a.find((e) => e.type === 'done').threadId;
@@ -983,7 +983,7 @@ test('chat: SSE reply via fake pi, thread auto-created, context + messages persi
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, `#!/bin/sh\necho "Floor holds at 87.7, ceiling 88.8."\n`);
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'worth re-entering short here?', instrument: INSTRUMENT, granularity: 'M5' }) });
     assert.equal(res.status, 200);
@@ -1043,7 +1043,7 @@ test('chat context transmits localized timestamps (#34): tz applied, invalid tz 
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, '#!/bin/sh\necho ok\n');
     chmodSync(piBin, 0o755);
-    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ provider: 'pi', piBin }) });
+    await fetch(base + '/api/settings', { method: 'POST', body: JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }) });
     const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'time check', tz: 'Etc/GMT-2', instrument: INSTRUMENT, granularity: 'M5' }) });
     const done = sseEvents(await res.text()).find((e) => e.type === 'done');
     const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
@@ -1063,7 +1063,7 @@ test('chat: no provider configured yields a clear 400; provider errors persist a
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /no chat provider/);
 
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin: join(dir, 'missing-pi') }));
     res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ message: 'hi' }) });
     const events = sseEvents(await res.text());
     const errEv = events.find((e) => e.type === 'error');
@@ -1122,7 +1122,7 @@ test('a11y + collapsible chat sidebar (#126)', async () => {
 test('chat: unknown threadId is rejected, provider errors stay short (no prompt leak)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'ss-'));
   await withServer(dir, async ({ base, settingsPath }) => {
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin: join(dir, 'missing-pi') }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin: join(dir, 'missing-pi') }));
     let res = await fetch(`${base}/api/chat`, { method: 'POST', body: JSON.stringify({ threadId: 999, message: 'hi' }) });
     assert.equal(res.status, 404);
     assert.equal((await fetch(`${base}/api/threads`, { method: 'DELETE' })).status, 400, 'DELETE without id rejected');
@@ -1154,10 +1154,18 @@ test('chat tools: registry executes with clamped args, rejects unknown tools and
   assert.throws(() => execChatTool('live_rates', { market: 'evil', slugs: 'gold' }), /invalid market/);
   // Regression: the executors spawn via execFileSync/process.execPath — a tool
   // whose spawn path is broken must throw a real spawn error, not ReferenceError.
+  // The executor spawns its script relative to the cwd; an empty cwd makes the
+  // spawn fail with module-not-found, so no fetch and no data/ access happens.
+  const cwd = process.cwd();
+  process.chdir(mkdtempSync(join(tmpdir(), 'ss-empty-cwd-')));
   try {
-    execChatTool('fxempire_articles', { hours: 1, maxItems: 1 });
-  } catch (err) {
-    assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
+    assert.throws(() => execChatTool('fxempire_articles', { hours: 1, maxItems: 1 }), (err) => {
+      assert.ok(!/is not defined/.test(err.message), `executor wiring broken: ${err.message}`);
+      assert.match(err.message, /Cannot find module/);
+      return true;
+    });
+  } finally {
+    process.chdir(cwd);
   }
 });
 
@@ -1320,7 +1328,7 @@ test('thread titles evolve from the model annotation (#38): stripped, applied on
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, '#!/bin/sh\ncat > /dev/null\nprintf "Floor holds.\\n<!--title: floor check-->\\n"\n');
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
     const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'does the floor hold?', instrument: INSTRUMENT, granularity: 'M5' }) });
     const events = sseEvents(await res.text());
     const done = events.find((e) => e.type === 'done');
@@ -2244,7 +2252,7 @@ test('gate prompts (#58): chat context carries the effective per-gate prompt for
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, '#!/bin/sh\necho ok\n');
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
 
     const draft = saveGatePrompt(dbPath, { gate: 'filter', prompt: 'Chat-visible override rules text.' });
     const res1 = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'what are your filter rules?', instrument: INSTRUMENT, granularity: 'M5' }) });
@@ -2307,7 +2315,7 @@ test('chart ind= param serves display series + state axis gate; chat context car
     const piBin = join(dir, 'pi');
     writeFileSync(piBin, '#!/bin/sh\ncat > /dev/null\necho ok\n');
     chmodSync(piBin, 0o755);
-    writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin }));
+    writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin }));
     const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'axis check', instrument: INSTRUMENT, granularity: 'M5' }) });
     const done = sseEvents(await res.text()).find((e) => e.type === 'done');
     const { messages } = await (await fetch(base + '/api/messages?thread=' + done.threadId)).json();
@@ -2872,7 +2880,7 @@ test('MS_DEBUG_LLM=1: chat SSE carries X-LLM-Provider/Model headers up front + a
       const piBin = join(dir, 'pi');
       writeFileSync(piBin, '#!/bin/sh\necho "chat reply"\n');
       chmodSync(piBin, 0o755);
-      writeFileSync(settingsPath, JSON.stringify({ provider: 'pi', piBin, model: 'pi-chat-test' }));
+      writeFileSync(settingsPath, JSON.stringify({ notesFile: join(dir, 'notes.md'), provider: 'pi', piBin, model: 'pi-chat-test' }));
       const res = await fetch(base + '/api/chat', { method: 'POST', body: JSON.stringify({ message: 'debug flag check', instrument: INSTRUMENT, granularity: 'M5' }) });
       assert.equal(res.status, 200);
       assert.equal(res.headers.get('x-llm-provider'), 'pi');

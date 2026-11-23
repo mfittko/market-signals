@@ -183,7 +183,7 @@ function fixture(dir, { notify = true, settings = {}, candleCount = 20 } = {}) {
   // Defense in depth: even without the MS_NO_NOTIFY env guard, a fixture-pinned
   // missing notifierBin trips the explicitly-configured-missing suppression in
   // sendNotification, so no test can ever reach a real terminal-notifier/osascript.
-  writeFileSync(settingsPath, JSON.stringify({ notifierBin: join(dir, 'no-such-notifier'), ...settings }));
+  writeFileSync(settingsPath, JSON.stringify({ notifierBin: join(dir, 'no-such-notifier'), notesFile: join(dir, 'notes.md'), ...settings }));
   const opts = { db: join(dir, 'db.sqlite'), instrument: 'WTICO/USD', granularity: 'M5', notify, settings: settingsPath };
   const result = {
     close: 88.0, trend: 'down', supertrend: 88.8,
