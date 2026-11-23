@@ -129,7 +129,7 @@ func TestParseSpecRefusesAnUnlabelledValue(t *testing.T) {
 func TestNoFillBeforeTheDecisionExisted(t *testing.T) {
 	s, bid, ask := load(t)
 	bar := time.Duration(s.Feed.BarSeconds) * time.Second
-	delay := time.Duration(s.Experiment.Timing.DecisionDelayMs.Value) * time.Millisecond
+	delay := time.Duration(s.Experiment.Timing.DecisionDelayMs.Value * float64(time.Millisecond))
 	idx := map[time.Time]int{}
 	for i, c := range bid {
 		idx[c.Time] = i
@@ -138,6 +138,14 @@ func TestNoFillBeforeTheDecisionExisted(t *testing.T) {
 		decided := tr.Flip.Add(bar + delay)
 		if !tr.Decision.Equal(decided) || tr.Entry.Before(decided) {
 			t.Fatalf("trade %+v enters before its decision at %s", tr, decided)
+		}
+		// a long buys at the ask open of its entry bar, a short sells at the bid open
+		want := bid[idx[tr.Entry]].Open
+		if tr.Dir > 0 {
+			want = ask[idx[tr.Entry]].Open
+		}
+		if math.Abs(tr.EntryPrice-want) > 1e-9 {
+			t.Fatalf("trade %+v enters at %v, want %v", tr, tr.EntryPrice, want)
 		}
 		// the entry is the first bar at or after the decision, never a later one
 		if prev := bid[idx[tr.Entry]-1]; !prev.Time.Before(decided) {
@@ -153,12 +161,12 @@ func TestNoFillBeforeTheDecisionExisted(t *testing.T) {
 	}
 }
 
-// oppositeFlip returns the open time of the first flip against the trade at or after its entry.
+// oppositeFlip returns the open time of the first flip against the trade after its flip bar.
 func oppositeFlip(s Spec, bid []backtest.Candle, tr Trade) (time.Time, bool) {
 	st := s.Experiment.Strategy
 	flips, _ := backtest.Supertrend(bid, st.SupertrendPeriod, st.SupertrendMult)
 	for _, f := range flips {
-		if f.Dir == -tr.Dir && !f.Time.Before(tr.Entry) {
+		if f.Dir == -tr.Dir && f.Time.After(tr.Flip) {
 			return f.Time, true
 		}
 	}
@@ -234,6 +242,41 @@ func TestATimeStopBeforeTheReversalFillWins(t *testing.T) {
 	}
 }
 
+func TestAWhipsawBeforeTheEntryReverses(t *testing.T) {
+	s, bid, ask := reversalLoad(t)
+	bar := time.Duration(s.Feed.BarSeconds) * time.Second
+	delay := time.Duration(s.Experiment.Timing.DecisionDelayMs.Value * float64(time.Millisecond))
+	idx := map[time.Time]int{}
+	for i, c := range bid {
+		idx[c.Time] = i
+	}
+	tr := Run(s, bid, ask).Trades[0]
+	i := idx[tr.Flip]
+	bid2 := append([]backtest.Candle(nil), bid...)
+	// the bar after the flip bar closes far through the band, so it flips the other way
+	if tr.Dir > 0 {
+		bid2[i+1].Low, bid2[i+1].Close = 0, 0
+	} else {
+		bid2[i+1].High, bid2[i+1].Close = 1000, 1000
+	}
+	flips, _ := backtest.Supertrend(bid2, s.Experiment.Strategy.SupertrendPeriod, s.Experiment.Strategy.SupertrendMult)
+	whipsaw := false
+	for _, f := range flips {
+		whipsaw = whipsaw || (f.Time.Equal(bid[i+1].Time) && f.Dir == -tr.Dir)
+	}
+	if !whipsaw || idx[tr.Entry] != i+2 {
+		t.Fatalf("test setup: want an opposite flip at bar %d and an entry at bar %d, got flip %v and entry %d", i+1, i+2, whipsaw, idx[tr.Entry])
+	}
+	fill := i + 2
+	for bid[fill].Time.Before(bid[i+1].Time.Add(bar + delay)) {
+		fill++
+	}
+	got := tradeAt(t, Run(s, bid2, ask), tr.Entry)
+	if got.Reason != "reversal" || !got.Exit.Equal(bid[fill].Time) {
+		t.Fatalf("got %+v, want a reversal at %s", got, bid[fill].Time)
+	}
+}
+
 func TestRefusals(t *testing.T) {
 	specJSON, _ := fixture(t)
 	s, err := ParseSpec(specJSON)
@@ -263,6 +306,8 @@ func TestRefusals(t *testing.T) {
 		{"negative decision delay", `"value": 2212`, `"value": -1`, "decision delay must be >= 0"},
 		{"invalid strategy", `"stopAtr": 1.5`, `"stopAtr": 0`, "rr must be >= 0 and the other strategy settings > 0"},
 		{"negative rr", `"rr": 2`, `"rr": -1`, "rr must be >= 0 and the other strategy settings > 0"},
+		{"unknown field", `"financingMarkup"`, `"financingMarkupRate"`, "unknown field"},
+		{"empty source", `"source": "the export's bid and ask OHLC, per bar"`, `"source": ""`, "with a source"},
 	} {
 		b := bytes.Replace(specJSON, []byte(c.from), []byte(c.to), 1)
 		if bytes.Equal(b, specJSON) {
@@ -330,7 +375,14 @@ func TestRollovers(t *testing.T) {
 func TestFinancingSign(t *testing.T) {
 	s, bid, ask := load(t)
 	crossed := 0
-	for _, tr := range Run(s, bid, ask).Trades {
+	art := Run(s, bid, ask)
+	if sum := art.Summary; math.Abs(sum.GrossR-sum.SpreadR-sum.FinancingR-sum.Net.TotalR) > 1e-9 {
+		t.Fatalf("summary %+v: gross minus spread minus financing is not net", sum)
+	}
+	for _, tr := range art.Trades {
+		if tr.SpreadR <= 0 || math.Abs(tr.GrossR-tr.SpreadR-tr.FinancingR-tr.NetR) > 1e-9 {
+			t.Fatalf("trade %+v: want a positive spread and gross minus spread minus financing equal to net", tr)
+		}
 		switch {
 		case tr.Rollovers == 0 && tr.FinancingR != 0:
 			t.Fatalf("trade %+v pays financing without a rollover", tr)

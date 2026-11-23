@@ -16,7 +16,7 @@ The frozen contract is `docs/research/experiments/e0/spec.json`. It holds the in
 | Dataset sha256 | `4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488` |
 | Dataset rows | 1,293,832 |
 | Dataset range | 2023-01-02T23:00:00Z to 2026-09-30T23:59:00Z |
-| Spec sha256 | `940781b54d0e10ae4af98ce45229eae758a287927d2559c6721664e625547eb1` |
+| Spec sha256 | `4185f41bbaee23bc254ed2a65c71717c21129b0ebe9a96201637deed9f764b16` |
 
 The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost, timing or feed value that is not labelled assumed or measured. The strategy settings carry no label: they are the plain-flip baseline of `backtest.Search`.
 
@@ -25,7 +25,7 @@ The loader refuses a dataset whose sha256 does not match the manifest. The spec 
 - Signal: a Supertrend flip (period 10, multiplier 3) on the bid bars. The ATR for the stop comes from the same bid bars.
 - Decision delay: the decision exists 2,212 ms after the flip bar closes. An entry fills at the open of the first bar that starts at or after the decision time. Without missing bars, this is the second bar after the flip bar.
 - Entry: a long enters at the ask open, a short at the bid open.
-- Exits: a stop at 1.5 ATR, a target at 2 R, a reversal on the opposite flip (it fills at the open of the first bar at or after that flip's decision time), or a time stop after 200 bars. A long exits on bid bars, a short on ask bars. A bar that touches both the stop and the target exits at the stop.
+- Exits: a stop at 1.5 ATR, a target at 2 R, a reversal on the opposite flip (it fills at the open of the first bar at or after that flip's decision time, also when the opposite flip comes before the entry bar), or a time stop after 200 bars. A long exits on bid bars, a short on ask bars. A bar that touches both the stop and the target exits at the stop.
 - Financing: one day of financing at each 17:00 America/New_York rollover that a position holds across.
 - A candle revision after a decision is unavailable to that decision.
 
@@ -33,11 +33,12 @@ The loader refuses a dataset whose sha256 does not match the manifest. The spec 
 
 | Value | Setting | Label | Source |
 |---|---|---|---|
+| Bar time | the bar open in UTC; a bar closes 60 s later | measured | the export's time column: bar opens that ascend with gaps where the market had no bar |
 | Spread | per-bar bid and ask prices | measured | the export's bid and ask OHLC |
 | Commission | 0 | assumed | `docs/fill-spec.md`, Spread and cost |
 | Financing basis | 4.7% a year | assumed | mean of the 2023 to 2025 DTB3 annual averages in `docs/research/data.md` |
 | Financing markup | 2.5% a year | assumed | the OANDA financing costs page in `docs/research/sources.md` |
-| Rollover time | 17:00 America/New_York | assumed | the OANDA financing costs page in `docs/research/sources.md` |
+| Rollover time | 17:00 America/New_York | assumed | an assumed industry convention; no page cited in `docs/research/sources.md` states it |
 | Decision delay | 2,212 ms | measured | the maximum completion delay in https://github.com/mfittko/market-signals/pull/153 |
 
 ## Run
@@ -48,30 +49,34 @@ From `platform/`:
 go run ./cmd/research-e0 --spec ../docs/research/experiments/e0/spec.json --data <path to the export CSV> --out <artifact JSON path>
 ```
 
-Two runs with the network denied gave the identical artifact sha256 `06ac0046384273040929618be2a46f71edb5961576c8cec774efc89bb583f625`.
+Two runs with the network denied gave the identical artifact sha256 `51de4b27cf2640062a65f1d0edc0f2f98de541b6ffe7355fb20acea94fe9a95d`.
 
 ## Results
 
-All results are in R, the distance from entry to the initial stop. Net results include the spread and financing.
+All results are in R, the distance from entry to the initial stop. Net results include the spread and financing. The artifact summary carries the flips, the net statistics and the gross, spread and financing totals. Gross minus spread minus financing is the net total. A trade's spread cost is half the ask minus bid at the entry open plus half the ask minus bid at the exit bar's open (its close for a time or end exit), so gross is the result at mid prices.
 
 | Measure | Value |
 |---|---|
 | Supertrend flips | 40,068 |
-| Trades | 37,373 |
+| Trades | 37,374 |
 | Win rate | 13.7% |
 | Mean net result | -0.83 R |
+| Gross result, total | 825 R |
+| Spread cost, total | 31,699 R |
+| Financing, total | 12.8 R over 93 trades that held across a rollover |
 | Total net result | -30,886 R |
 | Profit factor | 0.24 |
-| Financing, total | 12.8 R over 93 trades that held across a rollover |
 | Entry spread, 25th / 50th / 75th percentile | 0.33 / 0.56 / 1.09 R |
+
+The percentiles and the breakdowns below come from the artifact's `trades` array. A percentile is the nearest rank of the sorted `entrySpreadR` values (index ceil(p x n) - 1). A breakdown groups the trades by `reason`, by the year of `entry` or by `dir`, and gives the mean `netR` of each group. The financing row counts the trades whose `rollovers` is above 0.
 
 By exit reason:
 
 | Exit | Trades | Mean net result |
 |---|---|---|
-| Stop | 31,635 | -1.28 R |
-| Target | 4,881 | 2.03 R |
-| Reversal | 857 | -0.22 R |
+| Stop | 31,631 | -1.28 R |
+| Target | 4,879 | 2.03 R |
+| Reversal | 864 | -0.21 R |
 | Time | 0 | n/a |
 
 By year: 2023 -0.72 R, 2024 -0.98 R, 2025 -1.03 R, 2026 (to 2026-09-30) -0.47 R per trade.

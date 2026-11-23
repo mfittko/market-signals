@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"time"
 	_ "time/tzdata" // the financing rollover needs America/New_York on any host
@@ -128,7 +129,7 @@ func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("data: %w; re-export the file", err)
 	}
-	if fmt.Sprint(rec) != fmt.Sprint(header) {
+	if !slices.Equal(rec, header) {
 		return nil, nil, fmt.Errorf("data: header %v, want %v; re-export the file", rec, header)
 	}
 	for line := 2; ; line++ {
@@ -176,13 +177,20 @@ type Trade struct {
 	Reason      string    `json:"reason"`       // stop | target | reversal | time | end
 	R           float64   `json:"r"`            // after spread, before financing
 	EntrySpread float64   `json:"entrySpreadR"` // ask minus bid at the entry open, in R
-	Rollovers   int       `json:"rollovers"`
-	FinancingR  float64   `json:"financingR"` // a cost when positive, a credit when negative
-	NetR        float64   `json:"netR"`
+	// SpreadR is half the entry-open spread plus half the exit bar's spread, in R: the
+	// exit half is taken at the exit bar's close for time and end exits, else at its open
+	SpreadR    float64 `json:"spreadR"`
+	GrossR     float64 `json:"grossR"` // R plus SpreadR: the result at mid prices
+	Rollovers  int     `json:"rollovers"`
+	FinancingR float64 `json:"financingR"` // a cost when positive, a credit when negative
+	NetR       float64 `json:"netR"`       // GrossR minus SpreadR minus FinancingR
 }
 
+// Summary totals are in R; GrossR minus SpreadR minus FinancingR is Net.TotalR.
 type Summary struct {
 	Net             backtest.Stats `json:"net"`
+	GrossR          float64        `json:"grossR"`
+	SpreadR         float64        `json:"spreadR"`
 	FinancingR      float64        `json:"financingR"`
 	MeanEntrySpread float64        `json:"meanEntrySpreadR"`
 }
@@ -281,8 +289,15 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 		last := len(bid) - 1
 		tr.ExitPrice, tr.Exit = exitSide[last].Close, bid[last].Time.Add(bar)
 		// pending is the bar whose open fills an opposite flip; the position stays open, and
-		// stop, target and time stop still apply, on every bar before it
+		// stop, target and time stop still apply, on every bar before it. An opposite flip
+		// between the flip bar and the entry bar counts too; its fill is never before j.
 		pending := -1
+		for k := i + 1; k < j; k++ {
+			if flipDir[k] == -f.Dir {
+				pending = actAt(k+1, bid[k].Time.Add(bar+delay))
+				break
+			}
+		}
 		for k := j; k < len(bid) && k < j+st.MaxBars; k++ {
 			b := exitSide[k]
 			if k == pending {
@@ -302,6 +317,12 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 		}
 		tr.R = d * (tr.ExitPrice - entry) / dist
 		tr.EntrySpread = (ask[j].Open - bid[j].Open) / dist
+		exitSpread := ask[last].Open - bid[last].Open
+		if tr.Reason == "time" || tr.Reason == "end" {
+			exitSpread = ask[last].Close - bid[last].Close
+		}
+		tr.SpreadR = tr.EntrySpread/2 + exitSpread/2/dist
+		tr.GrossR = tr.R + tr.SpreadR
 		tr.Rollovers = rollovers(tr.Entry, tr.Exit)
 		rate := e.Costs.FinancingBasis.Value + e.Costs.FinancingMarkup.Value // a long pays basis plus markup
 		if !long {
@@ -315,6 +336,8 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 	net := make([]backtest.Trade, len(art.Trades))
 	for k, t := range art.Trades {
 		net[k] = backtest.Trade{Entry: t.Entry, Dir: t.Dir, R: t.NetR, Reason: t.Reason}
+		art.Summary.GrossR += t.GrossR
+		art.Summary.SpreadR += t.SpreadR
 		art.Summary.FinancingR += t.FinancingR
 		art.Summary.MeanEntrySpread += t.EntrySpread / float64(len(art.Trades))
 	}

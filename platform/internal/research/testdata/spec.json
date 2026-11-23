@@ -9,7 +9,7 @@
     "barTime": {
       "rule": "time is the bar open in UTC; the bar closes barSeconds later",
       "label": "measured",
-      "source": "the export's time column steps one minute per row from 2023-01-02T23:00:00Z"
+      "source": "the synthetic fixture's time column (fixtureCSV in e0_test.go): bar opens one minute apart from 2024-03-08T19:06:00Z, with one ten-minute gap"
     },
     "prices": {
       "rule": "separate bid and ask OHLC per bar, from the owner's candles_ba export",
@@ -57,7 +57,7 @@
       "financingRollover": {
         "rule": "one day of financing (annual rate / 365, on the entry price) at each 17:00 America/New_York instant a position holds across, weekends included",
         "label": "assumed",
-        "source": "OANDA financing costs page in docs/research/sources.md"
+        "source": "the 17:00 America/New_York rollover time is an assumed industry convention; no page cited in docs/research/sources.md states it"
       }
     },
     "timing": {

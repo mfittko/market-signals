@@ -31,6 +31,14 @@ func main() {
 }
 
 func run(specPath, dataPath, outPath string) error {
+	// the write truncates --out, so --out must not be the export or the spec
+	if o, err := os.Stat(outPath); err == nil {
+		for _, in := range []string{specPath, dataPath} {
+			if i, err := os.Stat(in); err == nil && os.SameFile(o, i) {
+				return fmt.Errorf("--out %s is the input %s; choose another artifact path", outPath, in)
+			}
+		}
+	}
 	specJSON, err := os.ReadFile(specPath)
 	if err != nil {
 		return err
