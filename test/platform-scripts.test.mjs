@@ -555,6 +555,7 @@ test('settings_file finds only its own checkout settings: a worktree never falls
     assert.equal(resolve(join(main, 'nested')), '');
     assert.equal(resolve(join(dir, 'beside')), '');
     assert.equal(resolve(join(dir, 'beside'), { MS_SETTINGS: join(dir, 'fake.json') }), join(dir, 'fake.json'));
+    assert.equal(resolve(main, { MS_SETTINGS: join(dir, 'fake.json') }), join(dir, 'fake.json'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

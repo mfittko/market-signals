@@ -109,9 +109,9 @@ In the console:
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 
-The LLM agent uses the endpoint, model and key from the engine's `data/settings.json`, or from the file
-`MS_SETTINGS` names. Without `MS_SETTINGS` the launcher reads only the `data/settings.json` of its own checkout.
-A git worktree never falls back to the main checkout's file, so it starts with the LLM runtime off. The launcher
+The LLM agent uses the endpoint, model and key from the file `MS_SETTINGS` names, else from the engine's
+`data/settings.json` in the launcher's own checkout. A git worktree never falls back to the main checkout's file.
+A worktree without its own `data/settings.json` starts with the LLM runtime off. The launcher
 passes them to the control plane, which uses them for strategy coaching, and to the worker. The console
 dev server starts without them. Without a key only the mock agent runs, and it runs through `scripts/smoke.sh`
 or the API.
