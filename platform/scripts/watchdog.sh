@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Watch the live stack from outside it. `switch-launchd.sh up` installs a launchd job that runs this every 5 minutes.
-# It uses only bash, curl, jq, find and osascript, so it still runs while the API, Postgres or Docker are down.
+# It uses only bash, git, curl, jq, find and osascript, so it still runs while the API, Postgres or Docker are down.
 #
 #   backup: fails when no marked backup folder under backupDir (data/settings.json) is newer than 26 hours,
 #           or backupDir is unset or missing; it notifies at once
@@ -59,6 +59,8 @@ track() { # name failed(0|1) grace-seconds failure-message recovery-message
   # a leading zero would make bash arithmetic read the value as octal and abort the run
   [[ "$since" =~ ^[1-9][0-9]*$ && "$alerted" =~ ^[01]$ ]] || { since="$(now)"; alerted=0; }
   if [ -f "$f" ] && [ -n "$(find "$f" -mmin +15)" ]; then since="$(now)"; fi
+  # a since in the future (the clock moved back) would hold the alert back until the clock passes it
+  if [ "$since" -gt "$(now)" ]; then since="$(now)"; fi
   if [ "$2" = 0 ]; then
     if [ "$alerted" = 1 ]; then notify "$5"; fi
     command rm -f "$f"

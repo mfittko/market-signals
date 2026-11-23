@@ -1323,19 +1323,42 @@ test('watchdog accepts only an epoch without a leading zero and a 0 or 1 alert f
   }
 });
 
-test('watchdog restarts the health failure clock after a gap of more than 15 minutes since the last run', () => {
+test('watchdog restarts the health failure clock after a gap of more than 15 minutes since the last run and keeps the alert flag', () => {
+  for (const alerted of [0, 1]) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { marker, run, notes } = watchdogFixture(dir);
+      marker(1);
+      const t = Math.floor(Date.now() / 1000);
+      mkdirSync(join(dir, 'state'));
+      writeFileSync(join(dir, 'state', 'health'), `${t - 7200} ${alerted}\n`);
+      utimesSync(join(dir, 'state', 'health'), t - 7200, t - 7200);
+      const r = run(t, 7);
+      assert.equal(r.status, 0, r.stderr);
+      assert.deepEqual(notes(), [], `alert flag ${alerted}`);
+      assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), `${t} ${alerted}\n`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('watchdog resets a failing-since value in the future to now, so a backward clock change does not hold the alert back', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
   try {
     const { marker, run, notes } = watchdogFixture(dir);
     marker(1);
     const t = Math.floor(Date.now() / 1000);
     mkdirSync(join(dir, 'state'));
-    writeFileSync(join(dir, 'state', 'health'), `${t - 7200} 0\n`);
-    utimesSync(join(dir, 'state', 'health'), t - 7200, t - 7200);
-    const r = run(t, 7);
-    assert.equal(r.status, 0, r.stderr);
+    writeFileSync(join(dir, 'state', 'health'), `${t + 3600} 0\n`);
+    assert.equal(run(t, 7).status, 0);
+    const [since, alerted] = readFileSync(join(dir, 'state', 'health'), 'utf8').trim().split(' ').map(Number);
+    assert.ok(since <= t, `since ${since} is later than now ${t}`);
+    assert.equal(alerted, 0);
     assert.deepEqual(notes(), []);
-    assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), `${t} 0\n`);
+    assert.equal(run(t + 600, 7).status, 0);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /health/i);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
