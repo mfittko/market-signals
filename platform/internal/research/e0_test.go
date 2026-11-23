@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -433,5 +434,28 @@ func TestSpreadAndFinancingCosts(t *testing.T) {
 	}
 	if crossed == 0 {
 		t.Fatal("no fixture trade crosses the rollover")
+	}
+}
+
+// The pinned sha256 is the fixture artifact from the code before the hold bookkeeping, so
+// the bookkeeping must leave the artifact byte for byte unchanged.
+func TestHoldBookkeepingLeavesTheFixtureArtifactUnchanged(t *testing.T) {
+	specJSON, data := fixture(t)
+	art, err := Execute(specJSON, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(art)
+	// The artifact hash is per GOARCH: the Go compiler fuses multiply-add on arm64 and not on default amd64.
+	pinned := map[string]string{
+		"arm64": "07f50be02d37e6384ea12b3fe81b6fe2bcf5de03fb4c0e8b744f88d2dfa7282b",
+		"amd64": "059cd8d561f3f621157e924c3cde8a4c00ba05490117a2c73f25030269e23629",
+	}
+	want, ok := pinned[runtime.GOARCH]
+	if !ok {
+		t.Skipf("no pinned fixture artifact sha256 for GOARCH %s", runtime.GOARCH)
+	}
+	if got := hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("fixture artifact sha256 %s, want %s", got, want)
 	}
 }

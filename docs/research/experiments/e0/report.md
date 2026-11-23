@@ -94,3 +94,7 @@ The median entry spread is 0.56 R, so the spread alone costs about half of the r
 - The decision delay is one measured maximum, applied to every decision.
 - The Go Supertrend port was not cross-checked against the Node implementation on the real export.
 - The export is a single snapshot, so its own revisions are not tested.
+
+## Journal
+
+The retrospective forecast-attempt journal of this run, one attempt per flip and one outcome per trade, is reported in [journal-report.md](journal-report.md).

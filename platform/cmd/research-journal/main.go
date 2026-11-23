@@ -1,0 +1,268 @@
+// Command research-journal rebuilds the retrospective forecast-attempt journal of a frozen
+// research spec on an exported bid and ask candle file, then writes a markdown report that
+// reads the journal and the frozen spec, which its header table pins by sha256. It reads
+// and writes local files and nothing else.
+//
+//	go run ./cmd/research-journal --spec ../docs/research/experiments/e0/spec.json --data <export.csv> --journal <new journal.jsonl> --report <report.md>
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"flag"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"runtime"
+	"slices"
+	"strings"
+
+	"github.com/mfittko/market-signals/platform/internal/research"
+)
+
+func main() {
+	spec := flag.String("spec", "", "spec JSON path")
+	data := flag.String("data", "", "export CSV path")
+	journal := flag.String("journal", "", "journal JSON Lines path to append to; use a new path for a rebuild")
+	report := flag.String("report", "", "markdown report path to write")
+	flag.Parse()
+	if *spec == "" || *data == "" || *journal == "" || *report == "" {
+		flag.Usage()
+		os.Exit(2)
+	}
+	if err := run(*spec, *data, *journal, *report); err != nil {
+		fmt.Fprintln(os.Stderr, "research-journal:", err)
+		os.Exit(1)
+	}
+}
+
+func run(specPath, dataPath, journalPath, reportPath string) error {
+	// the write truncates --report, so --report must not be an input or the journal
+	// the path compare covers a journal that does not exist yet; SameFile covers links
+	o, statErr := os.Stat(reportPath)
+	reportAbs, err := filepath.Abs(reportPath)
+	if err != nil {
+		return err
+	}
+	for _, in := range []string{specPath, dataPath, journalPath} {
+		inAbs, err := filepath.Abs(in)
+		if err != nil {
+			return err
+		}
+		same := inAbs == reportAbs
+		if i, err := os.Stat(in); statErr == nil && err == nil && os.SameFile(o, i) {
+			same = true
+		}
+		if same {
+			return fmt.Errorf("--report %s is the input %s; choose another report path", reportPath, in)
+		}
+	}
+	specJSON, err := os.ReadFile(specPath)
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(dataPath)
+	if err != nil {
+		return err
+	}
+	s, art, err := research.Replay(specJSON, bufio.NewReaderSize(f, 1<<20))
+	f.Close()
+	if err != nil {
+		return err
+	}
+	// the report covers the whole journal under this run's cost table, so every attempt
+	// already in it must come from the same spec and data
+	if b, err := os.ReadFile(journalPath); err == nil {
+		old, err := research.ReadJournal(bytes.NewReader(b))
+		if err != nil {
+			return err
+		}
+		for _, a := range old.Attempts {
+			if a.SpecSHA256 != art.SpecSHA256 || a.DataSHA256 != art.DataSHA256 {
+				return fmt.Errorf("journal %s holds attempt %s from spec sha256 %s and data sha256 %s, but this run has spec sha256 %s and data sha256 %s; the journal is unchanged, so rerun with a new --journal path", journalPath, a.ID, a.SpecSHA256, a.DataSHA256, art.SpecSHA256, art.DataSHA256)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	attempts, outcomes := research.Reconstruct(s, art)
+	if err := research.Append(journalPath, attempts, outcomes); err != nil {
+		return err
+	}
+	b, err := os.ReadFile(journalPath)
+	if err != nil {
+		return err
+	}
+	j, err := research.ReadJournal(bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(b)
+	links, err := docLinks(reportPath, specPath)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(reportPath, []byte(report(s, j, hex.EncodeToString(sum[:]), links)), 0o644); err != nil {
+		return fmt.Errorf("the journal %s is written, but the report is not: %w; a rerun into the same journal is refused, so fix the --report path, then rerun with a new --journal path", journalPath, err)
+	}
+	fmt.Printf("%s  %s\n%d attempts, %d outcomes\n", hex.EncodeToString(sum[:]), journalPath, len(j.Attempts), len(j.Outcomes))
+	return nil
+}
+
+// docLinks returns the spec and its experiment report (report.md beside the spec) relative
+// to the report's folder.
+func docLinks(reportPath, specPath string) ([2]string, error) {
+	var out [2]string
+	dir, err := filepath.Abs(filepath.Dir(reportPath))
+	if err != nil {
+		return out, err
+	}
+	for k, p := range []string{specPath, filepath.Join(filepath.Dir(specPath), "report.md")} {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return out, err
+		}
+		if out[k], err = filepath.Rel(dir, abs); err != nil {
+			return out, err
+		}
+		out[k] = filepath.ToSlash(out[k])
+	}
+	return out, nil
+}
+
+// distinct joins the sorted distinct values of one attempt field.
+func distinct(j research.Journal, field func(research.Attempt) string) string {
+	var v []string
+	for _, a := range j.Attempts {
+		v = append(v, field(a))
+	}
+	slices.Sort(v)
+	return strings.Join(slices.Compact(v), ", ")
+}
+
+func report(s research.Spec, j research.Journal, journalSHA string, links [2]string) string {
+	status, holds, modes := map[string]int{}, map[string]int{}, map[string]int{}
+	has := map[string]bool{}
+	for _, a := range j.Attempts {
+		status[a.Status]++
+		modes[a.Mode]++
+		if a.Status == "hold" {
+			holds[a.Reason]++
+		}
+	}
+	type agg struct {
+		n int
+		r float64
+	}
+	labels := map[string]agg{}
+	for _, o := range j.Outcomes {
+		has[o.Attempt] = true
+		l := labels[o.Label]
+		labels[o.Label] = agg{l.n + 1, l.r + o.NetR}
+	}
+	orphans := 0
+	for _, a := range j.Attempts {
+		if a.Status == "forecast" && !has[a.ID] {
+			orphans++
+		}
+	}
+	mean := func(a agg) string {
+		if a.n == 0 {
+			return "n/a"
+		}
+		return fmt.Sprintf("%.2f R", a.r/float64(a.n))
+	}
+	var b strings.Builder
+	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
+
+	e := s.Experiment
+	w("# %s forecast-attempt journal", distinct(j, func(a research.Attempt) string { return a.Experiment }))
+	w("")
+	w("This report claims no edge and no profitable strategy. It is generated by `platform/cmd/research-journal` and reads the journal file and the frozen spec that the table below pins by sha256.")
+	w("")
+	w("| Item | Value |")
+	w("|---|---|")
+	w("| Mode | %s |", distinct(j, func(a research.Attempt) string { return a.Mode }))
+	w("| Journal sha256 | `%s` |", journalSHA)
+	w("| Go version and platform | `%s %s/%s` |", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	w("| Spec sha256 | `%s` |", distinct(j, func(a research.Attempt) string { return a.SpecSHA256 }))
+	w("| Data sha256 | `%s` |", distinct(j, func(a research.Attempt) string { return a.DataSHA256 }))
+	w("| Label version | `%s` |", research.LabelVersion)
+	w("")
+	w("The journal sha256 reproduces on that Go version and platform. Another GOARCH can change it, because the journal holds the float net R of every trade.")
+	w("")
+	w("A retrospective attempt is a reconstruction: every Supertrend flip in the data is one attempt, and every E0 trade is one outcome. Each attempt was reconstructed after its outcome was known. The frozen spec is [%s](%s). Its declared values and their sources are in the [declared values table](%s#declared-values).", filepath.Base(links[0]), links[0], links[1])
+	w("")
+	w("## Operational correctness")
+	w("")
+	w("| Status | Attempts |")
+	w("|---|---|")
+	for _, st := range []string{"forecast", "hold", "timeout", "error"} {
+		w("| %s | %d |", st, status[st])
+	}
+	w("| total | %d |", len(j.Attempts))
+	w("")
+	w("| Hold reason | Attempts |")
+	w("|---|---|")
+	for _, r := range slices.Sorted(maps.Keys(holds)) {
+		w("| %s | %d |", r, holds[r])
+	}
+	if len(holds) == 0 {
+		w("| none | 0 |")
+	}
+	w("")
+	w("`busy`: a trade was still open. `no_atr`: the ATR was not yet positive. `no_entry_bar`: no bar was left to act on. Outcomes: %d. Forecasts without an outcome: %d.", len(j.Outcomes), orphans)
+	w("")
+	w("## Calibration and coverage")
+	w("")
+	cov := 0.0
+	if len(j.Attempts) > 0 {
+		cov = float64(status["forecast"]) / float64(len(j.Attempts))
+	}
+	w("Coverage is forecasts per attempt: %d of %d, %.1f%%.", status["forecast"], len(j.Attempts), 100*cov)
+	w("")
+	w("Calibration is insufficient evidence. E0 emits only a direction, so no forecast has a probability to calibrate.")
+	w("")
+	w("## Cost-aware results")
+	w("")
+	w("Net R is after the spread and financing that E0 declares, in R, the distance from entry to the initial stop. `win` is net R above 0, `loss` is net R at or below 0, and `ambiguous` is an `end` exit, where the data ended before the trade closed.")
+	w("")
+	w("| Label | Outcomes | Total net R | Mean net R |")
+	w("|---|---|---|---|")
+	var matured agg
+	for _, l := range []string{"win", "loss", "ambiguous"} {
+		w("| %s | %d | %.2f R | %s |", l, labels[l].n, labels[l].r, mean(labels[l]))
+		if l != "ambiguous" {
+			matured = agg{matured.n + labels[l].n, matured.r + labels[l].r}
+		}
+	}
+	w("| matured (win and loss) | %d | %.2f R | %s |", matured.n, matured.r, mean(matured))
+	w("")
+	w("An attempt expires at its decision time plus %d bar durations on the wall clock, from the frozen strategy setting `experiment.strategy.maxBars` in the spec. The expiry does not skip market gaps, while the E0 time stop counts bars, so a trade that spans a weekend matures after its attempt's expiry.", e.Strategy.MaxBars)
+	w("")
+	w("Every cost and timing value behind these results, with its label and source as the spec declares it:")
+	w("")
+	w("| Value | Setting | Label | Source |")
+	w("|---|---|---|---|")
+	c := e.Costs
+	w("| Spread | %s | %s | %s |", c.Spread.Rule, c.Spread.Label, c.Spread.Source)
+	w("| Commission | %g | %s | %s |", c.Commission.Value, c.Commission.Label, c.Commission.Source)
+	w("| Financing basis | %.4g%% a year | %s | %s |", 100*c.FinancingBasis.Value, c.FinancingBasis.Label, c.FinancingBasis.Source)
+	w("| Financing markup | %.4g%% a year | %s | %s |", 100*c.FinancingMarkup.Value, c.FinancingMarkup.Label, c.FinancingMarkup.Source)
+	w("| Rollover | %s | %s | %s |", c.FinancingRollover.Rule, c.FinancingRollover.Label, c.FinancingRollover.Source)
+	w("| Decision delay | %g ms | %s | %s |", e.Timing.DecisionDelayMs.Value, e.Timing.DecisionDelayMs.Label, e.Timing.DecisionDelayMs.Source)
+	w("| Bar time | %s | %s | %s |", s.Feed.BarTime.Rule, s.Feed.BarTime.Label, s.Feed.BarTime.Source)
+	w("")
+	w("## Insufficient evidence")
+	w("")
+	w("- Prospective attempts: %d. Retrospective attempts: %d. A reconstruction cannot show that a forecast was made before its outcome, so only prospective attempts can test a forecast.", modes["prospective"], modes["retrospective"])
+	w("- Ambiguous outcomes: %d. They are left out of the matured totals.", labels["ambiguous"].n)
+	w("- Calibration: E0 emits no probability.")
+	w("- The data is one snapshot. Its own revisions are not tested.")
+	w("- One instrument, one granularity and one parameter set. No result here claims an edge or a profitable strategy.")
+	return b.String()
+}
