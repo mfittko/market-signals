@@ -290,6 +290,38 @@ func TestDecisionRuleReadsTheDeltaCIAlone(t *testing.T) {
 	}
 }
 
+func TestAnalyzeDropsARuleThatBlocksBetterThanAverageSignals(t *testing.T) {
+	var s F316Spec
+	s.Analysis.BlockDays.Value, s.Analysis.BootstrapReps.Value, s.Analysis.ThinningDraws.Value = 1, 50, 200
+	s.Analysis.Seed.Value, s.Analysis.MinBlocked.Value = 316, 4
+	// every day: one suppressed winner and three allowed losers, so every replicate has the same delta
+	var sc []Scored
+	for d := range 4 {
+		day := time.Date(2024, 3, 4+d, 12, 0, 0, 0, time.UTC)
+		sc = append(sc, Scored{Verdict: Verdict{Time: day, Suppress: true}, NetR: 1, Cats: []string{"other"}})
+		for k := range 3 {
+			sc = append(sc, Scored{Verdict: Verdict{Time: day.Add(time.Duration(k+1) * time.Minute)}, NetR: -1})
+		}
+	}
+	r := Analyze(s, nil, sc, map[string]int{}).Rules[0]
+	if r.Name != "all suppressions" || r.Blocked != 4 || r.BlockedMean != 1 || r.All != -0.5 {
+		t.Fatalf("rule %+v, want all suppressions blocking 4 rows of mean 1 against an all mean of -0.5", r)
+	}
+	if want := r.BlockedMean - r.All; r.Delta.Est != want || want <= 0 {
+		t.Errorf("delta %v, want blocked mean minus all mean %v", r.Delta.Est, want)
+	}
+	if !r.Delta.OK || r.Delta.Lo != 1.5 || r.Delta.Hi != 1.5 {
+		t.Errorf("delta CI %+v, want [1.5, 1.5]", r.Delta)
+	}
+	if r.Decision != "drop" {
+		t.Errorf("decision %s, want drop", r.Decision)
+	}
+	// a random thinning of 4 of 16 rows beats the blocked winners only when it draws all four
+	if r.ThinningPct < 95 {
+		t.Errorf("thinning percentile %v, want near 100", r.ThinningPct)
+	}
+}
+
 func TestPercentileInterpolatesLinearly(t *testing.T) {
 	x := []float64{4, 1, 3, 2}
 	for p, want := range map[float64]float64{2.5: 1.075, 97.5: 3.925, 50: 2.5, 100: 4} {
