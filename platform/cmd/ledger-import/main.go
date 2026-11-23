@@ -24,21 +24,22 @@ import (
 
 func main() {
 	book := flag.String("book", "", "Node paper book SQLite file (required; read once, read-only, into a private copy)")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL)")
+	dbURL := db.URLFlag(flag.CommandLine, "postgres URL (default $MS_DATABASE_URL)")
 	commit := flag.Bool("commit", false, "write the import. Without it the run rolls back.")
 	flag.Parse()
+	dburl := dbURL()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if *book == "" {
 		log.Error("--book is required")
 		os.Exit(2)
 	}
-	if *dburl == "" {
+	if dburl == "" {
 		log.Error("MS_DATABASE_URL or -db must be set")
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := db.Connect(ctx, *dburl)
+	pool, err := db.Connect(ctx, dburl)
 	if err != nil {
 		log.Error("database", "err", err)
 		os.Exit(1)
