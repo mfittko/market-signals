@@ -588,6 +588,44 @@ test('rotate-logs gzips a log over 10 MB, truncates it in place, keeps 7 copies,
   }
 });
 
+// A scratch main checkout with its own data/settings.json and two linked worktrees without one: one nested inside
+// the main checkout, where ../../data is the main checkout's data, and one beside it.
+test('settings_file finds only its own checkout settings: a worktree never falls back to the main checkout, MS_SETTINGS wins', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'ms-settings-file-')));
+  try {
+    const main = join(dir, 'main');
+    mkdirSync(join(main, 'platform', 'scripts'), { recursive: true });
+    for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(main, 'platform', 'scripts', f), readFileSync(join('platform/scripts', f)));
+    // GIT_* variables from a calling hook would point git at the real repo, and user config could sign or prompt
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+    Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
+    const git = (...args) => {
+      const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: main, env, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+    };
+    git('init', '-q');
+    git('add', 'platform');
+    git('commit', '-qm', 'init');
+    git('worktree', 'add', '-q', join(main, 'nested'));
+    git('worktree', 'add', '-q', join(dir, 'beside'));
+    mkdirSync(join(main, 'data'));
+    writeFileSync(join(main, 'data', 'settings.json'), '{"live":true}');
+    writeFileSync(join(dir, 'fake.json'), '{}');
+    const resolve = (checkout, extra = {}) => {
+      const r = spawnSync('bash', ['-c', `source "$CHECKOUT/platform/scripts/dev.sh"; settings_file`], { env: { ...env, CHECKOUT: checkout, MS_SETTINGS: '', ...extra }, encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return r.stdout.trim();
+    };
+    assert.equal(resolve(main), `${main}/platform/../data/settings.json`);
+    assert.equal(resolve(join(main, 'nested')), '');
+    assert.equal(resolve(join(dir, 'beside')), '');
+    assert.equal(resolve(join(dir, 'beside'), { MS_SETTINGS: join(dir, 'fake.json') }), join(dir, 'fake.json'));
+    assert.equal(resolve(main, { MS_SETTINGS: join(dir, 'fake.json') }), join(dir, 'fake.json'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('every line dev.sh prints for a launchd job carries a time and a level', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devlog-'));
   try {
