@@ -53,7 +53,7 @@ Two runs with the network denied gave the identical artifact sha256 `6edd7726c44
 
 ## Results
 
-All results are in R, the distance from entry to the initial stop. Net results include the spread and financing. The artifact summary carries the flips, the net statistics and the gross, spread and financing totals. Gross minus spread minus financing is the net total. A trade's spread cost is half the ask minus bid at the entry open plus half the ask minus bid at the exit bar's open (its close for a time or end exit), so gross is the result at mid prices.
+All results are in R, the distance from entry to the initial stop. Net results include the spread and financing. The artifact summary carries the flips, the net statistics and the gross, spread and financing totals. Gross minus spread minus financing is the net total. A trade's spread cost is half the ask minus bid at the entry open plus half the ask minus bid at the exit bar's open (its close for a time or end exit). Gross is the net result with that spread cost added back on the same exits. It is not a mid-price replay: the stop and target come from the ask entry for a long and are judged on bid bars, so the spread itself chose the exits, and a trade whose entry spread already crosses the stop exits on its entry bar. The positive gross total is therefore no pre-cost edge.
 
 | Measure | Value |
 |---|---|

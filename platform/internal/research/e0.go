@@ -179,8 +179,10 @@ type Trade struct {
 	EntrySpread float64   `json:"entrySpreadR"` // ask minus bid at the entry open, in R
 	// SpreadR is half the entry-open spread plus half the exit bar's spread, in R: the
 	// exit half is taken at the exit bar's close for time and end exits, else at its open
-	SpreadR    float64 `json:"spreadR"`
-	GrossR     float64 `json:"grossR"` // R plus SpreadR: the result at mid prices
+	SpreadR float64 `json:"spreadR"`
+	// GrossR is R plus SpreadR: the spread cost added back on the same exits. It is no
+	// mid-price replay, because the spread chose those exits.
+	GrossR     float64 `json:"grossR"`
 	Rollovers  int     `json:"rollovers"`
 	FinancingR float64 `json:"financingR"` // a cost when positive, a credit when negative
 	NetR       float64 `json:"netR"`       // GrossR minus SpreadR minus FinancingR
