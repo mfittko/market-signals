@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -60,13 +59,11 @@ type F316Spec struct {
 		Delta         Note  `json:"delta"`
 	} `json:"analysis"`
 	DecisionRule struct {
-		Keep        string `json:"keep"`
-		Drop        string `json:"drop"`
-		Otherwise   string `json:"otherwise"`
-		LateChasing string `json:"lateChasing"`
-		Thinning    string `json:"thinning"`
-		Label       string `json:"label"`
-		Source      string `json:"source"`
+		// decoded for the strict field check only; the report links the spec for them
+		Keep, Drop, Otherwise, Thinning string
+		LateChasing                     string `json:"lateChasing"`
+		Label                           string `json:"label"`
+		Source                          string `json:"source"`
 	} `json:"decisionRule"`
 	Reference struct {
 		Label       string     `json:"label"`
@@ -116,7 +113,7 @@ func ParseF316Spec(b []byte) (F316Spec, []category, error) {
 	}
 	for _, v := range []float64{a.BlockDays.Value, a.BootstrapReps.Value, a.ThinningDraws.Value, a.MinBlocked.Value} {
 		if v < 1 || v != math.Trunc(v) {
-			return s, nil, errors.New("f316 spec: blockDays, bootstrapReps, thinningDraws and minBlocked must be whole numbers >= 1")
+			return s, nil, fmt.Errorf("f316 spec: blockDays, bootstrapReps, thinningDraws and minBlocked must be whole numbers >= 1")
 		}
 	}
 	var cats []category
@@ -149,11 +146,8 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 	h := sha256.New()
 	cr := csv.NewReader(io.TeeReader(r, h))
 	rec, err := cr.Read()
-	if err != nil {
-		return nil, fmt.Errorf("verdicts: %w; %s", err, fix)
-	}
-	if !slices.Equal(rec, verdictHeader) {
-		return nil, fmt.Errorf("verdicts: header %v, want %v; %s", rec, verdictHeader, fix)
+	if err != nil || !slices.Equal(rec, verdictHeader) {
+		return nil, fmt.Errorf("verdicts: header %v (%v), want %v; %s", rec, err, verdictHeader, fix)
 	}
 	var out []Verdict
 	for {
@@ -294,7 +288,6 @@ type Interval struct {
 type RuleResult struct {
 	Name                       string
 	Blocked                    int
-	Share                      float64
 	BlockedMean, KeptMean, All float64
 	Delta                      Interval
 	ThinningPct                float64
@@ -408,45 +401,38 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 	for i := range all {
 		all[i] = i
 	}
-	everyRow := func(int) bool { return true }
-	for _, g := range []struct {
+	type group struct {
 		name string
-		keep func(int) bool
-	}{
-		{"all scored", everyRow},
-		{"allowed", func(i int) bool { return !sc[i].Suppress }},
-		{"suppressed", func(i int) bool { return sc[i].Suppress }},
-	} {
-		est, c := meanOf(all, g.keep)
+		sel  func(int) bool // a mean's rows, or a rule's blocked rows
+	}
+	everyRow := func(int) bool { return true }
+	suppressed := func(i int) bool { return sc[i].Suppress }
+	for _, g := range []group{{"all scored", everyRow}, {"allowed", func(i int) bool { return !sc[i].Suppress }}, {"suppressed", suppressed}} {
+		est, c := meanOf(all, g.sel)
 		var rs []float64
 		for _, idx := range reps {
-			if m, k := meanOf(idx, g.keep); k > 0 {
+			if m, k := meanOf(idx, g.sel); k > 0 {
 				rs = append(rs, m)
 			}
 		}
 		a.Means = append(a.Means, MeanResult{g.name, c, interval(est, rs)})
 	}
-	type rule struct {
-		name    string
-		blocked func(int) bool
-	}
-	rules := []rule{{"all suppressions", func(i int) bool { return sc[i].Suppress }}}
+	rules := []group{{"all suppressions", suppressed}}
 	for _, c := range slices.Concat(cats, []category{{name: "other"}}) {
-		rules = append(rules, rule{c.name, func(i int) bool { return slices.Contains(sc[i].Cats, c.name) }})
+		rules = append(rules, group{c.name, func(i int) bool { return slices.Contains(sc[i].Cats, c.name) }})
 	}
 	minBlocked := int(s.Analysis.MinBlocked.Value)
 	perm := make([]int, n)
 	allMean, _ := meanOf(all, everyRow)
 	for _, r := range rules {
 		res := RuleResult{Name: r.name, All: allMean}
-		res.BlockedMean, res.Blocked = meanOf(all, r.blocked)
-		res.KeptMean, _ = meanOf(all, func(i int) bool { return !r.blocked(i) })
+		res.BlockedMean, res.Blocked = meanOf(all, r.sel)
+		res.KeptMean, _ = meanOf(all, func(i int) bool { return !r.sel(i) })
 		if res.Blocked > 0 {
-			res.Share = float64(res.Blocked) / float64(n)
 			var rs []float64
 			for _, idx := range reps {
 				// a replicate with no blocked or no kept row leaves the delta undefined
-				if b, nb := meanOf(idx, r.blocked); nb > 0 && nb < len(idx) {
+				if b, nb := meanOf(idx, r.sel); nb > 0 && nb < len(idx) {
 					m, _ := meanOf(idx, everyRow)
 					rs = append(rs, b-m)
 				}
@@ -571,7 +557,7 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 		if r.Blocked < len(a.Scored) {
 			kept, thin = fmt.Sprintf("%+.3f", r.KeptMean), fmt.Sprintf("%.1f", r.ThinningPct)
 		}
-		p("| %s | %d | %.1f%% | %+.3f | %s | %+.3f | %s | %s | %s |\n", r.Name, r.Blocked, 100*r.Share, r.BlockedMean, kept, r.All, ci(r.Delta), thin, r.Decision)
+		p("| %s | %d | %.1f%% | %+.3f | %s | %+.3f | %s | %s | %s |\n", r.Name, r.Blocked, 100*float64(r.Blocked)/float64(len(a.Scored)), r.BlockedMean, kept, r.All, ci(r.Delta), thin, r.Decision)
 	}
 
 	p("\n## Late/chasing\n\n")
