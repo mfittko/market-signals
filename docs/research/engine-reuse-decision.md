@@ -31,7 +31,7 @@ Checked on 2026-11-23 from the public release pages listed in [sources.md](sourc
 | NautilusTrader | [v1.231.0](https://github.com/nautechsystems/nautilus_trader/releases/tag/v1.231.0), 2026-08-02, labelled Beta on GitHub. The 2.0 line is only on pre-release wheels. | LGPL-3.0 | A Python runtime with prebuilt wheels (PyPI lists 1.231.0 wheels for Python 3.12 to 3.14), a second strategy and data model next to Go, and a 1.x to 2.x core change already announced in the release notes. | It would be a second execution and accounting authority next to the Go ledger. It documents a `Cfd` instrument, but our venue costs, financing and margin would still be our own configuration, so it adds no verified venue realism. |
 | LEAN | No current engine release: the newest GitHub release is [v2.4.0.1](https://github.com/QuantConnect/Lean/releases/tag/v2.4.0.1) from 2017. The maintained distribution is the [lean CLI 1.0.234](https://pypi.org/project/lean/), 2026-11-18, which runs the `quantconnect/lean` Docker image. | Apache-2.0 | Docker, the .NET engine image, a Python CLI, and an image tag that defaults to `latest` unless pinned. | It would also be a second authority. Its reality models (fill, fee, slippage, buying power, margin interest) are configurable, but the venue values would still be ours, and the engine needs Docker and .NET for a bar-based CFD account. |
 
-Neither candidate has a release labelled stable: the newest NautilusTrader release is labelled Beta, and LEAN publishes no current engine release. The table therefore pins the newest release of each, and for LEAN the CLI version. Both feature statements come from documentation, not from a run on our account or instrument.
+Neither candidate has a release labelled stable: the newest NautilusTrader release is labelled Beta, and LEAN publishes no current engine release. The table therefore pins the newest release of each, and for LEAN the CLI version. Both feature statements come from vendor documentation; no run on our account or instrument checked them.
 
 ### Dimensions
 
@@ -41,7 +41,7 @@ Each row names the Go code that handles the dimension today, or states "not mode
 |---|---|---|
 | Event ordering | `ledger.Replay` judges stored completed bars oldest first and stores the last judged bar in the same transaction. | Bar granularity only; no tick or quote events. |
 | Fills | `fill.Check`, called by `ledger.Fill`, `ledger.Replay`, `monitor.Step` and `backtest.Run`. | Bar open, high and low only; no intrabar path. Reversal, time and end-of-data exits in `backtest.Run` and invalidation, kill-switch and time-stop exits in `monitor.Step` fill at the bar close; margin and halt closes in the ledger fill at the mark, and `ledger.Close` and `ledger.ClosePartial` use the caller's price. None of them goes through `fill.Check`. |
-| Ambiguous stop-and-target bar | `fill.Check`: the stop wins when both levels trade inside one bar. | Pessimistic by convention, not measured. |
+| Ambiguous stop-and-target bar | `fill.Check`: the stop wins when both levels trade inside one bar. | A pessimistic convention; no measurement supports it. |
 | Gaps | `fill.Check`: a gap through the stop or the target fills at the open. | None beyond bar data. |
 | Cash | `ledger.Open` takes margin and commission from cash; `closeIn` returns margin plus realized profit. | One account. |
 | Realized and unrealized equity | `closeIn` books realized profit; `equitySQL` and `ledger.Mark` compute equity at the last mark. | Equity is as fresh as the last mark. |
