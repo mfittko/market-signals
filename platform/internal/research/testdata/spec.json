@@ -19,7 +19,7 @@
   },
   "dataset": {
     "path": "platform/internal/research/testdata/fixture.csv",
-    "sha256": "33339c8cd2d6b542dac1abeb5a81506528ca230c30e97d935d2a6afc06b45c22",
+    "sha256": "5a9ec8f0e32166cf58082d20f0cabe49c11f7b80a9a0c7882ff532ee6b1fc383",
     "rows": 720,
     "first": "2024-03-08T19:06:00Z",
     "last": "2024-03-09T07:15:00Z"

@@ -49,7 +49,7 @@ From `platform/`:
 go run ./cmd/research-e0 --spec ../docs/research/experiments/e0/spec.json --data <path to the export CSV> --out <artifact JSON path>
 ```
 
-Two runs with the network denied gave the identical artifact sha256 `6edd7726c445eb969ee428581594f382a2efec4b637241dae9316192d01a3d2a`.
+Two runs with the network denied gave the identical artifact sha256 `6edd7726c445eb969ee428581594f382a2efec4b637241dae9316192d01a3d2a`. The run host reports `go version go1.27.3 darwin/arm64`. The hash is reproducible on that Go version and GOOS/GOARCH. Another GOARCH can change it, because the Go compiler may fuse a multiply and an add into one instruction on arm64 and does not on default amd64, and the artifact prints every float in its shortest round-trip form.
 
 ## Results
 

@@ -18,8 +18,9 @@ import (
 
 var update = flag.Bool("update", false, "rewrite testdata/fixture.csv from the generator")
 
-// fixtureCSV is a synthetic WTICO/USD M1 series: two sine waves, a varying spread, a
-// ten-minute gap and a New York rollover. It holds no exported market data.
+// fixtureCSV is a synthetic WTICO/USD M1 series: two sine waves, a varying spread whose
+// close value differs from its open value, a ten-minute gap and a New York rollover. It
+// holds no exported market data.
 func fixtureCSV() []byte {
 	var b bytes.Buffer
 	b.WriteString(strings.Join(header, ",") + "\n")
@@ -33,8 +34,9 @@ func fixtureCSV() []byte {
 		o := prev
 		h, l := math.Max(o, c)+0.05, math.Min(o, c)-0.05
 		s := 0.03 + 0.01*float64(k%3)
+		sc := 0.03 + 0.01*float64((k+1)%3) // the close spread, never equal to the open spread
 		fmt.Fprintf(&b, "WTICO/USD,M1,%s,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%d\n",
-			t.Format("2006-01-02T15:04:05.000000000Z"), o, h, l, c, o+s, h+s, l+s, c+s, k%50+1)
+			t.Format("2006-01-02T15:04:05.000000000Z"), o, h, l, c, o+s, h+s, l+s, c+sc, k%50+1)
 		prev = c
 		t = t.Add(time.Minute)
 	}
@@ -372,16 +374,49 @@ func TestRollovers(t *testing.T) {
 	}
 }
 
-func TestFinancingSign(t *testing.T) {
+func TestSpreadAndFinancingCosts(t *testing.T) {
 	s, bid, ask := load(t)
+	st := s.Experiment.Strategy
+	bar := time.Duration(s.Feed.BarSeconds) * time.Second
+	_, atr := backtest.Supertrend(bid, st.SupertrendPeriod, st.SupertrendMult)
+	idx := map[time.Time]int{}
+	for i, c := range bid {
+		idx[c.Time] = i
+	}
+	// the spread cost is half the entry-open spread plus half the exit bar's spread, taken
+	// at the exit bar's close for time and end exits and at its open otherwise; a short
+	// time stop adds time exits, which the default fixture run lacks
+	openExits, closeExits := 0, 0
+	for _, maxBars := range []int{st.MaxBars, 3} {
+		s2 := s
+		s2.Experiment.Strategy.MaxBars = maxBars
+		for _, tr := range Run(s2, bid, ask).Trades {
+			j, dist := idx[tr.Entry], st.StopATR*atr[idx[tr.Flip]]
+			last := idx[tr.Exit]
+			exitSpread := ask[last].Open - bid[last].Open
+			if tr.Reason == "time" || tr.Reason == "end" {
+				last = idx[tr.Exit.Add(-bar)]
+				exitSpread = ask[last].Close - bid[last].Close
+				closeExits++
+			} else {
+				openExits++
+			}
+			if want := (ask[j].Open - bid[j].Open + exitSpread) / 2; math.Abs(tr.SpreadR*dist-want) > 1e-9 {
+				t.Fatalf("trade %+v: spread cost %v times the stop distance, want %v", tr, tr.SpreadR*dist, want)
+			}
+		}
+	}
+	if openExits == 0 || closeExits == 0 {
+		t.Fatalf("got %d open-spread and %d close-spread exits, want both kinds", openExits, closeExits)
+	}
 	crossed := 0
 	art := Run(s, bid, ask)
 	if sum := art.Summary; math.Abs(sum.GrossR-sum.SpreadR-sum.FinancingR-sum.Net.TotalR) > 1e-9 {
 		t.Fatalf("summary %+v: gross minus spread minus financing is not net", sum)
 	}
 	for _, tr := range art.Trades {
-		if tr.SpreadR <= 0 || math.Abs(tr.GrossR-tr.SpreadR-tr.FinancingR-tr.NetR) > 1e-9 {
-			t.Fatalf("trade %+v: want a positive spread and gross minus spread minus financing equal to net", tr)
+		if math.Abs(tr.GrossR-tr.SpreadR-tr.FinancingR-tr.NetR) > 1e-9 {
+			t.Fatalf("trade %+v: gross minus spread minus financing is not net", tr)
 		}
 		switch {
 		case tr.Rollovers == 0 && tr.FinancingR != 0:
