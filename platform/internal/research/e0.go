@@ -204,6 +204,15 @@ type Artifact struct {
 	Flips      int     `json:"flips"`
 	Trades     []Trade `json:"trades"`
 	Summary    Summary `json:"summary"`
+	// Holds stays out of the JSON, so the published artifact sha256 does not change.
+	Holds []Hold `json:"-"`
+}
+
+// Hold is a flip that became no trade.
+type Hold struct {
+	Flip     time.Time
+	Decision time.Time
+	Reason   string // busy | no_atr | no_entry_bar
 }
 
 var newYork = mustLoad("America/New_York")
@@ -259,13 +268,22 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 	busy := -1
 	for _, f := range flips {
 		i := idx[f.Time.UnixNano()]
-		if i <= busy || atr[i] <= 0 {
-			continue
-		}
 		decision := bid[i].Time.Add(bar + delay)
-		j := actAt(i+1, decision)
-		if j >= len(bid) {
-			break
+		hold, j := "", 0
+		switch {
+		case i <= busy:
+			hold = "busy"
+		case atr[i] <= 0:
+			hold = "no_atr"
+		default:
+			// no bar is left to act on; every later flip that is not busy holds the same way
+			if j = actAt(i+1, decision); j >= len(bid) {
+				hold = "no_entry_bar"
+			}
+		}
+		if hold != "" {
+			art.Holds = append(art.Holds, Hold{Flip: f.Time, Decision: decision, Reason: hold})
+			continue
 		}
 		long := f.Dir > 0
 		side := "short"
@@ -347,20 +365,30 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 	return art
 }
 
-// Execute loads the data against the spec, runs it and returns the artifact as JSON.
-func Execute(specJSON []byte, data io.Reader) ([]byte, error) {
+// Replay loads the data against the spec and runs it. The artifact carries the spec and
+// data sha256.
+func Replay(specJSON []byte, data io.Reader) (Spec, Artifact, error) {
 	s, err := ParseSpec(specJSON)
 	if err != nil {
-		return nil, err
+		return s, Artifact{}, err
 	}
 	bid, ask, err := Load(s, data)
 	if err != nil {
-		return nil, err
+		return s, Artifact{}, err
 	}
 	art := Run(s, bid, ask)
 	sum := sha256.Sum256(specJSON)
 	art.SpecSHA256 = hex.EncodeToString(sum[:])
 	art.DataSHA256 = s.Dataset.SHA256
+	return s, art, nil
+}
+
+// Execute replays the spec on the data and returns the artifact as JSON.
+func Execute(specJSON []byte, data io.Reader) ([]byte, error) {
+	_, art, err := Replay(specJSON, data)
+	if err != nil {
+		return nil, err
+	}
 	out, err := json.MarshalIndent(art, "", "  ")
 	if err != nil {
 		return nil, err
