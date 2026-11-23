@@ -1,0 +1,13 @@
+instrument,granularity,time,signal,verdict,reason,filter_model
+WTICO/USD,M1,2024-03-08T19:36:00.000000000Z,sell,alert,Clean breakdown below the range,model-a
+WTICO/USD,M1,2024-03-08T20:18:00.000000000Z,buy,suppress,"Late entry, price extended into the session high on thin volume",model-a
+WTICO/USD,M1,2024-03-08T20:59:00.000000000Z,sell,suppress,"Counter to the H1 uptrend",
+WTICO/USD,M1,2024-03-08T21:56:00.000000000Z,buy,suppress,"Looks ""fine""
+but no",model-b
+WTICO/USD,M1,2024-03-08T22:39:00.000000000Z,sell,alert,filter error: request timed out,model-a
+WTICO/USD,M1,2024-03-08T22:40:00.000000000Z,buy,suppress,chop,model-a
+WTICO/USD,M1,2024-03-08T23:21:00.000000000Z,sell,alert,side differs from the research flip,model-b
+WTICO/USD,H4,2024-03-09T00:00:00.000000000Z,buy,suppress,news,model-a
+WTICO/USD,M5,2024-03-09T01:25:00.000000000Z,buy,suppress,whipsaw,model-a
+WTICO/USD,M5,2024-03-08T21:15:00.000000000Z,sell,suppress,Chasing after an extended move,model-b
+WTICO/USD,M1,2024-03-09T06:55:00.000000000Z,buy,alert,fresh trend,model-a

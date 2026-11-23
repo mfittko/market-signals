@@ -255,6 +255,7 @@ Grade B.
 Grade B.
 
 - 5,455 scored flips, 82% suppressed. Allowed -0.276 R [-0.373, -0.167] vs suppressed -0.288 R [-0.339, -0.236]. The filter sits at the 59th percentile of random thinning. All Holm p are at least 0.41 ([filter316]).
+- The tracked reproduction on WTICO/USD only, under E0 rules, gives all suppressions minus all +0.023 R [-0.018, +0.064] and insufficient evidence for every rule. It reuses seen outcomes, so it is no independent test ([F316 report](experiments/f316/report.md)).
 
 ### F29. Calibrated P(profit) is possible on some pairs, but no decile has positive expected R
 

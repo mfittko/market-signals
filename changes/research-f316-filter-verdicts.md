@@ -1,0 +1,1 @@
+- Research: the live LLM filter's stored WTICO/USD verdicts scored under the E0 rules from frozen exports, with block-bootstrap CIs, a random-thinning comparison and a preregistered keep, drop or insufficient-evidence rule per reason category (#316)
