@@ -126,6 +126,15 @@ Credibility notes use these terms:
 | [Microsoft qlib](https://github.com/microsoft/qlib) | ML models on cross-sectional stock features; the one repo built around the structure the literature supports. | Repository; backtest only. |
 | [awesome-quant](https://github.com/wilsonfreitas/awesome-quant) | Library list; points to pysystemtrade and machine-learning-for-trading. | List. |
 
+## Backtest engines
+
+Checked on 2026-11-23 for the [engine reuse decision](engine-reuse-decision.md). Neither engine is adopted.
+
+| Source | Takeaway | Credibility |
+|---|---|---|
+| [NautilusTrader v1.231.0 release](https://github.com/nautechsystems/nautilus_trader/releases/tag/v1.231.0), [repository](https://github.com/nautechsystems/nautilus_trader), [PyPI](https://pypi.org/project/nautilus_trader/), [instruments](https://nautilustrader.io/docs/latest/concepts/instruments/) | Event-driven backtest and live engine, LGPL-3.0. Release 1.231.0 of 2026-08-02 is labelled Beta and is the final 1.x release with the legacy Cython core; 2.0 ships as pre-release wheels for Python 3.12 to 3.14. Documents a `Cfd` instrument type. | Repository and vendor documentation; features not verified on our instruments. |
+| [LEAN repository](https://github.com/QuantConnect/Lean), [releases](https://github.com/QuantConnect/Lean/releases), [lean CLI on PyPI](https://pypi.org/project/lean/), [reality models](https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/key-concepts) | Apache-2.0 engine. The newest GitHub release is v2.4.0.1 from 2017; the maintained distribution is the lean CLI (1.0.234, 2026-11-18), which runs the engine in Docker. Fill, fee, slippage, buying power and margin interest models are configurable per security. | Repository and vendor documentation; features not verified on our instruments. |
+
 ## Data vendors
 
 | Source | Takeaway | Credibility |
