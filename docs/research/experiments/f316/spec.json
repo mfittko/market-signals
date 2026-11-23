@@ -1,0 +1,113 @@
+{
+  "id": "F316",
+  "question": "Do the live LLM alert filter's stored suppressions, overall and per reason category, block signals that are better or worse than average under the E0 rules?",
+  "seen": "The untracked filter316 campaign (https://github.com/mfittko/market-signals/issues/316#issuecomment-6055138146) already scored these verdicts under a different management. This run is a reproduction on frozen exports and no independent test.",
+  "e0Spec": {
+    "path": "docs/research/experiments/e0/spec.json",
+    "sha256": "cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb"
+  },
+  "verdicts": {
+    "path": "tmp/research-export/wtico-usd-filter-verdicts-to-2026-09-30.csv",
+    "sha256": "e8756656bb8085aff066d1aba6f7e1577f5ed47ad6a8bddc65d9daf204f648af",
+    "rows": 2013,
+    "instrument": "WTICO/USD",
+    "first": "2026-07-22T10:15:00Z",
+    "last": "2026-09-30T23:59:00Z",
+    "export": {
+      "rule": "signals left-joined to signal_snapshots on instrument, granularity and time; flip rows only (kind supertrend-flip or null); verdict alert or suppress; instrument WTICO/USD; time before 2026-10-01T00:00:00.000Z; columns instrument,granularity,time,signal,verdict,reason,filter_model",
+      "label": "measured",
+      "source": "the owner's one-time read-only sqlite3 export of data/candles.db, query in https://github.com/mfittko/market-signals/issues/316; sha256 by shasum -a 256; 2,013 data rows: M1 499 alert and 1,194 suppress, M5 102 alert and 218 suppress"
+    }
+  },
+  "granularities": {
+    "rule": "M1, M5, M15 and H1 are scored; a bar of each starts at the floor of the M1 bar time to 60, 300, 900 or 3600 seconds since the Unix epoch; any other granularity is excluded as unsupported_granularity",
+    "label": "assumed",
+    "source": "issue 316 Approach; filter316 prereg data.outcomes: M5/M15/H1 by bars.resample of M1"
+  },
+  "categories": {
+    "rule": "multi-label, case-insensitive regex search on the suppression reason; a suppression carries every category whose regex matches; a suppression with no match is other; allowed signals carry no category",
+    "label": "assumed",
+    "source": "docs/research/registry/campaigns/filter316/prereg.json taxonomy, copied without change",
+    "list": [
+      {"name": "late_chasing", "regex": "\\blate\\b|chas|extended|stretch|exhaust|blow-?off|overbought|oversold|\\brsi\\b|wrong[- ]extreme|range[- ]extreme|session (high|low|top|bottom|floor|extreme)|day('s)? (high|low)|(at|near|into|to) (the |a )?(session |day |local |recent |range |window |new )?(highs?|lows?|top|bottom|floor|ceiling|extremes?)\\b|atr (above|below|from|past) (vwap|ema)|far (above|below|from)|already (moved|ran|run)|after (an? )?(extended|big|sharp|large)"},
+      {"name": "against_trend", "regex": "counter|against|opposite|htf (down|up|bear|bull)|vs\\.? (bull|bear|m15|m5|h1|h4|htf|ema)|(m15|h1|htf) (still )?(up|down)trend"},
+      {"name": "low_volume", "regex": "thin|low[- ]vol|weak[- ]vol|sub-?average|below[- ]av(era)?ge?|light vol|avg vol|average vol|\\b0?\\.\\d+ ?[x×]|\\(0\\.\\d+\\)|ratio 0|vol(ume)? (only |of )?(0|1\\.[0-4])\\d*|no volume|volume not"},
+      {"name": "chop_weak_setup", "regex": "chop|ranging|range-?bound|\\badx\\b|conviction|impulse|flip-?flop|whipsaw|mid-?range|mid-?bar|indecis|follow[- ]?through|reject|wick|failure|decisive|no (lower low|higher high|break)|backtest|win ?rate|% ?wr|\\bwr\\b|rapid|\\d(rd|th|nd) flip"},
+      {"name": "news_event", "regex": "news|headline|\\beia\\b|\\bnfp\\b|fomc|\\bcpi\\b|release|sentinel|inventor|opec|\\bfed\\b|event|tariff|geopolit"}
+    ]
+  },
+  "exclusions": {
+    "rule": "checked in this order: fail_open (reason starts with 'filter error'), unsupported_granularity, unmatched (no E0 trade with the signal time as flip time and the signal side as direction, E0 holds included), censored (the joined trade's exit reason is end); every other verdict is scored with the joined trade's net R",
+    "label": "assumed",
+    "source": "issue 316 Approach; filter316 prereg population"
+  },
+  "analysis": {
+    "days": {
+      "rule": "a signal's day is the UTC calendar date of its time; the bootstrap resamples the ascending list of distinct days that hold at least one scored signal",
+      "label": "assumed",
+      "source": "issue 316 Approach (UTC trading days); filter316 used 22:00 UTC sessions and kept days without rows"
+    },
+    "blockDays": {
+      "value": 5,
+      "label": "assumed",
+      "source": "filter316 prereg metrics.ci: 5-day moving-block bootstrap"
+    },
+    "bootstrapReps": {
+      "value": 1000,
+      "label": "assumed",
+      "source": "filter316 prereg metrics.ci: 1000 reps"
+    },
+    "thinningDraws": {
+      "value": 500,
+      "label": "assumed",
+      "source": "filter316 prereg metrics.null: 500 uniform draws of the same blocked count"
+    },
+    "seed": {
+      "value": 316,
+      "label": "assumed",
+      "source": "fixed here before the first run; one PCG stream seeds the bootstrap and then the random thinning"
+    },
+    "minBlocked": {
+      "value": 30,
+      "label": "assumed",
+      "source": "filter316 prereg decision_rule: blocked >= 30"
+    },
+    "ci": {
+      "rule": "the 2.5th and 97.5th percentiles, linear interpolation, of the bootstrap replicates of a statistic; a replicate where the statistic is undefined is dropped",
+      "label": "assumed",
+      "source": "filter316 f316.py pct()"
+    },
+    "delta": {
+      "rule": "per rule: delta = mean net R of the blocked signals minus mean net R of all scored signals; the random-thinning percentile is the share of thinning deltas below the observed delta",
+      "label": "assumed",
+      "source": "issue 316 Approach; filter316 prereg metrics.blocking_rule (blocked-minus-all)"
+    }
+  },
+  "decisionRule": {
+    "keep": "blocked >= minBlocked and the delta CI upper bound is below 0: the rule blocks worse-than-average signals",
+    "drop": "blocked >= minBlocked and the delta CI lower bound is above 0: the rule blocks better-than-average signals",
+    "otherwise": "insufficient evidence",
+    "lateChasing": "late_chasing delta CI lower bound above 0: blocks better-than-average signals; upper bound below 0: worse-than-average; else not distinguishable from average",
+    "thinning": "the random-thinning percentile is reported as a comparison and does not enter the decision",
+    "label": "assumed",
+    "source": "issue 316 Approach; no multiple-comparison correction (issue 316 non-goals)"
+  },
+  "reference": {
+    "label": "measured",
+    "source": "filter316 result comment, https://github.com/mfittko/market-signals/issues/316#issuecomment-6055138146",
+    "differences": "filter316 used another management (1.5 ATR stop, breakeven after 1 R, 3 R target, opposite flip exit, 72-bar horizon, overlapping trades allowed) and another population (all live instruments with bid/ask history except DE30/EUR, 2026-07-22 to 2026-10-08). Its random-thinning percentile ranks kept-minus-all, which falls when blocked-minus-all rises, so it reads roughly as 100 minus the percentile here. Its keep rule also needed the null q97.5 and a Holm-adjusted p below 0.05.",
+    "summary": [
+      "Scored: 5,455 signals over 61 trading days; 1,007 allowed, 4,448 suppressed (82%).",
+      "Mean net R: all -0.286 [-0.338, -0.233]; allowed -0.276 [-0.373, -0.167]; suppressed -0.288 [-0.339, -0.236]."
+    ],
+    "header": ["Rule", "Blocked share", "Blocked minus all [CI]", "Random-thinning percentile (kept-minus-all)", "Decision"],
+    "rows": [
+      ["all suppressions", "82%", "-0.002 [-0.019, +0.015]", "59th", "insufficient evidence"],
+      ["late_chasing", "50%", "+0.024 [-0.013, +0.058]", "9th", "insufficient evidence"],
+      ["against_trend", "33%", "-0.041 [-0.090, +0.011]", "91st", "insufficient evidence"],
+      ["low_volume", "72%", "+0.009", "22nd", "insufficient evidence"],
+      ["chop_weak_setup", "78%", "+0.000", "49th", "insufficient evidence"],
+      ["news_event", "1%", "+0.056", "32nd", "insufficient evidence"]
+    ]
+  }
+}
