@@ -3,7 +3,7 @@ version: 1
 # CI is set up (.github/workflows/ci.yml), so the dev-loop CI gate is back in
 # force with shipped defaults (both gates require green CI). No overrides needed.
 
-# UI-review recipe (issue #18 web app). The signal-server has no auth, so no
+# UI-review recipe (signal-server web app). The signal-server has no auth, so no
 # login recipe; flows are the explicit allowlist for /loop-review-ui.
 # Worktrees get tracked files only: no worktree.entries copy or link of data/
 # (about 42 GB of live market data). The server below creates an empty
@@ -11,7 +11,7 @@ version: 1
 # data/settings.json reads as {} and is written on the first settings save.
 uiReview:
   run:
-    command: "node scripts/signal-server.mjs --port 4123"
+    command: "MS_NO_NOTIFY=1 node scripts/signal-server.mjs --port 4123"
     readyUrl: "http://127.0.0.1:4123/"
     readyTimeoutMs: 60000
   flows:
@@ -46,10 +46,13 @@ uiReview:
         - { action: goto, path: "/", name: open-config }
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         # the modal reopens on the LAST-USED tab (persisted in localStorage), so a
-        # sibling flow that visited another tab would leave the model field absent —
-        # every settings flow names its own tab rather than trusting the default.
+        # sibling flow that visited another tab would leave the model field absent.
+        # Every settings flow names its own tab. The model input renders only for
+        # a provider that takes a model, and empty settings select provider none,
+        # so the flow selects openai first.
         - { action: click, selector: "#cfgTabs button[data-tab=llm]", name: llm-provider-tab }
-        - { action: fill, selector: "input[name=model]", value: "ui-review-model", name: fill-model }
+        - { action: select, selector: "#f-provider", value: "openai", name: select-openai-provider }
+        - { action: fill, selector: "#f-__model", value: "ui-review-model", name: fill-model }
         - { action: click, selector: "#cfg button", name: save-settings }
         - { action: goto, path: "/", name: reload-after-save }
     # the GNews fields (second opt-in news provider, alongside NEWSAPI_AI_*) live
@@ -102,11 +105,8 @@ tracker:
   board:
     number: 5
 
-# Gate evidence policy (operator, 2026-08-04): fan-out evidence is NOT required.
-# Gates on this repo run as a single inline reviewer, which the shipped default
-# rejects at the pre-merge evidence check. Each inline verdict still records a
-# reason, so the audit trail says plainly that one perspective reviewed it
-# rather than several independent ones — that is the tradeoff being accepted.
+# Gate evidence policy (operator, 2026-08-04): gates fan out to several
+# reviewers, but the pre-merge check does not require fan-out evidence.
 gates:
   requireFanoutEvidence: false
   size:

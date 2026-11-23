@@ -1,0 +1,1 @@
+- Dev loops: the UI review settings flow selects a provider before it fills the model field, and the review server sends no desktop alerts (#404)
