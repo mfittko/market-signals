@@ -11,14 +11,16 @@ The research epic https://github.com/mfittko/market-signals/issues/230 needs one
 https://github.com/mfittko/market-signals/issues/343 moved the paper ledger and the bar fill rules from the Node engine to Go. The result is:
 
 - `fill.Check` in [`platform/internal/fill/fill.go`](../../platform/internal/fill/fill.go) decides the exit price and reason of one bar. [`docs/fill-spec.md`](../fill-spec.md) is its spec. The Go ledger, the position monitor and the Go backtest all call it.
-- The Go ledger in [`platform/internal/ledger/ledger.go`](../../platform/internal/ledger/ledger.go) books positions, trades, cash, margin and the halt in Postgres. Each operation runs in one transaction with an idempotency key.
+- The Go ledger in [`platform/internal/ledger/ledger.go`](../../platform/internal/ledger/ledger.go) books positions, trades, cash, margin and the halt in Postgres. Each keyed operation runs in one transaction with an idempotency key.
 - The Go backtest in [`platform/internal/backtest/backtest.go`](../../platform/internal/backtest/backtest.go) replays Supertrend flips in R units with a chronological train and test split. It applies no spread, financing or margin, so its results are an authoring diagnostic.
 
 The research evaluator in [`registry/evaluator/engine/fills.py`](registry/evaluator/engine/fills.py) resolves fills on bid and ask bars for research campaigns. It is a separate research tool.
 
+The Go ledger is the authority by decision. Its runtime cutover is still open: the live paper trades are still booked by the Node ledger in [`scripts/portfolio.mjs`](../../scripts/portfolio.mjs), and the switch belongs to the cutover epic https://github.com/mfittko/market-signals/issues/345.
+
 ## Decision
 
-Extend. `fill.Check` and the Go ledger are the one execution and accounting authority for the paper mode and the Go backtest mode. A missing effect is added to them in a narrow change, with a spec case in `docs/fill-spec.md` and a Go test. NautilusTrader and LEAN are not adopted. The Python research evaluator stays a research-only tool outside the execution and accounting authority.
+Extend. `fill.Check` and the Go ledger are the designated execution and accounting authority for the paper mode and the Go backtest mode. A missing effect is added to them in a narrow change, with a spec case in `docs/fill-spec.md` and a Go test. NautilusTrader and LEAN are not adopted. The Python research evaluator stays a research-only tool outside the execution and accounting authority.
 
 ### Candidates
 
@@ -26,24 +28,24 @@ Checked on 2026-11-23 from the public release pages listed in [sources.md](sourc
 
 | Candidate | Pinned release | Core license | Runtime and deployment cost | Reason it is not adopted |
 |---|---|---|---|---|
-| NautilusTrader | [v1.231.0](https://github.com/nautechsystems/nautilus_trader/releases/tag/v1.231.0), 2026-08-02, labelled Beta on GitHub. The 2.0 line is only on pre-release wheels. | LGPL-3.0 | A Python 3.12 to 3.14 runtime with prebuilt wheels, a second strategy and data model next to Go, and a 1.x to 2.x core change already announced in the release notes. | It would be a second execution and accounting authority next to the Go ledger. It documents a `Cfd` instrument, but our venue costs, financing and margin would still be our own configuration, so it adds no verified venue realism. |
-| LEAN | No versioned engine release: the newest GitHub release is [v2.4.0.1](https://github.com/QuantConnect/Lean/releases/tag/v2.4.0.1) from 2017. The maintained distribution is the [lean CLI 1.0.234](https://pypi.org/project/lean/), 2026-11-18, which runs the `quantconnect/lean` Docker image. | Apache-2.0 | Docker, the .NET engine image, a Python CLI, and an image tag that defaults to `latest` unless pinned. | It would also be a second authority. Its reality models (fill, fee, slippage, buying power, margin interest) are configurable, but the venue values would still be ours, and the engine needs Docker and .NET for a bar-based CFD account. |
+| NautilusTrader | [v1.231.0](https://github.com/nautechsystems/nautilus_trader/releases/tag/v1.231.0), 2026-08-02, labelled Beta on GitHub. The 2.0 line is only on pre-release wheels. | LGPL-3.0 | A Python runtime with prebuilt wheels (PyPI lists 1.231.0 wheels for Python 3.12 to 3.14), a second strategy and data model next to Go, and a 1.x to 2.x core change already announced in the release notes. | It would be a second execution and accounting authority next to the Go ledger. It documents a `Cfd` instrument, but our venue costs, financing and margin would still be our own configuration, so it adds no verified venue realism. |
+| LEAN | No current engine release: the newest GitHub release is [v2.4.0.1](https://github.com/QuantConnect/Lean/releases/tag/v2.4.0.1) from 2017. The maintained distribution is the [lean CLI 1.0.234](https://pypi.org/project/lean/), 2026-11-18, which runs the `quantconnect/lean` Docker image. | Apache-2.0 | Docker, the .NET engine image, a Python CLI, and an image tag that defaults to `latest` unless pinned. | It would also be a second authority. Its reality models (fill, fee, slippage, buying power, margin interest) are configurable, but the venue values would still be ours, and the engine needs Docker and .NET for a bar-based CFD account. |
 
-Both feature statements come from documentation, not from a run on our account or instrument.
+Neither candidate has a release labelled stable: the newest NautilusTrader release is labelled Beta, and LEAN publishes no current engine release. The table therefore pins the newest release of each, and for LEAN the CLI version. Both feature statements come from documentation, not from a run on our account or instrument.
 
 ### Dimensions
 
-Each row names the Go code that handles the dimension today, or states "not modelled". "Not modelled" is a limitation of every result the Go code produces.
+Each row names the Go code that handles the dimension today, or states "not modelled". "Not modelled" is a limitation of every result the Go code produces. The names map to these files: `fill.Check` is in [`platform/internal/fill/fill.go`](../../platform/internal/fill/fill.go); `ledger.*`, `closeIn` and `equitySQL` are in [`platform/internal/ledger/ledger.go`](../../platform/internal/ledger/ledger.go); `monitor.Step` is in [`platform/internal/monitor/eval.go`](../../platform/internal/monitor/eval.go); `backtest.Run` is in [`platform/internal/backtest/backtest.go`](../../platform/internal/backtest/backtest.go).
 
 | Dimension | Go code today | Limitation |
 |---|---|---|
 | Event ordering | `ledger.Replay` judges stored completed bars oldest first and stores the last judged bar in the same transaction. | Bar granularity only; no tick or quote events. |
-| Fills | `fill.Check`, called by `ledger.Fill`, `ledger.Replay`, `monitor.Step` and `backtest.Run`. | Bar open, high and low only; no intrabar path. |
+| Fills | `fill.Check`, called by `ledger.Fill`, `ledger.Replay`, `monitor.Step` and `backtest.Run`. | Bar open, high and low only; no intrabar path. Reversal and time exits in `backtest.Run` and invalidation and kill-switch exits in `monitor.Step` fill at the bar close; margin and halt closes in the ledger fill at the mark. None of them goes through `fill.Check`. |
 | Ambiguous stop-and-target bar | `fill.Check`: the stop wins when both levels trade inside one bar. | Pessimistic by convention, not measured. |
 | Gaps | `fill.Check`: a gap through the stop or the target fills at the open. | None beyond bar data. |
 | Cash | `ledger.Open` takes margin and commission from cash; `closeIn` returns margin plus realized profit. | One account. |
 | Realized and unrealized equity | `closeIn` books realized profit; `equitySQL` and `ledger.Mark` compute equity at the last mark. | Equity is as fresh as the last mark. |
-| Margin | `ledger.Open` books margin as notional divided by leverage; `ledger.Mark` closes a position whose loss reaches its margin. | No venue margin rates, margin call levels or margin closeout order. |
+| Margin | `ledger.Open` books margin as notional divided by leverage; `ledger.Mark` closes a position whose loss reaches its margin. | No venue margin rates, margin call levels or margin closeout order. The margin check runs only at a mark, so a loss can exceed the margin between marks. |
 | Spread | `ledger.Open` adds the spread once to the entry. | Not modelled on the exit. The value is the caller's input. The Go backtest and the monitor apply none. |
 | Commission | `ledger.Open` charges it once, at open. | The value is the caller's input. |
 | Financing | Not modelled. | No overnight financing on any position. |
