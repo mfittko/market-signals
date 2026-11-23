@@ -1,0 +1,1 @@
+- Platform: a watchdog job every 5 minutes notifies once when the newest backup is older than 26 hours or the control-plane health check has failed for 10 minutes, and once when it recovers (#402)
