@@ -31,7 +31,7 @@ Checked on 2026-11-23 from the public release pages listed in [sources.md](sourc
 | NautilusTrader | [v1.231.0](https://github.com/nautechsystems/nautilus_trader/releases/tag/v1.231.0), 2026-08-02, labelled Beta on GitHub. The 2.0 line is only on pre-release wheels. | LGPL-3.0 | A Python runtime with prebuilt wheels (PyPI lists 1.231.0 wheels for Python 3.12 to 3.14), a second strategy and data model next to Go, and a 1.x to 2.x core change already announced in the release notes. | It would be a second execution and accounting authority next to the Go ledger. It documents a `Cfd` instrument, but our venue costs, financing and margin would still be our own configuration, so it adds no verified venue realism. |
 | LEAN | No current engine release: the newest GitHub release is [v2.4.0.1](https://github.com/QuantConnect/Lean/releases/tag/v2.4.0.1) from 2017. The maintained distribution is the [lean CLI 1.0.234](https://pypi.org/project/lean/), 2026-11-18, which runs the `quantconnect/lean` Docker image. | Apache-2.0 | Docker, the .NET engine image, a Python CLI, and an image tag that defaults to `latest` unless pinned. | It would also be a second authority. Its reality models (fill, fee, slippage, buying power, margin interest) are configurable, but the venue values would still be ours, and the engine needs Docker and .NET for a bar-based CFD account. |
 
-Neither candidate has a release labelled stable: the newest NautilusTrader release is labelled Beta, and LEAN publishes no current engine release. The table therefore pins the newest release of each, and for LEAN the CLI version. Both feature statements come from vendor documentation; no run on our account or instrument checked them.
+Neither candidate has a release labelled stable: the newest NautilusTrader release is labelled Beta, and LEAN publishes no current engine release. The table therefore pins the newest release of each, and for LEAN the CLI version. Both feature statements come from vendor documentation and are unverified on our account and instrument.
 
 ### Dimensions
 
@@ -59,7 +59,7 @@ Each row names the Go code that handles the dimension today, or states "not mode
 
 ## Consequences
 
-- Two follow-up slices are listed under "Follow-up slices" in https://github.com/mfittko/market-signals/issues/259: the experiment contract with the E0 baseline, and the forecast-attempt journal with its comparison report. Both use `fill.Check` and the Go ledger rules. Each declares every cost it adds and labels each value as assumed or measured.
+- Two follow-up slices are filed: https://github.com/mfittko/market-signals/issues/419 is the experiment contract with the E0 baseline, and https://github.com/mfittko/market-signals/issues/420 is the forecast-attempt journal with its comparison report. Both use `fill.Check` and the Go ledger rules. Each declares every cost it adds and labels each value as assumed or measured.
 - Each "not modelled" row stays visible in every result the Go code produces until a narrow change adds the effect.
 - Results from the Go backtest stay an authoring diagnostic until a baseline applies declared costs.
 - Reopen this decision when a required effect, for example multi-currency accounting, venue margin or partial fills from liquidity, cannot be added to the Go ledger in one narrow change. Owner: the research epic https://github.com/mfittko/market-signals/issues/230.
