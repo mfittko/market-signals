@@ -4,11 +4,13 @@
 // data/ was added, removed, changed or read. Reads show up as access-time changes:
 // each sentinel gets an access time earlier than its modification time, so a read
 // updates it under relatime. The check refuses to run when the filesystem does not
-// update access times. Nothing is written outside the system temp directory.
+// update access times. Only content reads of sentinel files count as reads: a
+// listing or stat of data/ moves no access time and goes undetected. Nothing is
+// written outside the system temp directory.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './lib/cli.mjs';
 
@@ -77,8 +79,13 @@ export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
       let st;
       try { st = lstatSync(src); } catch { continue; } // tracked but deleted in the working tree
       mkdirSync(dirname(join(tmp, rel)), { recursive: true });
-      if (st.isSymbolicLink()) symlinkSync(readlinkSync(src), join(tmp, rel));
-      else copyFileSync(src, join(tmp, rel));
+      if (st.isSymbolicLink()) {
+        // a link that leaves the copy would let a test write outside it unseen
+        const target = readlinkSync(src);
+        const out = relative(tmp, resolve(dirname(join(tmp, rel)), target));
+        if (isAbsolute(target) || out.startsWith('..')) throw new Error(`tracked symlink ${rel} points outside the checkout: ${target}`);
+        symlinkSync(target, join(tmp, rel));
+      } else copyFileSync(src, join(tmp, rel));
     }
     // The platform script tests call git in the checkout, so the copy is a one-commit repository.
     for (const args of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=isolation', '-c', 'user.email=isolation@localhost', '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'isolation copy']]) {
@@ -97,7 +104,7 @@ export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
     }
     const before = snapshot(dataDir);
     const testFiles = readdirSync(join(tmp, 'test')).filter((f) => f.endsWith('.test.mjs')).sort().map((f) => join('test', f));
-    const run = spawnSync(process.execPath, ['--test', ...testFiles], { cwd: tmp, env: npmTestEnv(), stdio: 'inherit', timeout: 30 * 60000 });
+    const run = spawnSync(process.execPath, ['--test', ...testFiles], { cwd: tmp, env: npmTestEnv(), stdio: 'inherit', timeout: 4 * 60000 }); // under the CI job's 5-minute limit, so a hang still prints this script's diagnostic
     const findings = compareSnapshots(before, snapshot(dataDir));
     for (const f of findings) console.error(`check-test-isolation: data/ ${f}`);
     if (run.status !== 0) {
