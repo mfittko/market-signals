@@ -491,7 +491,7 @@ test('switch-launchd writes a daily backup plist without KeepAlive and passes ba
 
 // Sources switch-launchd.sh with LA in a scratch dir and a stand-in launchctl that treats a job as loaded while
 // its loaded-<label> file exists.
-test('rollback removal unloads the backup job and deletes its plist', () => {
+test('rollback removal unloads the backup job and deletes its plist and the watchdog plist', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-remove-'));
   try {
     const bin = join(dir, 'bin'), la = join(dir, 'la');
@@ -499,10 +499,11 @@ test('rollback removal unloads the backup job and deletes its plist', () => {
     writeFileSync(join(bin, 'launchctl'), '#!/bin/sh\ncase "$1" in print) [ -f "$DIR/loaded-${2##*/}" ] ;; bootout) echo "bootout $2" >>"$DIR/launchctl.log"; rm -f "$DIR/loaded-${2##*/}" ;; esac\n', { mode: 0o755 });
     const label = 'com.market-signals.platform-backup';
     writeFileSync(join(dir, `loaded-${label}`), '');
-    const r = sh(`source platform/scripts/switch-launchd.sh; LA="$DIR/la"; write_backup_plist; remove_console`, { DIR: dir, PATH: `${bin}:${process.env.PATH}` });
+    const r = sh(`source platform/scripts/switch-launchd.sh; LA="$DIR/la"; write_backup_plist; write_watchdog_plist; remove_console`, { DIR: dir, PATH: `${bin}:${process.env.PATH}` });
     assert.equal(r.status, 0, r.stderr);
     const uid = spawnSync('id', ['-u'], { encoding: 'utf8' }).stdout.trim();
     assert.deepEqual(readFileSync(join(dir, 'launchctl.log'), 'utf8').trim().split('\n'), [`bootout gui/${uid}/${label}`]);
+    assert.equal(existsSync(join(la, 'com.market-signals.platform-watchdog.plist')), false);
     assert.deepEqual(readdirSync(la), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1270,6 +1271,25 @@ test('watchdog failure, failure, recovery gives two notifications, and a short f
     assert.equal(run(3000, 7).status, 0);
     assert.equal(run(3300, 0).status, 0);
     assert.equal(notes().length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog survives an empty or malformed state file and restarts that check from now', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(30);
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'state', 'backup'), '');
+    writeFileSync(join(dir, 'state', 'health'), '123');
+    const r = run(5000, 7);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(notes().length, 1);
+    assert.match(notes()[0], /backup/i);
+    assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), '5000 0\n');
+    assert.equal(readFileSync(join(dir, 'state', 'backup'), 'utf8'), '5000 1\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -5,7 +5,7 @@
 #   backup: fails when no marked backup folder under backupDir (data/settings.json) is newer than 26 hours,
 #           or backupDir is unset or missing; it notifies at once
 #   health: fails when http://127.0.0.1:8080/api/v1/health does not answer 2xx; it notifies once the failure
-#           has lasted 10 minutes
+#           has lasted 10 minutes in a row (a passing run resets the clock)
 #
 # Each failure notifies once, and the first passing run after that notification notifies the recovery once.
 # The notification is a desktop notification, plus a Pushover push when PUSHOVER_ENABLED, PUSHOVER_TOKEN and
@@ -50,17 +50,19 @@ backup_ok() {
 health_ok() { curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; }
 
 # The state file holds "<failing since, epoch seconds> <alert sent, 0 or 1>"; a passing run removes it.
+# A missing, empty or malformed state file counts as a failure that starts now.
 track() { # name failed(0|1) grace-seconds failure-message recovery-message
-  local f="$STATE/$1" since=0 alerted=0
-  [ -f "$f" ] && read -r since alerted <"$f"
+  local f="$STATE/$1" since="" alerted=""
+  if [ -f "$f" ]; then read -r since alerted <"$f" || true; fi
+  [[ "$since" =~ ^[0-9]+$ && "$alerted" =~ ^[01]$ ]] || { since="$(now)"; alerted=0; }
   if [ "$2" = 0 ]; then
     if [ "$alerted" = 1 ]; then notify "$5"; fi
     command rm -f "$f"
     return 0
   fi
-  [ -f "$f" ] || since="$(now)"
   if [ "$alerted" = 0 ] && [ $(($(now) - since)) -ge "$3" ]; then notify "$4"; alerted=1; fi
-  echo "$since $alerted" >"$f"
+  echo "$since $alerted" >"$f.tmp"
+  command mv -f "$f.tmp" "$f"
 }
 
 run() {
