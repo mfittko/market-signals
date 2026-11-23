@@ -1221,7 +1221,7 @@ const watchdogFixture = (dir) => {
   return { marker, run, notes };
 };
 
-test('watchdog notifies once when the newest backup is older than 26 hours, and not for a fresh backup', () => {
+test('watchdog notifies once when the newest backup is older than 26 hours, then a fresh backup gives one recovery notification and no further notifications', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
   try {
     const { marker, run, notes } = watchdogFixture(dir);
@@ -1229,6 +1229,7 @@ test('watchdog notifies once when the newest backup is older than 26 hours, and 
     for (const t of [1000, 1300]) assert.equal(run(t).status, 0);
     assert.equal(notes().length, 1);
     assert.match(notes()[0], /backup/i);
+    assert.equal(existsSync(join(dir, 'push.body')), false, 'no Pushover settings means no push');
     marker(2);
     assert.equal(run(1600).status, 0);
     assert.equal(notes().length, 2);
@@ -1292,6 +1293,66 @@ test('watchdog survives an empty or malformed state file and restarts that check
     assert.equal(readFileSync(join(dir, 'state', 'backup'), 'utf8'), '5000 1\n');
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog accepts only an epoch without a leading zero and a 0 or 1 alert flag in a state file', () => {
+  const since = 1795418179, t = since + 600;
+  const cases = [
+    ['1795418179 0', 1, `${since} 1\n`],
+    ['1795418179 1', 0, `${since} 1\n`],
+    ['0999 0', 0, `${t} 0\n`],
+    ['0 0', 0, `${t} 0\n`],
+    ['', 0, `${t} 0\n`],
+    ['abc 1', 0, `${t} 0\n`],
+  ];
+  for (const [state, notified, after] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { marker, run, notes } = watchdogFixture(dir);
+      marker(1);
+      mkdirSync(join(dir, 'state'));
+      writeFileSync(join(dir, 'state', 'health'), state);
+      const r = run(t, 7);
+      assert.equal(r.status, 0, `${JSON.stringify(state)}: ${r.stderr}`);
+      assert.equal(notes().length, notified, JSON.stringify(state));
+      assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), after, JSON.stringify(state));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('watchdog restarts the health failure clock after a gap of more than 15 minutes since the last run', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    const t = Math.floor(Date.now() / 1000);
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'state', 'health'), `${t - 7200} 0\n`);
+    utimesSync(join(dir, 'state', 'health'), t - 7200, t - 7200);
+    const r = run(t, 7);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(notes(), []);
+    assert.equal(readFileSync(join(dir, 'state', 'health'), 'utf8'), `${t} 0\n`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog notifies once for the backup when backupDir is unset or names a missing folder', () => {
+  for (const settings of [{}, { backupDir: '/nonexistent/ms-watchdog-backups' }]) {
+    const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+    try {
+      const { run, notes } = watchdogFixture(dir);
+      writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings));
+      assert.equal(run(1000).status, 0);
+      assert.equal(notes().length, 1, JSON.stringify(settings));
+      assert.match(notes()[0], /backup/i);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
