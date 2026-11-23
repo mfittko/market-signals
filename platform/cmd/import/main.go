@@ -24,19 +24,20 @@ func main() {
 	sqlite := flag.String("sqlite", "../data/candles.db", "legacy SQLite file (read once, read-only, to make a private copy with VACUUM INTO; the import reads only that copy)")
 	settings := flag.String("settings", "../data/settings.json", "legacy settings.json (only the bot map is read)")
 	symbols := flag.String("symbols", "../config/candle-symbols.json", "validated candle symbols")
-	dburl := flag.String("db", os.Getenv("MS_DATABASE_URL"), "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
+	dbURL := db.URLFlag(flag.CommandLine, "postgres URL (default $MS_DATABASE_URL; scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 	commit := flag.Bool("commit", false, "write the import. Without it the run rolls back.")
 	asJSON := flag.Bool("json", false, "print the full report as JSON")
 	flag.Parse()
+	dburl := dbURL()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if *dburl == "" {
+	if dburl == "" {
 		log.Error("MS_DATABASE_URL or -db must be set (scripts/dev.sh writes it to .dev/env, or .dev/dev/env for the development stack)")
 		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	pool, err := db.Connect(ctx, *dburl)
+	pool, err := db.Connect(ctx, dburl)
 	if err != nil {
 		log.Error("database", "err", err)
 		os.Exit(1)
