@@ -71,6 +71,14 @@ func unrealized(side string, entry, units, mark float64) float64 {
 	return (entry - mark) * units
 }
 
+// EntryPrice is the ledger's entry rule: a long pays the spread above the price, a short below it.
+func EntryPrice(side string, price, spread float64) float64 {
+	if side == "short" {
+		return price - spread
+	}
+	return price + spread
+}
+
 func positive(v float64) bool { return v > 0 && !math.IsInf(v, 1) }
 
 func invalid(msg string) error { return fmt.Errorf("%w: %s", ErrInvalid, msg) }
@@ -189,10 +197,7 @@ func Open(ctx context.Context, pool *pgxpool.Pool, key string, in OpenInput, at 
 		if tag.RowsAffected() == 0 {
 			return nil, invalid("insufficient cash for margin + commission")
 		}
-		entry := in.Price + in.Spread
-		if in.Side == "short" {
-			entry = in.Price - in.Spread
-		}
+		entry := EntryPrice(in.Side, in.Price, in.Spread)
 		var id int64
 		if err := tx.QueryRow(ctx, `INSERT INTO ledger_positions (instrument, side, notional, units, entry_price, entry_time,
 			leverage, margin, stop, target, last_mark, last_mark_at, granularity)

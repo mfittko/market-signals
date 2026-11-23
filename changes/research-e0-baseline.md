@@ -1,0 +1,1 @@
+- Research: frozen WTICO/USD M1 experiment contract and the E0 cost-aware Supertrend flip baseline, run through `fill.Check` and the ledger entry rule on the bid and ask export (#419)

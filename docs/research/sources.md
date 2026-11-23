@@ -35,7 +35,7 @@ Credibility notes use these terms:
 
 | Source | Takeaway | Credibility |
 |---|---|---|
-| [OANDA financing costs](https://help.oanda.com/bvi/en/faqs/financing-costs.htm) | Longs pay the basis rate plus 2.5% a year; shorts receive the basis minus 2.5%. | Broker document. |
+| [OANDA financing costs](https://help.oanda.com/bvi/en/faqs/financing-costs.htm) | Longs pay the basis rate plus 2.5% a year; shorts receive the basis minus 2.5%. The page states no rollover time. The 17:00 America/New_York daily rollover that the E0 spec uses is an assumed industry convention that no cited page states. | Broker document; the rollover time is an assumption. |
 | [OANDA commodity financing](https://help.oanda.com/uk/en/faqs/commodity-financing-cost-variation.htm) | Commodity CFDs are priced from the next futures contract; contango and backwardation reach the trader through financing. | Broker document. |
 | [OANDA financing methodology (UK)](https://www.oanda.com/uk-en/trading/financing-costs/) and [commodity funding (BVI)](https://www.oanda.com/bvi-en/cfds/financing-costs/) | Separate long and short rates, possible credits, commodity basis link. Cited by the external review. | Broker document; terms differ by entity. |
 | [BrokerChooser on Plus500 financing](https://brokerchooser.com/broker-reviews/plus500-review/cfd-financing-rate) | S&P 500 long financing estimated at about 8.9% a year. | Third-party estimate; check on the platform. |

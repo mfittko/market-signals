@@ -1,0 +1,71 @@
+{
+  "instrument": {
+    "name": "WTICO/USD",
+    "quoteCurrency": "USD"
+  },
+  "feed": {
+    "granularity": "M1",
+    "barSeconds": 60,
+    "barTime": {
+      "rule": "time is the bar open in UTC; the bar closes barSeconds later",
+      "label": "measured",
+      "source": "the export's time column: each row's time is a bar open, and rows ascend from 2023-01-02T23:00:00Z with gaps where the market had no bar"
+    },
+    "prices": {
+      "rule": "separate bid and ask OHLC per bar, from the owner's candles_ba export",
+      "label": "measured",
+      "source": "the export header: instrument,granularity,time,bid_o,bid_h,bid_l,bid_c,ask_o,ask_h,ask_l,ask_c,volume"
+    }
+  },
+  "dataset": {
+    "path": "tmp/research-export/wtico-usd-m1-ba-2023-2026q3.csv",
+    "sha256": "4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488",
+    "rows": 1293832,
+    "first": "2023-01-02T23:00:00Z",
+    "last": "2026-09-30T23:59:00Z"
+  },
+  "experiment": {
+    "id": "E0",
+    "strategy": {
+      "supertrendPeriod": 10,
+      "supertrendMult": 3,
+      "stopAtr": 1.5,
+      "rr": 2,
+      "maxBars": 200
+    },
+    "costs": {
+      "spread": {
+        "rule": "a long enters at the ask open and exits on bid bars; a short enters at the bid open and exits on ask bars",
+        "label": "measured",
+        "source": "the export's bid and ask OHLC, per bar"
+      },
+      "commission": {
+        "value": 0,
+        "label": "assumed",
+        "source": "docs/fill-spec.md, Spread and cost: commission defaults to 0"
+      },
+      "financingBasis": {
+        "value": 0.047,
+        "label": "assumed",
+        "source": "mean of the 2023 to 2025 DTB3 annual averages (5.07%, 4.97%, 4.07%) in docs/research/data.md"
+      },
+      "financingMarkup": {
+        "value": 0.025,
+        "label": "assumed",
+        "source": "OANDA financing costs page in docs/research/sources.md: longs pay the basis plus 2.5% a year, shorts receive the basis minus 2.5%"
+      },
+      "financingRollover": {
+        "rule": "one day of financing (annual rate / 365, on the entry price) at each 17:00 America/New_York instant a position holds across, weekends included",
+        "label": "assumed",
+        "source": "OANDA financing costs row in docs/research/sources.md: it records the 17:00 America/New_York rollover time as an assumed industry convention that no cited page states"
+      }
+    },
+    "timing": {
+      "decisionDelayMs": {
+        "value": 2212,
+        "label": "measured",
+        "source": "completion delay max over 12 bar transitions, https://github.com/mfittko/market-signals/pull/153"
+      }
+    }
+  }
+}
