@@ -47,8 +47,9 @@ uiReview:
         - { action: click, selector: "#cfgbtn", name: open-settings-modal }
         # the modal reopens on the LAST-USED tab (persisted in localStorage), so a
         # sibling flow that visited another tab would leave the model field absent.
-        # Every settings flow names its own tab. The model input renders only for a provider that takes a model, and empty
-        # settings select provider none, so the flow selects openai first.
+        # Every settings flow names its own tab. The model input renders only for
+        # a provider that takes a model, and empty settings select provider none,
+        # so the flow selects openai first.
         - { action: click, selector: "#cfgTabs button[data-tab=llm]", name: llm-provider-tab }
         - { action: select, selector: "#f-provider", value: "openai", name: select-openai-provider }
         - { action: fill, selector: "#f-__model", value: "ui-review-model", name: fill-model }
