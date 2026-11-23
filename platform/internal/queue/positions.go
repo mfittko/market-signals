@@ -41,7 +41,7 @@ type Position struct {
 	Wakes          int            `json:"wakes"`
 	FailedWakes    int            `json:"failedWakes"`
 	NeedsAttention bool           `json:"needsAttention"`
-	planRaw        []byte         // the plan as loaded; SavePosition merges marks only while it is unchanged
+	planRaw        []byte         // the plan as loaded; SavePosition merges marks only while it is unchanged, so a Position not loaded by the store saves no marks
 }
 
 type PositionEvent struct {
