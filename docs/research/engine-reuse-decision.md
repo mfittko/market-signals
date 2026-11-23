@@ -40,7 +40,7 @@ Each row names the Go code that handles the dimension today, or states "not mode
 | Dimension | Go code today | Limitation |
 |---|---|---|
 | Event ordering | `ledger.Replay` judges stored completed bars oldest first and stores the last judged bar in the same transaction. | Bar granularity only; no tick or quote events. |
-| Fills | `fill.Check`, called by `ledger.Fill`, `ledger.Replay`, `monitor.Step` and `backtest.Run`. | Bar open, high and low only; no intrabar path. Reversal and time exits in `backtest.Run` and invalidation and kill-switch exits in `monitor.Step` fill at the bar close; margin and halt closes in the ledger fill at the mark. None of them goes through `fill.Check`. |
+| Fills | `fill.Check`, called by `ledger.Fill`, `ledger.Replay`, `monitor.Step` and `backtest.Run`. | Bar open, high and low only; no intrabar path. Reversal, time and end-of-data exits in `backtest.Run` and invalidation, kill-switch and time-stop exits in `monitor.Step` fill at the bar close; margin and halt closes in the ledger fill at the mark, and `ledger.Close` and `ledger.ClosePartial` use the caller's price. None of them goes through `fill.Check`. |
 | Ambiguous stop-and-target bar | `fill.Check`: the stop wins when both levels trade inside one bar. | Pessimistic by convention, not measured. |
 | Gaps | `fill.Check`: a gap through the stop or the target fills at the open. | None beyond bar data. |
 | Cash | `ledger.Open` takes margin and commission from cash; `closeIn` returns margin plus realized profit. | One account. |
