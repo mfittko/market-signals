@@ -1296,11 +1296,12 @@ test('watchdog survives an empty or malformed state file and restarts that check
   }
 });
 
-test('watchdog accepts only an epoch without a leading zero and a 0 or 1 alert flag in a state file', () => {
-  const since = 1795418179, t = since + 600;
+test('watchdog accepts only an epoch of at most 12 digits without a leading zero and a 0 or 1 alert flag in a state file', () => {
+  const since = 1795420591, t = since + 600;
   const cases = [
-    ['1795418179 0', 1, `${since} 1\n`],
-    ['1795418179 1', 0, `${since} 1\n`],
+    ['1795420591 0', 1, `${since} 1\n`],
+    ['1795420591 1', 0, `${since} 1\n`],
+    ['99999999999999999999 0', 0, `${t} 0\n`],
     ['0999 0', 0, `${t} 0\n`],
     ['0 0', 0, `${t} 0\n`],
     ['', 0, `${t} 0\n`],

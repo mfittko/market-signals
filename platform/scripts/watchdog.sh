@@ -56,8 +56,9 @@ health_ok() { curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; }
 track() { # name failed(0|1) grace-seconds failure-message recovery-message
   local f="$STATE/$1" since="" alerted=""
   if [ -f "$f" ]; then read -r since alerted <"$f" || true; fi
-  # a leading zero would make bash arithmetic read the value as octal and abort the run
-  [[ "$since" =~ ^[1-9][0-9]*$ && "$alerted" =~ ^[01]$ ]] || { since="$(now)"; alerted=0; }
+  # a leading zero would make bash arithmetic read the value as octal and abort the run, and more than 12 digits
+  # would overflow the comparison and the arithmetic below
+  [[ "$since" =~ ^[1-9][0-9]{0,11}$ && "$alerted" =~ ^[01]$ ]] || { since="$(now)"; alerted=0; }
   if [ -f "$f" ] && [ -n "$(find "$f" -mmin +15)" ]; then since="$(now)"; fi
   # a since in the future (the clock moved back) would hold the alert back until the clock passes it
   if [ "$since" -gt "$(now)" ]; then since="$(now)"; fi
