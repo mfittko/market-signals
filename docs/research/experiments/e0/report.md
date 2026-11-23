@@ -16,7 +16,7 @@ The frozen contract is `docs/research/experiments/e0/spec.json`. It holds the in
 | Dataset sha256 | `4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488` |
 | Dataset rows | 1,293,832 |
 | Dataset range | 2023-01-02T23:00:00Z to 2026-09-30T23:59:00Z |
-| Spec sha256 | `4185f41bbaee23bc254ed2a65c71717c21129b0ebe9a96201637deed9f764b16` |
+| Spec sha256 | `cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb` |
 
 The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost, timing or feed value that is not labelled assumed or measured. The strategy settings carry no label: they are the plain-flip baseline of `backtest.Search`.
 
@@ -38,7 +38,7 @@ The loader refuses a dataset whose sha256 does not match the manifest. The spec 
 | Commission | 0 | assumed | `docs/fill-spec.md`, Spread and cost |
 | Financing basis | 4.7% a year | assumed | mean of the 2023 to 2025 DTB3 annual averages in `docs/research/data.md` |
 | Financing markup | 2.5% a year | assumed | the OANDA financing costs page in `docs/research/sources.md` |
-| Rollover time | 17:00 America/New_York | assumed | an assumed industry convention; no page cited in `docs/research/sources.md` states it |
+| Rollover time | 17:00 America/New_York | assumed | the OANDA financing costs row in `docs/research/sources.md`, which records it as an assumed industry convention that no cited page states |
 | Decision delay | 2,212 ms | measured | the maximum completion delay in https://github.com/mfittko/market-signals/pull/153 |
 
 ## Run
@@ -49,7 +49,7 @@ From `platform/`:
 go run ./cmd/research-e0 --spec ../docs/research/experiments/e0/spec.json --data <path to the export CSV> --out <artifact JSON path>
 ```
 
-Two runs with the network denied gave the identical artifact sha256 `51de4b27cf2640062a65f1d0edc0f2f98de541b6ffe7355fb20acea94fe9a95d`.
+Two runs with the network denied gave the identical artifact sha256 `6edd7726c445eb969ee428581594f382a2efec4b637241dae9316192d01a3d2a`.
 
 ## Results
 

@@ -57,7 +57,7 @@
       "financingRollover": {
         "rule": "one day of financing (annual rate / 365, on the entry price) at each 17:00 America/New_York instant a position holds across, weekends included",
         "label": "assumed",
-        "source": "the 17:00 America/New_York rollover time is an assumed industry convention; no page cited in docs/research/sources.md states it"
+        "source": "OANDA financing costs row in docs/research/sources.md: it records the 17:00 America/New_York rollover time as an assumed industry convention that no cited page states"
       }
     },
     "timing": {
