@@ -48,7 +48,7 @@ From `platform/`:
 go run ./cmd/research-e0 --spec ../docs/research/experiments/e0/spec.json --data <path to the export CSV> --out <artifact JSON path>
 ```
 
-Two runs with the network denied gave the identical artifact sha256 `beb389bd41e55beeadb881419e85ce3831d711fd58c86ead2c829204a42a0a58`.
+Two runs with the network denied gave the identical artifact sha256 `06ac0046384273040929618be2a46f71edb5961576c8cec774efc89bb583f625`.
 
 ## Results
 
@@ -60,7 +60,7 @@ All results are in R, the distance from entry to the initial stop. Net results i
 | Trades | 37,373 |
 | Win rate | 13.7% |
 | Mean net result | -0.83 R |
-| Total net result | -30,891 R |
+| Total net result | -30,886 R |
 | Profit factor | 0.24 |
 | Financing, total | 12.8 R over 93 trades that held across a rollover |
 | Entry spread, 25th / 50th / 75th percentile | 0.33 / 0.56 / 1.09 R |
@@ -69,18 +69,18 @@ By exit reason:
 
 | Exit | Trades | Mean net result |
 |---|---|---|
-| Stop | 31,400 | -1.29 R |
-| Target | 4,879 | 2.03 R |
-| Reversal | 1,094 | -0.39 R |
+| Stop | 31,635 | -1.28 R |
+| Target | 4,881 | 2.03 R |
+| Reversal | 857 | -0.22 R |
 | Time | 0 | n/a |
 
-By year: 2023 -0.72 R, 2024 -0.98 R, 2025 -1.03 R, 2026 (to 2026-09-30) -0.48 R per trade.
+By year: 2023 -0.72 R, 2024 -0.98 R, 2025 -1.03 R, 2026 (to 2026-09-30) -0.47 R per trade.
 
 By side: longs -0.82 R, shorts -0.84 R per trade.
 
 ## Reading
 
-The median entry spread is 0.56 R, so the spread alone costs about half of the risk on a typical trade. With a stop of 1.5 ATR on M1 bars, 84% of trades end at the stop. E0 therefore measures the cost of trading this rule on M1 bars. It is a floor for later experiments to beat.
+The median entry spread is 0.56 R, so the spread alone costs about half of the risk on a typical trade. With a stop of 1.5 ATR on M1 bars, 85% of trades end at the stop. E0 therefore measures the cost of trading this rule on M1 bars. It is a floor for later experiments to beat.
 
 ## Limits
 
