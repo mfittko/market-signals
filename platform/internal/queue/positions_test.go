@@ -281,8 +281,27 @@ func TestMonitorSaveNeverWidensTheStopOrRewritesThePlan(t *testing.T) {
 	if after.Stop != tighter || len(after.Plan.Tripwires) != 0 {
 		t.Fatalf("the wake's stop and tripwires must survive: %+v", after)
 	}
-	if after.BarsHeld != 7 || after.LastFired["adverse_atr"] != 3 {
-		t.Fatalf("the monitor's own progress must be saved: %+v", after)
+	if after.BarsHeld != 7 || len(after.LastFired) != 0 {
+		t.Fatalf("the monitor's own progress must be saved, and no mark for replaced tripwires: %+v", after)
+	}
+}
+
+// While the stored tripwires are the ones the monitor loaded, its save merges its cooldown marks as before.
+func TestMonitorSaveStoresMarksWhileTheTripwiresAreUnchanged(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	runAs(t, s, ctx, "engine", entryPayload, openDecision())
+	ps, _ := s.ListPositions(ctx, "open", 1)
+	id := ps[0].ID
+	_, err := s.Pool.Exec(ctx, `UPDATE shadow_positions SET last_fired='{"kept":1}' WHERE id=$1`, id)
+	must(t, err)
+	q, _, _ := s.GetPosition(ctx, id)
+	q.BarsHeld, q.LastFired = 4, map[string]int{"adverse_atr": 4}
+	_, err = s.SavePosition(ctx, *q)
+	must(t, err)
+	after, _, _ := s.GetPosition(ctx, id)
+	if after.BarsHeld != 4 || after.LastFired["adverse_atr"] != 4 || after.LastFired["kept"] != 1 {
+		t.Fatalf("the marks must merge into the stored ones: %+v", after.LastFired)
 	}
 }
 
