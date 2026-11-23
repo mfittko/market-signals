@@ -1421,7 +1421,8 @@ test('watchdog finds the folder a real backup run writes and sends no notificati
     const { run, notes } = watchdogFixture(dir);
     const r = backup('backup "$BACKUPS"', { BACKUPS: join(dir, 'backups') });
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(run(1000).status, 0);
+    const w = run(1000);
+    assert.equal(w.status, 0, w.stderr);
     assert.deepEqual(notes(), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
