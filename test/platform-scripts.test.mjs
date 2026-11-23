@@ -461,6 +461,7 @@ test('restore-sqlite rollback copy waits for a locked SQLite database, and a loc
     assert.ok(r.stderr.includes(`the rollback copy failed: ${join(data, 'signals.db')}; nothing was restored`), r.stderr);
     assert.doesNotMatch(r.stdout, /restored\./);
     assert.deepEqual(files(data), before);
+    assert.equal(existsSync(join(data, 'settings.json')), false);
   } finally {
     for (const w of writers) w.close();
     rmSync(dir, { recursive: true, force: true });
