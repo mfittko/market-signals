@@ -105,7 +105,7 @@ func ParseSpec(b []byte) (Spec, error) {
 	st := e.Strategy
 	switch {
 	case s.Feed.BarSeconds <= 0, st.SupertrendPeriod < 1, st.SupertrendMult <= 0, st.StopATR <= 0, st.RR < 0, st.MaxBars < 1:
-		return s, errors.New("spec: bar seconds and strategy settings must be positive")
+		return s, errors.New("spec: bar seconds must be > 0, rr must be >= 0 and the other strategy settings > 0")
 	case e.Costs.Commission.Value != 0:
 		// shortcut: the runner reports R per unit and has no notional, so it cannot charge a commission; add sizing when a spec needs one
 		return s, errors.New("spec: commission must be 0")
@@ -126,10 +126,10 @@ func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
 	cr.ReuseRecord = true
 	rec, err := cr.Read()
 	if err != nil {
-		return nil, nil, fmt.Errorf("data: %w", err)
+		return nil, nil, fmt.Errorf("data: %w; re-export the file", err)
 	}
 	if fmt.Sprint(rec) != fmt.Sprint(header) {
-		return nil, nil, fmt.Errorf("data: header %v, want %v", rec, header)
+		return nil, nil, fmt.Errorf("data: header %v, want %v; re-export the file", rec, header)
 	}
 	for line := 2; ; line++ {
 		rec, err = cr.Read()
@@ -137,23 +137,23 @@ func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("data line %d: %w", line, err)
+			return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
 		}
 		if rec[0] != s.Instrument.Name || rec[1] != s.Feed.Granularity {
-			return nil, nil, fmt.Errorf("data line %d: %s %s is not the spec's instrument and granularity", line, rec[0], rec[1])
+			return nil, nil, fmt.Errorf("data line %d: %s %s is not the spec's instrument and granularity; re-export the file", line, rec[0], rec[1])
 		}
 		t, err := time.Parse(time.RFC3339Nano, rec[2])
 		if err != nil {
-			return nil, nil, fmt.Errorf("data line %d: %w", line, err)
+			return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
 		}
 		var f [9]float64
 		for k := range f {
 			if f[k], err = strconv.ParseFloat(rec[3+k], 64); err != nil {
-				return nil, nil, fmt.Errorf("data line %d: %w", line, err)
+				return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
 			}
 		}
 		if n := len(bid); n > 0 && !t.After(bid[n-1].Time) {
-			return nil, nil, fmt.Errorf("data line %d: time %s is not after the previous row", line, rec[2])
+			return nil, nil, fmt.Errorf("data line %d: time %s is not after the previous row; re-export the file", line, rec[2])
 		}
 		bid = append(bid, backtest.Candle{Time: t, Open: f[0], High: f[1], Low: f[2], Close: f[3], Volume: f[8]})
 		ask = append(ask, backtest.Candle{Time: t, Open: f[4], High: f[5], Low: f[6], Close: f[7], Volume: f[8]})
@@ -280,18 +280,21 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 		tr := Trade{Flip: f.Time, Decision: decision, Entry: bid[j].Time, Dir: f.Dir, EntryPrice: entry, Reason: "end"}
 		last := len(bid) - 1
 		tr.ExitPrice, tr.Exit = exitSide[last].Close, bid[last].Time.Add(bar)
+		// pending is the bar whose open fills an opposite flip; the position stays open, and
+		// stop, target and time stop still apply, on every bar before it
+		pending := -1
 		for k := j; k < len(bid) && k < j+st.MaxBars; k++ {
 			b := exitSide[k]
+			if k == pending {
+				tr.ExitPrice, tr.Reason, tr.Exit, last = b.Open, "reversal", bid[k].Time, k
+				break
+			}
 			if price, reason := fill.Check(long, stop, target, b.Open, b.High, b.Low); reason != "" {
 				tr.ExitPrice, tr.Reason, tr.Exit, last = price, reason, b.Time, k
 				break
 			}
-			if flipDir[k] == -f.Dir {
-				m := actAt(k+1, b.Time.Add(bar+delay))
-				if m < len(bid) {
-					tr.ExitPrice, tr.Reason, tr.Exit, last = exitSide[m].Open, "reversal", bid[m].Time, m
-				}
-				break
+			if pending < 0 && flipDir[k] == -f.Dir {
+				pending = actAt(k+1, bid[k].Time.Add(bar+delay))
 			}
 			if k == j+st.MaxBars-1 {
 				tr.ExitPrice, tr.Reason, tr.Exit, last = b.Close, "time", b.Time.Add(bar), k

@@ -143,8 +143,133 @@ func TestNoFillBeforeTheDecisionExisted(t *testing.T) {
 		if prev := bid[idx[tr.Entry]-1]; !prev.Time.Before(decided) {
 			t.Fatalf("trade %+v skips the bar at %s", tr, prev.Time)
 		}
-		if tr.Reason == "reversal" && tr.Exit.Before(tr.Entry.Add(bar+delay)) {
-			t.Fatalf("reversal exit %+v acts before its flip could be known", tr)
+		if tr.Reason != "reversal" {
+			continue
+		}
+		flip, ok := oppositeFlip(s, bid, tr)
+		if !ok || tr.Exit.Before(flip.Add(bar+delay)) {
+			t.Fatalf("reversal exit %+v acts before its opposite flip at %s could be known", tr, flip)
+		}
+	}
+}
+
+// oppositeFlip returns the open time of the first flip against the trade at or after its entry.
+func oppositeFlip(s Spec, bid []backtest.Candle, tr Trade) (time.Time, bool) {
+	st := s.Experiment.Strategy
+	flips, _ := backtest.Supertrend(bid, st.SupertrendPeriod, st.SupertrendMult)
+	for _, f := range flips {
+		if f.Dir == -tr.Dir && !f.Time.Before(tr.Entry) {
+			return f.Time, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// heldReversal returns the first reversal trade that holds at least one bar between its
+// opposite flip and its fill, with the entry bar and the flip bar.
+func heldReversal(t *testing.T, s Spec, bid, ask []backtest.Candle) (tr Trade, entry, flip int) {
+	t.Helper()
+	idx := map[time.Time]int{}
+	for i, c := range bid {
+		idx[c.Time] = i
+	}
+	for _, tr := range Run(s, bid, ask).Trades {
+		if tr.Reason != "reversal" {
+			continue
+		}
+		ft, ok := oppositeFlip(s, bid, tr)
+		if !ok {
+			t.Fatalf("reversal %+v has no opposite flip", tr)
+		}
+		if k := idx[ft]; bid[k+1].Time.Before(tr.Exit) {
+			return tr, idx[tr.Entry], k
+		}
+	}
+	t.Fatal("no fixture reversal holds a bar between its flip and its fill")
+	return Trade{}, 0, 0
+}
+
+func tradeAt(t *testing.T, art Artifact, entry time.Time) Trade {
+	t.Helper()
+	for _, tr := range art.Trades {
+		if tr.Entry.Equal(entry) {
+			return tr
+		}
+	}
+	t.Fatalf("no trade enters at %s", entry)
+	return Trade{}
+}
+
+// reversalLoad loads the fixture with a wide stop and no target, so trades end on reversals.
+func reversalLoad(t *testing.T) (Spec, []backtest.Candle, []backtest.Candle) {
+	s, bid, ask := load(t)
+	s.Experiment.Strategy.StopATR, s.Experiment.Strategy.RR = 100, 0
+	return s, bid, ask
+}
+
+func TestAStopBeforeTheReversalFillWins(t *testing.T) {
+	s, bid, ask := reversalLoad(t)
+	tr, _, k := heldReversal(t, s, bid, ask)
+	bid2 := append([]backtest.Candle(nil), bid...)
+	ask2 := append([]backtest.Candle(nil), ask...)
+	// the bar after the flip touches the stop on the side the trade exits on
+	if tr.Dir > 0 {
+		bid2[k+1].Low = 0
+	} else {
+		ask2[k+1].High = 1000
+	}
+	got := tradeAt(t, Run(s, bid2, ask2), tr.Entry)
+	if got.Reason != "stop" || !got.Exit.Equal(bid[k+1].Time) {
+		t.Fatalf("got %+v, want a stop at %s before the reversal fill at %s", got, bid[k+1].Time, tr.Exit)
+	}
+}
+
+func TestATimeStopBeforeTheReversalFillWins(t *testing.T) {
+	s, bid, ask := reversalLoad(t)
+	tr, j, k := heldReversal(t, s, bid, ask)
+	s.Experiment.Strategy.MaxBars = k + 1 - j + 1 // the time stop falls on the bar after the flip
+	got := tradeAt(t, Run(s, bid, ask), tr.Entry)
+	if want := bid[k+1].Time.Add(time.Duration(s.Feed.BarSeconds) * time.Second); got.Reason != "time" || !got.Exit.Equal(want) {
+		t.Fatalf("got %+v, want a time stop at %s before the reversal fill at %s", got, want, tr.Exit)
+	}
+}
+
+func TestRefusals(t *testing.T) {
+	specJSON, _ := fixture(t)
+	s, err := ParseSpec(specJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.Join(header, ",") + "\n"
+	row := func(inst, gran, at, open string) string {
+		return inst + "," + gran + "," + at + "," + open + ",1,1,1,1,1,1,1,1\n"
+	}
+	good := row("WTICO/USD", "M1", "2024-03-08T19:06:00Z", "1")
+	for _, c := range []struct{ name, csv, want string }{
+		{"bad header", strings.Replace(head, "volume", "vol", 1) + good, "header"},
+		{"wrong instrument", head + row("BCO/USD", "M1", "2024-03-08T19:06:00Z", "1"), "instrument and granularity"},
+		{"wrong granularity", head + row("WTICO/USD", "M5", "2024-03-08T19:06:00Z", "1"), "instrument and granularity"},
+		{"times not ascending", head + good + good, "not after the previous row"},
+		{"unparsable time", head + row("WTICO/USD", "M1", "yesterday", "1"), "cannot parse"},
+		{"unparsable number", head + row("WTICO/USD", "M1", "2024-03-08T19:06:00Z", "x"), "invalid syntax"},
+	} {
+		_, _, err := Load(s, strings.NewReader(c.csv))
+		if err == nil || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "re-export the file") {
+			t.Errorf("%s: want %q and the re-export recovery, got %v", c.name, c.want, err)
+		}
+	}
+	for _, c := range []struct{ name, from, to, want string }{
+		{"commission", `"value": 0,`, `"value": 0.5,`, "commission must be 0"},
+		{"negative decision delay", `"value": 2212`, `"value": -1`, "decision delay must be >= 0"},
+		{"invalid strategy", `"stopAtr": 1.5`, `"stopAtr": 0`, "rr must be >= 0 and the other strategy settings > 0"},
+		{"negative rr", `"rr": 2`, `"rr": -1`, "rr must be >= 0 and the other strategy settings > 0"},
+	} {
+		b := bytes.Replace(specJSON, []byte(c.from), []byte(c.to), 1)
+		if bytes.Equal(b, specJSON) {
+			t.Fatalf("%s: test edit did not change the spec", c.name)
+		}
+		if _, err := ParseSpec(b); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", c.name, c.want, err)
 		}
 	}
 }
