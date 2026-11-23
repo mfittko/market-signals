@@ -22,6 +22,14 @@ export function npmTestEnv(env = process.env) {
   return out;
 }
 
+// A hook or `git rebase --exec` can export GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE, which make
+// git ignore cwd and act on the caller's repository, so every spawn here drops GIT_* keys.
+export function withoutGitEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GIT_')));
+}
+
+const gitEnv = () => ({ ...withoutGitEnv(), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
+
 // Map of path (relative to dir, '.' for dir itself) to stat fields. Stats only, so
 // taking a snapshot reads no file content and moves no access time.
 export function snapshot(dir) {
@@ -70,7 +78,7 @@ function atimeSupported(dir) {
 const SENTINELS = ['candles.db', 'articles-cache.json', 'notes.md', 'settings.json'];
 
 export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
-  const ls = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', timeout: 60000 });
+  const ls = spawnSync('git', ['ls-files', '-z'], { cwd: root, env: gitEnv(), encoding: 'utf8', timeout: 60000 });
   if (ls.status !== 0) throw new Error(`git ls-files failed: ${ls.stderr || ls.error?.message}`);
   const tmp = mkdtempSync(join(tmpdir(), 'ms-test-isolation-'));
   try {
@@ -89,7 +97,7 @@ export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
     }
     // The platform script tests call git in the checkout, so the copy is a one-commit repository.
     for (const args of [['init', '-q'], ['add', '-A'], ['-c', 'user.name=isolation', '-c', 'user.email=isolation@localhost', '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'isolation copy']]) {
-      const r = spawnSync('git', args, { cwd: tmp, encoding: 'utf8', timeout: 120000 });
+      const r = spawnSync('git', args, { cwd: tmp, env: gitEnv(), encoding: 'utf8', timeout: 120000 });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} in the temporary checkout failed: ${r.stderr || r.error?.message}`);
     }
     if (!atimeSupported(tmp)) {
@@ -104,7 +112,7 @@ export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
     }
     const before = snapshot(dataDir);
     const testFiles = readdirSync(join(tmp, 'test')).filter((f) => f.endsWith('.test.mjs')).sort().map((f) => join('test', f));
-    const run = spawnSync(process.execPath, ['--test', ...testFiles], { cwd: tmp, env: npmTestEnv(), stdio: 'inherit', timeout: 4 * 60000 }); // under the CI job's 5-minute limit, so a hang still prints this script's diagnostic
+    const run = spawnSync(process.execPath, ['--test', ...testFiles], { cwd: tmp, env: withoutGitEnv(npmTestEnv()), stdio: 'inherit', timeout: 4 * 60000 }); // under the CI job's 5-minute limit, so a hang still prints this script's diagnostic
     const findings = compareSnapshots(before, snapshot(dataDir));
     for (const f of findings) console.error(`check-test-isolation: data/ ${f}`);
     if (run.status !== 0) {
