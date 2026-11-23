@@ -41,6 +41,7 @@ type Position struct {
 	Wakes          int            `json:"wakes"`
 	FailedWakes    int            `json:"failedWakes"`
 	NeedsAttention bool           `json:"needsAttention"`
+	planRaw        []byte         // the plan as loaded; SavePosition merges marks only while it is unchanged
 }
 
 type PositionEvent struct {
@@ -62,6 +63,7 @@ func scanPosition(r scanner) (Position, error) {
 	if err != nil {
 		return p, err
 	}
+	p.planRaw = plan
 	_ = json.Unmarshal(plan, &p.Plan)
 	p.LastFired = map[string]int{}
 	_ = json.Unmarshal(fired, &p.LastFired)
@@ -127,15 +129,18 @@ func (s *Store) GetPosition(ctx context.Context, id int64) (*Position, []Positio
 // SavePosition stores the monitor's state after a bar and returns the stop now on record.
 // It touches only an open position. A wake may have tightened the stop or replaced the
 // tripwires while the monitor waited on the feed, so the write can only move the stop
-// closer to price, never writes the plan, and merges the cooldown marks instead of
-// replacing them. The caller adopts the returned stop. A closed position returns 0.
+// closer to price and never writes the plan. It merges the cooldown marks only while the
+// stored plan still equals the plan the caller loaded. A tripwire replacement clears the
+// marks and bumps a reset counter inside the plan, so a save loaded before the reset keeps
+// the cleared marks, even for an identical replacement. The caller adopts the returned
+// stop. A closed position returns 0.
 func (s *Store) SavePosition(ctx context.Context, p Position) (float64, error) {
 	fired, _ := json.Marshal(p.LastFired)
 	var stop float64
 	err := s.Pool.QueryRow(ctx, `UPDATE shadow_positions SET
 		  stop = CASE WHEN side='long' THEN GREATEST(stop,$2) ELSE LEAST(stop,$2) END,
-		  bars_held=$3, best=$4, last_close=$5, last_bar_time=$6, last_fired = last_fired || $7::jsonb
-		WHERE id=$1 AND status='open' RETURNING stop`, p.ID, p.Stop, p.BarsHeld, p.Best, p.LastClose, p.LastBarTime, fired).Scan(&stop)
+		  bars_held=$3, best=$4, last_close=$5, last_bar_time=$6, last_fired = CASE WHEN plan = $8::jsonb THEN last_fired || $7::jsonb ELSE last_fired END
+		WHERE id=$1 AND status='open' RETURNING stop`, p.ID, p.Stop, p.BarsHeld, p.Best, p.LastClose, p.LastBarTime, fired, p.planRaw).Scan(&stop)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -276,7 +281,7 @@ func applyWakeTx(ctx context.Context, tx pgx.Tx, runID int64, w domain.WakePosit
 		return note("tighten", map[string]any{"newStop": *d.NewStop, "reasoning": d.Reasoning})
 	case "set_tripwires":
 		tb, _ := json.Marshal(d.Tripwires)
-		tag, err := tx.Exec(ctx, `UPDATE shadow_positions SET plan=jsonb_set(plan,'{tripwires}',$2::jsonb), last_fired='{}'::jsonb WHERE id=$1 AND status='open'`, w.ID, tb)
+		tag, err := tx.Exec(ctx, `UPDATE shadow_positions SET plan=jsonb_set(jsonb_set(plan,'{tripwires}',$2::jsonb),'{tripwiresRev}',to_jsonb(COALESCE((plan->>'tripwiresRev')::int,0)+1)), last_fired='{}'::jsonb WHERE id=$1 AND status='open'`, w.ID, tb)
 		if err != nil {
 			return err
 		}
