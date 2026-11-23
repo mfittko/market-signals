@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"maps"
@@ -71,6 +72,21 @@ func run(specPath, dataPath, journalPath, reportPath string) error {
 	s, art, err := research.Replay(specJSON, bufio.NewReaderSize(f, 1<<20))
 	f.Close()
 	if err != nil {
+		return err
+	}
+	// the report covers the whole journal under this run's cost table, so every attempt
+	// already in it must come from the same spec and data
+	if b, err := os.ReadFile(journalPath); err == nil {
+		old, err := research.ReadJournal(bytes.NewReader(b))
+		if err != nil {
+			return err
+		}
+		for _, a := range old.Attempts {
+			if a.SpecSHA256 != art.SpecSHA256 || a.DataSHA256 != art.DataSHA256 {
+				return fmt.Errorf("journal %s holds attempt %s from spec sha256 %s and data sha256 %s, but this run has spec sha256 %s and data sha256 %s; the journal is unchanged, so rerun with a new --journal path", journalPath, a.ID, a.SpecSHA256, a.DataSHA256, art.SpecSHA256, art.DataSHA256)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	attempts, outcomes := research.Reconstruct(s, art)

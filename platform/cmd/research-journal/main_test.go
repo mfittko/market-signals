@@ -60,6 +60,41 @@ func TestARebuildIntoTheSameJournalIsRefused(t *testing.T) {
 	}
 }
 
+func TestARunOfAnotherSpecIntoTheJournalIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	journal, report := filepath.Join(dir, "journal.jsonl"), filepath.Join(dir, "report.md")
+	if err := run(spec, data, journal, report); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(journal)
+	b, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "spec.json")
+	if err := os.WriteFile(other, bytes.Replace(b, []byte(`"E0-fixture"`), []byte(`"E1-fixture"`), 1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(other, data, journal, report); err == nil || !strings.Contains(err.Error(), "holds attempt") || !strings.Contains(err.Error(), "rerun with a new --journal path") {
+		t.Fatalf("run of another experiment id: want a mixed-run refusal, got %v", err)
+	}
+	if after, _ := os.ReadFile(journal); !bytes.Equal(before, after) {
+		t.Fatal("the refused run changed the journal")
+	}
+}
+
+func TestAReportWriteFailureNamesTheRecovery(t *testing.T) {
+	dir := t.TempDir()
+	journal := filepath.Join(dir, "journal.jsonl")
+	err := run(spec, data, journal, filepath.Join(dir, "missing", "report.md"))
+	if err == nil || !strings.Contains(err.Error(), "rerun with a new --journal path") {
+		t.Fatalf("want the report-write refusal with the recovery, got %v", err)
+	}
+	if _, err := os.Stat(journal); err != nil {
+		t.Fatalf("the journal is not written before the report: %v", err)
+	}
+}
+
 func TestRunRefusesAReportThatIsAnInput(t *testing.T) {
 	dir := t.TempDir()
 	// copies, so a guard regression truncates temporary files and never the tracked fixtures

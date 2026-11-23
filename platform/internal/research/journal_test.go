@@ -127,6 +127,7 @@ func TestReadRefusesATornLine(t *testing.T) {
 		"second outcome":      {forecast + win + win, "line 3", "already has an outcome"},
 		"unknown label":       {forecast + outcome("E0/a", LabelVersion, "draw"), "line 2", "label"},
 		"wrong label version": {forecast + outcome("E0/a", "v0", "win"), "line 2", "label version"},
+		"overlong line":       {forecast + strings.Repeat("x", 2<<20), "line 2", "token too long"},
 	} {
 		_, err := ReadJournal(strings.NewReader(c.in))
 		if err == nil || !strings.Contains(err.Error(), c.line) || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "new journal from the same spec and data at a new path") {

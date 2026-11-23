@@ -160,7 +160,8 @@ func readJournal(r io.Reader) (Journal, records, error) {
 	recs := newRecords()
 	sc := bufio.NewScanner(r)
 	sc.Buffer(nil, 1<<20)
-	for line := 1; sc.Scan(); line++ {
+	line := 1
+	for ; sc.Scan(); line++ {
 		var kind struct {
 			Kind string `json:"kind"`
 		}
@@ -188,7 +189,11 @@ func readJournal(r io.Reader) (Journal, records, error) {
 			return j, recs, fmt.Errorf("journal line %d: %w; the line is torn or edited, so %s", line, err, recovery)
 		}
 	}
-	return j, recs, sc.Err()
+	// a scan error, such as a line over the buffer, stops at the line it could not read
+	if err := sc.Err(); err != nil {
+		return j, recs, fmt.Errorf("journal line %d: %w; the line is torn or edited, so %s", line, err, recovery)
+	}
+	return j, recs, nil
 }
 
 // Append adds the records as one line each, in one write call. It refuses the whole batch,
