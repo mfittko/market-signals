@@ -87,7 +87,7 @@ func TestAReportWriteFailureNamesTheRecovery(t *testing.T) {
 	dir := t.TempDir()
 	journal := filepath.Join(dir, "journal.jsonl")
 	err := run(spec, data, journal, filepath.Join(dir, "missing", "report.md"))
-	if err == nil || !strings.Contains(err.Error(), "rerun with a new --journal path") {
+	if err == nil || !strings.Contains(err.Error(), "fix the --report path") || !strings.Contains(err.Error(), "rerun with a new --journal path") {
 		t.Fatalf("want the report-write refusal with the recovery, got %v", err)
 	}
 	if _, err := os.Stat(journal); err != nil {
@@ -123,5 +123,20 @@ func TestRunRefusesAReportThatIsAnInput(t *testing.T) {
 	}
 	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
 		t.Errorf("the refused run created %s", fresh)
+	}
+	// a link to an input differs by path, so only the SameFile check refuses it
+	before, err := os.ReadFile(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.md")
+	if err := os.Symlink(data, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(spec, data, journal, link); err == nil || !strings.Contains(err.Error(), "is the input") {
+		t.Errorf("--report %s linked to the data: want a refusal, got %v", link, err)
+	}
+	if after, _ := os.ReadFile(data); !bytes.Equal(before, after) {
+		t.Error("the refused run changed the data copy")
 	}
 }

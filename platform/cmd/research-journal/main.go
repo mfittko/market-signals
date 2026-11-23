@@ -107,7 +107,7 @@ func run(specPath, dataPath, journalPath, reportPath string) error {
 		return err
 	}
 	if err := os.WriteFile(reportPath, []byte(report(s, j, hex.EncodeToString(sum[:]), links)), 0o644); err != nil {
-		return fmt.Errorf("the journal %s is written, but the report is not: %w; a rerun into the same journal is refused, so rerun with a new --journal path", journalPath, err)
+		return fmt.Errorf("the journal %s is written, but the report is not: %w; a rerun into the same journal is refused, so fix the --report path, then rerun with a new --journal path", journalPath, err)
 	}
 	fmt.Printf("%s  %s\n%d attempts, %d outcomes\n", hex.EncodeToString(sum[:]), journalPath, len(j.Attempts), len(j.Outcomes))
 	return nil
