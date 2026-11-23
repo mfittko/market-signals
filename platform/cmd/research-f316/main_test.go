@@ -47,6 +47,35 @@ func TestRunRefusesAnOutputThatIsAnInput(t *testing.T) {
 	}
 }
 
+func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
+	root, spec := layout(t)
+	if err := os.MkdirAll(filepath.Join(root, "platform"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "platform", "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	good, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, from := range map[string]string{
+		"e0Spec.path":   `"docs/research/experiments/e0/spec.json"`,
+		"verdicts.path": `"tmp/research-export/wtico-usd-filter-verdicts-to-2026-09-30.csv"`,
+	} {
+		bad := strings.Replace(string(good), from, `"../outside.csv"`, 1)
+		if bad == string(good) {
+			t.Fatalf("edit %s did not change the spec", from)
+		}
+		if err := os.WriteFile(spec, []byte(bad), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := run(spec, filepath.Join(t.TempDir(), "report.md")); err == nil || !strings.Contains(err.Error(), field) {
+			t.Errorf("%s: want a refusal naming the field, got %v", field, err)
+		}
+	}
+}
+
 func TestRunRefusesASpecOutsideTheRepository(t *testing.T) {
 	_, spec := layout(t)
 	if err := run(spec, filepath.Join(t.TempDir(), "report.md")); err == nil || !strings.Contains(err.Error(), "platform/go.mod") {

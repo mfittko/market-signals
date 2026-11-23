@@ -17,25 +17,13 @@ Both exports are one-time owner exports and are not committed. Every cost and ti
 
 ## Rules
 
-- Outcomes: M1, M5, M15 and H1 are scored; a bar of each starts at the floor of the M1 bar time to 60, 300, 900 or 3600 seconds since the Unix epoch; any other granularity is excluded as unsupported_granularity. For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend 10/3 on bid bars, 1.5 ATR stop, 2 R target, reversal, 200-bar time stop in bars of that granularity, 2212 ms decision delay, spread and financing).
-- Join and exclusions: checked in this order: fail_open (reason starts with 'filter error'), unsupported_granularity, unmatched (no E0 trade with the signal time as flip time and the signal side as direction, E0 holds included), censored (the joined trade's exit reason is end); every other verdict is scored with the joined trade's net R. E0 holds every flip that arrives while a trade is open, so `unmatched` can be large. A suppressed signal is scored as if traded.
-- Reason categories: multi-label, case-insensitive regex search on the suppression reason; a suppression carries every category whose regex matches; a suppression with no match is other; allowed signals carry no category.
-- Statistics: per rule: delta = mean net R of the blocked signals minus mean net R of all scored signals; the random-thinning percentile is the share of thinning deltas below the observed delta.
-- Days: a signal's day is the UTC calendar date of its time; the bootstrap resamples the ascending list of distinct days that hold at least one scored signal. Moving blocks of 5 days, 1000 bootstrap replicates, 500 random-thinning draws, seed 316.
-- CI: the 2.5th and 97.5th percentiles, linear interpolation, of the bootstrap replicates of a statistic; a replicate where the statistic is undefined is dropped.
-- Decision: keep iff blocked >= minBlocked and the delta CI upper bound is below 0: the rule blocks worse-than-average signals; drop iff blocked >= minBlocked and the delta CI lower bound is above 0: the rule blocks better-than-average signals; else insufficient evidence.
-- Thinning: the random-thinning percentile is reported as a comparison and does not enter the decision.
+The granularities, join, exclusions, reason categories, statistics and decision rule are preregistered in the [F316 spec](spec.json). For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend 10/3 on bid bars, 1.5 ATR stop, 2 R target, reversal, 200-bar time stop in bars of that granularity, 2212 ms decision delay, spread and financing). A suppressed signal is scored as if traded.
 
 ## Population
 
-| Granularity | Scored | Allowed | Suppressed |
-|---|---|---|---|
-| M1 | 1250 | 261 | 989 |
-| M5 | 240 | 53 | 187 |
-
 Scored: 1490 of 2013 verdicts, over 61 UTC days.
 
-Excluded verdicts by reason:
+Excluded verdicts by reason. E0 holds every flip that arrives while a trade is open, so `unmatched` can be large.
 
 | Reason | Verdicts |
 |---|---|
@@ -54,11 +42,11 @@ Mean net R per signal with its block-bootstrap CI.
 | allowed | 314 | -0.507 [-0.745, -0.298] |
 | suppressed | 1176 | -0.398 [-0.494, -0.310] |
 
-## Blocking rules
+## Blocking rules and recommendations
 
-Delta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of 500 random draws of the same blocked count whose delta is below the observed delta.
+Delta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of 500 random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules only and is no evidence of a profitable strategy.
 
-| Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Decision |
+| Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Recommendation |
 |---|---|---|---|---|---|---|---|---|
 | all suppressions | 1176 | 78.9% | -0.398 | -0.507 | -0.421 | +0.023 [-0.018, +0.064] | 86.2 | insufficient evidence |
 | late_chasing | 669 | 44.9% | -0.425 | -0.418 | -0.421 | -0.004 [-0.074, +0.077] | 46.8 | insufficient evidence |
@@ -71,20 +59,6 @@ Delta is the blocked mean minus the all mean, in net R. The random-thinning perc
 ## Late/chasing
 
 By the preregistered rule (late_chasing delta CI lower bound above 0: blocks better-than-average signals; upper bound below 0: worse-than-average; else not distinguishable from average), late/chasing suppressions block signals that are not distinguishable from average: 669 blocked, delta -0.004 [-0.074, +0.077].
-
-## Recommendations
-
-By the preregistered decision rule. A recommendation describes the stored log under E0 rules only. It is no evidence of a profitable strategy.
-
-| Rule | Blocked | Delta [CI] | Recommendation |
-|---|---|---|---|
-| all suppressions | 1176 | +0.023 [-0.018, +0.064] | insufficient evidence |
-| late_chasing | 669 | -0.004 [-0.074, +0.077] | insufficient evidence |
-| against_trend | 528 | +0.053 [-0.065, +0.168] | insufficient evidence |
-| low_volume | 1022 | +0.026 [-0.023, +0.072] | insufficient evidence |
-| chop_weak_setup | 1114 | +0.033 [-0.013, +0.075] | insufficient evidence |
-| news_event | 64 | +0.109 [-0.335, +0.425] | insufficient evidence |
-| other | 0 | n/a | insufficient evidence |
 
 ## By filter model
 
@@ -120,8 +94,9 @@ Source: filter316 result comment, https://github.com/mfittko/market-signals/issu
 ## Limits
 
 - The filter316 outcomes were seen before this spec was written, so this run is a reproduction and no independent test.
-- One instrument, WTICO/USD, and verdicts before 2026-10-01 only.
+- One instrument, WTICO/USD. The outcome export ends at 2026-09-30T23:59:00Z.
 - No multiple-comparison correction across the rules.
+- The filter316 drop rule also fired on a delta below the null q2.5 of its random thinning. This rule drops on the delta CI alone, so a filter316 drop can read here as insufficient evidence.
 - The regexes run under Go RE2, where `\b` and `\d` are ASCII-only; filter316 ran them under Python `re`, where they also match non-ASCII word characters and digits.
 - Rows rewritten by the refilter script cannot be told apart and are kept.
 

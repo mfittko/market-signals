@@ -160,10 +160,10 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 		if err == io.EOF {
 			break
 		}
-		line, _ := cr.FieldPos(0)
 		if err != nil {
 			return nil, fmt.Errorf("verdicts: %w; %s", err, fix)
 		}
+		line, _ := cr.FieldPos(0)
 		if rec[0] != s.Verdicts.Instrument {
 			return nil, fmt.Errorf("verdicts line %d: instrument %s is not the manifest's %s; %s", line, rec[0], s.Verdicts.Instrument, fix)
 		}
@@ -194,6 +194,9 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); got != s.Verdicts.SHA256 {
 		return nil, fmt.Errorf("verdicts: sha256 %s, manifest %s; %s", got, s.Verdicts.SHA256, fix)
+	}
+	if len(out) != s.Verdicts.Rows {
+		return nil, fmt.Errorf("verdicts: %d rows, manifest %d; %s", len(out), s.Verdicts.Rows, fix)
 	}
 	return out, nil
 }
@@ -402,8 +405,8 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 			reps = append(reps, idx)
 		}
 	}
-	// meanOf returns the mean net R of the rows in idx that keep selects
-	meanOf := func(idx []int, keep func(int) bool) (float64, bool) {
+	// meanOf returns the mean net R and the count of the rows in idx that keep selects
+	meanOf := func(idx []int, keep func(int) bool) (float64, int) {
 		sum, c := 0.0, 0
 		for _, i := range idx {
 			if keep(i) {
@@ -411,7 +414,7 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 				c++
 			}
 		}
-		return sum / float64(c), c > 0
+		return sum / float64(c), c
 	}
 	all := make([]int, n)
 	for i := range all {
@@ -426,16 +429,10 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 		{"allowed", func(i int) bool { return !sc[i].Suppress }},
 		{"suppressed", func(i int) bool { return sc[i].Suppress }},
 	} {
-		c := 0
-		for i := range sc {
-			if g.keep(i) {
-				c++
-			}
-		}
-		est, _ := meanOf(all, g.keep)
+		est, c := meanOf(all, g.keep)
 		var rs []float64
 		for _, idx := range reps {
-			if m, ok := meanOf(idx, g.keep); ok {
+			if m, k := meanOf(idx, g.keep); k > 0 {
 				rs = append(rs, m)
 			}
 		}
@@ -451,15 +448,10 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 	}
 	minBlocked := int(s.Analysis.MinBlocked.Value)
 	perm := make([]int, n)
+	allMean, _ := meanOf(all, everyRow)
 	for _, r := range rules {
-		res := RuleResult{Name: r.name}
-		for i := range sc {
-			if r.blocked(i) {
-				res.Blocked++
-			}
-		}
-		res.All, _ = meanOf(all, everyRow)
-		res.BlockedMean, _ = meanOf(all, r.blocked)
+		res := RuleResult{Name: r.name, All: allMean}
+		res.BlockedMean, res.Blocked = meanOf(all, r.blocked)
 		res.KeptMean, _ = meanOf(all, func(i int) bool { return !r.blocked(i) })
 		if n > 0 {
 			res.Share = float64(res.Blocked) / float64(n)
@@ -467,8 +459,8 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 		if res.Blocked > 0 {
 			var rs []float64
 			for _, idx := range reps {
-				b, ok := meanOf(idx, r.blocked)
-				if ok {
+				// a replicate with no blocked or no kept row leaves the delta undefined
+				if b, nb := meanOf(idx, r.blocked); nb > 0 && nb < len(idx) {
 					m, _ := meanOf(idx, everyRow)
 					rs = append(rs, b-m)
 				}
@@ -563,36 +555,11 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 	p("| Verdict export | `%s`, sha256 `%s`, %d rows |\n\n", s.Verdicts.Path, s.Verdicts.SHA256, verdictRows)
 	p("Both exports are one-time owner exports and are not committed. Every cost and timing value is the E0 value, labelled in the [E0 declared values](../e0/report.md#declared-values). Every F316 setting is labelled assumed or measured with a source in the F316 spec.\n\n")
 
-	p("## Rules\n\n")
-	p("- Outcomes: %s. For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend 10/3 on bid bars, %.1f ATR stop, %.0f R target, reversal, %d-bar time stop in bars of that granularity, %.0f ms decision delay, spread and financing).\n",
-		s.Granularities.Rule, e0.Experiment.Strategy.StopATR, e0.Experiment.Strategy.RR, e0.Experiment.Strategy.MaxBars, e0.Experiment.Timing.DecisionDelayMs.Value)
-	p("- Join and exclusions: %s. E0 holds every flip that arrives while a trade is open, so `unmatched` can be large. A suppressed signal is scored as if traded.\n", s.Exclusions.Rule)
-	p("- Reason categories: %s.\n", s.Categories.Rule)
-	p("- Statistics: %s.\n- Days: %s. Moving blocks of %.0f days, %.0f bootstrap replicates, %.0f random-thinning draws, seed %.0f.\n- CI: %s.\n",
-		s.Analysis.Delta.Rule, s.Analysis.Days.Rule, s.Analysis.BlockDays.Value, s.Analysis.BootstrapReps.Value, s.Analysis.ThinningDraws.Value, s.Analysis.Seed.Value, s.Analysis.CI.Rule)
-	p("- Decision: keep iff %s; drop iff %s; else %s.\n- Thinning: %s.\n\n", s.DecisionRule.Keep, s.DecisionRule.Drop, s.DecisionRule.Otherwise, s.DecisionRule.Thinning)
+	p("## Rules\n\nThe granularities, join, exclusions, reason categories, statistics and decision rule are preregistered in the [F316 spec](spec.json). For each granularity, the M1 bid and ask bars are resampled and `research.Run` replays E0 (Supertrend 10/3 on bid bars, %.1f ATR stop, %.0f R target, reversal, %d-bar time stop in bars of that granularity, %.0f ms decision delay, spread and financing). A suppressed signal is scored as if traded.\n\n",
+		e0.Experiment.Strategy.StopATR, e0.Experiment.Strategy.RR, e0.Experiment.Strategy.MaxBars, e0.Experiment.Timing.DecisionDelayMs.Value)
 
-	p("## Population\n\n| Granularity | Scored | Allowed | Suppressed |\n|---|---|---|---|\n")
-	grans := map[string][2]int{}
-	for _, x := range a.Scored {
-		g := grans[x.Granularity]
-		if x.Suppress {
-			g[1]++
-		} else {
-			g[0]++
-		}
-		grans[x.Granularity] = g
-	}
-	names := make([]string, 0, len(grans))
-	for g := range grans {
-		names = append(names, g)
-	}
-	sort.Slice(names, func(i, j int) bool { return granSeconds[names[i]] < granSeconds[names[j]] })
-	for _, g := range names {
-		p("| %s | %d | %d | %d |\n", g, grans[g][0]+grans[g][1], grans[g][0], grans[g][1])
-	}
-	p("\nScored: %d of %d verdicts, over %d UTC days.\n\n", len(a.Scored), verdictRows, a.Days)
-	p("Excluded verdicts by reason:\n\n| Reason | Verdicts |\n|---|---|\n")
+	p("## Population\n\nScored: %d of %d verdicts, over %d UTC days.\n\n", len(a.Scored), verdictRows, a.Days)
+	p("Excluded verdicts by reason. E0 holds every flip that arrives while a trade is open, so `unmatched` can be large.\n\n| Reason | Verdicts |\n|---|---|\n")
 	for _, r := range exclusionReasons {
 		p("| %s | %d |\n", r, a.Excluded[r])
 	}
@@ -606,18 +573,19 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 		p("| %s | %d | %s |\n", m.Name, m.N, ci(m.Mean))
 	}
 
-	p("\n## Blocking rules\n\nDelta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of %.0f random draws of the same blocked count whose delta is below the observed delta.\n\n", s.Analysis.ThinningDraws.Value)
-	p("| Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Decision |\n|---|---|---|---|---|---|---|---|---|\n")
+	p("\n## Blocking rules and recommendations\n\nDelta is the blocked mean minus the all mean, in net R. The random-thinning percentile is the share of %.0f random draws of the same blocked count whose delta is below the observed delta. The recommendation follows the preregistered decision rule. It describes the stored log under E0 rules only and is no evidence of a profitable strategy.\n\n", s.Analysis.ThinningDraws.Value)
+	p("| Rule | Blocked | Share | Blocked mean | Kept mean | All mean | Delta [CI] | Random-thinning percentile | Recommendation |\n|---|---|---|---|---|---|---|---|---|\n")
 	for _, r := range a.Rules {
 		if r.Blocked == 0 {
 			p("| %s | 0 | 0.0%% | n/a | n/a | n/a | n/a | n/a | %s |\n", r.Name, r.Decision)
 			continue
 		}
-		kept := "n/a"
+		// blocking every signal leaves no kept mean and makes every thinning the observed one
+		kept, thin := "n/a", "n/a"
 		if r.Blocked < len(a.Scored) {
-			kept = fmt.Sprintf("%+.3f", r.KeptMean)
+			kept, thin = fmt.Sprintf("%+.3f", r.KeptMean), fmt.Sprintf("%.1f", r.ThinningPct)
 		}
-		p("| %s | %d | %.1f%% | %+.3f | %s | %+.3f | %s | %.1f | %s |\n", r.Name, r.Blocked, 100*r.Share, r.BlockedMean, kept, r.All, ci(r.Delta), r.ThinningPct, r.Decision)
+		p("| %s | %d | %.1f%% | %+.3f | %s | %+.3f | %s | %s | %s |\n", r.Name, r.Blocked, 100*r.Share, r.BlockedMean, kept, r.All, ci(r.Delta), thin, r.Decision)
 	}
 
 	p("\n## Late/chasing\n\n")
@@ -625,15 +593,6 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 		if r.Name == "late_chasing" {
 			p("By the preregistered rule (%s), late/chasing suppressions block signals that are %s: %d blocked, delta %s.\n", s.DecisionRule.LateChasing, VersusAverage(r.Delta), r.Blocked, ci(r.Delta))
 		}
-	}
-
-	p("\n## Recommendations\n\nBy the preregistered decision rule. A recommendation describes the stored log under E0 rules only. It is no evidence of a profitable strategy.\n\n| Rule | Blocked | Delta [CI] | Recommendation |\n|---|---|---|---|\n")
-	for _, r := range a.Rules {
-		if r.Blocked == 0 {
-			p("| %s | 0 | n/a | %s |\n", r.Name, r.Decision)
-			continue
-		}
-		p("| %s | %d | %s | %s |\n", r.Name, r.Blocked, ci(r.Delta), r.Decision)
 	}
 
 	p("\n## By filter model\n\nCounts and mean net R without CIs. `unknown` is a signal without a snapshot row.\n\n| Model | Allowed | Allowed mean | Suppressed | Suppressed mean |\n|---|---|---|---|---|\n")
@@ -655,7 +614,7 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 		m.n[k]++
 		m.sums[k] += x.NetR
 	}
-	names = names[:0]
+	names := make([]string, 0, len(models))
 	for m := range models {
 		names = append(names, m)
 	}
@@ -679,8 +638,9 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 
 	p("\n## Limits\n\n")
 	p("- The filter316 outcomes were seen before this spec was written, so this run is a reproduction and no independent test.\n")
-	p("- One instrument, %s, and verdicts before %s only.\n", s.Verdicts.Instrument, e0.Dataset.Last.Add(time.Minute).Format(time.DateOnly))
+	p("- One instrument, %s. The outcome export ends at %s.\n", s.Verdicts.Instrument, e0.Dataset.Last.Format(time.RFC3339))
 	p("- No multiple-comparison correction across the rules.\n")
+	p("- The filter316 drop rule also fired on a delta below the null q2.5 of its random thinning. This rule drops on the delta CI alone, so a filter316 drop can read here as insufficient evidence.\n")
 	p("- The regexes run under Go RE2, where `\\b` and `\\d` are ASCII-only; filter316 ran them under Python `re`, where they also match non-ASCII word characters and digits.\n")
 	p("- Rows rewritten by the refilter script cannot be told apart and are kept.\n")
 	p("\n## Run\n\nFrom `platform/`:\n\n```\ngo run ./cmd/research-f316 --spec ../docs/research/experiments/f316/spec.json --out <report path>\n```\n")

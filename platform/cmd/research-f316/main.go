@@ -35,7 +35,11 @@ func main() {
 // repoRoot finds the repository root above the spec, so the result does not depend on
 // the working directory.
 func repoRoot(specPath string) (string, error) {
-	dir, err := filepath.Abs(filepath.Dir(specPath))
+	resolved, err := filepath.EvalSymlinks(specPath)
+	if err != nil {
+		return "", err
+	}
+	dir, err := filepath.Abs(filepath.Dir(resolved))
 	if err != nil {
 		return "", err
 	}
@@ -51,6 +55,14 @@ func repoRoot(specPath string) (string, error) {
 	}
 }
 
+// inRoot joins a spec input path to the root and refuses one that leaves the root.
+func inRoot(root, field, p string) (string, error) {
+	if !filepath.IsLocal(p) {
+		return "", fmt.Errorf("spec field %s: %q is not a relative path inside the repository; fix the spec in a reviewed commit", field, p)
+	}
+	return filepath.Join(root, p), nil
+}
+
 func run(specPath, outPath string) error {
 	specJSON, err := os.ReadFile(specPath)
 	if err != nil {
@@ -64,7 +76,10 @@ func run(specPath, outPath string) error {
 	if err != nil {
 		return err
 	}
-	e0Path := filepath.Join(root, s.E0Spec.Path)
+	e0Path, err := inRoot(root, "e0Spec.path", s.E0Spec.Path)
+	if err != nil {
+		return err
+	}
 	e0JSON, err := os.ReadFile(e0Path)
 	if err != nil {
 		return err
@@ -73,7 +88,14 @@ func run(specPath, outPath string) error {
 	if err != nil {
 		return err
 	}
-	dataPath, verdictPath := filepath.Join(root, e0.Dataset.Path), filepath.Join(root, s.Verdicts.Path)
+	dataPath, err := inRoot(root, "E0 dataset.path", e0.Dataset.Path)
+	if err != nil {
+		return err
+	}
+	verdictPath, err := inRoot(root, "verdicts.path", s.Verdicts.Path)
+	if err != nil {
+		return err
+	}
 	// the write truncates --out, so --out must not be one of the inputs
 	if o, err := os.Stat(outPath); err == nil {
 		for _, in := range []string{specPath, e0Path, dataPath, verdictPath} {

@@ -102,6 +102,8 @@ func TestLoadVerdictsRefusesABadExport(t *testing.T) {
 	}
 	wrongSum := s
 	wrongSum.Verdicts.SHA256 = strings.Repeat("0", 64)
+	wrongRows := s
+	wrongRows.Verdicts.Rows = 10
 	edit := func(from, to string) []byte {
 		b := bytes.Replace(good, []byte(from), []byte(to), 1)
 		if bytes.Equal(b, good) {
@@ -116,6 +118,8 @@ func TestLoadVerdictsRefusesABadExport(t *testing.T) {
 	}{
 		{"wrong header", "header", s, edit("filter_model", "model")},
 		{"sha256 mismatch", "sha256", wrongSum, good},
+		{"row count mismatch", "11 rows, manifest 10", wrongRows, good},
+		{"bare quote", "bare \"", s, edit("WTICO/USD,M1,2024-03-08T19:36", "WTI\"CO/USD,M1,2024-03-08T19:36")},
 		{"foreign instrument", "instrument XAU/USD", s, edit("WTICO/USD,M1,2024-03-08T19:36", "XAU/USD,M1,2024-03-08T19:36")},
 		{"unparsable time", "parsing time", s, edit("2024-03-08T19:36:00.000000000Z", "2024-03-08 19:36")},
 		{"unknown side", "not buy or sell", s, edit(",sell,alert,Clean", ",short,alert,Clean")},
@@ -330,6 +334,8 @@ func TestRunF316ReportIsByteIdenticalAndCarriesEveryTable(t *testing.T) {
 		"sha256 `" + sha(in.F316JSON) + "`",
 		"| fail_open | 1 |\n| unsupported_granularity | 1 |\n| unmatched | 3 |\n| censored | 0 |",
 		"Scored: 6 of 11 verdicts",
+		"## Blocking rules and recommendations",
+		"| Random-thinning percentile | Recommendation |",
 		"| allowed | 2 | ",
 		"| suppressed | 4 | ",
 		"| all suppressions | 4 | 66.7% |",
