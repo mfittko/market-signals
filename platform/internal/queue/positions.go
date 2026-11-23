@@ -132,7 +132,9 @@ func (s *Store) GetPosition(ctx context.Context, id int64) (*Position, []Positio
 // closer to price and never writes the plan. It merges the cooldown marks only while the
 // stored plan still equals the plan the caller loaded. A tripwire replacement clears the
 // marks and bumps a reset counter inside the plan, so a save loaded before the reset keeps
-// the cleared marks, even for an identical replacement. The caller adopts the returned
+// the cleared marks, even for an identical replacement. A stale save also drops the marks
+// for wakes it enqueued after the reset, so such a tripwire can wake once more on a later
+// tick; the wake limits bound that extra wake. The caller adopts the returned
 // stop. A closed position returns 0.
 func (s *Store) SavePosition(ctx context.Context, p Position) (float64, error) {
 	fired, _ := json.Marshal(p.LastFired)

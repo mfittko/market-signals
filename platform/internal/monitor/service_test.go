@@ -467,4 +467,31 @@ func TestAStaleSaveDoesNotPutAReplacedTripwireOnCooldown(t *testing.T) {
 	if res.Exit != nil || len(res.Fired) != 1 || Key(res.Fired[0]) != Key(tw) {
 		t.Fatalf("the replacement must fire on its next qualifying bar: %+v", res)
 	}
+
+	// A second identical replacement must bump the reset counter again, or a save loaded
+	// between the two replacements would bring its marks back.
+	r.bar(1, 98.4, 98.6, 98.3, 98.4) // still 1.6 ATR against the entry: the replacement fires and wakes again
+	r.tick()
+	between := r.pos() // loaded after the first replacement, before the second
+	if len(between.LastFired) != 1 || r.wakeRuns() != 2 {
+		t.Fatalf("the replacement must mark and wake: fired=%v runs=%d", between.LastFired, r.wakeRuns())
+	}
+	c, err = r.st.Claim(r.ctx, "w", []string{"mock"})
+	if err != nil || c == nil {
+		t.Fatal("claim the second wake", err)
+	}
+	if _, err := r.st.Complete(r.ctx, c.Attempt.ID, c.Attempt.Fence, queue.CompleteInput{Proposal: &domain.Decision{Action: "set_tripwires",
+		PositionID: between.ID, Tripwires: []domain.Tripwire{tw}, Reasoning: "same wire again"}}); err != nil {
+		t.Fatal(err)
+	}
+	var rev int
+	if err := r.st.Pool.QueryRow(r.ctx, `SELECT (plan->>'tripwiresRev')::int FROM shadow_positions WHERE id=$1`, between.ID).Scan(&rev); err != nil || rev != 2 {
+		t.Fatalf("two replacements must leave the reset counter at 2: rev=%d err=%v", rev, err)
+	}
+	if _, err := r.st.SavePosition(r.ctx, between); err != nil {
+		t.Fatal(err)
+	}
+	if p := r.pos(); len(p.LastFired) != 0 {
+		t.Fatalf("a save loaded before the second replacement brought back its marks: %v", p.LastFired)
+	}
 }
