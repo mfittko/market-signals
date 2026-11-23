@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"regexp"
@@ -171,20 +172,11 @@ func LoadVerdicts(s F316Spec, r io.Reader) ([]Verdict, error) {
 		if err != nil {
 			return nil, fmt.Errorf("verdicts line %d: %w; %s", line, err, fix)
 		}
-		v := Verdict{Granularity: rec[1], Time: t, Reason: rec[5], Model: rec[6]}
-		switch rec[3] {
-		case "buy":
-			v.Dir = 1
-		case "sell":
-			v.Dir = -1
-		default:
+		v := Verdict{Granularity: rec[1], Time: t, Dir: map[string]int{"buy": 1, "sell": -1}[rec[3]], Suppress: rec[4] == "suppress", Reason: rec[5], Model: rec[6]}
+		if v.Dir == 0 {
 			return nil, fmt.Errorf("verdicts line %d: signal %q is not buy or sell; %s", line, rec[3], fix)
 		}
-		switch rec[4] {
-		case "alert":
-		case "suppress":
-			v.Suppress = true
-		default:
+		if !v.Suppress && rec[4] != "alert" {
 			return nil, fmt.Errorf("verdicts line %d: verdict %q is not alert or suppress; %s", line, rec[4], fix)
 		}
 		if v.Model == "" {
@@ -233,10 +225,7 @@ var exclusionReasons = []string{"fail_open", "unsupported_granularity", "unmatch
 // granularity, and counts every excluded verdict by reason.
 func Join(e0 Spec, cats []category, bid, ask []backtest.Candle, vs []Verdict) ([]Scored, map[string]int) {
 	excluded := map[string]int{}
-	type key struct {
-		t   int64
-		dir int
-	}
+	type key = [2]int64 // flip time in Unix nanoseconds, direction
 	trades := map[string]map[key]Trade{}
 	var out []Scored
 	for _, v := range vs {
@@ -259,11 +248,11 @@ func Join(e0 Spec, cats []category, bid, ask []backtest.Candle, vs []Verdict) ([
 			}
 			m = map[key]Trade{}
 			for _, tr := range Run(s, b, a).Trades {
-				m[key{tr.Flip.UnixNano(), tr.Dir}] = tr
+				m[key{tr.Flip.UnixNano(), int64(tr.Dir)}] = tr
 			}
 			trades[v.Granularity] = m
 		}
-		tr, ok := m[key{v.Time.UnixNano(), v.Dir}]
+		tr, ok := m[key{v.Time.UnixNano(), int64(v.Dir)}]
 		switch {
 		case !ok:
 			excluded["unmatched"]++
@@ -376,11 +365,10 @@ type Analysis struct {
 func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) Analysis {
 	a := Analysis{Scored: sc, Excluded: excluded}
 	n := len(sc)
-	dayOf := func(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 	var days []string
 	rows := map[string][]int{}
 	for i, x := range sc {
-		d := dayOf(x.Time)
+		d := x.Time.UTC().Format(time.DateOnly)
 		if rows[d] == nil {
 			days = append(days, d)
 		}
@@ -453,10 +441,8 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 		res := RuleResult{Name: r.name, All: allMean}
 		res.BlockedMean, res.Blocked = meanOf(all, r.blocked)
 		res.KeptMean, _ = meanOf(all, func(i int) bool { return !r.blocked(i) })
-		if n > 0 {
-			res.Share = float64(res.Blocked) / float64(n)
-		}
 		if res.Blocked > 0 {
+			res.Share = float64(res.Blocked) / float64(n)
 			var rs []float64
 			for _, idx := range reps {
 				// a replicate with no blocked or no kept row leaves the delta undefined
@@ -535,11 +521,11 @@ func ci(d Interval) string {
 	return fmt.Sprintf("%+.3f [%+.3f, %+.3f]", d.Est, d.Lo, d.Hi)
 }
 
-func meanOrNA(sum float64, n int) string {
+func meanOrNA(sum, n float64) string {
 	if n == 0 {
 		return "n/a"
 	}
-	return fmt.Sprintf("%+.3f", sum/float64(n))
+	return fmt.Sprintf("%+.3f", sum/n)
 }
 
 func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []byte {
@@ -596,32 +582,19 @@ func render(s F316Spec, e0 Spec, specSum string, verdictRows int, a Analysis) []
 	}
 
 	p("\n## By filter model\n\nCounts and mean net R without CIs. `unknown` is a signal without a snapshot row.\n\n| Model | Allowed | Allowed mean | Suppressed | Suppressed mean |\n|---|---|---|---|---|\n")
-	type agg struct {
-		n    [2]int
-		sums [2]float64
-	}
-	models := map[string]*agg{}
+	models := map[string][4]float64{} // allowed count and sum, suppressed count and sum
 	for _, x := range a.Scored {
-		m := models[x.Model]
-		if m == nil {
-			m = &agg{}
-			models[x.Model] = m
-		}
-		k := 0
+		m, k := models[x.Model], 0
 		if x.Suppress {
-			k = 1
+			k = 2
 		}
-		m.n[k]++
-		m.sums[k] += x.NetR
+		m[k]++
+		m[k+1] += x.NetR
+		models[x.Model] = m
 	}
-	names := make([]string, 0, len(models))
-	for m := range models {
-		names = append(names, m)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range slices.Sorted(maps.Keys(models)) {
 		m := models[name]
-		p("| %s | %d | %s | %d | %s |\n", name, m.n[0], meanOrNA(m.sums[0], m.n[0]), m.n[1], meanOrNA(m.sums[1], m.n[1]))
+		p("| %s | %.0f | %s | %.0f | %s |\n", name, m[0], meanOrNA(m[1], m[0]), m[2], meanOrNA(m[3], m[2]))
 	}
 
 	ref := s.Reference
