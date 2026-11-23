@@ -181,3 +181,22 @@ func TestEveryFlipIsOneAttempt(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendRefusesALastLineWithoutALineEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.jsonl")
+	if err := Append(path, []Attempt{attempt("E0/a", "forecast")}, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	cut := b[:len(b)-1]
+	if err := os.WriteFile(path, cut, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Append(path, []Attempt{attempt("E0/b", "hold")}, nil)
+	if err == nil || !strings.Contains(err.Error(), "new journal from the same spec and data at a new path") {
+		t.Fatalf("want a refusal with the recovery, got %v", err)
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(after, cut) {
+		t.Fatal("the refused append changed the file")
+	}
+}

@@ -46,6 +46,8 @@ Net R is after the spread and financing that E0 declares, in R, the distance fro
 | ambiguous | 0 | 0.00 R | n/a |
 | matured (win and loss) | 37374 | -30886.49 R | -0.83 R |
 
+An attempt expires at its decision time plus the time stop of 200 bars, the frozen strategy setting `experiment.strategy.maxBars` in the spec.
+
 Every cost and timing value behind these results, with its label and source as the spec declares it:
 
 | Value | Setting | Label | Source |
@@ -57,7 +59,6 @@ Every cost and timing value behind these results, with its label and source as t
 | Rollover | one day of financing (annual rate / 365, on the entry price) at each 17:00 America/New_York instant a position holds across, weekends included | assumed | OANDA financing costs row in docs/research/sources.md: it records the 17:00 America/New_York rollover time as an assumed industry convention that no cited page states |
 | Decision delay | 2212 ms | measured | completion delay max over 12 bar transitions, https://github.com/mfittko/market-signals/pull/153 |
 | Bar time | time is the bar open in UTC; the bar closes barSeconds later | measured | the export's time column: each row's time is a bar open, and rows ascend from 2023-01-02T23:00:00Z with gaps where the market had no bar |
-| Expiry | the decision time plus the time stop of 200 bars | assumed | the frozen strategy setting `experiment.strategy.maxBars` in the spec |
 
 ## Insufficient evidence
 

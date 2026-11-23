@@ -68,4 +68,11 @@ func TestRunRefusesAReportThatIsAnInput(t *testing.T) {
 			t.Errorf("--report %s: want a refusal, got %v", report, err)
 		}
 	}
+	fresh := filepath.Join(dir, "new.jsonl")
+	if err := run(spec, data, fresh, filepath.Join(dir, ".", "new.jsonl")); err == nil || !strings.Contains(err.Error(), "is the input") {
+		t.Errorf("--report equal to a not-yet-existing --journal: want a refusal, got %v", err)
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Errorf("the refused run created %s", fresh)
+	}
 }

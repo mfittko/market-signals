@@ -435,3 +435,17 @@ func TestSpreadAndFinancingCosts(t *testing.T) {
 		t.Fatal("no fixture trade crosses the rollover")
 	}
 }
+
+// The pinned sha256 is the fixture artifact from the code before the hold bookkeeping, so
+// the bookkeeping must leave the artifact byte for byte unchanged.
+func TestHoldBookkeepingLeavesTheFixtureArtifactUnchanged(t *testing.T) {
+	specJSON, data := fixture(t)
+	art, err := Execute(specJSON, bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(art)
+	if got, want := hex.EncodeToString(sum[:]), "07f50be02d37e6384ea12b3fe81b6fe2bcf5de03fb4c0e8b744f88d2dfa7282b"; got != want {
+		t.Fatalf("fixture artifact sha256 %s, want %s", got, want)
+	}
+}

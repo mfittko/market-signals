@@ -39,11 +39,23 @@ func main() {
 
 func run(specPath, dataPath, journalPath, reportPath string) error {
 	// the write truncates --report, so --report must not be an input or the journal
-	if o, err := os.Stat(reportPath); err == nil {
-		for _, in := range []string{specPath, dataPath, journalPath} {
-			if i, err := os.Stat(in); err == nil && os.SameFile(o, i) {
-				return fmt.Errorf("--report %s is the input %s; choose another report path", reportPath, in)
-			}
+	// the path compare covers a journal that does not exist yet; SameFile covers links
+	o, statErr := os.Stat(reportPath)
+	reportAbs, err := filepath.Abs(reportPath)
+	if err != nil {
+		return err
+	}
+	for _, in := range []string{specPath, dataPath, journalPath} {
+		inAbs, err := filepath.Abs(in)
+		if err != nil {
+			return err
+		}
+		same := inAbs == reportAbs
+		if i, err := os.Stat(in); statErr == nil && err == nil && os.SameFile(o, i) {
+			same = true
+		}
+		if same {
+			return fmt.Errorf("--report %s is the input %s; choose another report path", reportPath, in)
 		}
 	}
 	specJSON, err := os.ReadFile(specPath)
@@ -77,7 +89,7 @@ func run(specPath, dataPath, journalPath, reportPath string) error {
 		return err
 	}
 	if err := os.WriteFile(reportPath, []byte(report(s, j, hex.EncodeToString(sum[:]), links)), 0o644); err != nil {
-		return err
+		return fmt.Errorf("the journal %s is written, but the report is not: %w; a rerun into the same journal is refused, so rerun with a new --journal path", journalPath, err)
 	}
 	fmt.Printf("%s  %s\n%d attempts, %d outcomes\n", hex.EncodeToString(sum[:]), journalPath, len(j.Attempts), len(j.Outcomes))
 	return nil
@@ -209,6 +221,8 @@ func report(s research.Spec, j research.Journal, journalSHA string, links [2]str
 	}
 	w("| matured (win and loss) | %d | %.2f R | %s |", matured.n, matured.r, mean(matured))
 	w("")
+	w("An attempt expires at its decision time plus the time stop of %d bars, the frozen strategy setting `experiment.strategy.maxBars` in the spec.", e.Strategy.MaxBars)
+	w("")
 	w("Every cost and timing value behind these results, with its label and source as the spec declares it:")
 	w("")
 	w("| Value | Setting | Label | Source |")
@@ -221,7 +235,6 @@ func report(s research.Spec, j research.Journal, journalSHA string, links [2]str
 	w("| Rollover | %s | %s | %s |", c.FinancingRollover.Rule, c.FinancingRollover.Label, c.FinancingRollover.Source)
 	w("| Decision delay | %g ms | %s | %s |", e.Timing.DecisionDelayMs.Value, e.Timing.DecisionDelayMs.Label, e.Timing.DecisionDelayMs.Source)
 	w("| Bar time | %s | %s | %s |", s.Feed.BarTime.Rule, s.Feed.BarTime.Label, s.Feed.BarTime.Source)
-	w("| Expiry | the decision time plus the time stop of %d bars | assumed | the frozen strategy setting `experiment.strategy.maxBars` in the spec |", e.Strategy.MaxBars)
 	w("")
 	w("## Insufficient evidence")
 	w("")

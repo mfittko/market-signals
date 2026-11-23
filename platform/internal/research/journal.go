@@ -141,16 +141,19 @@ func ReadJournal(r io.Reader) (Journal, error) {
 	return j, sc.Err()
 }
 
-// Append adds the records as one line each, one write call per line. It refuses the whole
-// batch, and leaves the file unchanged, when an attempt id is already in the journal or an
-// outcome's attempt is missing or already has an outcome. It never rewrites a line.
+// Append adds the records as one line each, in one write call. It refuses the whole batch,
+// and leaves the file unchanged, when the last line has no line end, an attempt id is
+// already in the journal or an outcome's attempt is missing or already has an outcome. It
+// never rewrites a line. A failed write can leave a torn last line, which a later read or
+// append refuses, so the recovery is to build a new journal at a new path.
 func Append(path string, attempts []Attempt, outcomes []Outcome) error {
 	var j Journal
-	if f, err := os.Open(path); err == nil {
-		j, err = ReadJournal(f)
-		f.Close()
-		if err != nil {
+	if b, err := os.ReadFile(path); err == nil {
+		if j, err = ReadJournal(bytes.NewReader(b)); err != nil {
 			return err
+		}
+		if len(b) > 0 && b[len(b)-1] != '\n' {
+			return fmt.Errorf("journal %s: the last line has no line end; the line is torn or edited, so %s", path, recovery)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -162,10 +165,10 @@ func Append(path string, attempts []Attempt, outcomes []Outcome) error {
 	for _, o := range j.Outcomes {
 		done[o.Attempt] = true
 	}
-	var lines [][]byte
+	var buf bytes.Buffer
 	add := func(line any) error {
 		b, err := json.Marshal(line)
-		lines = append(lines, append(b, '\n'))
+		buf.Write(append(b, '\n'))
 		return err
 	}
 	for _, a := range attempts {
@@ -198,11 +201,9 @@ func Append(path string, attempts []Attempt, outcomes []Outcome) error {
 	if err != nil {
 		return err
 	}
-	for _, l := range lines {
-		if _, err := f.Write(l); err != nil {
-			f.Close()
-			return err
-		}
+	if _, err := f.Write(buf.Bytes()); err != nil {
+		f.Close()
+		return err
 	}
 	return f.Close()
 }
