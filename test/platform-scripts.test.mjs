@@ -534,8 +534,11 @@ test('settings_file finds only its own checkout settings: a worktree never falls
     const main = join(dir, 'main');
     mkdirSync(join(main, 'platform', 'scripts'), { recursive: true });
     for (const f of ['dev.sh', 'api-origins.sh']) writeFileSync(join(main, 'platform', 'scripts', f), readFileSync(join('platform/scripts', f)));
+    // GIT_* variables from a calling hook would point git at the real repo, and user config could sign or prompt
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_')));
+    Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' });
     const git = (...args) => {
-      const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: main, encoding: 'utf8' });
+      const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: main, env, encoding: 'utf8' });
       assert.equal(r.status, 0, r.stderr);
     };
     git('init', '-q');
@@ -546,8 +549,8 @@ test('settings_file finds only its own checkout settings: a worktree never falls
     mkdirSync(join(main, 'data'));
     writeFileSync(join(main, 'data', 'settings.json'), '{"live":true}');
     writeFileSync(join(dir, 'fake.json'), '{}');
-    const resolve = (checkout, env = {}) => {
-      const r = sh(`source "$CHECKOUT/platform/scripts/dev.sh"; settings_file`, { CHECKOUT: checkout, MS_SETTINGS: '', ...env });
+    const resolve = (checkout, extra = {}) => {
+      const r = spawnSync('bash', ['-c', `source "$CHECKOUT/platform/scripts/dev.sh"; settings_file`], { env: { ...env, CHECKOUT: checkout, MS_SETTINGS: '', ...extra }, encoding: 'utf8' });
       assert.equal(r.status, 0, r.stderr);
       return r.stdout.trim();
     };
