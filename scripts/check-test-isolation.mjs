@@ -10,7 +10,7 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './lib/cli.mjs';
 
@@ -77,7 +77,14 @@ function atimeSupported(dir) {
 
 const SENTINELS = ['candles.db', 'articles-cache.json', 'notes.md', 'settings.json'];
 
-export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
+// True when the link at root/rel with this target resolves outside root. A first
+// segment such as `..data` stays inside, so only `..` itself or `../` escapes.
+export function symlinkEscapes(root, rel, target) {
+  const out = relative(root, resolve(dirname(join(root, rel)), target));
+  return isAbsolute(target) || out === '..' || out.startsWith(`..${sep}`);
+}
+
+export function main(root =fileURLToPath(new URL('..', import.meta.url))) {
   const ls = spawnSync('git', ['ls-files', '-z'], { cwd: root, env: gitEnv(), encoding: 'utf8', timeout: 60000 });
   if (ls.status !== 0) throw new Error(`git ls-files failed: ${ls.stderr || ls.error?.message}`);
   const tmp = mkdtempSync(join(tmpdir(), 'ms-test-isolation-'));
@@ -90,8 +97,7 @@ export function main(root = fileURLToPath(new URL('..', import.meta.url))) {
       if (st.isSymbolicLink()) {
         // a link that leaves the copy would let a test write outside it unseen
         const target = readlinkSync(src);
-        const out = relative(tmp, resolve(dirname(join(tmp, rel)), target));
-        if (isAbsolute(target) || out.startsWith('..')) throw new Error(`tracked symlink ${rel} points outside the checkout: ${target}`);
+        if (symlinkEscapes(tmp, rel, target)) throw new Error(`tracked symlink ${rel} points outside the checkout: ${target}`);
         symlinkSync(target, join(tmp, rel));
       } else copyFileSync(src, join(tmp, rel));
     }

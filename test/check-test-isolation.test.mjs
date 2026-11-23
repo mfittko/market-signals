@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { compareSnapshots, main, snapshot, withoutGitEnv } from '../scripts/check-test-isolation.mjs';
+import { compareSnapshots, main, snapshot, symlinkEscapes, withoutGitEnv } from '../scripts/check-test-isolation.mjs';
 
 test('withoutGitEnv: drops every GIT_* key and keeps the rest', () => {
   const env = { GIT_DIR: '/decoy/.git', GIT_WORK_TREE: '/decoy', GIT_INDEX_FILE: '/decoy/index', PATH: '/bin', MS_NO_NOTIFY: '1' };
@@ -25,6 +25,18 @@ test('main: refuses a tracked symlink that points outside the checkout', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const target of ['..data/file', 'sub/file', '..cache/x']) {
+  test(`symlinkEscapes: a link to ${target} stays inside the checkout`, () => {
+    assert.equal(symlinkEscapes('/repo', 'a', target), false);
+  });
+}
+
+for (const target of ['..', '../outside', '../../outside']) {
+  test(`symlinkEscapes: a link to ${target} leaves the checkout`, () => {
+    assert.equal(symlinkEscapes('/repo', 'a', target), true);
+  });
+}
 
 const base = {
   '.': { size: null, mtimeMs: 1000, atimeMs: null },
