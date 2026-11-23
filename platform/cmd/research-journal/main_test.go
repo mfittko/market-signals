@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,8 @@ func TestReportOnTheFixtureJournal(t *testing.T) {
 		"This report claims no edge and no profitable strategy.",
 		"| Mode | retrospective |",
 		"| Journal sha256 | `" + hex.EncodeToString(sum[:]) + "` |",
+		"| Go version and platform | `" + runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH + "` |",
+		"reads the journal file and the frozen spec that the table below pins by sha256.",
 		"| Spec sha256 | `", "| Data sha256 | `5a9ec8f0e32166cf58082d20f0cabe49c11f7b80a9a0c7882ff532ee6b1fc383` |",
 		"| Financing basis | 4.7% a year | assumed |", "| Decision delay | 2212 ms | measured |",
 	} {
@@ -59,6 +62,17 @@ func TestARebuildIntoTheSameJournalIsRefused(t *testing.T) {
 
 func TestRunRefusesAReportThatIsAnInput(t *testing.T) {
 	dir := t.TempDir()
+	// copies, so a guard regression truncates temporary files and never the tracked fixtures
+	spec, data := filepath.Join(dir, "spec.json"), filepath.Join(dir, "fixture.csv")
+	for dst, src := range map[string]string{spec: "../../internal/research/testdata/spec.json", data: "../../internal/research/testdata/fixture.csv"} {
+		b, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	journal := filepath.Join(dir, "journal.jsonl")
 	if err := os.WriteFile(journal, nil, 0o644); err != nil {
 		t.Fatal(err)

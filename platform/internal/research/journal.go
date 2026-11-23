@@ -27,7 +27,10 @@ type Attempt struct {
 	Status     string    `json:"status"` // forecast | hold | timeout | error
 	Dir        int       `json:"dir,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
-	Expiry     time.Time `json:"expiry"`
+	// Expiry is the decision time plus maxBars bar durations on the wall clock. It does not
+	// skip market gaps, while the E0 time stop counts bars, so a trade that spans a weekend
+	// matures after its attempt's expiry.
+	Expiry time.Time `json:"expiry"`
 }
 
 type Outcome struct {
@@ -94,6 +97,44 @@ func checkAttempt(a Attempt) error {
 	return nil
 }
 
+// records holds the attempt ids and outcomes a journal has so far, so a read and an
+// append refuse the same records.
+type records struct {
+	status map[string]string // attempt id to status
+	done   map[string]bool   // attempt ids that have an outcome
+}
+
+func newRecords() records { return records{map[string]string{}, map[string]bool{}} }
+
+func (r records) attempt(a Attempt) error {
+	if _, ok := r.status[a.ID]; ok {
+		return fmt.Errorf("attempt %s is already in the journal; a journal is never rewritten", a.ID)
+	}
+	if err := checkAttempt(a); err != nil {
+		return err
+	}
+	r.status[a.ID] = a.Status
+	return nil
+}
+
+func (r records) outcome(o Outcome) error {
+	status, ok := r.status[o.Attempt]
+	switch {
+	case !ok:
+		return fmt.Errorf("outcome for %s: the journal has no attempt %s", o.Attempt, o.Attempt)
+	case status != "forecast":
+		return fmt.Errorf("outcome for %s: the attempt is a %s, and only a forecast has an outcome", o.Attempt, status)
+	case r.done[o.Attempt]:
+		return fmt.Errorf("attempt %s already has an outcome; outcomes are never corrected", o.Attempt)
+	case o.LabelVersion != LabelVersion:
+		return fmt.Errorf("outcome for %s: label version %q is not %s", o.Attempt, o.LabelVersion, LabelVersion)
+	case !slices.Contains([]string{"win", "loss", "ambiguous"}, o.Label):
+		return fmt.Errorf("outcome for %s: label %q is not win, loss or ambiguous", o.Attempt, o.Label)
+	}
+	r.done[o.Attempt] = true
+	return nil
+}
+
 // A journal line is a record with its kind; the embedded fields flatten into one object.
 type attemptLine struct {
 	Kind string `json:"kind"`
@@ -107,9 +148,16 @@ type outcomeLine struct {
 
 const recovery = "build a new journal from the same spec and data at a new path"
 
-// ReadJournal refuses an unparsable line and names its line number.
+// ReadJournal refuses an unparsable line, and a line that Append would refuse, and names
+// its line number.
 func ReadJournal(r io.Reader) (Journal, error) {
+	j, _, err := readJournal(r)
+	return j, err
+}
+
+func readJournal(r io.Reader) (Journal, records, error) {
 	var j Journal
+	recs := newRecords()
 	sc := bufio.NewScanner(r)
 	sc.Buffer(nil, 1<<20)
 	for line := 1; sc.Scan(); line++ {
@@ -124,32 +172,36 @@ func ReadJournal(r io.Reader) (Journal, error) {
 		case kind.Kind == "attempt":
 			var a attemptLine
 			if err = d.Decode(&a); err == nil {
-				err = checkAttempt(a.Attempt)
+				err = recs.attempt(a.Attempt)
 				j.Attempts = append(j.Attempts, a.Attempt)
 			}
 		case kind.Kind == "outcome":
 			var o outcomeLine
-			err = d.Decode(&o)
-			j.Outcomes = append(j.Outcomes, o.Outcome)
+			if err = d.Decode(&o); err == nil {
+				err = recs.outcome(o.Outcome)
+				j.Outcomes = append(j.Outcomes, o.Outcome)
+			}
 		default:
 			err = fmt.Errorf("kind %q is not attempt or outcome", kind.Kind)
 		}
 		if err != nil {
-			return j, fmt.Errorf("journal line %d: %w; the line is torn or edited, so %s", line, err, recovery)
+			return j, recs, fmt.Errorf("journal line %d: %w; the line is torn or edited, so %s", line, err, recovery)
 		}
 	}
-	return j, sc.Err()
+	return j, recs, sc.Err()
 }
 
 // Append adds the records as one line each, in one write call. It refuses the whole batch,
 // and leaves the file unchanged, when the last line has no line end, an attempt id is
-// already in the journal or an outcome's attempt is missing or already has an outcome. It
-// never rewrites a line. A failed write can leave a torn last line, which a later read or
-// append refuses, so the recovery is to build a new journal at a new path.
+// already in the journal, or an outcome's attempt is missing, is not a forecast or already
+// has an outcome. It never rewrites a line. A failed write can leave a torn last line,
+// which a later read or append refuses, so the recovery is to build a new journal at a new
+// path. It takes no lock: two concurrent appends can both write, and the next read refuses
+// the duplicated records.
 func Append(path string, attempts []Attempt, outcomes []Outcome) error {
-	var j Journal
+	recs := newRecords()
 	if b, err := os.ReadFile(path); err == nil {
-		if j, err = ReadJournal(bytes.NewReader(b)); err != nil {
+		if _, recs, err = readJournal(bytes.NewReader(b)); err != nil {
 			return err
 		}
 		if len(b) > 0 && b[len(b)-1] != '\n' {
@@ -158,12 +210,8 @@ func Append(path string, attempts []Attempt, outcomes []Outcome) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	ids, done := map[string]bool{}, map[string]bool{}
-	for _, a := range j.Attempts {
-		ids[a.ID] = true
-	}
-	for _, o := range j.Outcomes {
-		done[o.Attempt] = true
+	refuse := func(err error) error {
+		return fmt.Errorf("journal %s: %w; the batch is refused and the file is unchanged, so %s", path, err, recovery)
 	}
 	var buf bytes.Buffer
 	add := func(line any) error {
@@ -172,27 +220,17 @@ func Append(path string, attempts []Attempt, outcomes []Outcome) error {
 		return err
 	}
 	for _, a := range attempts {
-		if ids[a.ID] {
-			return fmt.Errorf("attempt %s is already in the journal %s; a journal is never rewritten, so %s", a.ID, path, recovery)
+		if err := recs.attempt(a); err != nil {
+			return refuse(err)
 		}
-		if err := checkAttempt(a); err != nil {
-			return err
-		}
-		ids[a.ID] = true
 		if err := add(attemptLine{"attempt", a}); err != nil {
 			return err
 		}
 	}
 	for _, o := range outcomes {
-		switch {
-		case !ids[o.Attempt]:
-			return fmt.Errorf("outcome for %s: the journal has no attempt %s", o.Attempt, o.Attempt)
-		case done[o.Attempt]:
-			return fmt.Errorf("attempt %s already has an outcome; outcomes are never corrected", o.Attempt)
-		case !slices.Contains([]string{"win", "loss", "ambiguous"}, o.Label):
-			return fmt.Errorf("outcome for %s: label %q is not win, loss or ambiguous", o.Attempt, o.Label)
+		if err := recs.outcome(o); err != nil {
+			return refuse(err)
 		}
-		done[o.Attempt] = true
 		if err := add(outcomeLine{"outcome", o}); err != nil {
 			return err
 		}

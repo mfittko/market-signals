@@ -70,6 +70,8 @@ func TestAppendRefusesARewrite(t *testing.T) {
 		"unknown status":    {[]Attempt{{ID: "E0/c", Mode: "retrospective", Status: "maybe", Reason: "x"}}, nil, "status"},
 		"unknown mode":      {[]Attempt{{ID: "E0/c", Mode: "live", Status: "hold", Reason: "x"}}, nil, "mode"},
 		"unknown label":     {[]Attempt{attempt("E0/c", "forecast")}, []Outcome{{Attempt: "E0/c", LabelVersion: LabelVersion, Label: "draw"}}, "label"},
+		"wrong version":     {[]Attempt{attempt("E0/c", "forecast")}, []Outcome{{Attempt: "E0/c", LabelVersion: "v0", Label: "win"}}, "label version"},
+		"outcome for hold":  {[]Attempt{attempt("E0/h", "hold")}, []Outcome{{Attempt: "E0/h", LabelVersion: LabelVersion, Label: "win"}}, "only a forecast"},
 	} {
 		err := Append(path, c.a, c.o)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -104,15 +106,35 @@ func TestReadRefusesATornLine(t *testing.T) {
 	}
 	b, _ := os.ReadFile(path)
 	torn := b[:len(b)-20]
-	for name, in := range map[string][]byte{"torn": torn, "unknown kind": []byte(`{"kind":"guess"}` + "\n")} {
-		_, err := ReadJournal(bytes.NewReader(in))
-		line := "line 2"
-		if name == "unknown kind" {
-			line = "line 1"
+	lines := strings.SplitAfter(string(b), "\n")
+	forecast, hold := lines[0], lines[1]
+	outcome := func(id, version, label string) string {
+		return `{"kind":"outcome","attempt":"` + id + `","labelVersion":"` + version + `","matured":"2024-03-08T19:28:02Z","netR":1,"label":"` + label + `"}` + "\n"
+	}
+	win := outcome("E0/a", LabelVersion, "win")
+	for name, c := range map[string]struct {
+		in   string
+		line string
+		want string
+	}{
+		"torn":                {string(torn), "line 2", ""},
+		"unknown kind":        {`{"kind":"guess"}` + "\n", "line 1", "kind"},
+		"invalid status":      {forecast + `{"kind":"attempt","id":"E0/c","mode":"retrospective","status":"maybe","reason":"x"}` + "\n", "line 2", "status"},
+		"unknown field":       {forecast + `{"kind":"attempt","id":"E0/c","mode":"retrospective","status":"hold","reason":"x","extra":1}` + "\n", "line 2", "unknown field"},
+		"duplicate attempt":   {forecast + forecast, "line 2", "already in the journal"},
+		"outcome, no attempt": {forecast + outcome("E0/x", LabelVersion, "win"), "line 2", "no attempt"},
+		"outcome for a hold":  {forecast + hold + outcome("E0/b", LabelVersion, "win"), "line 3", "only a forecast"},
+		"second outcome":      {forecast + win + win, "line 3", "already has an outcome"},
+		"unknown label":       {forecast + outcome("E0/a", LabelVersion, "draw"), "line 2", "label"},
+		"wrong label version": {forecast + outcome("E0/a", "v0", "win"), "line 2", "label version"},
+	} {
+		_, err := ReadJournal(strings.NewReader(c.in))
+		if err == nil || !strings.Contains(err.Error(), c.line) || !strings.Contains(err.Error(), c.want) || !strings.Contains(err.Error(), "new journal from the same spec and data at a new path") {
+			t.Errorf("%s: want a refusal naming %s, %q and the recovery, got %v", name, c.line, c.want, err)
 		}
-		if err == nil || !strings.Contains(err.Error(), line) || !strings.Contains(err.Error(), "new journal from the same spec and data at a new path") {
-			t.Fatalf("%s: want a refusal naming %s and the recovery, got %v", name, line, err)
-		}
+	}
+	if _, err := ReadJournal(strings.NewReader(forecast + hold + win)); err != nil {
+		t.Fatalf("a valid journal: %v", err)
 	}
 	if err := os.WriteFile(path, torn, 0o644); err != nil {
 		t.Fatal(err)
@@ -165,6 +187,8 @@ func TestEveryFlipIsOneAttempt(t *testing.T) {
 			if !a.Expiry.Equal(a.Decision.Add(time.Duration(s.Experiment.Strategy.MaxBars) * bar)) {
 				t.Fatalf("%s: attempt %+v expiry is not decision plus maxBars bars", name, a)
 			}
+			// no series reaches a no_atr hold: Supertrend flips only after bar period, and an
+			// ATR of 0 there needs every true range so far to be 0, a flat series that never flips
 			if a.Status == "hold" {
 				reasons[a.Reason]++
 			}
