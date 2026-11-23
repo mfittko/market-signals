@@ -18,11 +18,11 @@ The frozen contract is `docs/research/experiments/e0/spec.json`. It holds the in
 | Dataset range | 2023-01-02T23:00:00Z to 2026-09-30T23:59:00Z |
 | Spec sha256 | `cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb` |
 
-The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost, timing or feed value that is not labelled assumed or measured. The strategy settings carry no label: they are the plain-flip baseline of `backtest.Search`.
+The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost, timing or feed value that is not labelled assumed or measured. The strategy settings carry no label. The stop multiple, the target and the time stop match the plain-flip baseline of `backtest.Search`. The stop ATR differs from that baseline (see Rules), so an R here is not the same unit as an R in a `backtest.Search` run.
 
 ## Rules
 
-- Signal: a Supertrend flip (period 10, multiplier 3) on the bid bars. The ATR for the stop comes from the same bid bars.
+- Signal: a Supertrend flip (period 10, multiplier 3) on the bid bars. The ATR for the stop is the Supertrend's Wilder ATR(10) on the same bid bars, with no warmup skip. `backtest.Search` uses ATR(14) and skips flips inside its 42-bar warmup.
 - Decision delay: the decision exists 2,212 ms after the flip bar closes. An entry fills at the open of the first bar that starts at or after the decision time. Without missing bars, this is the second bar after the flip bar.
 - Entry: a long enters at the ask open, a short at the bid open.
 - Exits: a stop at 1.5 ATR, a target at 2 R, a reversal on the opposite flip (it fills at the open of the first bar at or after that flip's decision time, also when the opposite flip comes before the entry bar), or a time stop after 200 bars. A long exits on bid bars, a short on ask bars. A bar that touches both the stop and the target exits at the stop.
