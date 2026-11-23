@@ -1411,3 +1411,19 @@ test('watchdog sends the Pushover push with the token on stdin when Pushover is 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// backup.sh writes the folder name and marker that watchdog.sh looks for; a change on one side alone fails here.
+test('watchdog finds the folder a real backup run writes and sends no notification', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    mkdirSync(join(dir, 'b'));
+    const { run: backup } = backupFixture(join(dir, 'b'));
+    const { run, notes } = watchdogFixture(dir);
+    const r = backup('backup "$BACKUPS"', { BACKUPS: join(dir, 'backups') });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(run(1000).status, 0);
+    assert.deepEqual(notes(), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
