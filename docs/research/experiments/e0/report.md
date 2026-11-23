@@ -18,7 +18,7 @@ The frozen contract is `docs/research/experiments/e0/spec.json`. It holds the in
 | Dataset range | 2023-01-02T23:00:00Z to 2026-09-30T23:59:00Z |
 | Spec sha256 | `940781b54d0e10ae4af98ce45229eae758a287927d2559c6721664e625547eb1` |
 
-The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost or timing value that is not labelled assumed or measured.
+The loader refuses a dataset whose sha256 does not match the manifest. The spec parser refuses a cost, timing or feed value that is not labelled assumed or measured. The strategy settings carry no label: they are the plain-flip baseline of `backtest.Search`.
 
 ## Rules
 
@@ -45,7 +45,7 @@ The loader refuses a dataset whose sha256 does not match the manifest. The spec 
 From `platform/`:
 
 ```
-go run ./cmd/research-e0 -spec ../docs/research/experiments/e0/spec.json -data <path to the export CSV> -out <artifact JSON path>
+go run ./cmd/research-e0 --spec ../docs/research/experiments/e0/spec.json --data <path to the export CSV> --out <artifact JSON path>
 ```
 
 Two runs with the network denied gave the identical artifact sha256 `beb389bd41e55beeadb881419e85ce3831d711fd58c86ead2c829204a42a0a58`.
