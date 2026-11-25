@@ -1,0 +1,147 @@
+{
+  "id": "BB",
+  "questions": [
+    "Does Bollinger band width at entry separate cheap trades from expensive ones under the E0 rules?",
+    "Does a band walk (N bid closes in a row beyond the outer band) predict continuation, measured as net R after cost against random entries, and does it do better when it starts from a squeeze?"
+  ],
+  "e0Spec": {
+    "path": "docs/research/experiments/e0/spec.json",
+    "sha256": "cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb"
+  },
+  "instruments": [
+    {"instrument": "NAS100/USD", "dataset": {"path": "tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
+    {"instrument": "SPX500/USD", "dataset": {"path": "tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
+    {"instrument": "US30/USD", "dataset": {"path": "tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
+    {"instrument": "DE30/EUR", "dataset": {"path": "tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv", "sha256": null}},
+    {"instrument": "WTICO/USD", "dataset": {"path": "tmp/research-export/wtico-usd-m1-ba-2023-2026q3.csv", "sha256": "4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488"}}
+  ],
+  "inherited": {
+    "rule": "per instrument, the runner copies the parsed E0 spec and overrides only its instrument name, quote currency and dataset path and sha256; the feed, the E0 strategy, the spread rule, the decision delay, the financing basis, the markup and the 17:00 America/New_York rollover apply to every instrument unchanged",
+    "label": "assumed",
+    "source": "issue 424 Decided approach: financing values and the rollover are assumed for every instrument, as in E0"
+  },
+  "analysis": {
+    "minRows": {
+      "value": 100000,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: an index with no export, or under 100,000 rows, is reported as not run"
+    },
+    "notRun": {
+      "rule": "an instrument is reported as not run, with its reason, when its dataset file does not exist (no export), when its dataset sha256 is null (no sha256 in the spec) or when its export has fewer than minRows rows (with its row count); a file whose sha256 differs from a non-null spec sha256 stops the run",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "bandPeriod": {
+      "value": 20,
+      "label": "assumed",
+      "source": "owner chat 2026-11-25 and scripts/indicators.mjs: 20-bar Bollinger bands"
+    },
+    "bandStdDevs": {
+      "value": 2,
+      "label": "assumed",
+      "source": "owner chat 2026-11-25 and scripts/indicators.mjs: 2 standard deviations"
+    },
+    "bands": {
+      "rule": "the band of bar t uses the bid closes of bars t-19 to t, consecutive in the export across gaps: middle is their mean, upper and lower are the middle plus and minus 2 population standard deviations, width is upper minus lower; a bar with fewer than 20 bars up to and including it has no band; a decision uses the band of the bar before the decision, which is the signal or flip bar",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "spread": {
+      "rule": "spread is the raw ask open minus bid open of the entry bar, in price units; width in spreads is the flip bar's width divided by that spread, and +Inf when the spread is 0 or less",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "widthThresholds": {
+      "values": [2, 4, 8],
+      "label": "assumed",
+      "source": "issue 424 Decided approach: the gate thresholds k in spreads, also the bucket edges below 2, 2 to 4, 4 to 8 and 8 or more"
+    },
+    "costDrag": {
+      "rule": "question 1 scores every E0 trade whose flip bar has a band; the E0 trades with no band are counted and left out; per bucket: trade count and mean net, gross, spread and financing R; per k: the kept trades are those with width in spreads at or above k, the kept share is kept over scored trades and delta is the kept mean net R minus the mean net R of all scored trades",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "walkLengths": {
+      "values": [3, 5, 8],
+      "label": "assumed",
+      "source": "issue 424 grill: N of 3, 5 and 8"
+    },
+    "walk": {
+      "rule": "a bar is beyond for a long when its bid close is strictly above its own upper band, and for a short when strictly below its own lower band; the signal bar is the bar on which the run of consecutive beyond bars on one side reaches N, so a run gives at most one signal and no new entry comes before it breaks; one position at a time per N: a signal on or before the exit bar of the open walk trade is skipped as busy; entry at the open of the first bar at or after the signal bar close plus the E0 decision delay, a long at the ask open and a short at the bid open; the stop is the middle band of the signal bar, and a signal whose entry is not beyond the middle band in its direction is skipped as no_stop; exits by the E0 fill rule with no reversal exit; spread and financing as in E0",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "walkTargetR": {
+      "value": 2,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: target 2 R"
+    },
+    "walkMaxBars": {
+      "value": 200,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: time stop 200 bars"
+    },
+    "squeezeLookback": {
+      "value": 1440,
+      "label": "assumed",
+      "source": "issue 424 grill: the previous 1,440 bars"
+    },
+    "squeezeShare": {
+      "value": 0.2,
+      "label": "assumed",
+      "source": "issue 424 grill: the lowest 20% of widths"
+    },
+    "squeeze": {
+      "rule": "a walk is squeeze-start when the bar before the first bar of its N-bar run has a band, the 1,440 bars before that bar all have a band, and fewer than 20% of those 1,440 widths are below its width; every other walk is an other walk",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "random": {
+      "rule": "per N and per bootstrap replicate i, one random draw: for each walk trade in order, the entry bar is drawn uniformly from all export bars with the same UTC hour of day as the walk trade's entry bar; the draw keeps the walk trade's side and stop distance, uses the same exits, spread and financing, and has no one-position rule; a random trade belongs to the subgroups (squeeze-start or other, long or short) of the walk trade it copies",
+      "label": "assumed",
+      "source": "issue 424 Decided approach"
+    },
+    "days": {
+      "rule": "a trade's day is the UTC date of its entry bar; the bootstrap resamples the ascending list of distinct UTC dates of the export's bars",
+      "label": "assumed",
+      "source": "F316 analysis.days, adapted: every export day, since the random entries can fall on any day"
+    },
+    "blockDays": {
+      "value": 5,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: 5-day block bootstrap"
+    },
+    "bootstrapReps": {
+      "value": 2000,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: 2,000 replicates"
+    },
+    "seed": {
+      "value": 424,
+      "label": "assumed",
+      "source": "issue 424 Decided approach; per instrument, one PCG stream seeded with it draws the bootstrap replicates and then the random draws for N of 3, 5 and 8 in replicate order"
+    },
+    "metric": {
+      "rule": "mean net R per trade, per instrument, never pooled; replicate i takes the walk trades and the trades of random draw i whose days are in its resampled days, each day as often as drawn, and gives the walk mean minus the random mean; the point estimate is the walk mean minus the mean of the full-sample means of the draws; the random-entry percentile is the share of draws whose full-sample mean is below the walk mean; a replicate where a statistic is undefined is dropped",
+      "label": "assumed",
+      "source": "issue 424 Decided approach; F316 thinning percentile pattern"
+    },
+    "decisions": {
+      "value": 9,
+      "label": "assumed",
+      "source": "issue 424 Decided approach: m = 9 decisions per instrument, 3 for question 1 (one per k) and 6 for question 2 (all walks and squeeze-start walks per N); no correction runs across instruments"
+    },
+    "ci": {
+      "rule": "linear-interpolation percentiles of the bootstrap replicates; a bucket mean gets the 2.5th and 97.5th percentiles; every delta (kept minus all, walk minus random) gets the Bonferroni interval, the 2.5/decisions and 100 minus 2.5/decisions percentiles",
+      "label": "assumed",
+      "source": "issue 424 Decided approach; F316 analysis.ci"
+    }
+  },
+  "decisionRule": {
+    "costDrag": "per k: reduces cost drag when the kept-minus-all interval is above 0, raises cost drag when it is below 0, else insufficient evidence",
+    "walks": "per N, for all walks and for squeeze-start walks: beats random when the walk-minus-random interval is above 0, loses to random when it is below 0, else insufficient evidence; other walks, longs and shorts are reported without a decision",
+    "randomPercentile": "the random-entry percentile is reported as a comparison and does not enter the decision",
+    "label": "assumed",
+    "source": "issue 424 Decided approach"
+  }
+}

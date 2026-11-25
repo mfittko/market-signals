@@ -1,0 +1,1 @@
+- Research: a preregistered Bollinger band study under the E0 rules, testing band width at entry as a cost gate and band-walk entries against a random-entry baseline, with per-instrument block-bootstrap CIs; the WTICO/USD report is in, the four index exports are pending (#424)
