@@ -24,13 +24,35 @@ func TestExtractionsLeaveTheF316FixtureReportUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinned := map[string]string{"arm64": "993ab09fd7571da8908e357456b96afaeca8d3ddd59d2cb06abc9ad2b9bb9652"}
+	// Both hashes come from the pre-extraction code; the F316 report is the same on both arches.
+	pinned := map[string]string{
+		"arm64": "993ab09fd7571da8908e357456b96afaeca8d3ddd59d2cb06abc9ad2b9bb9652",
+		"amd64": "993ab09fd7571da8908e357456b96afaeca8d3ddd59d2cb06abc9ad2b9bb9652",
+	}
 	want, ok := pinned[runtime.GOARCH]
 	if !ok {
 		t.Skipf("no pinned fixture report sha256 for GOARCH %s", runtime.GOARCH)
 	}
 	if got := sha(r); got != want {
 		t.Fatalf("fixture report sha256 %s, want %s", got, want)
+	}
+}
+
+func TestDecideMapsTheIntervalToThePreregisteredDecision(t *testing.T) {
+	for _, c := range []struct {
+		d    Interval
+		want string
+	}{
+		{Interval{Lo: 0.1, Hi: 0.3, OK: true}, "up"},
+		{Interval{Lo: -0.3, Hi: -0.1, OK: true}, "down"},
+		{Interval{Lo: -0.1, Hi: 0.1, OK: true}, "insufficient evidence"},
+		{Interval{Lo: 0, Hi: 0.2, OK: true}, "insufficient evidence"},
+		{Interval{Lo: -0.2, Hi: 0, OK: true}, "insufficient evidence"},
+		{Interval{Lo: 0.1, Hi: 0.3, OK: false}, "insufficient evidence"},
+	} {
+		if got := decide(c.d, "up", "down"); got != c.want {
+			t.Errorf("decide(%+v) = %q, want %q", c.d, got, c.want)
+		}
 	}
 }
 
