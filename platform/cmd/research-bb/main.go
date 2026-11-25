@@ -182,13 +182,24 @@ func run(specPath, artifactPath, reportPath string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := writeAtomic(artifactPath, artifact); err != nil {
+		return err
+	}
+	// the filesystem decides which spellings name one file (case folding, Unicode
+	// normalization), so ask it once the artifact exists, before the report replaces it;
+	// Lstat, because the rename replaces a symlink at reportPath, not its target
+	if a, err := os.Lstat(artifactPath); err == nil {
+		if r, err := os.Lstat(reportPath); err == nil && os.SameFile(a, r) {
+			return fmt.Errorf("--artifact %s and --report %s are the same file; choose two paths", artifactPath, reportPath)
+		}
+	}
+	if err := writeAtomic(reportPath, report); err != nil {
+		return err
+	}
 	for _, w := range []struct {
 		path string
 		b    []byte
 	}{{artifactPath, artifact}, {reportPath, report}} {
-		if err := writeAtomic(w.path, w.b); err != nil {
-			return err
-		}
 		sum := sha256.Sum256(w.b)
 		fmt.Printf("%s  %s\n", hex.EncodeToString(sum[:]), w.path)
 	}

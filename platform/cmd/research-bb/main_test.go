@@ -91,6 +91,25 @@ func TestRunRefusesTwoSpellingsOrTwoLinksOfOneOutput(t *testing.T) {
 	}
 }
 
+func TestRunRefusesCaseVariantOutputsOnACaseInsensitiveFilesystem(t *testing.T) {
+	_, spec := layout(t, true)
+	dir := t.TempDir()
+	probe := filepath.Join(dir, "probe")
+	if err := os.WriteFile(probe, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "PROBE")); err != nil {
+		t.Skip("the temporary directory is case-sensitive")
+	}
+	artifact := filepath.Join(dir, "a.json")
+	if err := run(spec, artifact, filepath.Join(dir, "A.json"), io.Discard); err == nil || !strings.Contains(err.Error(), "same file") {
+		t.Fatalf("case-variant outputs: want a refusal, got %v", err)
+	}
+	if b, err := os.ReadFile(artifact); err != nil || !strings.HasPrefix(string(b), "{") {
+		t.Fatalf("the artifact on disk is not the artifact JSON: %q, %v", b, err)
+	}
+}
+
 func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
 	_, spec := layout(t, true)
 	good, err := os.ReadFile(spec)
