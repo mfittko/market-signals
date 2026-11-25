@@ -329,11 +329,35 @@ func percentile(x []float64, p float64) float64 {
 	return s[lo] + (s[lo+1]-s[lo])*(pos-float64(lo))
 }
 
-func interval(est float64, reps []float64) Interval {
+// interval is the two-sided percentile CI of the replicates at level percent.
+func interval(est float64, reps []float64, level float64) Interval {
 	if len(reps) == 0 {
 		return Interval{Est: est}
 	}
-	return Interval{Est: est, Lo: percentile(reps, 2.5), Hi: percentile(reps, 97.5), OK: true}
+	tail := (100 - level) / 2
+	return Interval{Est: est, Lo: percentile(reps, tail), Hi: percentile(reps, 100-tail), OK: true}
+}
+
+// dayBlocks draws reps moving-block bootstrap replicates of nd ascending days: blocks of
+// blockDays consecutive days, drawn with replacement until nd days are drawn. Each
+// replicate is the list of drawn day indices, days repeated as drawn.
+func dayBlocks(rng *rand.Rand, nd, blockDays, reps int) [][]int {
+	if nd == 0 {
+		return nil
+	}
+	blk := min(blockDays, nd)
+	out := make([][]int, 0, reps)
+	for range reps {
+		var days []int
+		for len(days) < nd {
+			start := rng.IntN(nd - blk + 1)
+			for k := start; k < start+blk && len(days) < nd; k++ {
+				days = append(days, k)
+			}
+		}
+		out = append(out, days)
+	}
+	return out
 }
 
 // Decide is the preregistered rule: keep when the rule blocks worse-than-average
@@ -391,19 +415,12 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 	rng := rand.New(rand.NewPCG(uint64(s.Analysis.Seed.Value), uint64(s.Analysis.Seed.Value)))
 	// each replicate is a list of row indices, days repeated as drawn
 	var reps [][]int
-	if nd := len(days); nd > 0 {
-		blk := min(int(s.Analysis.BlockDays.Value), nd)
-		for range int(s.Analysis.BootstrapReps.Value) {
-			var idx []int
-			for drawn := 0; drawn < nd; {
-				start := rng.IntN(nd - blk + 1)
-				for k := start; k < start+blk && drawn < nd; k++ {
-					idx = append(idx, rows[days[k]]...)
-					drawn++
-				}
-			}
-			reps = append(reps, idx)
+	for _, ds := range dayBlocks(rng, len(days), int(s.Analysis.BlockDays.Value), int(s.Analysis.BootstrapReps.Value)) {
+		var idx []int
+		for _, k := range ds {
+			idx = append(idx, rows[days[k]]...)
 		}
+		reps = append(reps, idx)
 	}
 	// meanOf returns the mean net R and the count of the rows in idx that keep selects
 	meanOf := func(idx []int, keep func(int) bool) (float64, int) {
@@ -430,7 +447,7 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 				rs = append(rs, m)
 			}
 		}
-		a.Means = append(a.Means, MeanResult{g.name, c, interval(est, rs)})
+		a.Means = append(a.Means, MeanResult{g.name, c, interval(est, rs, 95)})
 	}
 	rules := []group{{"all suppressions", suppressed}}
 	for _, c := range slices.Concat(cats, []category{{name: "other"}}) {
@@ -452,7 +469,7 @@ func Analyze(s F316Spec, cats []category, sc []Scored, excluded map[string]int) 
 					rs = append(rs, b-m)
 				}
 			}
-			res.Delta = interval(res.BlockedMean-res.All, rs)
+			res.Delta = interval(res.BlockedMean-res.All, rs, 95)
 			// random thinning: the same blocked count drawn uniformly without replacement
 			below, draws := 0, int(s.Analysis.ThinningDraws.Value)
 			for range draws {

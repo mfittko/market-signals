@@ -239,10 +239,109 @@ func rollovers(a, b time.Time) int {
 	return n
 }
 
-// Run replays the spec's strategy. Signals come from bid bars. A long enters at the ask
-// open and its stop and target are judged on bid bars; a short enters at the bid open
-// and is judged on ask bars. A decision exists at its bar's close plus the decision
-// delay, and it acts at the open of the first bar at or after that time.
+// actAt is the first bar that opens at or after decision, or len(bid) when none does.
+func actAt(bid []backtest.Candle, from int, decision time.Time) int {
+	for from < len(bid) && bid[from].Time.Before(decision) {
+		from++
+	}
+	return from
+}
+
+// entryPrice is the ledger entry rule at the open of bar j: a long buys at the ask, a
+// short sells at the bid.
+func entryPrice(bid, ask []backtest.Candle, j, dir int) float64 {
+	side := "short"
+	if dir > 0 {
+		side = "long"
+	}
+	mid := (bid[j].Open + ask[j].Open) / 2
+	half := (ask[j].Open - bid[j].Open) / 2
+	return ledger.EntryPrice(side, mid, half)
+}
+
+// plan is one decided entry: the signal bar i, the entry bar j, the side and the stop
+// distance in price units.
+type plan struct {
+	i, j, dir int
+	dist      float64
+	decision  time.Time
+}
+
+// simulate fills one planned entry under the spec's target, time stop, spread and
+// financing. A long enters at the ask open and its stop and target are judged on bid
+// bars; a short enters at the bid open and is judged on ask bars. flipDir maps a bar to
+// the direction of its flip for the reversal exit; a nil flipDir turns the reversal exit
+// off. It returns the trade and its exit bar.
+func simulate(s Spec, bid, ask []backtest.Candle, flipDir map[int]int, p plan) (Trade, int) {
+	e := s.Experiment
+	st := e.Strategy
+	bar := time.Duration(s.Feed.BarSeconds) * time.Second
+	delay := time.Duration(e.Timing.DecisionDelayMs.Value * float64(time.Millisecond))
+	i, j, dist := p.i, p.j, p.dist
+	long := p.dir > 0
+	entry := entryPrice(bid, ask, j, p.dir)
+	d := float64(p.dir)
+	stop := entry - d*dist
+	var target *float64
+	if st.RR > 0 {
+		t := entry + d*st.RR*dist
+		target = &t
+	}
+	exitSide := bid // a long sells at the bid, a short buys at the ask
+	if !long {
+		exitSide = ask
+	}
+	tr := Trade{Flip: bid[i].Time, Decision: p.decision, Entry: bid[j].Time, Dir: p.dir, EntryPrice: entry, Reason: "end"}
+	last := len(bid) - 1
+	tr.ExitPrice, tr.Exit = exitSide[last].Close, bid[last].Time.Add(bar)
+	// pending is the bar whose open fills an opposite flip; the position stays open, and
+	// stop, target and time stop still apply, on every bar before it. An opposite flip
+	// between the flip bar and the entry bar counts too; its fill is never before j.
+	pending := -1
+	for k := i + 1; k < j; k++ {
+		if flipDir[k] == -p.dir {
+			pending = actAt(bid, k+1, bid[k].Time.Add(bar+delay))
+			break
+		}
+	}
+	for k := j; k < len(bid) && k < j+st.MaxBars; k++ {
+		b := exitSide[k]
+		if k == pending {
+			tr.ExitPrice, tr.Reason, tr.Exit, last = b.Open, "reversal", bid[k].Time, k
+			break
+		}
+		if price, reason := fill.Check(long, stop, target, b.Open, b.High, b.Low); reason != "" {
+			tr.ExitPrice, tr.Reason, tr.Exit, last = price, reason, b.Time, k
+			break
+		}
+		if pending < 0 && flipDir[k] == -p.dir {
+			pending = actAt(bid, k+1, bid[k].Time.Add(bar+delay))
+		}
+		if k == j+st.MaxBars-1 {
+			tr.ExitPrice, tr.Reason, tr.Exit, last = b.Close, "time", b.Time.Add(bar), k
+		}
+	}
+	tr.R = d * (tr.ExitPrice - entry) / dist
+	tr.EntrySpread = (ask[j].Open - bid[j].Open) / dist
+	exitSpread := ask[last].Open - bid[last].Open
+	if tr.Reason == "time" || tr.Reason == "end" {
+		exitSpread = ask[last].Close - bid[last].Close
+	}
+	tr.SpreadR = tr.EntrySpread/2 + exitSpread/2/dist
+	tr.GrossR = tr.R + tr.SpreadR
+	tr.Rollovers = rollovers(tr.Entry, tr.Exit)
+	rate := e.Costs.FinancingBasis.Value + e.Costs.FinancingMarkup.Value // a long pays basis plus markup
+	if !long {
+		rate = e.Costs.FinancingMarkup.Value - e.Costs.FinancingBasis.Value // a short receives basis minus markup
+	}
+	tr.FinancingR = float64(tr.Rollovers) * entry * rate / 365 / dist
+	tr.NetR = tr.R - tr.FinancingR
+	return tr, last
+}
+
+// Run replays the spec's strategy. Signals come from bid bars. A decision exists at its
+// bar's close plus the decision delay, and it acts at the open of the first bar at or
+// after that time. Fills, exits and costs follow simulate, with the reversal exit on.
 func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 	e := s.Experiment
 	st := e.Strategy
@@ -257,13 +356,6 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 	for _, f := range flips {
 		flipDir[idx[f.Time.UnixNano()]] = f.Dir
 	}
-	// actAt is the first bar that opens at or after decision, or len(bid) when none does
-	actAt := func(from int, decision time.Time) int {
-		for from < len(bid) && bid[from].Time.Before(decision) {
-			from++
-		}
-		return from
-	}
 	art := Artifact{Experiment: e.ID, Flips: len(flips)}
 	busy := -1
 	for _, f := range flips {
@@ -277,7 +369,7 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 			hold = "no_atr"
 		default:
 			// no bar is left to act on; every later flip that is not busy holds the same way
-			if j = actAt(i+1, decision); j >= len(bid) {
+			if j = actAt(bid, i+1, decision); j >= len(bid) {
 				hold = "no_entry_bar"
 			}
 		}
@@ -285,71 +377,7 @@ func Run(s Spec, bid, ask []backtest.Candle) Artifact {
 			art.Holds = append(art.Holds, Hold{Flip: f.Time, Decision: decision, Reason: hold})
 			continue
 		}
-		long := f.Dir > 0
-		side := "short"
-		if long {
-			side = "long"
-		}
-		mid := (bid[j].Open + ask[j].Open) / 2
-		half := (ask[j].Open - bid[j].Open) / 2
-		entry := ledger.EntryPrice(side, mid, half)
-		d := float64(f.Dir)
-		dist := st.StopATR * atr[i]
-		stop := entry - d*dist
-		var target *float64
-		if st.RR > 0 {
-			t := entry + d*st.RR*dist
-			target = &t
-		}
-		exitSide := bid // a long sells at the bid, a short buys at the ask
-		if !long {
-			exitSide = ask
-		}
-		tr := Trade{Flip: f.Time, Decision: decision, Entry: bid[j].Time, Dir: f.Dir, EntryPrice: entry, Reason: "end"}
-		last := len(bid) - 1
-		tr.ExitPrice, tr.Exit = exitSide[last].Close, bid[last].Time.Add(bar)
-		// pending is the bar whose open fills an opposite flip; the position stays open, and
-		// stop, target and time stop still apply, on every bar before it. An opposite flip
-		// between the flip bar and the entry bar counts too; its fill is never before j.
-		pending := -1
-		for k := i + 1; k < j; k++ {
-			if flipDir[k] == -f.Dir {
-				pending = actAt(k+1, bid[k].Time.Add(bar+delay))
-				break
-			}
-		}
-		for k := j; k < len(bid) && k < j+st.MaxBars; k++ {
-			b := exitSide[k]
-			if k == pending {
-				tr.ExitPrice, tr.Reason, tr.Exit, last = b.Open, "reversal", bid[k].Time, k
-				break
-			}
-			if price, reason := fill.Check(long, stop, target, b.Open, b.High, b.Low); reason != "" {
-				tr.ExitPrice, tr.Reason, tr.Exit, last = price, reason, b.Time, k
-				break
-			}
-			if pending < 0 && flipDir[k] == -f.Dir {
-				pending = actAt(k+1, bid[k].Time.Add(bar+delay))
-			}
-			if k == j+st.MaxBars-1 {
-				tr.ExitPrice, tr.Reason, tr.Exit, last = b.Close, "time", b.Time.Add(bar), k
-			}
-		}
-		tr.R = d * (tr.ExitPrice - entry) / dist
-		tr.EntrySpread = (ask[j].Open - bid[j].Open) / dist
-		exitSpread := ask[last].Open - bid[last].Open
-		if tr.Reason == "time" || tr.Reason == "end" {
-			exitSpread = ask[last].Close - bid[last].Close
-		}
-		tr.SpreadR = tr.EntrySpread/2 + exitSpread/2/dist
-		tr.GrossR = tr.R + tr.SpreadR
-		tr.Rollovers = rollovers(tr.Entry, tr.Exit)
-		rate := e.Costs.FinancingBasis.Value + e.Costs.FinancingMarkup.Value // a long pays basis plus markup
-		if !long {
-			rate = e.Costs.FinancingMarkup.Value - e.Costs.FinancingBasis.Value // a short receives basis minus markup
-		}
-		tr.FinancingR = float64(tr.Rollovers) * entry * rate / 365 / dist
-		tr.NetR = tr.R - tr.FinancingR
+		tr, last := simulate(s, bid, ask, flipDir, plan{i: i, j: j, dir: f.Dir, dist: st.StopATR * atr[i], decision: decision})
 		busy = last
 		art.Trades = append(art.Trades, tr)
 	}
