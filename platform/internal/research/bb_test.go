@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"math/rand/v2"
 	"os"
 	"runtime"
 	"slices"
@@ -148,7 +149,6 @@ func TestBollingerUsesThePopulationStandardDeviation(t *testing.T) {
 // amplitude that shrinks (so the walk starts from a squeeze) or grows, then ten closes
 // that rise faster each bar, then 40 closes flat at the top. It returns the first rising bar.
 func walkBars(shrink bool) (bid, ask []backtest.Candle, first int) {
-	t0 := time.Date(2024, 3, 4, 0, 0, 0, 0, time.UTC)
 	var closes []float64
 	for k := range 1600 {
 		amp := 0.001 + 0.009*float64(k)/1600
@@ -164,15 +164,121 @@ func walkBars(shrink bool) (bid, ask []backtest.Candle, first int) {
 	for range 40 {
 		closes = append(closes, closes[len(closes)-1])
 	}
+	bid, ask = series(closes, nil)
+	return bid, ask, first
+}
+
+// series builds M1 bars from 2024-03-04 00:00 UTC on: each bid bar opens at the previous
+// close (100 for the first bar) unless opens sets its open, and the ask is 0.002 above.
+func series(closes []float64, opens map[int]float64) (bid, ask []backtest.Candle) {
+	t0 := time.Date(2024, 3, 4, 0, 0, 0, 0, time.UTC)
 	prev := 100.0
 	for k, c := range closes {
+		if o, ok := opens[k]; ok {
+			prev = o
+		}
 		tm := t0.Add(time.Duration(k) * time.Minute)
 		h, l := max(prev, c)+0.005, min(prev, c)-0.005
 		bid = append(bid, backtest.Candle{Time: tm, Open: prev, High: h, Low: l, Close: c, Volume: 1})
 		ask = append(ask, backtest.Candle{Time: tm, Open: prev + 0.002, High: h + 0.002, Low: l + 0.002, Close: c + 0.002, Volume: 1})
 		prev = c
 	}
-	return bid, ask, first
+	return bid, ask
+}
+
+// alternate appends n closes that alternate by amp around level.
+func alternate(closes []float64, n int, level, amp float64) []float64 {
+	for k := range n {
+		closes = append(closes, level+amp*float64(1-2*(k%2)))
+	}
+	return closes
+}
+
+// rise appends a walk of length 3 above level: closes 1, 3 and 7 steps up.
+func rise(closes []float64, level, step float64) []float64 {
+	return append(closes, level+step, level+3*step, level+7*step)
+}
+
+// walkSpec is the fixture BB spec with one walk length, 3.
+func walkSpec(t *testing.T) BBSpec {
+	t.Helper()
+	s := bbSpec(t)
+	s.Analysis.WalkLengths.Values = []float64{3}
+	return s
+}
+
+// twoWalks is a walk whose signal is bar 102, then closes that hold at its top, then a
+// second, smaller walk whose signal is bar second. The first trade meets neither its stop
+// nor its target, so it ends on its time stop.
+func twoWalks(second int) (bid, ask []backtest.Candle) {
+	closes := rise(alternate(nil, 100, 100, 0.01), 100, 0.05)
+	top := closes[len(closes)-1]
+	closes = alternate(closes, second-2-len(closes), top, 0.001)
+	closes = rise(closes, top, 0.01)
+	return series(alternate(closes, 300, top+0.07, 0.001), nil)
+}
+
+// walkExit is the exit bar of the long walk trade that AnalyzeBB plans for signal bar sig.
+func walkExit(t *testing.T, s BBSpec, e0 Spec, bid, ask []backtest.Candle, sig int) int {
+	t.Helper()
+	a := s.Analysis
+	mid, _ := bollinger(bid, int(a.BandPeriod.Value), a.BandStdDevs.Value)
+	ws := e0
+	ws.Experiment.Strategy.RR, ws.Experiment.Strategy.MaxBars = a.WalkTargetR.Value, int(a.WalkMaxBars.Value)
+	decision := bid[sig].Time.Add(time.Duration(e0.Feed.BarSeconds)*time.Second + time.Duration(e0.Experiment.Timing.DecisionDelayMs.Value*float64(time.Millisecond)))
+	j := actAt(bid, sig+1, decision)
+	tr, last := simulate(ws, bid, ask, nil, plan{i: sig, j: j, dir: 1, dist: entryPrice(bid, ask, j, 1) - mid[sig], decision: decision})
+	if tr.Reason != "time" {
+		t.Fatalf("first walk trade ends on %q, want its time stop", tr.Reason)
+	}
+	return last
+}
+
+func TestAnalyzeBBSkipsAWalkInsideTheOpenTradeUpToItsExitBar(t *testing.T) {
+	s, e0 := walkSpec(t), fixtureE0(t)
+	bid, ask := twoWalks(1000)
+	exit := walkExit(t, s, e0, bid, ask, 102)
+	for _, c := range []struct{ second, busy, trades int }{{exit, 1, 1}, {exit + 1, 0, 2}} {
+		bid, ask := twoWalks(c.second)
+		w := AnalyzeBB(s, e0, bid, ask).Walks[0]
+		if w.Signals != 2 || w.Busy != c.busy || w.Groups[0].Trades != c.trades {
+			t.Errorf("second walk on bar %d, first exit %d: signals %d, busy %d, trades %d; want 2, %d, %d", c.second, exit, w.Signals, w.Busy, w.Groups[0].Trades, c.busy, c.trades)
+		}
+	}
+}
+
+func TestAnalyzeBBSkipsAWalkWithoutAStopDistanceOrAnEntryBar(t *testing.T) {
+	s, e0 := walkSpec(t), fixtureE0(t)
+	walk := rise(alternate(nil, 100, 100, 0.01), 100, 0.05) // signal bar 102, entry bar 104
+	// the entry bar opens below the middle band, so the long has no stop distance
+	bid, ask := series(alternate(walk, 50, 100.35, 0.001), map[int]float64{104: 99})
+	if w := AnalyzeBB(s, e0, bid, ask).Walks[0]; w.Signals != 1 || w.NoStop != 1 || w.Groups[0].Trades != 0 {
+		t.Errorf("entry below the middle band: signals %d, no_stop %d, trades %d; want 1, 1, 0", w.Signals, w.NoStop, w.Groups[0].Trades)
+	}
+	// the series ends on the signal bar, so no bar opens after the decision
+	bid, ask = series(walk, nil)
+	if w := AnalyzeBB(s, e0, bid, ask).Walks[0]; w.Signals != 1 || w.NoEntryBar != 1 || w.Groups[0].Trades != 0 {
+		t.Errorf("no bar after the signal: signals %d, no_entry_bar %d, trades %d; want 1, 1, 0", w.Signals, w.NoEntryBar, w.Groups[0].Trades)
+	}
+}
+
+func TestRandomPlanDrawsFromTheWalkEntryHourWithItsSideAndStop(t *testing.T) {
+	bid, _ := series(alternate(nil, 120, 100, 0.01), nil) // bars 0-59 in UTC hour 0, 60-119 in hour 1
+	hours := barsByHour(bid)
+	rng := rand.New(rand.NewPCG(1, 2))
+	for _, p := range []plan{{i: 10, j: 12, dir: 1, dist: 0.25}, {i: 70, j: 75, dir: -1, dist: 0.4}} {
+		seen := map[int]bool{}
+		for range 200 {
+			r := randomPlan(rng, bid, &hours, p)
+			if bid[r.j].Time.Hour() != bid[p.j].Time.Hour() || r.dir != p.dir || r.dist != p.dist || r.i != r.j || !r.decision.Equal(bid[r.j].Time) {
+				t.Fatalf("walk plan %+v: random plan %+v", p, r)
+			}
+			seen[r.j] = true
+		}
+		if len(seen) < 30 {
+			t.Errorf("walk plan %+v: 200 draws hit %d bars of its 60-bar hour", p, len(seen))
+		}
+	}
 }
 
 func TestWalkSignalsFindTheKnownBandWalk(t *testing.T) {

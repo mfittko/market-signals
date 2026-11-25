@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,18 +44,42 @@ func TestRunRefusesAnOutputThatIsAnInputOrTheOtherOutput(t *testing.T) {
 	before, _ := os.ReadFile(e0)
 	report := filepath.Join(t.TempDir(), "report.md")
 	for _, out := range []string{spec, e0} {
-		if err := run(spec, out, report); err == nil || !strings.Contains(err.Error(), "is the input") {
+		if err := run(spec, out, report, io.Discard); err == nil || !strings.Contains(err.Error(), "is the input") {
 			t.Errorf("--artifact %s: want a refusal, got %v", out, err)
 		}
-		if err := run(spec, report, out); err == nil || !strings.Contains(err.Error(), "is the input") {
+		if err := run(spec, report, out, io.Discard); err == nil || !strings.Contains(err.Error(), "is the input") {
 			t.Errorf("--report %s: want a refusal, got %v", out, err)
 		}
 	}
-	if err := run(spec, report, report); err == nil || !strings.Contains(err.Error(), "same path") {
+	if err := run(spec, report, report, io.Discard); err == nil || !strings.Contains(err.Error(), "same path") {
 		t.Errorf("same --artifact and --report: want a refusal, got %v", err)
 	}
 	if after, _ := os.ReadFile(e0); string(after) != string(before) {
 		t.Fatal("the E0 spec changed")
+	}
+}
+
+func TestRunRefusesTwoSpellingsOrTwoLinksOfOneOutput(t *testing.T) {
+	_, spec := layout(t, true)
+	dir := t.TempDir()
+	sep := string(filepath.Separator)
+	// a file that does not exist yet, named twice
+	if err := run(spec, dir+sep+"a.json", dir+sep+"."+sep+"a.json", io.Discard); err == nil || !strings.Contains(err.Error(), "same path") {
+		t.Errorf("two spellings of one path: want a refusal, got %v", err)
+	}
+	// an existing file and a hard link to it
+	a, b := filepath.Join(dir, "b.json"), filepath.Join(dir, "b-link.md")
+	if err := os.WriteFile(a, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(spec, a, b, io.Discard); err == nil || !strings.Contains(err.Error(), "same file") {
+		t.Errorf("two links of one file: want a refusal, got %v", err)
+	}
+	if got, _ := os.ReadFile(a); string(got) != "keep\n" {
+		t.Fatal("a refused run changed the output file")
 	}
 }
 
@@ -75,18 +101,28 @@ func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
 			t.Fatal(err)
 		}
 		dir := t.TempDir()
-		if err := run(spec, filepath.Join(dir, "a.json"), filepath.Join(dir, "r.md")); err == nil || !strings.Contains(err.Error(), field) {
+		if err := run(spec, filepath.Join(dir, "a.json"), filepath.Join(dir, "r.md"), io.Discard); err == nil || !strings.Contains(err.Error(), field) {
 			t.Errorf("%s: want a refusal naming the field, got %v", field, err)
 		}
 	}
 }
 
 func TestRunReportsEveryInstrumentWithoutAnExportAsNotRun(t *testing.T) {
-	_, spec := layout(t, true)
+	root, spec := layout(t, true)
 	dir := t.TempDir()
 	report := filepath.Join(dir, "report.md")
-	if err := run(spec, filepath.Join(dir, "artifact.json"), report); err != nil {
+	var stderr bytes.Buffer
+	if err := run(spec, filepath.Join(dir, "artifact.json"), report, &stderr); err != nil {
 		t.Fatal(err)
+	}
+	// only WTICO/USD pins a dataset sha256, so only its missing export warns, by absolute path
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wti := filepath.Join(resolved, "tmp/research-export/wtico-usd-m1-ba-2023-2026q3.csv")
+	if got := stderr.String(); strings.Count(got, "warning:") != 1 || !strings.Contains(got, "WTICO/USD pins dataset sha256 ") || !strings.Contains(got, wti+" does not exist") {
+		t.Errorf("stderr %q, want one warning naming WTICO/USD and %s", got, wti)
 	}
 	b, err := os.ReadFile(report)
 	if err != nil {
@@ -102,7 +138,7 @@ func TestRunReportsEveryInstrumentWithoutAnExportAsNotRun(t *testing.T) {
 func TestRunRefusesASpecOutsideTheRepository(t *testing.T) {
 	_, spec := layout(t, false)
 	dir := t.TempDir()
-	if err := run(spec, filepath.Join(dir, "a.json"), filepath.Join(dir, "r.md")); err == nil || !strings.Contains(err.Error(), "platform/go.mod") {
+	if err := run(spec, filepath.Join(dir, "a.json"), filepath.Join(dir, "r.md"), io.Discard); err == nil || !strings.Contains(err.Error(), "platform/go.mod") {
 		t.Fatalf("want a repository-root refusal, got %v", err)
 	}
 }

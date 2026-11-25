@@ -153,7 +153,7 @@ Not run:
 ## Limits
 
 - The financing values and the 17:00 America/New_York rollover are the E0 assumptions, applied to every instrument.
-- The random baseline matches count, side, UTC hour and stop distance, not volatility or session state beyond the hour.
+- The random baseline matches count, side, UTC hour and stop distance. Volatility and session state beyond the hour are unmatched.
 - "Insufficient evidence" is no finding of absence.
 - Each instrument is one export snapshot over its own date range.
 
@@ -166,3 +166,18 @@ go run ./cmd/research-bb --spec ../docs/research/experiments/bb/spec.json --arti
 ```
 
 Publication: build the command, run it twice with the network denied, and publish the report only when both runs give the same artifact sha256 and identical report bytes.
+
+## Publication record
+
+The command wrote the first 10200 bytes of this file. This section was added by hand after both runs. `head -c 10200 report.md | shasum -a 256` prints the report sha256 below.
+
+| Item | Value |
+|---|---|
+| Build | `go build -o research-bb ./cmd/research-bb` from `platform/`; both runs use that binary with the arguments above |
+| Network denial | each run under `sandbox-exec -p '(version 1)(allow default)(deny network*)'` (macOS Seatbelt) |
+| Go version and platform | `go1.27.3 darwin/arm64` |
+| Run 1 artifact sha256 | `5d16eaf6530e9439e8b64c96cd43ee0499d6b776566500b20286796d9d35d97c` |
+| Run 2 artifact sha256 | `5d16eaf6530e9439e8b64c96cd43ee0499d6b776566500b20286796d9d35d97c` |
+| Run 1 report sha256 | `ada20eccfd9fe00743d4ab6b754432f6b4fb1f87966a47aa302443609b5382aa` |
+| Run 2 report sha256 | `ada20eccfd9fe00743d4ab6b754432f6b4fb1f87966a47aa302443609b5382aa` |
+| Export | read through the untracked `tmp/research-export/` path; the WTICO/USD file matched its pinned dataset sha256 on both runs |

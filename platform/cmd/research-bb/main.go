@@ -11,9 +11,11 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,7 +32,7 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	if err := run(*spec, *artifact, *report); err != nil {
+	if err := run(*spec, *artifact, *report, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "research-bb:", err)
 		os.Exit(1)
 	}
@@ -67,7 +69,31 @@ func inRoot(root, field, p string) (string, error) {
 	return filepath.Join(root, p), nil
 }
 
-func run(specPath, artifactPath, reportPath string) error {
+// writeAtomic writes b to a temporary file beside path and renames it over path, so an
+// interrupted or failed write leaves the previous file at path unchanged.
+func writeAtomic(path string, b []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name()) // fails harmlessly after the rename
+	if _, err := f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(0o644); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
+// run writes the artifact and then the report; it warns on stderr about each instrument
+// whose spec pins a dataset sha256 but whose export file is missing.
+func run(specPath, artifactPath, reportPath string, stderr io.Writer) error {
 	specJSON, err := os.ReadFile(specPath)
 	if err != nil {
 		return err
@@ -91,10 +117,26 @@ func run(specPath, artifactPath, reportPath string) error {
 			return err
 		}
 		inputs = append(inputs, p)
+		if _, err := os.Stat(p); inst.Dataset.SHA256 != nil && errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(stderr, "research-bb: warning: %s pins dataset sha256 %s, but %s does not exist; the report lists %s as not run\n", inst.Instrument, *inst.Dataset.SHA256, p, inst.Instrument)
+		}
 	}
-	// the writes truncate --artifact and --report, so neither may be an input or the other
-	if artifactPath == reportPath {
-		return fmt.Errorf("--artifact and --report are the same path %s; choose two paths", reportPath)
+	// the writes replace --artifact and --report, so neither may be an input or the other
+	absArtifact, err := filepath.Abs(artifactPath)
+	if err != nil {
+		return err
+	}
+	absReport, err := filepath.Abs(reportPath)
+	if err != nil {
+		return err
+	}
+	if absArtifact == absReport {
+		return fmt.Errorf("--artifact and --report are the same path %s; choose two paths", absReport)
+	}
+	if a, err := os.Stat(artifactPath); err == nil {
+		if r, err := os.Stat(reportPath); err == nil && os.SameFile(a, r) {
+			return fmt.Errorf("--artifact %s and --report %s are the same file; choose two paths", artifactPath, reportPath)
+		}
 	}
 	for _, out := range []string{artifactPath, reportPath} {
 		if o, err := os.Stat(out); err == nil {
@@ -130,7 +172,7 @@ func run(specPath, artifactPath, reportPath string) error {
 		path string
 		b    []byte
 	}{{artifactPath, artifact}, {reportPath, report}} {
-		if err := os.WriteFile(w.path, w.b, 0o644); err != nil {
+		if err := writeAtomic(w.path, w.b); err != nil {
 			return err
 		}
 		sum := sha256.Sum256(w.b)

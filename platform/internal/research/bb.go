@@ -381,11 +381,7 @@ func AnalyzeBB(s BBSpec, e0 Spec, bid, ask []backtest.Candle) BBResult {
 	ws.Experiment.Strategy.RR, ws.Experiment.Strategy.MaxBars = a.WalkTargetR.Value, int(a.WalkMaxBars.Value)
 	bar := time.Duration(e0.Feed.BarSeconds) * time.Second
 	delay := time.Duration(e0.Experiment.Timing.DecisionDelayMs.Value * float64(time.Millisecond))
-	var hourBars [24][]int
-	for t, c := range bid {
-		h := c.Time.UTC().Hour()
-		hourBars[h] = append(hourBars[h], t)
-	}
+	hourBars := barsByHour(bid)
 	lookback := int(a.SqueezeLookback.Value)
 	for _, nv := range a.WalkLengths.Values {
 		n := int(nv)
@@ -447,10 +443,9 @@ func AnalyzeBB(s BBSpec, e0 Spec, bid, ask []backtest.Candle) BBResult {
 		rnet, rday := make([]float64, len(plans)), make([]int, len(plans))
 		for _, w := range weights {
 			for x, p := range plans {
-				hb := hourBars[bid[p.j].Time.UTC().Hour()]
-				j := hb[rng.IntN(len(hb))]
-				tr, _ := simulate(ws, bid, ask, nil, plan{i: j, j: j, dir: p.dir, dist: p.dist, decision: bid[j].Time})
-				rnet[x], rday[x] = tr.NetR, barDay[j]
+				rp := randomPlan(rng, bid, &hourBars, p)
+				tr, _ := simulate(ws, bid, ask, nil, rp)
+				rnet[x], rday[x] = tr.NetR, barDay[rp.j]
 			}
 			for g, gr := range groups {
 				if out[g].Trades == 0 {
@@ -482,6 +477,24 @@ func AnalyzeBB(s BBSpec, e0 Spec, bid, ask []backtest.Candle) BBResult {
 		res.Walks = append(res.Walks, wk)
 	}
 	return res
+}
+
+// barsByHour lists the bar indexes of each UTC hour.
+func barsByHour(bid []backtest.Candle) [24][]int {
+	var out [24][]int
+	for t, c := range bid {
+		h := c.Time.UTC().Hour()
+		out[h] = append(out[h], t)
+	}
+	return out
+}
+
+// randomPlan is the random twin of walk plan p: it enters at the open of a bar drawn from
+// the bars of p's entry UTC hour, with p's side and stop distance.
+func randomPlan(rng *rand.Rand, bid []backtest.Candle, hourBars *[24][]int, p plan) plan {
+	hb := hourBars[bid[p.j].Time.UTC().Hour()]
+	j := hb[rng.IntN(len(hb))]
+	return plan{i: j, j: j, dir: p.dir, dist: p.dist, decision: bid[j].Time}
 }
 
 // decide reads a delta interval: above when it lies above 0, below when below 0.
@@ -661,7 +674,7 @@ func renderBB(s BBSpec, e0 Spec, art BBArtifact, artifact []byte, platform strin
 
 	p("\n## Limits\n\n")
 	p("- The financing values and the 17:00 America/New_York rollover are the E0 assumptions, applied to every instrument.\n")
-	p("- The random baseline matches count, side, UTC hour and stop distance, not volatility or session state beyond the hour.\n")
+	p("- The random baseline matches count, side, UTC hour and stop distance. Volatility and session state beyond the hour are unmatched.\n")
 	p("- \"Insufficient evidence\" is no finding of absence.\n")
 	p("- Each instrument is one export snapshot over its own date range.\n")
 	p("\n## Run\n\nFrom `platform/`:\n\n```\ngo run ./cmd/research-bb --spec ../docs/research/experiments/bb/spec.json --artifact <artifact JSON path> --report <report path>\n```\n\nPublication: build the command, run it twice with the network denied, and publish the report only when both runs give the same artifact sha256 and identical report bytes.\n")
