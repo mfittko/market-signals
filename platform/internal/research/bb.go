@@ -111,8 +111,9 @@ func (s BBSpec) declared() []struct{ name, value, label, source string } {
 }
 
 // ParseBBSpec decodes the spec and refuses an unknown field, an unlabelled value, a
-// count that is not a whole number >= 1, a bad band, threshold or squeeze value, and a
-// decision count other than one per threshold plus two per walk length.
+// count that is not a whole number >= 1, walk lengths that are not ascending and distinct,
+// a bad band, threshold or squeeze value, and a decision count other than one per
+// threshold plus two per walk length.
 func ParseBBSpec(b []byte) (BBSpec, error) {
 	var s BBSpec
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -134,6 +135,8 @@ func ParseBBSpec(b []byte) (BBSpec, error) {
 	switch th := a.WidthThresholds.Values; {
 	case len(th) == 0 || th[0] <= 0 || !slices.IsSorted(th) || len(slices.Compact(slices.Clone(th))) != len(th):
 		return s, errors.New("bb spec: widthThresholds must be ascending, distinct and > 0")
+	case !slices.IsSorted(a.WalkLengths.Values) || len(slices.Compact(slices.Clone(a.WalkLengths.Values))) != len(a.WalkLengths.Values):
+		return s, errors.New("bb spec: walkLengths must be ascending and distinct")
 	case a.BandStdDevs.Value <= 0 || a.WalkTargetR.Value <= 0:
 		return s, errors.New("bb spec: bandStdDevs and walkTargetR must be > 0")
 	case a.SqueezeShare.Value <= 0 || a.SqueezeShare.Value >= 1:

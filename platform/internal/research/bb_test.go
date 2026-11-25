@@ -115,6 +115,8 @@ func TestParseBBSpecRefusals(t *testing.T) {
       "label": "guessed"`},
 		"decision count": {`"value": 9,`, `"value": 8,`},
 		"fractional N":   {`"values": [3, 5, 8]`, `"values": [3, 5.5, 8]`},
+		"repeated N":     {`"values": [3, 5, 8]`, `"values": [3, 3, 8]`},
+		"descending N":   {`"values": [3, 5, 8]`, `"values": [8, 5, 3]`},
 		"thresholds":     {`"values": [2, 4, 8]`, `"values": [4, 2, 8]`},
 		"band sd":        {`"value": 2,`, `"value": 0,`},
 		"squeeze share":  {`"value": 0.2,`, `"value": 1,`},
@@ -342,6 +344,84 @@ func TestAnalyzeBBClassifiesTheKnownSqueezeStartWalk(t *testing.T) {
 				t.Errorf("N=%d: a descriptive group carries a decision", w.N)
 			}
 		}
+	}
+}
+
+// The walk fixture has one walk trade on two days, so every replicate weights both days
+// and each replicate delta is the walk net R minus the net R of one random draw.
+func TestAnalyzeBBWalkDeltaIsWalkMinusRandom(t *testing.T) {
+	s, e0 := walkSpec(t), fixtureE0(t)
+	bid, ask, first := walkBars(true)
+	r := AnalyzeBB(s, e0, bid, ask)
+	g := r.Walks[0].Groups[0]
+	if g.Name != "all walks" || g.Trades != 1 || r.Days != 2 {
+		t.Fatalf("group %q, trades %d, days %d; want all walks, 1, 2", g.Name, g.Trades, r.Days)
+	}
+	// replay the stream: the day blocks first, then one random twin of the walk trade per replicate
+	a := s.Analysis
+	rng := rand.New(rand.NewPCG(uint64(a.Seed.Value), uint64(a.Seed.Value)))
+	reps := dayBlocks(rng, r.Days, int(a.BlockDays.Value), int(a.BootstrapReps.Value))
+	mid, _ := bollinger(bid, int(a.BandPeriod.Value), a.BandStdDevs.Value)
+	sig := first + 2
+	decision := bid[sig].Time.Add(time.Duration(e0.Feed.BarSeconds)*time.Second + time.Duration(e0.Experiment.Timing.DecisionDelayMs.Value*float64(time.Millisecond)))
+	j := actAt(bid, sig+1, decision)
+	p := plan{i: sig, j: j, dir: 1, dist: entryPrice(bid, ask, j, 1) - mid[sig], decision: decision}
+	ws := e0
+	ws.Experiment.Strategy.RR, ws.Experiment.Strategy.MaxBars = a.WalkTargetR.Value, int(a.WalkMaxBars.Value)
+	hours := barsByHour(bid)
+	sum, below := 0.0, 0
+	var ds []float64
+	for range reps {
+		tr, _ := simulate(ws, bid, ask, nil, randomPlan(rng, bid, &hours, p))
+		sum += tr.NetR
+		ds = append(ds, g.WalkMean-tr.NetR)
+		if tr.NetR < g.WalkMean {
+			below++
+		}
+	}
+	want := interval(g.WalkMean-sum/float64(len(reps)), ds, 100-5/a.Decisions.Value)
+	if g.Delta != want {
+		t.Errorf("all walks delta %+v, want walk mean minus mean draw %+v", g.Delta, want)
+	}
+	if pct := 100 * float64(below) / float64(len(reps)); g.RandomPct != pct || pct < 0 || pct > 100 {
+		t.Errorf("random percentile %v, want %v in [0, 100]", g.RandomPct, pct)
+	}
+}
+
+// The frozen thresholds keep every fixture trade, so every delta is 0 and shows no sign;
+// thresholds 8, 16 and 32 keep k=8 and split the fixture trades at 16 and 32.
+func TestAnalyzeBBGateDeltaIsKeptMinusAll(t *testing.T) {
+	s, bid, ask := load(t)
+	sp := bbSpec(t)
+	sp.Analysis.WidthThresholds.Values = []float64{8, 16, 32}
+	r := AnalyzeBB(sp, s, bid, ask)
+	sum, n := 0.0, 0
+	for _, b := range r.Buckets {
+		sum += b.Net.Est * float64(b.Trades)
+		n += b.Trades
+	}
+	signed := false
+	for g, gate := range r.Gates {
+		ksum, kept := 0.0, 0
+		for _, b := range r.Buckets[g+1:] {
+			ksum += b.Net.Est * float64(b.Trades)
+			kept += b.Trades
+		}
+		if kept == 0 || gate.Kept != kept {
+			t.Fatalf("k=%g keeps %d, buckets above hold %d; want kept trades", gate.K, gate.Kept, kept)
+		}
+		want := ksum/float64(kept) - sum/float64(n)
+		if math.Abs(gate.Delta.Est-want) > 1e-9 {
+			t.Errorf("k=%g delta %v, want kept mean minus all mean %v", gate.K, gate.Delta.Est, want)
+		}
+		// the replicates are kept minus all too, so the interval holds the estimate
+		if !gate.Delta.OK || gate.Delta.Lo > gate.Delta.Est+1e-12 || gate.Delta.Hi < gate.Delta.Est-1e-12 {
+			t.Errorf("k=%g delta interval %+v does not hold its estimate", gate.K, gate.Delta)
+		}
+		signed = signed || math.Abs(want) > 0.1
+	}
+	if r.Gates[0].K != 8 || !signed {
+		t.Fatalf("gates %+v: want k=8 first and a gate with a nonzero delta", r.Gates)
 	}
 }
 
