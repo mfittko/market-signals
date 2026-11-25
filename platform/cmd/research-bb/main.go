@@ -91,6 +91,20 @@ func writeAtomic(path string, b []byte) error {
 	return os.Rename(f.Name(), path)
 }
 
+// outputPath resolves the directory of an output path through symlinks, as writeAtomic's
+// rename does, so two spellings of one not-yet-existing file compare equal.
+func outputPath(p string) (string, error) {
+	dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err != nil {
+		return "", err
+	}
+	dir, err = filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, filepath.Base(p)), nil
+}
+
 // run writes the artifact and then the report; it warns on stderr about each instrument
 // whose spec pins a dataset sha256 but whose export file is missing.
 func run(specPath, artifactPath, reportPath string, stderr io.Writer) error {
@@ -122,11 +136,11 @@ func run(specPath, artifactPath, reportPath string, stderr io.Writer) error {
 		}
 	}
 	// the writes replace --artifact and --report, so neither may be an input or the other
-	absArtifact, err := filepath.Abs(artifactPath)
+	absArtifact, err := outputPath(artifactPath)
 	if err != nil {
 		return err
 	}
-	absReport, err := filepath.Abs(reportPath)
+	absReport, err := outputPath(reportPath)
 	if err != nil {
 		return err
 	}

@@ -67,6 +67,14 @@ func TestRunRefusesTwoSpellingsOrTwoLinksOfOneOutput(t *testing.T) {
 	if err := run(spec, dir+sep+"a.json", dir+sep+"."+sep+"a.json", io.Discard); err == nil || !strings.Contains(err.Error(), "same path") {
 		t.Errorf("two spellings of one path: want a refusal, got %v", err)
 	}
+	// a file that does not exist yet, named through a directory and a symlink to it
+	link := filepath.Join(t.TempDir(), "d2")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(spec, filepath.Join(dir, "c.json"), filepath.Join(link, "c.json"), io.Discard); err == nil || !strings.Contains(err.Error(), "same path") {
+		t.Errorf("one path through a directory symlink: want a refusal, got %v", err)
+	}
 	// an existing file and a hard link to it
 	a, b := filepath.Join(dir, "b.json"), filepath.Join(dir, "b-link.md")
 	if err := os.WriteFile(a, []byte("keep\n"), 0o644); err != nil {
