@@ -146,6 +146,7 @@ Grade B.
 - Blocking entries with spread above 0.2 R improves kept R per signal by +0.371 R [+0.351, +0.394] dev and +0.254 R [+0.238, +0.269] 2023+. Blocking thin hours adds +0.045 and +0.037 R ([notrade12]).
 - The filtered signals still average -0.120 R (dev) and -0.116 R (2023+) ([notrade12]).
 - Chase and stretched-move filters are harmful. They block better-than-average entries ([notrade12]).
+- The tracked band study gates E0 trades on Bollinger band width in spreads (k = 2, 4, 8) on WTICO/USD, NAS100/USD, SPX500/USD, US30/USD and DE30/EUR, M1 2023 to 2026-09. Every gate on every instrument reduces cost drag under its preregistered decision rule; at k = 8 kept minus all is +0.132 to +0.606 R. The kept trades still lose: at k = 8 they net -0.150 to -0.221 R. It is a cost filter with no edge ([BB report](experiments/bb/report.md)).
 
 ### F15. Passive limit entries do not save the spread
 
@@ -290,6 +291,7 @@ Grade B. Consistent with external results on backtest overfitting (Wiecki et al.
 - 0 of 3,030 cells reach Deflated Sharpe 0.95. Naive p below 0.05 holds for 22 class cells and 254 of 20,301 instrument cells ([scan46]).
 - The top 10 daily cells shrink from Sharpe +0.54 (discovery) to +0.40 (validation) to -0.04 (2023+) ([scan46]).
 - The DSR hurdles are high (SR0 1.35 daily, 2.16 H4, 6.31 H1). The external review asks for a synthetic validation of this application ([external-review.md](external-review.md#methodology)).
+- Bollinger band walks (N = 3, 5, 8 closes beyond the outer band, all walks and squeeze-start walks) against matched random entries give insufficient evidence in all 6 decisions on each of WTICO/USD, NAS100/USD, SPX500/USD, US30/USD and DE30/EUR. Insufficient evidence is no finding of absence ([BB report](experiments/bb/report.md)).
 
 ### F33. 2023+ is development evidence
 

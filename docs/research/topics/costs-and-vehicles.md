@@ -20,6 +20,7 @@ Consequences:
 - Any M1 or M5 edge must be large to survive. The M1 pullback excess of +0.07 to +0.17 bps is real and still loses -1.3 to -2.3 bps against a spread of about 2 bps ([swing45]).
 - Typical costs per trade in R units: about 0.11 R for xvol9 entries, 0.116 R mean spread for the limit13 signals, 0.08 R for 15-minute ORB, 0.11 to 0.13 R for daytype14 ([xvol9], [limit13], [orb15], [daytype14]).
 - Spread relative to ATR swings with the hour. Blocking entries with spread above 0.2 R and in fixed thin hours cuts losses per signal by about 70 to 80%. The remaining signals still lose about -0.12 R ([notrade12]).
+- Gating E0 trades on Bollinger band width of at least k spreads (k = 2, 4, 8) reduces cost drag under the preregistered rule on WTICO/USD, NAS100/USD, SPX500/USD, US30/USD and DE30/EUR (M1, 2023 to 2026-09). At k = 8 the kept trades still net -0.150 to -0.221 R. Band walks give insufficient evidence on all five instruments ([BB report](../experiments/bb/report.md)).
 - Thin hours (UTC) per instrument: WTI 4, 5, 22, 23; XAU 4, 21, 22, 23; XAG 0, 21, 22, 23; NATGAS 3, 4, 22, 23; SPX500 3, 4, 5, 6; EUR/USD 4, 21, 22, 23 ([notrade12]).
 - Passive limit orders do not save the spread. They fill on failing signals and miss winners ([limit13]).
 
