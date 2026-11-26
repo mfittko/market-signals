@@ -27,9 +27,11 @@ type Attempt struct {
 	Status     string    `json:"status"` // forecast | hold | timeout | error
 	Dir        int       `json:"dir,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
-	// Expiry is the decision time plus maxBars bar durations on the wall clock. It does not
-	// skip market gaps, while the E0 time stop counts bars, so a trade that spans a weekend
-	// matures after its attempt's expiry.
+	// Expiry depends on the mode. A retrospective attempt expires at the decision time plus
+	// maxBars bar durations on the wall clock. It does not skip market gaps, while the E0 time
+	// stop counts bars, so a trade that spans a weekend matures after its attempt's expiry.
+	// A prospective attempt expires at the decision time plus the spec's timing.expiryDays
+	// calendar days.
 	Expiry time.Time `json:"expiry"`
 	// Received is when a prospective attempt's loop first saw its bar complete. It is
 	// omitted when zero, so retrospective journals keep their bytes.
