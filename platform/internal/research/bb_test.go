@@ -470,6 +470,7 @@ func bbInputs(t *testing.T, minRows float64) BBInputs {
 	files := map[string][]byte{}
 	for k := range s.Instruments {
 		inst := &s.Instruments[k]
+		inst.Dataset.SHA256 = nil
 		switch inst.Instrument {
 		case "WTICO/USD":
 			h := sha(data)

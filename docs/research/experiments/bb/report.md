@@ -11,9 +11,9 @@ Questions:
 
 | Item | Value |
 |---|---|
-| BB spec | `docs/research/experiments/bb/spec.json`, sha256 `217f464317dd09206c3325aceb50893f839866202bc585c6c2fefd949806da9b` |
+| BB spec | `docs/research/experiments/bb/spec.json`, sha256 `66cfdb0e03e57bb4f7d281107da3c05fc7f954fa286d32dc32189ec8bd961a10` |
 | E0 spec | `docs/research/experiments/e0/spec.json`, sha256 `cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb` |
-| Artifact sha256 | `5d16eaf6530e9439e8b64c96cd43ee0499d6b776566500b20286796d9d35d97c` |
+| Artifact sha256 | `c1c924affd591fa0e52b1cd85072133360268bf66d95da58cc9189bc209024fa` |
 | Go version and platform | `go1.27.3 darwin/arm64` |
 
 The artifact is the JSON of every result below at full precision. Its sha256 reproduces on that Go version and platform; another GOARCH can change it, because the Go compiler may fuse a multiply and an add on arm64. The exports are one-time owner exports and are not committed.
@@ -22,10 +22,10 @@ The artifact is the JSON of every result below at full precision. Its sha256 rep
 
 | Instrument | Export | Dataset sha256 | Status |
 |---|---|---|---|
-| NAS100/USD | `tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv` | null | not run: no export |
-| SPX500/USD | `tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv` | null | not run: no export |
-| US30/USD | `tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv` | null | not run: no export |
-| DE30/EUR | `tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv` | null | not run: no export |
+| NAS100/USD | `tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv` | `ff3d0098085041776b6d77c841c128927f01356535ea57c3f8f9ea258e24a39c` | run |
+| SPX500/USD | `tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv` | `dd5826188a6eb3cc3ea3a4e941fd0c1eb348893403e746e9b63403eb54228116` | run |
+| US30/USD | `tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv` | `348ce19278049065b58491d9090ce5b4050c72a145ea5b217e10b41eeaa9f250` | run |
+| DE30/EUR | `tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv` | `4d405e6b26e0496f7bde23618427824e1c93d77b338eb8cc5d037b6e9b1c4b1a` | run |
 | WTICO/USD | `tmp/research-export/wtico-usd-m1-ba-2023-2026q3.csv` | `4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488` | run |
 
 ## Rules
@@ -63,6 +63,258 @@ Every value of the study is labelled in the spec. A rule's text is in the spec.
 | decisions | 9 | assumed | issue 424 Decided approach: m = 9 decisions per instrument, 3 for question 1 (one per k) and 6 for question 2 (all walks and squeeze-start walks per N); no correction runs across instruments |
 | ci | rule | assumed | issue 424 Decided approach; F316 analysis.ci |
 | decisionRule | rule | assumed | issue 424 Decided approach |
+
+## NAS100/USD
+
+1317284 rows over 1169 UTC days. E0 trades: 34845; 0 have no band at the flip bar and are left out of question 1.
+
+### Question 1: band width at the E0 entry
+
+Width in spreads is the flip bar's band width over the entry-open spread. Means are in R per trade with a 95% block-bootstrap CI. Gross minus spread minus financing is net.
+
+| Width in spreads | Trades | Net R [CI] | Gross R [CI] | Spread R [CI] | Financing R |
+|---|---|---|---|---|---|
+| below 2 | 197 | -1.173 [-1.238, -1.088] | +0.016 [-0.026, +0.073] | +1.189 [+1.136, +1.236] | +0.000 |
+| 2 to 4 | 4009 | -0.762 [-0.794, -0.729] | +0.026 [+0.000, +0.050] | +0.787 [+0.770, +0.802] | +0.001 |
+| 4 to 8 | 9940 | -0.457 [-0.482, -0.432] | +0.014 [-0.011, +0.038] | +0.469 [+0.459, +0.479] | +0.002 |
+| 8 or more | 20699 | -0.150 [-0.170, -0.132] | +0.008 [-0.012, +0.027] | +0.157 [+0.155, +0.160] | +0.001 |
+
+Gate: keep an E0 trade only when the width is k spreads or more. The interval is the Bonferroni interval over 9 decisions.
+
+| k | Kept | Kept share | Kept minus all net R [interval] | Decision |
+|---|---|---|---|---|
+| 2 | 34648 | 99.4% | +0.005 [+0.003, +0.008] | reduces cost drag |
+| 4 | 30639 | 87.9% | +0.064 [+0.051, +0.078] | reduces cost drag |
+| 8 | 20699 | 59.4% | +0.164 [+0.136, +0.191] | reduces cost drag |
+
+### Question 2: band walks against random entries
+
+The interval is the Bonferroni interval over 9 decisions. The random-entry percentile is the share of the 2000 random draws whose mean net R is below the walk mean; it does not enter the decision. Other walks, longs and shorts get no decision.
+
+#### N = 3
+
+Signals: 20073; skipped as busy: 6960, no_stop: 38, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 13075 | -0.118 | +0.032 [-0.026, +0.090] | 99.7 | insufficient evidence |
+| squeeze-start walks | 4767 | -0.233 | +0.010 [-0.087, +0.108] | 68.9 | insufficient evidence |
+| other walks | 8308 | -0.053 | +0.044 [-0.022, +0.112] | 99.8 | none (descriptive) |
+| longs | 6418 | -0.104 | +0.015 [-0.057, +0.089] | 83.5 | none (descriptive) |
+| shorts | 6657 | -0.132 | +0.047 [-0.027, +0.125] | 99.8 | none (descriptive) |
+
+#### N = 5
+
+Signals: 4688; skipped as busy: 573, no_stop: 10, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 4105 | -0.083 | +0.034 [-0.064, +0.125] | 95.8 | insufficient evidence |
+| squeeze-start walks | 1694 | -0.166 | +0.015 [-0.143, +0.159] | 67.2 | insufficient evidence |
+| other walks | 2411 | -0.024 | +0.047 [-0.078, +0.179] | 96.6 | none (descriptive) |
+| longs | 2012 | -0.027 | +0.064 [-0.079, +0.197] | 98.9 | none (descriptive) |
+| shorts | 2093 | -0.136 | +0.004 [-0.135, +0.138] | 57.2 | none (descriptive) |
+
+#### N = 8
+
+Signals: 316; skipped as busy: 5, no_stop: 0, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 311 | -0.091 | -0.017 [-0.376, +0.332] | 40.6 | insufficient evidence |
+| squeeze-start walks | 140 | -0.188 | -0.085 [-0.660, +0.450] | 21.3 | insufficient evidence |
+| other walks | 171 | -0.012 | +0.038 [-0.438, +0.445] | 66.6 | none (descriptive) |
+| longs | 140 | -0.003 | +0.060 [-0.479, +0.583] | 71.8 | none (descriptive) |
+| shorts | 171 | -0.163 | -0.081 [-0.518, +0.369] | 19.4 | none (descriptive) |
+
+## SPX500/USD
+
+1280721 rows over 1169 UTC days. E0 trades: 37253; 0 have no band at the flip bar and are left out of question 1.
+
+### Question 1: band width at the E0 entry
+
+Width in spreads is the flip bar's band width over the entry-open spread. Means are in R per trade with a 95% block-bootstrap CI. Gross minus spread minus financing is net.
+
+| Width in spreads | Trades | Net R [CI] | Gross R [CI] | Spread R [CI] | Financing R |
+|---|---|---|---|---|---|
+| below 2 | 542 | -1.253 [-1.288, -1.205] | +0.006 [-0.021, +0.041] | +1.260 [+1.235, +1.283] | +0.000 |
+| 2 to 4 | 6429 | -0.777 [-0.806, -0.746] | +0.057 [+0.032, +0.083] | +0.833 [+0.821, +0.846] | +0.000 |
+| 4 to 8 | 11793 | -0.484 [-0.509, -0.458] | +0.026 [+0.003, +0.051] | +0.507 [+0.499, +0.515] | +0.003 |
+| 8 or more | 18489 | -0.187 [-0.207, -0.166] | +0.016 [-0.004, +0.036] | +0.202 [+0.197, +0.207] | +0.001 |
+
+Gate: keep an E0 trade only when the width is k spreads or more. The interval is the Bonferroni interval over 9 decisions.
+
+| k | Kept | Kept share | Kept minus all net R [interval] | Decision |
+|---|---|---|---|---|
+| 2 | 36711 | 98.5% | +0.013 [+0.010, +0.016] | reduces cost drag |
+| 4 | 30282 | 81.3% | +0.096 [+0.082, +0.111] | reduces cost drag |
+| 8 | 18489 | 49.6% | +0.212 [+0.185, +0.239] | reduces cost drag |
+
+### Question 2: band walks against random entries
+
+The interval is the Bonferroni interval over 9 decisions. The random-entry percentile is the share of the 2000 random draws whose mean net R is below the walk mean; it does not enter the decision. Other walks, longs and shorts get no decision.
+
+#### N = 3
+
+Signals: 19071; skipped as busy: 6605, no_stop: 39, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 12427 | -0.193 | -0.009 [-0.065, +0.053] | 21.5 | insufficient evidence |
+| squeeze-start walks | 4492 | -0.290 | +0.001 [-0.104, +0.107] | 53.8 | insufficient evidence |
+| other walks | 7935 | -0.138 | -0.015 [-0.083, +0.054] | 15.8 | none (descriptive) |
+| longs | 6091 | -0.168 | -0.020 [-0.101, +0.062] | 10.9 | none (descriptive) |
+| shorts | 6336 | -0.217 | +0.001 [-0.077, +0.087] | 54.1 | none (descriptive) |
+
+#### N = 5
+
+Signals: 4433; skipped as busy: 526, no_stop: 3, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 3904 | -0.136 | -0.001 [-0.090, +0.095] | 46.9 | insufficient evidence |
+| squeeze-start walks | 1628 | -0.218 | -0.023 [-0.177, +0.135] | 23.7 | insufficient evidence |
+| other walks | 2276 | -0.077 | +0.014 [-0.111, +0.146] | 71.1 | none (descriptive) |
+| longs | 1880 | -0.144 | -0.028 [-0.169, +0.116] | 16.5 | none (descriptive) |
+| shorts | 2024 | -0.128 | +0.024 [-0.103, +0.166] | 79.5 | none (descriptive) |
+
+#### N = 8
+
+Signals: 275; skipped as busy: 3, no_stop: 0, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 272 | -0.122 | -0.026 [-0.401, +0.300] | 35.3 | insufficient evidence |
+| squeeze-start walks | 128 | -0.099 | +0.021 [-0.632, +0.521] | 57.9 | insufficient evidence |
+| other walks | 144 | -0.142 | -0.068 [-0.543, +0.430] | 24.1 | none (descriptive) |
+| longs | 123 | -0.012 | +0.086 [-0.467, +0.653] | 78.0 | none (descriptive) |
+| shorts | 149 | -0.212 | -0.118 [-0.638, +0.338] | 10.5 | none (descriptive) |
+
+## US30/USD
+
+1306126 rows over 1169 UTC days. E0 trades: 37065; 0 have no band at the flip bar and are left out of question 1.
+
+### Question 1: band width at the E0 entry
+
+Width in spreads is the flip bar's band width over the entry-open spread. Means are in R per trade with a 95% block-bootstrap CI. Gross minus spread minus financing is net.
+
+| Width in spreads | Trades | Net R [CI] | Gross R [CI] | Spread R [CI] | Financing R |
+|---|---|---|---|---|---|
+| below 2 | 192 | -1.368 [-1.453, -1.287] | -0.037 [-0.054, -0.023] | +1.331 [+1.242, +1.421] | +0.000 |
+| 2 to 4 | 3250 | -0.719 [-0.756, -0.680] | +0.044 [+0.011, +0.080] | +0.761 [+0.747, +0.777] | +0.002 |
+| 4 to 8 | 10602 | -0.468 [-0.491, -0.445] | +0.004 [-0.018, +0.027] | +0.468 [+0.462, +0.474] | +0.004 |
+| 8 or more | 23021 | -0.191 [-0.209, -0.173] | +0.001 [-0.018, +0.018] | +0.189 [+0.186, +0.192] | +0.002 |
+
+Gate: keep an E0 trade only when the width is k spreads or more. The interval is the Bonferroni interval over 9 decisions.
+
+| k | Kept | Kept share | Kept minus all net R [interval] | Decision |
+|---|---|---|---|---|
+| 2 | 36873 | 99.5% | +0.005 [+0.004, +0.008] | reduces cost drag |
+| 4 | 33623 | 90.7% | +0.044 [+0.036, +0.054] | reduces cost drag |
+| 8 | 23021 | 62.1% | +0.132 [+0.115, +0.151] | reduces cost drag |
+
+### Question 2: band walks against random entries
+
+The interval is the Bonferroni interval over 9 decisions. The random-entry percentile is the share of the 2000 random draws whose mean net R is below the walk mean; it does not enter the decision. Other walks, longs and shorts get no decision.
+
+#### N = 3
+
+Signals: 19382; skipped as busy: 6599, no_stop: 40, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 12743 | -0.151 | +0.003 [-0.050, +0.060] | 58.8 | insufficient evidence |
+| squeeze-start walks | 4407 | -0.250 | +0.003 [-0.094, +0.107] | 55.1 | insufficient evidence |
+| other walks | 8336 | -0.099 | +0.003 [-0.065, +0.070] | 56.4 | none (descriptive) |
+| longs | 6220 | -0.152 | -0.016 [-0.097, +0.060] | 15.9 | none (descriptive) |
+| shorts | 6523 | -0.151 | +0.021 [-0.051, +0.097] | 89.8 | none (descriptive) |
+
+#### N = 5
+
+Signals: 4590; skipped as busy: 555, no_stop: 3, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 4032 | -0.136 | -0.016 [-0.117, +0.078] | 22.9 | insufficient evidence |
+| squeeze-start walks | 1567 | -0.177 | +0.008 [-0.153, +0.167] | 60.0 | insufficient evidence |
+| other walks | 2465 | -0.110 | -0.032 [-0.157, +0.090] | 11.3 | none (descriptive) |
+| longs | 1898 | -0.119 | -0.006 [-0.146, +0.140] | 43.4 | none (descriptive) |
+| shorts | 2134 | -0.152 | -0.025 [-0.152, +0.110] | 18.8 | none (descriptive) |
+
+#### N = 8
+
+Signals: 289; skipped as busy: 2, no_stop: 0, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 287 | -0.093 | -0.012 [-0.365, +0.330] | 44.8 | insufficient evidence |
+| squeeze-start walks | 123 | -0.017 | +0.093 [-0.455, +0.672] | 80.3 | insufficient evidence |
+| other walks | 164 | -0.151 | -0.090 [-0.512, +0.338] | 15.9 | none (descriptive) |
+| longs | 137 | +0.021 | +0.097 [-0.430, +0.586] | 83.8 | none (descriptive) |
+| shorts | 150 | -0.198 | -0.111 [-0.566, +0.348] | 12.0 | none (descriptive) |
+
+## DE30/EUR
+
+1131510 rows over 953 UTC days. E0 trades: 33532; 1 have no band at the flip bar and are left out of question 1.
+
+### Question 1: band width at the E0 entry
+
+Width in spreads is the flip bar's band width over the entry-open spread. Means are in R per trade with a 95% block-bootstrap CI. Gross minus spread minus financing is net.
+
+| Width in spreads | Trades | Net R [CI] | Gross R [CI] | Spread R [CI] | Financing R |
+|---|---|---|---|---|---|
+| below 2 | 1776 | -1.668 [-1.718, -1.616] | +0.002 [-0.004, +0.011] | +1.670 [+1.619, +1.718] | -0.000 |
+| 2 to 4 | 6302 | -0.938 [-0.968, -0.909] | +0.038 [+0.016, +0.060] | +0.974 [+0.951, +0.996] | +0.002 |
+| 4 to 8 | 8321 | -0.510 [-0.534, -0.486] | +0.022 [-0.001, +0.044] | +0.527 [+0.520, +0.535] | +0.005 |
+| 8 or more | 17132 | -0.212 [-0.234, -0.191] | -0.009 [-0.031, +0.012] | +0.202 [+0.199, +0.205] | +0.001 |
+
+Gate: keep an E0 trade only when the width is k spreads or more. The interval is the Bonferroni interval over 9 decisions.
+
+| k | Kept | Kept share | Kept minus all net R [interval] | Decision |
+|---|---|---|---|---|
+| 2 | 31755 | 94.7% | +0.065 [+0.053, +0.079] | reduces cost drag |
+| 4 | 25453 | 75.9% | +0.190 [+0.167, +0.213] | reduces cost drag |
+| 8 | 17132 | 51.1% | +0.287 [+0.261, +0.314] | reduces cost drag |
+
+### Question 2: band walks against random entries
+
+The interval is the Bonferroni interval over 9 decisions. The random-entry percentile is the share of the 2000 random draws whose mean net R is below the walk mean; it does not enter the decision. Other walks, longs and shorts get no decision.
+
+#### N = 3
+
+Signals: 16938; skipped as busy: 5841, no_stop: 32, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 11065 | -0.223 | +0.058 [-0.074, +0.289] | 99.8 | insufficient evidence |
+| squeeze-start walks | 4036 | -0.381 | +0.029 [-0.094, +0.170] | 90.0 | insufficient evidence |
+| other walks | 7029 | -0.132 | +0.074 [-0.104, +0.436] | 99.8 | none (descriptive) |
+| longs | 5406 | -0.198 | +0.072 [-0.142, +0.523] | 96.8 | none (descriptive) |
+| shorts | 5659 | -0.247 | +0.044 [-0.052, +0.153] | 99.3 | none (descriptive) |
+
+#### N = 5
+
+Signals: 3931; skipped as busy: 460, no_stop: 8, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 3463 | -0.177 | -0.001 [-0.108, +0.107] | 47.9 | insufficient evidence |
+| squeeze-start walks | 1471 | -0.312 | -0.044 [-0.227, +0.141] | 10.9 | insufficient evidence |
+| other walks | 1992 | -0.077 | +0.031 [-0.107, +0.175] | 86.4 | none (descriptive) |
+| longs | 1705 | -0.193 | -0.042 [-0.187, +0.121] | 9.2 | none (descriptive) |
+| shorts | 1758 | -0.161 | +0.039 [-0.110, +0.200] | 89.4 | none (descriptive) |
+
+#### N = 8
+
+Signals: 247; skipped as busy: 2, no_stop: 0, no_entry_bar: 0.
+
+| Group | Trades | Walk mean net R | Walk minus random net R [interval] | Random-entry percentile | Decision |
+|---|---|---|---|---|---|
+| all walks | 245 | +0.113 | +0.239 [-0.173, +0.622] | 99.8 | insufficient evidence |
+| squeeze-start walks | 129 | +0.070 | +0.237 [-0.339, +0.854] | 97.4 | insufficient evidence |
+| other walks | 116 | +0.160 | +0.241 [-0.302, +0.786] | 98.1 | none (descriptive) |
+| longs | 97 | +0.079 | +0.176 [-0.460, +0.835] | 91.5 | none (descriptive) |
+| shorts | 148 | +0.135 | +0.280 [-0.233, +0.792] | 99.7 | none (descriptive) |
 
 ## WTICO/USD
 
@@ -131,6 +383,54 @@ Signals: 280; skipped as busy: 4, no_stop: 0, no_entry_bar: 0.
 
 Each decision follows the preregistered rule in the spec. There are 9 decisions per instrument, and no correction runs across instruments.
 
+NAS100/USD:
+
+- Question 1, k = 2: reduces cost drag.
+- Question 1, k = 4: reduces cost drag.
+- Question 1, k = 8: reduces cost drag.
+- Question 2, N = 3, all walks: insufficient evidence.
+- Question 2, N = 3, squeeze-start walks: insufficient evidence.
+- Question 2, N = 5, all walks: insufficient evidence.
+- Question 2, N = 5, squeeze-start walks: insufficient evidence.
+- Question 2, N = 8, all walks: insufficient evidence.
+- Question 2, N = 8, squeeze-start walks: insufficient evidence.
+
+SPX500/USD:
+
+- Question 1, k = 2: reduces cost drag.
+- Question 1, k = 4: reduces cost drag.
+- Question 1, k = 8: reduces cost drag.
+- Question 2, N = 3, all walks: insufficient evidence.
+- Question 2, N = 3, squeeze-start walks: insufficient evidence.
+- Question 2, N = 5, all walks: insufficient evidence.
+- Question 2, N = 5, squeeze-start walks: insufficient evidence.
+- Question 2, N = 8, all walks: insufficient evidence.
+- Question 2, N = 8, squeeze-start walks: insufficient evidence.
+
+US30/USD:
+
+- Question 1, k = 2: reduces cost drag.
+- Question 1, k = 4: reduces cost drag.
+- Question 1, k = 8: reduces cost drag.
+- Question 2, N = 3, all walks: insufficient evidence.
+- Question 2, N = 3, squeeze-start walks: insufficient evidence.
+- Question 2, N = 5, all walks: insufficient evidence.
+- Question 2, N = 5, squeeze-start walks: insufficient evidence.
+- Question 2, N = 8, all walks: insufficient evidence.
+- Question 2, N = 8, squeeze-start walks: insufficient evidence.
+
+DE30/EUR:
+
+- Question 1, k = 2: reduces cost drag.
+- Question 1, k = 4: reduces cost drag.
+- Question 1, k = 8: reduces cost drag.
+- Question 2, N = 3, all walks: insufficient evidence.
+- Question 2, N = 3, squeeze-start walks: insufficient evidence.
+- Question 2, N = 5, all walks: insufficient evidence.
+- Question 2, N = 5, squeeze-start walks: insufficient evidence.
+- Question 2, N = 8, all walks: insufficient evidence.
+- Question 2, N = 8, squeeze-start walks: insufficient evidence.
+
 WTICO/USD:
 
 - Question 1, k = 2: reduces cost drag.
@@ -145,10 +445,7 @@ WTICO/USD:
 
 Not run:
 
-- NAS100/USD: no export.
-- SPX500/USD: no export.
-- US30/USD: no export.
-- DE30/EUR: no export.
+- none
 
 ## Limits
 
@@ -169,15 +466,15 @@ Publication: build the command, run it twice with the network denied, and publis
 
 ## Publication record
 
-The command wrote the first 10200 bytes of this file. This section was added by hand after both runs. `head -c 10200 report.md | shasum -a 256` prints the report sha256 below.
+The command wrote the first 26448 bytes of this file. This section was added by hand after both runs. `head -c 26448 report.md | shasum -a 256` prints the report sha256 below.
 
 | Item | Value |
 |---|---|
 | Build | `go build -o research-bb ./cmd/research-bb` from `platform/`; both runs use that binary with the arguments above |
 | Network denial | each run under `sandbox-exec -p '(version 1)(allow default)(deny network*)'` (macOS Seatbelt) |
 | Go version and platform | `go1.27.3 darwin/arm64` |
-| Run 1 artifact sha256 | `5d16eaf6530e9439e8b64c96cd43ee0499d6b776566500b20286796d9d35d97c` |
-| Run 2 artifact sha256 | `5d16eaf6530e9439e8b64c96cd43ee0499d6b776566500b20286796d9d35d97c` |
-| Run 1 report sha256 | `ada20eccfd9fe00743d4ab6b754432f6b4fb1f87966a47aa302443609b5382aa` |
-| Run 2 report sha256 | `ada20eccfd9fe00743d4ab6b754432f6b4fb1f87966a47aa302443609b5382aa` |
-| Export | read through the untracked `tmp/research-export/` path; the WTICO/USD file matched its pinned dataset sha256 on both runs |
+| Run 1 artifact sha256 | `c1c924affd591fa0e52b1cd85072133360268bf66d95da58cc9189bc209024fa` |
+| Run 2 artifact sha256 | `c1c924affd591fa0e52b1cd85072133360268bf66d95da58cc9189bc209024fa` |
+| Run 1 report sha256 | `1d2267c630f4bd95e8b9280f007c27bb6bfa3974d4290e2224237698d77a6a31` |
+| Run 2 report sha256 | `1d2267c630f4bd95e8b9280f007c27bb6bfa3974d4290e2224237698d77a6a31` |
+| Export | read through the untracked `tmp/research-export/` path; all five files matched their pinned dataset sha256 on both runs |

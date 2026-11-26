@@ -1,0 +1,1 @@
+- Research: the Bollinger band study now also runs on NAS100/USD, SPX500/USD, US30/USD and DE30/EUR; band width gates reduce cost drag on all five instruments and band walks give insufficient evidence, with no edge claimed (#427)

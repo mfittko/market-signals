@@ -9,10 +9,10 @@
     "sha256": "cc038758f1101cbb789a34d861d92200e6df9d40423ef17111da432f2b82f2fb"
   },
   "instruments": [
-    {"instrument": "NAS100/USD", "dataset": {"path": "tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
-    {"instrument": "SPX500/USD", "dataset": {"path": "tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
-    {"instrument": "US30/USD", "dataset": {"path": "tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv", "sha256": null}},
-    {"instrument": "DE30/EUR", "dataset": {"path": "tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv", "sha256": null}},
+    {"instrument": "NAS100/USD", "dataset": {"path": "tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv", "sha256": "ff3d0098085041776b6d77c841c128927f01356535ea57c3f8f9ea258e24a39c"}},
+    {"instrument": "SPX500/USD", "dataset": {"path": "tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv", "sha256": "dd5826188a6eb3cc3ea3a4e941fd0c1eb348893403e746e9b63403eb54228116"}},
+    {"instrument": "US30/USD", "dataset": {"path": "tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv", "sha256": "348ce19278049065b58491d9090ce5b4050c72a145ea5b217e10b41eeaa9f250"}},
+    {"instrument": "DE30/EUR", "dataset": {"path": "tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv", "sha256": "4d405e6b26e0496f7bde23618427824e1c93d77b338eb8cc5d037b6e9b1c4b1a"}},
     {"instrument": "WTICO/USD", "dataset": {"path": "tmp/research-export/wtico-usd-m1-ba-2023-2026q3.csv", "sha256": "4177965517fb5697dd8579844c3960cc030f20bd5800d45fac46b1f38b26f488"}}
   ],
   "inherited": {

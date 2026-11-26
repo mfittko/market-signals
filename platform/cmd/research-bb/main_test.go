@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -136,6 +137,14 @@ func TestRunRefusesAnInputPathThatLeavesTheRepository(t *testing.T) {
 
 func TestRunReportsEveryInstrumentWithoutAnExportAsNotRun(t *testing.T) {
 	root, spec := layout(t, true)
+	b, err := os.ReadFile(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b = regexp.MustCompile(`("tmp/research-export/(?:nas100|spx500|us30|de30)-[^"]+", "sha256": )"[0-9a-f]{64}"`).ReplaceAll(b, []byte("${1}null"))
+	if err := os.WriteFile(spec, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	report := filepath.Join(dir, "report.md")
 	var stderr bytes.Buffer
@@ -151,7 +160,7 @@ func TestRunReportsEveryInstrumentWithoutAnExportAsNotRun(t *testing.T) {
 	if got := stderr.String(); strings.Count(got, "warning:") != 1 || !strings.Contains(got, "WTICO/USD pins dataset sha256 ") || !strings.Contains(got, wti+" does not exist") {
 		t.Errorf("stderr %q, want one warning naming WTICO/USD and %s", got, wti)
 	}
-	b, err := os.ReadFile(report)
+	b, err = os.ReadFile(report)
 	if err != nil {
 		t.Fatal(err)
 	}
