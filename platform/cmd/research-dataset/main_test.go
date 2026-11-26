@@ -76,6 +76,13 @@ func TestVerifyRefusesAPathOutsideTheRepository(t *testing.T) {
 	}
 }
 
+func TestRunDescribeParsesFlagsAfterTheCSV(t *testing.T) {
+	ok, err := run([]string{"describe", "../../internal/research/testdata/dataset.csv", "--instrument", "WTICO/USD", "--granularity", "M1"})
+	if !ok || err != nil {
+		t.Fatalf("ok %v, err %v", ok, err)
+	}
+}
+
 func TestRunRefusesBadUsage(t *testing.T) {
 	for _, args := range [][]string{nil, {"verify"}, {"verify", "a", "b"}, {"other", "x"}, {"describe", "x.csv"}} {
 		if _, err := run(args); err == nil {

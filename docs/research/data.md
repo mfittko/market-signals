@@ -51,6 +51,8 @@ go run ./cmd/research-dataset verify ../docs/research/datasets/<basename>.json
 
 Revision rule: a re-export gets a new basename and its own manifest. An existing manifest is never changed.
 
+A spec's `dataset` block is a separate pin from the dataset manifest. The loaders read only the spec. When a load fails with "re-export the file or change the manifest in a reviewed commit", "manifest" means the spec's `dataset` block. A re-export then gets a new basename and a new dataset manifest, and the spec's `dataset` block changes to its sha256.
+
 ## Futures data (Databento GLBX.MDP3)
 
 | Campaign | Holds | Cost | Local path |

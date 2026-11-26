@@ -133,7 +133,8 @@ func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// the hash covers the rows and their times, so the other manifest fields are descriptive
+	// the hash covers the rows and their times, so the spec's other dataset fields are descriptive;
+	// "manifest" in this error means the spec's dataset block, not docs/research/datasets/*.json
 	if sum != s.Dataset.SHA256 {
 		return nil, nil, fmt.Errorf("data: sha256 %s, manifest %s; re-export the file or change the manifest in a reviewed commit", sum, s.Dataset.SHA256)
 	}
