@@ -99,6 +99,8 @@ func checkAttempt(a Attempt) error {
 		return fmt.Errorf("attempt %s: a %s needs a reason", a.ID, a.Status)
 	case a.Mode == "prospective" && a.Received.IsZero():
 		return fmt.Errorf("attempt %s: a prospective attempt needs a received time", a.ID)
+	case a.Mode == "prospective" && a.Received.Before(a.Decision):
+		return fmt.Errorf("attempt %s: received %s is before its decision %s", a.ID, a.Received.Format(time.RFC3339), a.Decision.Format(time.RFC3339))
 	}
 	return nil
 }

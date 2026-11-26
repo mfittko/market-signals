@@ -192,7 +192,8 @@ type Pullback struct {
 }
 
 // Tick reads the journal, fetches every symbol and appends the new attempts and outcomes.
-func (p *Pullback) Tick(ctx context.Context, now time.Time) error {
+// It reads clock after each symbol's fetch, so Received never precedes the bars it saw.
+func (p *Pullback) Tick(ctx context.Context, clock func() time.Time) error {
 	b, err := os.ReadFile(p.Journal)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -217,7 +218,14 @@ func (p *Pullback) Tick(ctx context.Context, now time.Time) error {
 			errs = append(errs, fmt.Errorf("pullback %s: %w", sym, err))
 			continue
 		}
-		a, o := p.Spec.evaluate(sym, completedDays(raw), p.Start, now, status, done)
+		now := clock()
+		c := completedDays(raw)
+		// a short window makes no bar a setup, so the symbol would drop out of the journal silently
+		if len(c) < p.Spec.Strategy.TrendSMA {
+			errs = append(errs, fmt.Errorf("pullback %s: %d completed daily bars, need %d", sym, len(c), p.Spec.Strategy.TrendSMA))
+			continue
+		}
+		a, o := p.Spec.evaluate(sym, c, p.Start, now, status, done)
 		attempts, outcomes = append(attempts, a...), append(outcomes, o...)
 	}
 	if len(attempts)+len(outcomes) > 0 {
@@ -229,7 +237,7 @@ func (p *Pullback) Tick(ctx context.Context, now time.Time) error {
 // Run ticks at once and then every interval until ctx ends.
 func (p *Pullback) Run(ctx context.Context, every time.Duration) {
 	for {
-		if err := p.Tick(ctx, time.Now().UTC()); err != nil {
+		if err := p.Tick(ctx, func() time.Time { return time.Now().UTC() }); err != nil {
 			p.Log.Error("pullback journal", "err", err)
 		}
 		select {

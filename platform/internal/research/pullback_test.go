@@ -223,12 +223,61 @@ func TestPullbackTickJournalsTheOtherSymbolsWhenOneFails(t *testing.T) {
 	_, start := session(raw[204].Time)
 	path := filepath.Join(t.TempDir(), "pullback.jsonl")
 	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
-	err := p.Tick(context.Background(), time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC))
+	err := p.Tick(context.Background(), func() time.Time { return time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC) })
 	if err == nil || !strings.Contains(err.Error(), "pullback NAS100/USD: HTTP 503") {
 		t.Fatalf("err = %v, want the NAS100/USD failure", err)
 	}
 	if j := read(t, path); len(j.Attempts) != 1 || j.Attempts[0].ID != "PB1/SPX500/USD/2025-10-20" || j.Attempts[0].Status != "forecast" {
 		t.Fatalf("attempts %+v, want the SPX500/USD forecast", j.Attempts)
+	}
+}
+
+func TestPullbackTickNamesAnEmptyWindow(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"DE30/EUR", "SPX500/USD"}
+	var raw []DailyCandle
+	for _, c := range flat(append(rising(203), 301, 300, 299)...) {
+		raw = append(raw, DailyCandle{c, true})
+	}
+	// a 200 response with no candles
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"DE30/EUR": {}, "SPX500/USD": raw}}
+	_, start := session(raw[204].Time)
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+	err := p.Tick(context.Background(), func() time.Time { return time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC) })
+	if err == nil || !strings.Contains(err.Error(), "pullback DE30/EUR: 0 completed daily bars, need 200") {
+		t.Fatalf("err = %v, want the DE30/EUR empty window", err)
+	}
+	if j := read(t, path); len(j.Attempts) != 1 || j.Attempts[0].ID != "PB1/SPX500/USD/2025-10-20" {
+		t.Fatalf("attempts %+v, want the SPX500/USD forecast", j.Attempts)
+	}
+}
+
+func TestPullbackReceivedIsReadAfterTheFetch(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"SPX500/USD"}
+	var raw []DailyCandle
+	for _, c := range flat(append(rising(203), 301, 300, 299)...) {
+		raw = append(raw, DailyCandle{c, true})
+	}
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": raw}}
+	_, start := session(raw[204].Time)
+	_, decision := session(raw[205].Time)
+	// the tick starts before the decision; the fetch returns after it
+	clock := func() time.Time {
+		if feed.calls == 0 {
+			return decision.Add(-5 * time.Second)
+		}
+		return decision.Add(3 * time.Second)
+	}
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+	if err := p.Tick(context.Background(), clock); err != nil {
+		t.Fatal(err)
+	}
+	j := read(t, path)
+	if len(j.Attempts) != 1 || !j.Attempts[0].Decision.Equal(decision) || !j.Attempts[0].Received.Equal(decision.Add(3*time.Second)) {
+		t.Fatalf("attempts %+v, want Received 3 s after decision %s", j.Attempts, decision)
 	}
 }
 
@@ -256,7 +305,7 @@ func TestPullbackJournalsEachSetupOnceAcrossARestart(t *testing.T) {
 	tick := func() []byte {
 		t.Helper()
 		p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start} // a new value per tick is a restart
-		if err := p.Tick(context.Background(), now); err != nil {
+		if err := p.Tick(context.Background(), func() time.Time { return now }); err != nil {
 			t.Fatal(err)
 		}
 		b, _ := os.ReadFile(path)
@@ -342,7 +391,7 @@ func TestPullbackRecordedForecastStandsAfterARevisedClose(t *testing.T) {
 	tick := func(now time.Time) {
 		t.Helper()
 		p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
-		if err := p.Tick(context.Background(), now); err != nil {
+		if err := p.Tick(context.Background(), func() time.Time { return now }); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -377,6 +426,10 @@ func TestProspectiveRecordsAreChecked(t *testing.T) {
 	a.Mode = "prospective"
 	if err := Append(path, []Attempt{a}, nil); err == nil || !strings.Contains(err.Error(), "received time") {
 		t.Fatalf("err = %v, want a missing received time refusal", err)
+	}
+	a.Received = a.Decision.Add(-time.Second)
+	if err := Append(path, []Attempt{a}, nil); err == nil || !strings.Contains(err.Error(), "before its decision") {
+		t.Fatalf("err = %v, want a received-before-decision refusal", err)
 	}
 	a.Received = a.Decision.Add(time.Minute)
 	o := Outcome{Attempt: a.ID, LabelVersion: LabelVersion, Matured: a.Expiry, NetR: 1, Label: "win", Exit: "target"}
