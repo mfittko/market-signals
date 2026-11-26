@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -89,6 +90,33 @@ func TestPullbackSpecRefusesAnUnlabelledValue(t *testing.T) {
 	}
 }
 
+func TestPullbackSpecRefusesAnInvalidValue(t *testing.T) {
+	_, b := pullbackSpec(t)
+	const symbols = `"symbols": ["SPX500/USD", "NAS100/USD", "US30/USD", "DE30/EUR", "UK100/GBP", "JP225/USD", "FR40/EUR"]`
+	for name, c := range map[string]struct{ old, new, err string }{
+		"zero trend SMA":      {`"trendSma": 200`, `"trendSma": 0`, "must be > 0"},
+		"missing down closes": {`"downCloses": 3,`, ``, "must be > 0"},
+		"zero exit SMA":       {`"exitSma": 5`, `"exitSma": 0`, "must be > 0"},
+		"zero max bars":       {`"maxBars": 10`, `"maxBars": 0`, "must be > 0"},
+		"zero ATR period":     {`"atrPeriod": 14`, `"atrPeriod": 0`, "must be > 0"},
+		"zero stop ATR":       {`"stopAtr": 10`, `"stopAtr": 0`, "must be > 0"},
+		"empty symbols":       {symbols, `"symbols": []`, "symbols must be set"},
+		"zero expiry":         {`"value": 14`, `"value": 0`, "must be > 0"},
+		"negative expiry":     {`"value": 14`, `"value": -1`, "must be > 0"},
+		"unknown field":       {`"experiment": "PB1",`, `"experiment": "PB1", "extra": 1,`, `unknown field "extra"`},
+		"hourly granularity":  {`"granularity": "D"`, `"granularity": "H1"`, `feed.granularity "H1"`},
+		"missing granularity": {`"granularity": "D",`, ``, `feed.granularity ""`},
+	} {
+		if !strings.Contains(string(b), c.old) {
+			t.Fatalf("%s: the spec has no %s", name, c.old)
+		}
+		_, err := ParsePullbackSpec([]byte(strings.Replace(string(b), c.old, c.new, 1)))
+		if err == nil || !strings.Contains(err.Error(), c.err) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.err)
+		}
+	}
+}
+
 func TestPullbackSetupParity(t *testing.T) {
 	s, _ := pullbackSpec(t)
 	// bars 0..199 rise from 100 to 299
@@ -164,18 +192,44 @@ func TestPullbackTradeExits(t *testing.T) {
 			if !ok || o.Exit != c.exit || last != c.last || math.Abs(o.NetR-c.netR) > 1e-12 {
 				t.Fatalf("got ok %v exit %q bar %d net R %v, want %q bar %d net R %v", ok, o.Exit, last, o.NetR, c.exit, c.last, c.netR)
 			}
+			// every exit kind matures at the close of its exit bar
+			if _, closed := session(bars[c.last].Time); !o.Matured.Equal(closed) {
+				t.Fatalf("matured %s, want the exit bar close %s", o.Matured, closed)
+			}
 		})
 	}
 }
 
 type fakeFeed struct {
 	bars  map[string][]DailyCandle
+	errs  map[string]error
 	calls int
 }
 
 func (f *fakeFeed) Daily(_ context.Context, sym string) ([]DailyCandle, error) {
 	f.calls++
-	return f.bars[sym], nil
+	return f.bars[sym], f.errs[sym]
+}
+
+func TestPullbackTickJournalsTheOtherSymbolsWhenOneFails(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"NAS100/USD", "SPX500/USD"}
+	// bar 205 is a setup whose trade is still open
+	var raw []DailyCandle
+	for _, c := range flat(append(rising(203), 301, 300, 299)...) {
+		raw = append(raw, DailyCandle{c, true})
+	}
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": raw}, errs: map[string]error{"NAS100/USD": errors.New("HTTP 503")}}
+	_, start := session(raw[204].Time)
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+	err := p.Tick(context.Background(), time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC))
+	if err == nil || !strings.Contains(err.Error(), "pullback NAS100/USD: HTTP 503") {
+		t.Fatalf("err = %v, want the NAS100/USD failure", err)
+	}
+	if j := read(t, path); len(j.Attempts) != 1 || j.Attempts[0].ID != "PB1/SPX500/USD/2025-10-20" || j.Attempts[0].Status != "forecast" {
+		t.Fatalf("attempts %+v, want the SPX500/USD forecast", j.Attempts)
+	}
 }
 
 func TestPullbackJournalsEachSetupOnceAcrossARestart(t *testing.T) {
@@ -192,7 +246,7 @@ func TestPullbackJournalsEachSetupOnceAcrossARestart(t *testing.T) {
 			raw = append(raw, DailyCandle{backtest.Candle{Time: stub, Open: 300, High: 300, Low: 300, Close: 300}, true})
 		}
 	}
-	next := opens(214)
+	next := opens(217)
 	// the forming bar would exit 210's trade above its SMA5
 	forming := DailyCandle{backtest.Candle{Time: next[212], Open: 306, High: 400, Low: 306, Close: 400}, false}
 	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": append(slices.Clone(raw), forming)}}
@@ -242,6 +296,32 @@ func TestPullbackJournalsEachSetupOnceAcrossARestart(t *testing.T) {
 	}
 	if again := tick(); string(again) != string(resolved) {
 		t.Fatalf("a restart after the outcome changed the journal:\n%s", again)
+	}
+
+	// 215 is a setup after 210's exit bar 212, so it trades. Bar 216 stops it out and is a
+	// setup too, which is busy because the trade holds through its exit bar.
+	later := slices.Clone(raw)
+	later = append(later, done)
+	for k, c := range []float64{319, 318, 317} {
+		later = append(later, DailyCandle{backtest.Candle{Time: next[213+k], Open: c, High: c, Low: c, Close: c}, true})
+	}
+	later = append(later, DailyCandle{backtest.Candle{Time: next[216], Open: 317, High: 317, Low: 250, Close: 316}, true})
+	feed.bars["SPX500/USD"] = later
+	now = time.Date(2025, 11, 5, 12, 0, 0, 0, time.UTC)
+	stopped := tick()
+	j = read(t, path)
+	_, d215 := session(next[215])
+	_, d216 := session(next[216])
+	if n := len(j.Attempts); n != 4 || j.Attempts[2].ID != "PB1/SPX500/USD/2025-11-03" || j.Attempts[2].Status != "forecast" ||
+		!j.Attempts[2].Decision.Equal(d215) || j.Attempts[3].ID != "PB1/SPX500/USD/2025-11-04" || j.Attempts[3].Status != "hold" ||
+		j.Attempts[3].Reason != "busy" || !j.Attempts[3].Decision.Equal(d216) {
+		t.Fatalf("attempts %+v, want a 215 forecast and a busy 216 hold", j.Attempts)
+	}
+	if len(j.Outcomes) != 2 || j.Outcomes[1].Attempt != j.Attempts[2].ID || j.Outcomes[1].Exit != "stop" || !j.Outcomes[1].Matured.Equal(d216) {
+		t.Fatalf("outcomes %+v, want a stop for %s at %s", j.Outcomes, j.Attempts[2].ID, d216)
+	}
+	if again := tick(); string(again) != string(stopped) {
+		t.Fatalf("a restart after the stop changed the journal:\n%s", again)
 	}
 }
 

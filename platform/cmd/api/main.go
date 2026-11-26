@@ -122,11 +122,11 @@ type plane struct {
 	pullback func(context.Context)
 	// stopStreams ends the long-lived event streams when shutdown starts; nil when the handler has none.
 	stopStreams func()
-	close       func()       // runs after both loops returned
-	event       func(string) // records listen, reaper, monitor and serve in order; nil outside tests
+	close       func()       // runs after the loops returned
+	event       func(string) // records listen, reaper, monitor, pullback and serve in order; nil outside tests
 }
 
-// run binds first, so a taken port fails before any reaper or monitor pass. It then starts the loops and
+// run binds first, so a taken port fails before any reaper, monitor or pullback pass. It then starts the loops and
 // serves until ctx ends or serving fails. Shutdown ends the event streams, stops accepting, lets in-flight
 // requests finish within the grace period, waits for the loops, then calls close.
 func run(ctx context.Context, p plane) error {
@@ -212,12 +212,12 @@ func pullbackLoop(getenv func(string) string, specPath string, log *slog.Logger)
 	}
 	b, err := os.ReadFile(specPath)
 	if err != nil {
-		log.Error("pullback journal off", "err", err)
+		log.Error("pullback journal off: spec", "err", err)
 		return nil
 	}
 	spec, err := research.ParsePullbackSpec(b)
 	if err != nil {
-		log.Error("pullback journal off", "err", err)
+		log.Error("pullback journal off: spec", "err", err)
 		return nil
 	}
 	pb := &research.Pullback{Spec: spec, Feed: &research.FXEmpire{Client: &http.Client{Timeout: 25 * time.Second}}, Journal: path, Start: start, Log: log}

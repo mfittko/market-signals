@@ -64,6 +64,9 @@ func ParsePullbackSpec(b []byte) (PullbackSpec, error) {
 	}); err != nil {
 		return s, err
 	}
+	if s.Feed.Granularity != "D" {
+		return s, fmt.Errorf("spec: feed.granularity %q, want \"D\"", s.Feed.Granularity)
+	}
 	st := s.Strategy
 	if s.Experiment == "" || len(s.Symbols) == 0 || st.TrendSMA < 1 || st.DownCloses < 1 || st.ExitSMA < 1 ||
 		st.MaxBars < 1 || st.ATRPeriod < 1 || st.StopATR <= 0 || s.Timing.ExpiryDays.Value <= 0 {
@@ -110,22 +113,22 @@ func (s PullbackSpec) trade(c []backtest.Candle, atr []float64, t int) (last int
 	stop := entry - dist
 	for k := t + 1; k < len(c) && k <= t+st.MaxBars; k++ {
 		b := c[k]
-		_, at := session(b.Time)
-		price, kind := b.Close, ""
+		_, closed := session(b.Time)
+		price, kind, held := b.Close, "", closed // held ends the night count; a stop fills before the bar's rollover
 		switch {
 		case b.Open <= stop:
-			price, kind, at = b.Open, "stop", b.Time
+			price, kind, held = b.Open, "stop", b.Time
 		case b.Low <= stop:
-			price, kind, at = stop, "stop", b.Time
+			price, kind, held = stop, "stop", b.Time
 		case b.Close > sma(c, k, st.ExitSMA):
 			kind = "sma5" // the frozen exit SMA is 5
 		case k == t+st.MaxBars:
 			kind = "time"
 		}
 		if kind != "" {
-			cost := (s.Costs.SpreadBps.Value + float64(rollovers(c[t+1].Time, at))*s.Costs.NightBps.Value) / 1e4
+			cost := (s.Costs.SpreadBps.Value + float64(rollovers(c[t+1].Time, held))*s.Costs.NightBps.Value) / 1e4
 			r := (math.Log(price/entry) - cost) / (dist / entry)
-			return k, Outcome{LabelVersion: LabelVersion, Matured: at, NetR: r, Label: Label(Trade{NetR: r}), Exit: kind}, true
+			return k, Outcome{LabelVersion: LabelVersion, Matured: closed, NetR: r, Label: Label(Trade{NetR: r}), Exit: kind}, true
 		}
 	}
 	return 0, o, false
