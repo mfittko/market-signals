@@ -1,0 +1,54 @@
+{
+  "experiment": "PB1",
+  "symbols": ["SPX500/USD", "NAS100/USD", "US30/USD", "DE30/EUR", "UK100/GBP", "JP225/USD", "FR40/EUR"],
+  "feed": {
+    "granularity": "D",
+    "barTime": {
+      "rule": "daily mid bars that open at 17:00 America/New_York; the trading date is the open date plus one day; a bar whose trading date is a Saturday or Sunday is a weekend stub and is dropped; a bar with complete false is the forming bar and is never evaluated",
+      "label": "measured",
+      "source": "docs/research/registry/campaigns/tsmom36/fetch.py (dailyAlignment 17, complete flag) and docs/research/registry/campaigns/ext39/ext39.py load (weekend stubs)"
+    },
+    "prices": {
+      "rule": "OANDA mid OHLC from the FXEmpire proxy, price=M",
+      "label": "measured",
+      "source": "docs/research/registry/campaigns/tsmom36/fetch.py"
+    }
+  },
+  "strategy": {
+    "trendSma": 200,
+    "downCloses": 3,
+    "exitSma": 5,
+    "maxBars": 10,
+    "atrPeriod": 14,
+    "stopAtr": 10
+  },
+  "costs": {
+    "spreadBps": {
+      "value": 4,
+      "label": "assumed",
+      "source": "2 bps per side, as swing44 used, https://github.com/mfittko/market-signals/issues/310#issuecomment-6082874730; subtracted from the log return"
+    },
+    "nightBps": {
+      "value": 0.822,
+      "label": "assumed",
+      "source": "CFD financing per night, https://github.com/mfittko/market-signals/issues/323"
+    },
+    "rollover": {
+      "rule": "one night at each 17:00 America/New_York instant the trade holds across, counted by rollovers() in platform/internal/research/e0.go, so a Friday to Monday hold counts 3 nights",
+      "label": "assumed",
+      "source": "OANDA financing costs row in docs/research/sources.md"
+    }
+  },
+  "timing": {
+    "entry": {
+      "rule": "long at the open of the first daily bar after the setup bar; the research rule entered at the setup close, where a live order cannot fill",
+      "label": "assumed",
+      "source": "https://github.com/mfittko/market-signals/issues/430"
+    },
+    "expiryDays": {
+      "value": 14,
+      "label": "assumed",
+      "source": "10 trading days of the time exit as calendar days, https://github.com/mfittko/market-signals/issues/430"
+    }
+  }
+}

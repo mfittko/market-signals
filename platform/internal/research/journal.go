@@ -27,10 +27,15 @@ type Attempt struct {
 	Status     string    `json:"status"` // forecast | hold | timeout | error
 	Dir        int       `json:"dir,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
-	// Expiry is the decision time plus maxBars bar durations on the wall clock. It does not
-	// skip market gaps, while the E0 time stop counts bars, so a trade that spans a weekend
-	// matures after its attempt's expiry.
+	// Expiry depends on the mode. A retrospective attempt expires at the decision time plus
+	// maxBars bar durations on the wall clock. It does not skip market gaps, while the E0 time
+	// stop counts bars, so a trade that spans a weekend matures after its attempt's expiry.
+	// A prospective attempt expires at the decision time plus the spec's timing.expiryDays
+	// calendar days.
 	Expiry time.Time `json:"expiry"`
+	// Received is when a prospective attempt's loop first saw its bar complete. It is
+	// omitted when zero, so retrospective journals keep their bytes.
+	Received time.Time `json:"received,omitzero"`
 }
 
 type Outcome struct {
@@ -38,7 +43,8 @@ type Outcome struct {
 	LabelVersion string    `json:"labelVersion"`
 	Matured      time.Time `json:"matured"`
 	NetR         float64   `json:"netR"`
-	Label        string    `json:"label"` // win | loss | ambiguous
+	Label        string    `json:"label"`          // win | loss | ambiguous
+	Exit         string    `json:"exit,omitempty"` // sma5 | time | stop; empty on retrospective outcomes
 }
 
 type Journal struct {
@@ -93,6 +99,10 @@ func checkAttempt(a Attempt) error {
 		return fmt.Errorf("attempt %s: a forecast needs a direction of 1 or -1", a.ID)
 	case a.Status != "forecast" && a.Reason == "":
 		return fmt.Errorf("attempt %s: a %s needs a reason", a.ID, a.Status)
+	case a.Mode == "prospective" && a.Received.IsZero():
+		return fmt.Errorf("attempt %s: a prospective attempt needs a received time", a.ID)
+	case a.Mode == "prospective" && a.Received.Before(a.Decision):
+		return fmt.Errorf("attempt %s: received %s is before its decision %s", a.ID, a.Received.Format(time.RFC3339), a.Decision.Format(time.RFC3339))
 	}
 	return nil
 }
@@ -130,6 +140,8 @@ func (r records) outcome(o Outcome) error {
 		return fmt.Errorf("outcome for %s: label version %q is not %s", o.Attempt, o.LabelVersion, LabelVersion)
 	case !slices.Contains([]string{"win", "loss", "ambiguous"}, o.Label):
 		return fmt.Errorf("outcome for %s: label %q is not win, loss or ambiguous", o.Attempt, o.Label)
+	case !slices.Contains([]string{"", "sma5", "time", "stop"}, o.Exit):
+		return fmt.Errorf("outcome for %s: exit %q is not sma5, time or stop", o.Attempt, o.Exit)
 	}
 	r.done[o.Attempt] = true
 	return nil

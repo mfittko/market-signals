@@ -1,0 +1,1 @@
+- Research: the api can record a prospective forward journal of the daily index pullback rule (PB1), off unless `MS_PULLBACK_JOURNAL` and `MS_PULLBACK_START` are set (#430)
