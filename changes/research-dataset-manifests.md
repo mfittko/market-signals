@@ -1,0 +1,1 @@
+- Research: each owner export pinned by a spec has a committed dataset manifest, and `research-dataset verify` checks an export against it (#432)

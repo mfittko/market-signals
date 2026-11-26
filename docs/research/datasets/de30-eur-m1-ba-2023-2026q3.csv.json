@@ -1,0 +1,15 @@
+{
+  "id": "4d405e6b26e0496f7bde23618427824e1c93d77b338eb8cc5d037b6e9b1c4b1a",
+  "path": "tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv",
+  "instrument": "DE30/EUR",
+  "granularity": "M1",
+  "rows": 1131510,
+  "first": "2023-01-02T00:15:00Z",
+  "last": "2026-09-30T19:59:00Z",
+  "gaps": 15021,
+  "longestGap": [
+    "2024-12-23T20:59:00Z",
+    "2024-12-27T00:15:00Z"
+  ],
+  "restoration": "sqlite3 -readonly -header -csv data/research/history.db \"SELECT * FROM candles_ba WHERE instrument='DE30/EUR' AND granularity='M1' AND time >= '2023-01-01' AND time < '2026-10-01' ORDER BY time\" > tmp/research-export/de30-eur-m1-ba-2023-2026q3.csv"
+}

@@ -129,15 +129,29 @@ var header = []string{"instrument", "granularity", "time", "bid_o", "bid_h", "bi
 // match the spec and its times ascend. Bid and ask come back as two candle series on
 // the same times.
 func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
+	bid, ask, sum, err := loadHashed(s, r)
+	if err != nil {
+		return nil, nil, err
+	}
+	// the hash covers the rows and their times, so the spec's other dataset fields are descriptive;
+	// "manifest" in this error means the spec's dataset block, not docs/research/datasets/*.json
+	if sum != s.Dataset.SHA256 {
+		return nil, nil, fmt.Errorf("data: sha256 %s, manifest %s; re-export the file or change the manifest in a reviewed commit", sum, s.Dataset.SHA256)
+	}
+	return bid, ask, nil
+}
+
+// loadHashed is Load without the sha256 check; it returns the file's sha256.
+func loadHashed(s Spec, r io.Reader) (bid, ask []backtest.Candle, sum string, err error) {
 	h := sha256.New()
 	cr := csv.NewReader(io.TeeReader(r, h))
 	cr.ReuseRecord = true
 	rec, err := cr.Read()
 	if err != nil {
-		return nil, nil, fmt.Errorf("data: %w; re-export the file", err)
+		return nil, nil, "", fmt.Errorf("data: %w; re-export the file", err)
 	}
 	if !slices.Equal(rec, header) {
-		return nil, nil, fmt.Errorf("data: header %v, want %v; re-export the file", rec, header)
+		return nil, nil, "", fmt.Errorf("data: header %v, want %v; re-export the file", rec, header)
 	}
 	for line := 2; ; line++ {
 		rec, err = cr.Read()
@@ -145,32 +159,28 @@ func Load(s Spec, r io.Reader) (bid, ask []backtest.Candle, err error) {
 			break
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
+			return nil, nil, "", fmt.Errorf("data line %d: %w; re-export the file", line, err)
 		}
 		if rec[0] != s.Instrument.Name || rec[1] != s.Feed.Granularity {
-			return nil, nil, fmt.Errorf("data line %d: %s %s is not the spec's instrument and granularity; re-export the file", line, rec[0], rec[1])
+			return nil, nil, "", fmt.Errorf("data line %d: %s %s is not the spec's instrument and granularity; re-export the file", line, rec[0], rec[1])
 		}
 		t, err := time.Parse(time.RFC3339Nano, rec[2])
 		if err != nil {
-			return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
+			return nil, nil, "", fmt.Errorf("data line %d: %w; re-export the file", line, err)
 		}
 		var f [9]float64
 		for k := range f {
 			if f[k], err = strconv.ParseFloat(rec[3+k], 64); err != nil {
-				return nil, nil, fmt.Errorf("data line %d: %w; re-export the file", line, err)
+				return nil, nil, "", fmt.Errorf("data line %d: %w; re-export the file", line, err)
 			}
 		}
 		if n := len(bid); n > 0 && !t.After(bid[n-1].Time) {
-			return nil, nil, fmt.Errorf("data line %d: time %s is not after the previous row; re-export the file", line, rec[2])
+			return nil, nil, "", fmt.Errorf("data line %d: time %s is not after the previous row; re-export the file", line, rec[2])
 		}
 		bid = append(bid, backtest.Candle{Time: t, Open: f[0], High: f[1], Low: f[2], Close: f[3], Volume: f[8]})
 		ask = append(ask, backtest.Candle{Time: t, Open: f[4], High: f[5], Low: f[6], Close: f[7], Volume: f[8]})
 	}
-	// the hash covers the rows and their times, so the other manifest fields are descriptive
-	if got := hex.EncodeToString(h.Sum(nil)); got != s.Dataset.SHA256 {
-		return nil, nil, fmt.Errorf("data: sha256 %s, manifest %s; re-export the file or change the manifest in a reviewed commit", got, s.Dataset.SHA256)
-	}
-	return bid, ask, nil
+	return bid, ask, hex.EncodeToString(h.Sum(nil)), nil
 }
 
 type Trade struct {
