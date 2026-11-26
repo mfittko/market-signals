@@ -1,0 +1,15 @@
+{
+  "id": "ff3d0098085041776b6d77c841c128927f01356535ea57c3f8f9ea258e24a39c",
+  "path": "tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv",
+  "instrument": "NAS100/USD",
+  "granularity": "M1",
+  "rows": 1317284,
+  "first": "2023-01-02T23:00:00Z",
+  "last": "2026-09-30T23:59:00Z",
+  "gaps": 8310,
+  "longestGap": [
+    "2024-12-24T18:14:00Z",
+    "2024-12-25T23:00:00Z"
+  ],
+  "restoration": "sqlite3 -readonly -header -csv data/research/history.db \"SELECT * FROM candles_ba WHERE instrument='NAS100/USD' AND granularity='M1' AND time >= '2023-01-01' AND time < '2026-10-01' ORDER BY time\" > tmp/research-export/nas100-usd-m1-ba-2023-2026q3.csv"
+}

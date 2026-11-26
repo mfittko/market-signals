@@ -21,6 +21,36 @@ Notes on OANDA data:
 - Separately aggregated bid and ask highs and lows need not occur together. Their difference is not a spread path (external review).
 - Commodity CFD prices come from the next futures contract. The term-structure carry reaches the trader through financing, so these candles contain no roll yield ([topics/costs-and-vehicles.md](topics/costs-and-vehicles.md)).
 
+## Dataset manifests
+
+Every owner export that a research spec pins under a `dataset` key has a committed manifest in [datasets/](datasets/), named `<export basename>.json`. The exports themselves stay git-ignored in `tmp/research-export/`. A test in `platform/internal/research` fails when a pinned sha256 in `docs/research/experiments/*/spec.json` has no manifest with that id. Coverage counts only after a passing `verify`.
+
+Facts shared by every manifest:
+
+- Provider: OANDA v20 candles through the FXEmpire proxy `p.fxempire.com/oanda`.
+- Price basis `BA`: separate bid and ask OHLC per bar, table `candles_ba`.
+- Bar time: the UTC bar open.
+- Volume: the count of price updates in the bar (assumed).
+
+Computed fields, written by `describe` and checked by `verify`: `id` (the export's sha256, the immutable id), `path` (relative to the repository root), `instrument`, `granularity`, `rows`, `first`, `last`, `gaps` and `longestGap` (the bar times of the two rows around the longest gap). Only M1 (60 s bars) is accepted. A gap is a step between consecutive rows longer than 60 s. A step whose missing span contains Saturday 12:00 America/New_York is the weekly close and is not a gap. Daily halts and holidays count as gaps.
+
+The hand-kept field `restoration` holds the exact read-only command that rebuilds the export. `verify` ignores it. Template, with the instrument and basename filled in:
+
+```sh
+sqlite3 -readonly -header -csv data/research/history.db "SELECT * FROM candles_ba WHERE instrument='<INSTRUMENT>' AND granularity='M1' AND time >= '2023-01-01' AND time < '2026-10-01' ORDER BY time" > tmp/research-export/<basename>
+```
+
+Commands, run from `platform/`. They read local files only:
+
+```sh
+go run ./cmd/research-dataset describe ../tmp/research-export/<basename> --instrument <INSTRUMENT> --granularity M1
+go run ./cmd/research-dataset verify ../docs/research/datasets/<basename>.json
+```
+
+`describe` prints the computed fields as a manifest draft; add `restoration` and fix `path` to be relative to the repository root. `verify` reads the export at the manifest's `path`, resolved from the repository root above the manifest, prints one line per differing field and exits 1 on any difference.
+
+Revision rule: a re-export gets a new basename and its own manifest. An existing manifest is never changed.
+
 ## Futures data (Databento GLBX.MDP3)
 
 | Campaign | Holds | Cost | Local path |

@@ -1,0 +1,15 @@
+{
+  "id": "348ce19278049065b58491d9090ce5b4050c72a145ea5b217e10b41eeaa9f250",
+  "path": "tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv",
+  "instrument": "US30/USD",
+  "granularity": "M1",
+  "rows": 1306126,
+  "first": "2023-01-02T23:00:00Z",
+  "last": "2026-09-30T23:59:00Z",
+  "gaps": 15902,
+  "longestGap": [
+    "2024-12-24T18:14:00Z",
+    "2024-12-25T23:00:00Z"
+  ],
+  "restoration": "sqlite3 -readonly -header -csv data/research/history.db \"SELECT * FROM candles_ba WHERE instrument='US30/USD' AND granularity='M1' AND time >= '2023-01-01' AND time < '2026-10-01' ORDER BY time\" > tmp/research-export/us30-usd-m1-ba-2023-2026q3.csv"
+}

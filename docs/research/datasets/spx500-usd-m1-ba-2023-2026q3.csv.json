@@ -1,0 +1,15 @@
+{
+  "id": "dd5826188a6eb3cc3ea3a4e941fd0c1eb348893403e746e9b63403eb54228116",
+  "path": "tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv",
+  "instrument": "SPX500/USD",
+  "granularity": "M1",
+  "rows": 1280721,
+  "first": "2023-01-02T23:00:00Z",
+  "last": "2026-09-30T23:59:00Z",
+  "gaps": 33553,
+  "longestGap": [
+    "2024-12-24T18:14:00Z",
+    "2024-12-25T23:00:00Z"
+  ],
+  "restoration": "sqlite3 -readonly -header -csv data/research/history.db \"SELECT * FROM candles_ba WHERE instrument='SPX500/USD' AND granularity='M1' AND time >= '2023-01-01' AND time < '2026-10-01' ORDER BY time\" > tmp/research-export/spx500-usd-m1-ba-2023-2026q3.csv"
+}
