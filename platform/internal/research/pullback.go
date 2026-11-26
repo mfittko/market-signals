@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/backtest"
@@ -139,11 +140,11 @@ func (s PullbackSpec) trade(c []backtest.Candle, atr []float64, t int) (last int
 
 // evaluate replays the rule on one symbol's completed bars and returns the records the
 // journal lacks. Bars that close at or before start only warm up. status maps the journal's
-// attempt ids to their status, so a recorded decision always stands; done holds the
-// attempt ids with an outcome.
+// attempt ids to their status, so a recorded decision always stands; matured maps the
+// attempt ids with an outcome to its Matured time, so a recorded exit always stands too.
 // shortcut: a forecast older than the feed window is never resolved; fine while the loop
 // runs hourly, revisit if the api stays down for weeks.
-func (s PullbackSpec) evaluate(sym string, c []backtest.Candle, start, now time.Time, status map[string]string, done map[string]bool) ([]Attempt, []Outcome) {
+func (s PullbackSpec) evaluate(sym string, c []backtest.Candle, start, now time.Time, status map[string]string, matured map[string]time.Time) ([]Attempt, []Outcome) {
 	var attempts []Attempt
 	var outcomes []Outcome
 	_, atr := backtest.Supertrend(c, s.Strategy.ATRPeriod, 1) // only its Wilder ATR
@@ -164,14 +165,21 @@ func (s PullbackSpec) evaluate(sym string, c []backtest.Candle, start, now time.
 			Received: now, Status: "forecast", Dir: 1}
 		if st == "hold" || (!seen && t <= busy) {
 			a.Status, a.Dir, a.Reason = "hold", 0, "busy"
+		} else if m, ok := matured[a.ID]; ok {
+			// the trade ends at the last bar that closes by its recorded exit, never at one recomputed from the feed
+			busy = t
+			for k := t + 1; k < len(c); k++ {
+				if _, cl := session(c[k].Time); cl.After(m) {
+					break
+				}
+				busy = k
+			}
 		} else {
 			busy = len(c) // open until its exit bar completes
 			if last, o, ok := s.trade(c, atr, t); ok {
 				busy = last
-				if !done[a.ID] {
-					o.Attempt = a.ID
-					outcomes = append(outcomes, o)
-				}
+				o.Attempt = a.ID
+				outcomes = append(outcomes, o)
 			}
 		}
 		if !seen {
@@ -202,12 +210,12 @@ func (p *Pullback) Tick(ctx context.Context, clock func() time.Time) error {
 	if err != nil {
 		return err
 	}
-	status, done := map[string]string{}, map[string]bool{}
+	status, matured := map[string]string{}, map[string]time.Time{}
 	for _, a := range j.Attempts {
 		status[a.ID] = a.Status
 	}
 	for _, o := range j.Outcomes {
-		done[o.Attempt] = true
+		matured[o.Attempt] = o.Matured
 	}
 	var attempts []Attempt
 	var outcomes []Outcome
@@ -225,7 +233,18 @@ func (p *Pullback) Tick(ctx context.Context, clock func() time.Time) error {
 			errs = append(errs, fmt.Errorf("pullback %s: %d completed daily bars, need %d", sym, len(c), p.Spec.Strategy.TrendSMA))
 			continue
 		}
-		a, o := p.Spec.evaluate(sym, c, p.Start, now, status, done)
+		a, o := p.Spec.evaluate(sym, c, p.Start, now, status, matured)
+		// a clock behind the feed would make Append refuse the whole batch, so only this
+		// symbol's early attempts and their outcomes wait for a later tick
+		early := map[string]bool{}
+		a = slices.DeleteFunc(a, func(x Attempt) bool {
+			early[x.ID] = x.Received.Before(x.Decision)
+			return early[x.ID]
+		})
+		if n := len(early) - len(a); n > 0 {
+			errs = append(errs, fmt.Errorf("pullback %s: %d attempts received before their decision; the clock is behind the feed", sym, n))
+			o = slices.DeleteFunc(o, func(x Outcome) bool { return early[x.Attempt] })
+		}
 		attempts, outcomes = append(attempts, a...), append(outcomes, o...)
 	}
 	if len(attempts)+len(outcomes) > 0 {

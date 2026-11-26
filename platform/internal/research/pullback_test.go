@@ -420,6 +420,110 @@ func TestPullbackRecordedForecastStandsAfterARevisedClose(t *testing.T) {
 	}
 }
 
+// A resolved forecast inside the ATR warm-up has no ATR, so recomputing its trade could
+// never end it; its recorded outcome ends the busy window instead.
+func TestPullbackResolvedForecastInTheWarmUpEndsAtItsOutcome(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"SPX500/USD"}
+	c := flat(append(rising(203), 301, 300, 299)...)
+	var raw []DailyCandle
+	for _, b := range c {
+		raw = append(raw, DailyCandle{b, true})
+	}
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": raw}}
+	date, d10 := session(c[10].Time)
+	_, d12 := session(c[12].Time)
+	id := "PB1/SPX500/USD/" + date
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	if err := Append(path, []Attempt{{ID: id, Mode: "prospective", Experiment: "PB1", SpecSHA256: s.SHA256, Decision: d10,
+		Expiry: d10.AddDate(0, 0, 14), Received: d10, Status: "forecast", Dir: 1}},
+		[]Outcome{{Attempt: id, LabelVersion: LabelVersion, Matured: d12, NetR: 0.5, Label: "win", Exit: "sma5"}}); err != nil {
+		t.Fatal(err)
+	}
+	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: d10.Add(-time.Hour)}
+	if err := p.Tick(context.Background(), func() time.Time { return time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC) }); err != nil {
+		t.Fatal(err)
+	}
+	j := read(t, path)
+	if len(j.Attempts) != 2 || j.Attempts[1].ID != "PB1/SPX500/USD/2025-10-20" || j.Attempts[1].Status != "forecast" {
+		t.Fatalf("attempts %+v, want the 205 setup as a forecast", j.Attempts)
+	}
+	if len(j.Outcomes) != 1 {
+		t.Fatalf("outcomes %+v, want only the recorded one", j.Outcomes)
+	}
+}
+
+// A revised bar after a recorded exit moves the recomputed exit, but busy ends at the
+// recorded one.
+func TestPullbackBusyEndsAtTheRecordedExitAfterARevisedBar(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"SPX500/USD"}
+	days := func(c []backtest.Candle) []DailyCandle {
+		var out []DailyCandle
+		for _, b := range c {
+			out = append(out, DailyCandle{b, true})
+		}
+		return out
+	}
+	// 205 is a setup, 206 a busy setup, and 207 closes above its SMA5, so 205's trade exits there
+	c := flat(append(rising(203), 301, 300, 299, 298, 320)...)
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": days(c)}}
+	_, start := session(c[204].Time)
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	tick := func() {
+		t.Helper()
+		p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+		if err := p.Tick(context.Background(), func() time.Time { return time.Date(2025, 10, 30, 12, 0, 0, 0, time.UTC) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick()
+	j := read(t, path)
+	_, d207 := session(c[207].Time)
+	if len(j.Outcomes) != 1 || j.Outcomes[0].Exit != "sma5" || !j.Outcomes[0].Matured.Equal(d207) {
+		t.Fatalf("outcomes %+v, want the sma5 exit at %s", j.Outcomes, d207)
+	}
+
+	// the feed revises 207 to 297, so the recomputed trade is still open; 207 and 208 are setups
+	c = flat(append(rising(203), 301, 300, 299, 298, 297, 296)...)
+	feed.bars["SPX500/USD"] = days(c)
+	tick()
+	j = read(t, path)
+	if len(j.Attempts) != 4 || j.Attempts[2].Status != "hold" || j.Attempts[2].Reason != "busy" ||
+		j.Attempts[3].ID != "PB1/SPX500/USD/2025-10-23" || j.Attempts[3].Status != "forecast" {
+		t.Fatalf("attempts %+v, want a busy 207 hold inside the recorded trade and a 208 forecast after it", j.Attempts)
+	}
+}
+
+// A clock behind the feed would make Append refuse the whole batch; only that symbol's
+// early attempts wait for a later tick.
+func TestPullbackTickDropsOnlyTheAttemptsReceivedBeforeTheirDecision(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"DE30/EUR", "SPX500/USD"}
+	var raw []DailyCandle
+	for _, c := range flat(append(rising(203), 301, 300, 299)...) {
+		raw = append(raw, DailyCandle{c, true})
+	}
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"DE30/EUR": raw, "SPX500/USD": raw}}
+	_, start := session(raw[204].Time)
+	_, decision := session(raw[205].Time)
+	clock := func() time.Time {
+		if feed.calls == 1 { // read after the DE30/EUR fetch
+			return decision.Add(-5 * time.Second)
+		}
+		return decision.Add(3 * time.Second)
+	}
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+	err := p.Tick(context.Background(), clock)
+	if err == nil || !strings.Contains(err.Error(), "pullback DE30/EUR: 1 attempts received before their decision") {
+		t.Fatalf("err = %v, want the DE30/EUR clock error", err)
+	}
+	if j := read(t, path); len(j.Attempts) != 1 || j.Attempts[0].ID != "PB1/SPX500/USD/2025-10-20" {
+		t.Fatalf("attempts %+v, want only the SPX500/USD forecast", j.Attempts)
+	}
+}
+
 func TestProspectiveRecordsAreChecked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "journal.jsonl")
 	a := attempt("PB1/x", "forecast")
