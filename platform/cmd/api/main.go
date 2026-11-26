@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -203,6 +204,11 @@ const pullbackSpec = "../docs/research/experiments/pullback/spec.json"
 func pullbackLoop(getenv func(string) string, specPath string, log *slog.Logger) func(context.Context) {
 	path, from := getenv("MS_PULLBACK_JOURNAL"), getenv("MS_PULLBACK_START")
 	if path == "" || from == "" {
+		return nil
+	}
+	// a relative path resolves per checkout, which would fork the journal, its only state
+	if !filepath.IsAbs(path) {
+		log.Error("pullback journal off: MS_PULLBACK_JOURNAL must be an absolute path", "journal", path)
 		return nil
 	}
 	start, err := time.Parse(time.RFC3339, from)

@@ -9,7 +9,7 @@
       "source": "docs/research/registry/campaigns/tsmom36/fetch.py (dailyAlignment 17, complete flag) and docs/research/registry/campaigns/ext39/ext39.py load (weekend stubs)"
     },
     "prices": {
-      "rule": "OANDA mid OHLC from the FXEmpire proxy, price=M, count=250",
+      "rule": "OANDA mid OHLC from the FXEmpire proxy, price=M",
       "label": "measured",
       "source": "docs/research/registry/campaigns/tsmom36/fetch.py"
     }

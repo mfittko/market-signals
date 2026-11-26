@@ -84,6 +84,10 @@ func parseCandles(r io.Reader) ([]DailyCandle, error) {
 			if f[k], err = n.Float64(); err != nil {
 				return nil, fmt.Errorf("daily candle %s: %w", c.Time, err)
 			}
+			// a price at or below zero makes the net R of a trade NaN or infinite
+			if f[k] <= 0 {
+				return nil, fmt.Errorf("daily candle %s: price %v is not > 0", c.Time, f[k])
+			}
 		}
 		out = append(out, DailyCandle{backtest.Candle{Time: c.Time, Open: f[0], High: f[1], Low: f[2], Close: f[3]}, c.Complete})
 	}

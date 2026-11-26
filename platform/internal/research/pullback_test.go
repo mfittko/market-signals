@@ -325,6 +325,52 @@ func TestPullbackJournalsEachSetupOnceAcrossARestart(t *testing.T) {
 	}
 }
 
+func TestPullbackRecordedForecastStandsAfterARevisedClose(t *testing.T) {
+	s, _ := pullbackSpec(t)
+	s.Symbols = []string{"SPX500/USD"}
+	days := func(c []backtest.Candle) []DailyCandle {
+		var out []DailyCandle
+		for _, b := range c {
+			out = append(out, DailyCandle{b, true})
+		}
+		return out
+	}
+	// bar 205 is a setup whose trade is still open
+	feed := &fakeFeed{bars: map[string][]DailyCandle{"SPX500/USD": days(flat(append(rising(203), 301, 300, 299)...))}}
+	_, start := session(feed.bars["SPX500/USD"][204].Time)
+	path := filepath.Join(t.TempDir(), "pullback.jsonl")
+	tick := func(now time.Time) {
+		t.Helper()
+		p := &Pullback{Spec: s, Feed: feed, Journal: path, Start: start}
+		if err := p.Tick(context.Background(), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick(time.Date(2025, 10, 21, 12, 0, 0, 0, time.UTC))
+	j := read(t, path)
+	if len(j.Attempts) != 1 || j.Attempts[0].Status != "forecast" {
+		t.Fatalf("attempts %+v, want the 205 forecast", j.Attempts)
+	}
+	forecast := j.Attempts[0].ID
+
+	// the feed revises bar 204 to 305, so 205 is no setup any more; 207 is a setup inside
+	// 205's trade, and 208 closes above its SMA5
+	c := flat(append(rising(203), 301, 305, 299, 298, 297, 320)...)
+	if s.setup(c, 205) || !s.setup(c, 207) {
+		t.Fatal("want no setup at 205 and a setup at 207")
+	}
+	feed.bars["SPX500/USD"] = days(c)
+	tick(time.Date(2025, 10, 24, 12, 0, 0, 0, time.UTC))
+	j = read(t, path)
+	_, d207 := session(c[207].Time)
+	if len(j.Attempts) != 2 || j.Attempts[1].Status != "hold" || j.Attempts[1].Reason != "busy" || !j.Attempts[1].Decision.Equal(d207) {
+		t.Fatalf("attempts %+v, want a busy 207 hold", j.Attempts)
+	}
+	if len(j.Outcomes) != 1 || j.Outcomes[0].Attempt != forecast || j.Outcomes[0].Exit != "sma5" {
+		t.Fatalf("outcomes %+v, want the sma5 exit of %s", j.Outcomes, forecast)
+	}
+}
+
 func TestProspectiveRecordsAreChecked(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "journal.jsonl")
 	a := attempt("PB1/x", "forecast")
@@ -359,5 +405,15 @@ func TestParseCandlesAcceptsStringAndNumberPrices(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+func TestParseCandlesRefusesANonPositivePrice(t *testing.T) {
+	for _, p := range []string{`"0"`, `-1`} {
+		_, err := parseCandles(strings.NewReader(`{"candles":[
+			{"time":"2025-10-26T21:00:00.000000000Z","complete":true,"mid":{"o":` + p + `,"h":"2","l":"1","c":"1.75"}}]}`))
+		if err == nil || !strings.Contains(err.Error(), "is not > 0") {
+			t.Errorf("open %s: err = %v, want a non-positive price refusal", p, err)
+		}
 	}
 }

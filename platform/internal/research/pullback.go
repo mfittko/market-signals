@@ -110,6 +110,9 @@ func (s PullbackSpec) trade(c []backtest.Candle, atr []float64, t int) (last int
 		return 0, o, false
 	}
 	entry, dist := c[t+1].Open, st.StopATR*atr[t]
+	if !(dist > 0) { // no ATR yet: the net R would not be finite
+		return 0, o, false
+	}
 	stop := entry - dist
 	for k := t + 1; k < len(c) && k <= t+st.MaxBars; k++ {
 		b := c[k]
@@ -147,13 +150,18 @@ func (s PullbackSpec) evaluate(sym string, c []backtest.Candle, start, now time.
 	busy := -1                                                // the last bar of the open trade
 	for t := range c {
 		date, decision := session(c[t].Time)
-		if !decision.After(start) || !s.setup(c, t) {
+		if !decision.After(start) {
 			continue
 		}
-		a := Attempt{ID: s.Experiment + "/" + sym + "/" + date, Mode: "prospective", Experiment: s.Experiment,
+		id := s.Experiment + "/" + sym + "/" + date
+		st, seen := status[id]
+		// a recorded forecast stands even when a revised bar no longer makes its bar a setup
+		if st != "forecast" && !s.setup(c, t) {
+			continue
+		}
+		a := Attempt{ID: id, Mode: "prospective", Experiment: s.Experiment,
 			SpecSHA256: s.SHA256, Decision: decision, Expiry: decision.AddDate(0, 0, int(s.Timing.ExpiryDays.Value)),
 			Received: now, Status: "forecast", Dir: 1}
-		st, seen := status[a.ID]
 		if st == "hold" || (!seen && t <= busy) {
 			a.Status, a.Dir, a.Reason = "hold", 0, "busy"
 		} else {
