@@ -32,7 +32,7 @@ Facts shared by every manifest:
 - Bar time: the UTC bar open.
 - Volume: the count of price updates in the bar (assumed).
 
-Computed fields, written by `describe` and checked by `verify`: `id` (the export's sha256, the immutable id), `path` (relative to the repository root), `instrument`, `granularity`, `rows`, `first`, `last`, `gaps` and `longestGap` (the bar times of the two rows around the longest gap). Only M1 (60 s bars) is accepted. A gap is a step between consecutive rows longer than 60 s. A step whose missing span contains Saturday 12:00 America/New_York is the weekly close and is not a gap. Daily halts and holidays count as gaps.
+Computed fields, written by `describe`: `id` (the export's sha256, the immutable id), `path` (relative to the repository root), `instrument`, `granularity`, `rows`, `first`, `last`, `gaps` and `longestGap` (the bar times of the two rows around the longest gap). `verify` uses `path`, `instrument` and `granularity` to open and parse the export; a wrong value there fails as a load error (exit 2). It compares the other six fields and prints one line per difference (exit 1). Only M1 (60 s bars) is accepted. A gap is a step between consecutive rows longer than 60 s. A step whose missing span contains Saturday 12:00 America/New_York is the weekly close and is not a gap. Daily halts and holidays count as gaps.
 
 The hand-kept field `restoration` holds the exact read-only command that rebuilds the export. `verify` ignores it. Template, with the instrument and basename filled in:
 
