@@ -77,6 +77,18 @@ type Spec struct {
 	} `json:"experiment"`
 }
 
+type labelled struct{ name, label, source string }
+
+// checkLabels refuses a declared value that is not labelled assumed or measured with a source.
+func checkLabels(vs []labelled) error {
+	for _, v := range vs {
+		if (v.label != "assumed" && v.label != "measured") || v.source == "" {
+			return fmt.Errorf("spec: %s must be labelled assumed or measured, with a source", v.name)
+		}
+	}
+	return nil
+}
+
 // ParseSpec decodes a spec and refuses one with an unknown field or an unlabelled value.
 func ParseSpec(b []byte) (Spec, error) {
 	var s Spec
@@ -86,9 +98,7 @@ func ParseSpec(b []byte) (Spec, error) {
 		return s, fmt.Errorf("spec: %w", err)
 	}
 	e := s.Experiment
-	labelled := []struct {
-		name, label, source string
-	}{
+	if err := checkLabels([]labelled{
 		{"feed.barTime", s.Feed.BarTime.Label, s.Feed.BarTime.Source},
 		{"feed.prices", s.Feed.Prices.Label, s.Feed.Prices.Source},
 		{"costs.spread", e.Costs.Spread.Label, e.Costs.Spread.Source},
@@ -97,11 +107,8 @@ func ParseSpec(b []byte) (Spec, error) {
 		{"costs.financingMarkup", e.Costs.FinancingMarkup.Label, e.Costs.FinancingMarkup.Source},
 		{"costs.financingRollover", e.Costs.FinancingRollover.Label, e.Costs.FinancingRollover.Source},
 		{"timing.decisionDelayMs", e.Timing.DecisionDelayMs.Label, e.Timing.DecisionDelayMs.Source},
-	}
-	for _, v := range labelled {
-		if (v.label != "assumed" && v.label != "measured") || v.source == "" {
-			return s, fmt.Errorf("spec: %s must be labelled assumed or measured, with a source", v.name)
-		}
+	}); err != nil {
+		return s, err
 	}
 	st := e.Strategy
 	switch {

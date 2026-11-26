@@ -22,6 +22,7 @@ import (
 	"github.com/mfittko/market-signals/platform/internal/db"
 	"github.com/mfittko/market-signals/platform/internal/monitor"
 	"github.com/mfittko/market-signals/platform/internal/queue"
+	"github.com/mfittko/market-signals/platform/internal/research"
 	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/internal/tools"
 	"github.com/mfittko/market-signals/platform/migrations"
@@ -104,6 +105,8 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 		mon := &monitor.Service{Store: st, Feed: monitor.EngineFeed{Eng: tools.NewEngine(engine)}, Log: log, Enrich: srv.WakeEnricher()}
 		p.monitor = func(ctx context.Context) { mon.Run(ctx, 15*time.Second) }
 	}
+	// after the stack lock, so one api writes the journal
+	p.pullback = pullbackLoop(os.Getenv, pullbackSpec, log)
 	log.Info("control plane starting", "addr", addr, "engine", engine)
 	return run(ctx, p)
 }
@@ -115,6 +118,8 @@ type plane struct {
 	handler http.Handler
 	reaper  func(context.Context) // blocks until its context ends
 	monitor func(context.Context) // blocks until its context ends; nil without an engine
+	// pullback blocks until its context ends; nil unless MS_PULLBACK_JOURNAL and MS_PULLBACK_START are set
+	pullback func(context.Context)
 	// stopStreams ends the long-lived event streams when shutdown starts; nil when the handler has none.
 	stopStreams func()
 	close       func()       // runs after both loops returned
@@ -142,7 +147,7 @@ func run(ctx context.Context, p plane) error {
 	for _, l := range []struct {
 		name string
 		loop func(context.Context)
-	}{{"reaper", p.reaper}, {"monitor", p.monitor}} {
+	}{{"reaper", p.reaper}, {"monitor", p.monitor}, {"pullback", p.pullback}} {
 		if l.loop == nil {
 			continue
 		}
@@ -187,6 +192,37 @@ func run(ctx context.Context, p plane) error {
 		return fmt.Errorf("serve: %w", err)
 	}
 	return nil
+}
+
+// pullbackSpec is relative to the api's working directory, platform/, where dev.sh and the LaunchAgent start it.
+const pullbackSpec = "../docs/research/experiments/pullback/spec.json"
+
+// pullbackLoop returns the prospective pullback journal loop, which ticks hourly. It returns nil, so the api
+// makes no daily fetch, unless both MS_PULLBACK_JOURNAL (the journal file) and MS_PULLBACK_START (the go-live
+// time, RFC 3339) are set, or when the start or the spec does not parse.
+func pullbackLoop(getenv func(string) string, specPath string, log *slog.Logger) func(context.Context) {
+	path, from := getenv("MS_PULLBACK_JOURNAL"), getenv("MS_PULLBACK_START")
+	if path == "" || from == "" {
+		return nil
+	}
+	start, err := time.Parse(time.RFC3339, from)
+	if err != nil {
+		log.Error("pullback journal off: MS_PULLBACK_START", "err", err)
+		return nil
+	}
+	b, err := os.ReadFile(specPath)
+	if err != nil {
+		log.Error("pullback journal off", "err", err)
+		return nil
+	}
+	spec, err := research.ParsePullbackSpec(b)
+	if err != nil {
+		log.Error("pullback journal off", "err", err)
+		return nil
+	}
+	pb := &research.Pullback{Spec: spec, Feed: &research.FXEmpire{Client: &http.Client{Timeout: 25 * time.Second}}, Journal: path, Start: start, Log: log}
+	log.Info("pullback journal on", "journal", path, "start", start)
+	return func(ctx context.Context) { pb.Run(ctx, time.Hour) }
 }
 
 func seedAgents(ctx context.Context, st *queue.Store) error {
