@@ -38,6 +38,11 @@ export default function RunPage() {
   const engine = engineDecision(run);
   const attemptNo = new Map(attempts.map((a) => [a.id, a.attemptNo]));
   const terminal = TERMINAL.includes(run.status);
+  // Tool-call budget window: every attempt after the last follow-up wait ('waiting'), as the store counts it.
+  const lastWait = Math.max(0, ...attempts.filter((a) => a.status === 'waiting').map((a) => a.attemptNo));
+  const budgetWindow = attempts.filter((a) => a.attemptNo > lastWait);
+  const windowCalls = budgetWindow.reduce((n, a) => n + a.toolCalls, 0);
+  const uncertain = budgetWindow.some((a) => a.status === 'expired' || a.status === 'failed');
 
   return (
     <main className="wrap">
@@ -111,7 +116,8 @@ export default function RunPage() {
                   <td className="num">{a.usage?.promptTokens != null ? `${a.usage.promptTokens} in / ${a.usage.completionTokens} out` : '–'}</td></tr>
               ))}</tbody>
             </table></div>
-            <p className="muted small" style={{ margin: '8px 0 0' }}>Allowed tools: {agent.allowedTools.join(', ')}. Budget: {agent.budgets.maxToolCalls} tool calls per attempt, {run.maxAttempts} attempts.</p>
+            <p className="muted small" style={{ margin: '8px 0 0' }}>Allowed tools: {agent.allowedTools.join(', ')}. Budget: {agent.budgets.maxToolCalls} tool calls shared by retries and reset by a follow-up wait, {run.maxAttempts} attempts.</p>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>Tool calls since the last follow-up: {windowCalls} of {agent.budgets.maxToolCalls}{uncertain && <span title="An expired or failed attempt may have run tools it did not report."> (uncertain)</span>}</p>
           </Card>
 
           <Card title="Frozen snapshot">

@@ -140,7 +140,6 @@ type live struct {
 	cancelRequested bool
 	runStatus       string
 	pendingWait     []byte
-	toolCalls       int
 	attemptNo       int
 }
 
@@ -149,9 +148,9 @@ type live struct {
 func lockAttempt(ctx context.Context, tx pgx.Tx, attemptID, fence int64) (live, error) {
 	var l live
 	var f int64
-	err := tx.QueryRow(ctx, `SELECT a.run_id,a.status,a.lease_expires_at > now(),r.cancel_requested,r.status,a.pending_wait,a.tool_calls,a.attempt_no,a.fence
+	err := tx.QueryRow(ctx, `SELECT a.run_id,a.status,a.lease_expires_at > now(),r.cancel_requested,r.status,a.pending_wait,a.attempt_no,a.fence
 		FROM attempts a JOIN runs r ON r.id=a.run_id WHERE a.id=$1 FOR UPDATE OF a, r`, attemptID).
-		Scan(&l.runID, &l.attemptStatus, &l.live, &l.cancelRequested, &l.runStatus, &l.pendingWait, &l.toolCalls, &l.attemptNo, &f)
+		Scan(&l.runID, &l.attemptStatus, &l.live, &l.cancelRequested, &l.runStatus, &l.pendingWait, &l.attemptNo, &f)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, ErrStale
 	}
@@ -276,7 +275,14 @@ func (s *Store) AuthorizeTool(ctx context.Context, attemptID, fence int64, name 
 	if !allowed {
 		return deny("not in the declared toolset", ErrForbidden)
 	}
-	if l.toolCalls >= tc.Agent.Budgets.MaxToolCalls {
+	// The budget window is every attempt after the last follow-up wait, so a retry
+	// inherits the spent calls and a woken follow-up starts with the full budget.
+	var used int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(sum(tool_calls),0) FROM attempts WHERE run_id=$1
+		AND attempt_no > COALESCE((SELECT max(attempt_no) FROM attempts WHERE run_id=$1 AND status='waiting'),0)`, l.runID).Scan(&used); err != nil {
+		return nil, err
+	}
+	if used >= tc.Agent.Budgets.MaxToolCalls {
 		return deny(fmt.Sprintf("tool-call budget of %d exhausted", tc.Agent.Budgets.MaxToolCalls), ErrBudget)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE attempts SET tool_calls=tool_calls+1 WHERE id=$1`, attemptID); err != nil {
