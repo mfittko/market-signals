@@ -252,11 +252,12 @@ stays the live source until the Go store owns settings writes
   and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage asks the gateway
   config before it marks a headline pending: with no model configured, it passes headlines through unmarked at
   once, makes no model call, and keeps passing them through for 5 minutes.
-- Spend ledger: the gateway records every call that got an HTTP 200 answer, or timed out after its request was
-  sent and before any status arrived, as one `model_spend` row, priced from the settings key `llmModelPrices`
-  (default: an assumed price table for `gpt-5.4-mini` and `glm-5`). A non-200 answer writes no row. A reply
-  without usage, a reply with empty or all-zero usage, a 200 reply that does not parse or has no choices, or a
-  call that timed out after its request was sent, is recorded as estimated at `max_tokens`.
+- Spend ledger: the gateway records every call that got an HTTP 200 answer, or that timed out or was cancelled by
+  its caller after its request was sent and before any status arrived, as one `model_spend` row, priced from the
+  settings key `llmModelPrices` (default: an assumed price table for `gpt-5.4-mini` and `glm-5`). A non-200
+  answer writes no row, and neither does a call cancelled before its request was sent. A reply without usage, a
+  reply with empty or all-zero usage, a 200 reply that does not parse or has no choices, or a call that timed out
+  or was cancelled after its request was sent, is recorded as estimated at `max_tokens`.
   The worker records through `POST /api/v1/runtime/spend`, with the same worker token and loopback guard as
   `llm-config`. When the spend of the current UTC day reaches `llmDailyCapUsd` (default 5 USD), `capReached` is
   true and the gateway refuses calls with `cap_reached` before any request. A call whose row cannot be written

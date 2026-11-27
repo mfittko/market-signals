@@ -31,11 +31,11 @@ type ProviderConfig struct {
 // ConfigSource returns the provider config. The gateway calls it once per model call.
 type ConfigSource func(ctx context.Context) (ProviderConfig, error)
 
-// SpendCall is one model call that got an HTTP 200 answer or timed out after its request was sent, before any
-// status arrived. It is also the body of POST /api/v1/runtime/spend, which carries no cost: the control plane
-// prices the call. A call without usage, with empty or all-zero usage, with a 200 reply that does not parse or has
-// no choices, or one that timed out, has zero prompt tokens and the request's max_tokens as completion tokens, and
-// is estimated.
+// SpendCall is one model call that got an HTTP 200 answer, or that timed out or was cancelled by its caller after
+// its request was sent, before any status arrived. It is also the body of POST /api/v1/runtime/spend, which
+// carries no cost: the control plane prices the call. A call without usage, with empty or all-zero usage, with a
+// 200 reply that does not parse or has no choices, or one that timed out or was cancelled after its request was
+// sent, has zero prompt tokens and the request's max_tokens as completion tokens, and is estimated.
 type SpendCall struct {
 	CallSite         string `json:"callSite"`
 	Provider         string `json:"provider"`
@@ -304,10 +304,13 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 	// a caller deadline expiry counts like the gateway's own; only the caller's cancellation does not
 	g.record(key, a, err == nil, counted && !errors.Is(ctx.Err(), context.Canceled), g.Now())
 	timedOut := err != nil && errors.Is(callCtx.Err(), context.DeadlineExceeded)
-	// the provider bills an answered call, and may bill a generation that ran past the deadline; a non-200
-	// status whose body stalled past the deadline is an unbilled error answer
-	if status == http.StatusOK || (timedOut && sent.Load() && status == 0) {
-		if rerr := g.spend(ctx, key, req, u, hasUsage && !timedOut); rerr != nil {
+	// a sent call whose context ended by deadline or by the caller's cancellation is a generation the
+	// provider may still bill
+	ended := timedOut || (err != nil && errors.Is(callCtx.Err(), context.Canceled))
+	// the provider bills an answered call, and may bill a generation whose context ended after the request was
+	// sent; a non-200 status whose body stalled past the deadline is an unbilled error answer
+	if status == http.StatusOK || (ended && sent.Load() && status == 0) {
+		if rerr := g.spend(ctx, key, req, u, hasUsage && !ended); rerr != nil {
 			return nil, usage{}, &ModelError{Provider: key, Reason: ReasonSpendUnrecorded, Err: rerr}
 		}
 	}

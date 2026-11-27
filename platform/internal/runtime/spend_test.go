@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -136,6 +137,43 @@ func TestGatewayRecordsATimedOutCallAsEstimated(t *testing.T) {
 	want := runtime.SpendCall{CallSite: "agent", Provider: block.URL + "/v1/chat/completions", Model: "m", CompletionTokens: 700, Estimated: true, RunID: 3}
 	if got := rec.all(); len(got) != 1 || got[0] != want {
 		t.Fatalf("got %+v, want one %+v", got, want)
+	}
+}
+
+// a caller that cancels after the request was written may still be billed: one estimated row, recorded on a
+// context the cancellation does not reach
+func TestGatewayRecordsACallCancelledAfterSendAsEstimated(t *testing.T) {
+	block := blockingStub(t)
+	g, _, rec := recorded(fixed(block.URL), nil)
+	ctx, cancel := context.WithCancel(runtime.WithCall(context.Background(), "agent", 4))
+	defer cancel()
+	// the gateway composes its own trace with this one and runs its hook first, so the request counts as sent
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { cancel() }})
+	_, err := chat(g, ctx)
+	if reason(t, err) != runtime.ReasonProvider {
+		t.Fatalf("want provider, got %v", err)
+	}
+	want := runtime.SpendCall{CallSite: "agent", Provider: block.URL + "/v1/chat/completions", Model: "m", CompletionTokens: 700, Estimated: true, RunID: 4}
+	if got := rec.all(); len(got) != 1 || got[0] != want || rec.ctxErrs[0] != nil {
+		t.Fatalf("got %+v %v, want one %+v on a live context", got, rec.ctxErrs, want)
+	}
+}
+
+// a call cancelled before its request was written is not billed
+func TestGatewayRecordsNoRowForACancelBeforeTheRequestWasWritten(t *testing.T) {
+	g, _, rec := recorded(fixed("http://provider.example.test"), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	g.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		cancel()
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}
+	if _, err := chat(g, ctx); reason(t, err) != runtime.ReasonProvider {
+		t.Fatalf("want provider, got %v", err)
+	}
+	if n := len(rec.all()); n != 0 {
+		t.Fatalf("%d rows, want none", n)
 	}
 }
 

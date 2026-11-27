@@ -1,8 +1,9 @@
--- Model spend ledger: one row per Go model call that got an HTTP 200 answer or timed out after its request was
--- sent, before any status arrived; a non-200 answer writes no row. platform/internal/spend is its only writer.
--- Money is double precision, as in 008_ledger.sql. priced_as is the price table entry used, or *max* for a model
--- without an entry. A call without usage, with empty or all-zero usage, with a 200 reply that does not parse or
--- has no choices, or one that timed out, is estimated from max_tokens.
+-- Model spend ledger: one row per Go model call that got an HTTP 200 answer, or that timed out or was cancelled by
+-- its caller after its request was sent, before any status arrived; a non-200 answer writes no row.
+-- platform/internal/spend is its only writer. Money is double precision, as in 008_ledger.sql. priced_as is the
+-- price table entry used, or *max* for a model without an entry. A call without usage, with empty or all-zero
+-- usage, with a 200 reply that does not parse or has no choices, or one that timed out or was cancelled after its
+-- request was sent, is estimated from max_tokens.
 CREATE TABLE model_spend (
   id                bigserial PRIMARY KEY,
   at                timestamptz NOT NULL DEFAULT now(),
