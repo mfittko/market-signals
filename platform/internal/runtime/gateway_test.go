@@ -602,6 +602,17 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 		t.Fatalf("steps %q", steps)
 	}
 
+	// a round that fails before config resolution names the agent's own model
+	steps = nil
+	in.Claim.Agent.Model = "agent-model"
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
+		t.Fatal("an unconfigured gateway must fail the run")
+	}
+	in.Claim.Agent.Model = ""
+	if len(steps) != 1 || steps[0] != "round 1: asked agent-model at no provider" {
+		t.Fatalf("steps %q", steps)
+	}
+
 	// a round that fails after config resolution still names the resolved model and provider
 	g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) {
 		return runtime.ProviderConfig{Configured: true, BaseURL: a.URL + "/v1", APIKey: fakeKey, Model: "capped", CapReached: true}, nil
