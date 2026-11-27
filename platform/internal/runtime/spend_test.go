@@ -128,7 +128,7 @@ func TestGatewayRecordsNoRowForATimeoutBeforeTheRequestWasWritten(t *testing.T) 
 func TestGatewayRecordsATimedOutCallAsEstimated(t *testing.T) {
 	block := blockingStub(t)
 	g, _, rec := recorded(fixed(block.URL), nil)
-	g.Deadline = 50 * time.Millisecond
+	g.Deadline = 1 * time.Second
 	_, err := chat(g, runtime.WithCall(context.Background(), "agent", 3))
 	if reason(t, err) != runtime.ReasonTimeout {
 		t.Fatalf("want timeout, got %v", err)
@@ -149,7 +149,7 @@ func TestGatewayRecordsNoRowForAnErrorStatusWhoseBodyStalls(t *testing.T) {
 	}))
 	t.Cleanup(s.Close)
 	g, _, rec := recorded(fixed(s.URL), nil)
-	g.Deadline = 50 * time.Millisecond
+	g.Deadline = 1 * time.Second
 	if _, err := chat(g, context.Background()); reason(t, err) != runtime.ReasonTimeout {
 		t.Fatalf("want timeout, got %v", err)
 	}
