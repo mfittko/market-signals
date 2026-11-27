@@ -89,14 +89,22 @@ func NewGateway(src ConfigSource, log *slog.Logger) *Gateway {
 }
 
 // breaker opens after breakerFailures consecutive counted failures and fails calls at once for breakerOpen.
-// It then admits exactly one probe; the probe's result closes or reopens it.
+// It then admits exactly one probe; the probe's result closes or reopens it. gen changes each time the breaker
+// opens, so a call admitted before that cannot move it.
 type breaker struct {
 	fails     int
 	openUntil time.Time
 	probing   bool
+	gen       int
 }
 
-func (g *Gateway) admit(key string, now time.Time) bool {
+// admission is one admitted call: whether it is the half-open probe, and the breaker generation it saw.
+type admission struct {
+	probe bool
+	gen   int
+}
+
+func (g *Gateway) admit(key string, now time.Time) (admission, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	b := g.breakers[key]
@@ -105,34 +113,41 @@ func (g *Gateway) admit(key string, now time.Time) bool {
 		g.breakers[key] = b
 	}
 	if b.fails < breakerFailures {
-		return true
+		return admission{gen: b.gen}, true
 	}
 	if now.Before(b.openUntil) || b.probing {
-		return false
+		return admission{}, false
 	}
 	b.probing = true
-	return true
+	return admission{probe: true, gen: b.gen}, true
 }
 
 // record notes one call result. Only counted failures and successes move the breaker; a probe whose result
-// does not count lets the next call probe again.
-func (g *Gateway) record(key string, ok, counted bool, now time.Time) {
+// does not count lets the next call probe again. A result from an earlier generation is ignored.
+func (g *Gateway) record(key string, a admission, ok, counted bool, now time.Time) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	b := g.breakers[key]
+	if a.probe {
+		b.probing = false
+	} else if a.gen != b.gen {
+		return
+	}
 	switch {
+	case ok && a.probe:
+		*b = breaker{gen: b.gen}
 	case ok:
-		*b = breaker{}
+		b.fails = 0
 	case counted:
 		b.fails++
-		if b.probing || b.fails >= breakerFailures {
-			b.fails, b.openUntil = breakerFailures, now.Add(breakerOpen)
+		if a.probe || b.fails >= breakerFailures {
+			b.fails, b.openUntil, b.gen = breakerFailures, now.Add(breakerOpen), b.gen+1
 		}
 	}
-	b.probing = false
 }
 
-// chatURL returns the request URL and the provider key, which is the same endpoint without userinfo and query.
+// chatURL returns the request URL and the provider key, which is the same endpoint without userinfo and query,
+// with a lower-case host and without the scheme's default port.
 func chatURL(base string) (string, string, error) {
 	u, err := url.Parse(strings.TrimSpace(base))
 	if err != nil || u.Host == "" {
@@ -142,13 +157,15 @@ func chatURL(base string) (string, string, error) {
 	u.RawPath, u.Fragment = "", ""
 	full := u.String()
 	u.User, u.RawQuery = nil, ""
+	u.Host = strings.TrimSuffix(strings.ToLower(u.Host), map[string]string{"https": ":443", "http": ":80"}[u.Scheme])
 	return full, u.String(), nil
 }
 
-// redact removes the API key, the base URL's password and its query values from a provider reply.
+// redact removes the API key, the base URL's username, password and query values from a provider reply.
 func redact(s, full, apiKey string) string {
 	secrets := []string{apiKey}
 	if u, err := url.Parse(full); err == nil {
+		secrets = append(secrets, u.User.Username())
 		if p, ok := u.User.Password(); ok {
 			secrets = append(secrets, p)
 		}
@@ -183,11 +200,13 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 		}
 		req["model"] = cfg.Model
 	}
-	if !g.admit(key, g.Now()) {
+	a, ok := g.admit(key, g.Now())
+	if !ok {
 		return nil, u, &ModelError{Provider: key, Reason: ReasonBreakerOpen}
 	}
 	msg, u, status, counted, err := g.send(callCtx, full, key, cfg.APIKey, req)
-	g.record(key, err == nil, counted && ctx.Err() == nil, g.Now())
+	// a caller deadline expiry counts like the gateway's own; only the caller's cancellation does not
+	g.record(key, a, err == nil, counted && !errors.Is(ctx.Err(), context.Canceled), g.Now())
 	if err == nil {
 		return msg, u, nil
 	}

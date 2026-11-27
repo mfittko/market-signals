@@ -336,6 +336,122 @@ func TestGatewayFailureClassification(t *testing.T) {
 	}
 }
 
+func TestGatewayDeadlineAndTransportFailuresCount(t *testing.T) {
+	block := blockingStub(t)
+	for name, c := range map[string]struct {
+		base     string
+		deadline time.Duration
+		caller   time.Duration
+	}{
+		"caller deadline":  {block.URL, 10 * time.Second, 20 * time.Millisecond},
+		"gateway deadline": {block.URL, 20 * time.Millisecond, 0},
+		"transport error":  {"http://127.0.0.1:1", 10 * time.Second, 0},
+	} {
+		g, _ := gateway(fixed(c.base), nil)
+		g.Deadline = c.deadline
+		for range 5 {
+			ctx, cancel := context.Background(), context.CancelFunc(func() {})
+			if c.caller > 0 {
+				ctx, cancel = context.WithTimeout(ctx, c.caller)
+			}
+			_, err := complete(g, ctx)
+			cancel()
+			if r := reason(t, err); r == runtime.ReasonBreakerOpen {
+				t.Fatalf("%s: opened too early", name)
+			}
+		}
+		if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+			t.Errorf("%s: 5 failures must open the breaker: %v", name, err)
+		}
+	}
+}
+
+func TestGatewayStaleCallDoesNotEndTheProbe(t *testing.T) {
+	releaseStale, releaseProbe := make(chan struct{}), make(chan struct{})
+	var hits atomic.Int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch n := hits.Add(1); {
+		case n == 1:
+			<-releaseStale
+		case n == 7:
+			<-releaseProbe
+		case n < 7:
+			http.Error(w, "down", 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "ok"}}}})
+	}))
+	defer s.Close()
+	release := func(ch chan struct{}) {
+		select {
+		case <-ch:
+		default:
+			close(ch)
+		}
+	}
+	defer release(releaseProbe) // before s.Close, which waits for the blocked handlers
+	defer release(releaseStale)
+	g, c := gateway(fixed(s.URL), nil)
+	wait := func(n int32) {
+		for hits.Load() != n {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	var stale, probe sync.WaitGroup
+	stale.Add(1)
+	go func() { defer stale.Done(); complete(g, context.Background()) }() // admitted while closed
+	wait(1)
+	openBreaker(t, g)
+	c.t = c.t.Add(60 * time.Second)
+	probe.Add(1)
+	go func() { defer probe.Done(); complete(g, context.Background()) }()
+	wait(7)
+	release(releaseStale)
+	stale.Wait()
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen || hits.Load() != 7 {
+		t.Fatalf("a stale success must not end the probe: %v, %d requests", err, hits.Load())
+	}
+	release(releaseProbe)
+	probe.Wait()
+	if _, err := complete(g, context.Background()); err != nil {
+		t.Fatalf("the probe's success closes the breaker: %v", err)
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestGatewayProviderKeyIgnoresHostCaseAndDefaultPort(t *testing.T) {
+	for _, forms := range [][]string{
+		{"https://API.Example.test/v1", "https://api.example.test:443/v1", "https://api.example.test/v1/"},
+		{"http://Models.Example.test", "http://models.example.test:80", "http://models.example.test/v1"},
+	} {
+		var hits atomic.Int32
+		i := 0
+		g, _ := gateway(func(context.Context) (runtime.ProviderConfig, error) {
+			base := forms[i%len(forms)]
+			i++
+			return runtime.ProviderConfig{Configured: true, BaseURL: base, APIKey: fakeKey, Model: "m"}, nil
+		}, nil)
+		g.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+			hits.Add(1)
+			return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("down")), Request: r}, nil
+		})}
+		for range 5 {
+			complete(g, context.Background())
+		}
+		for range len(forms) {
+			if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+				t.Fatalf("%v must share one breaker: %v", forms, err)
+			}
+		}
+		if hits.Load() != 5 {
+			t.Fatalf("%v: %d requests, want 5", forms, hits.Load())
+		}
+	}
+}
+
 func TestGatewayBreakersArePerProvider(t *testing.T) {
 	a, b := newStub(t, 500), newStub(t, 200)
 	base := a.URL
