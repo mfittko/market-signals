@@ -8,18 +8,18 @@ description: Four layers with one job each. A deterministic engine, an agent con
 <p class="lede">Each layer has one job, and each kind of state has exactly one component that may change it.</p>
 
 <div class="layers">
-<div class="layer engine"><b>Engine (Node, SQLite)</b><span>Reads candles, detects trend flips and volume impulses, filters alerts, keeps the paper book and runs the paper bots. It owns signals, the ledger and spend budgets.</span></div>
+<div class="layer engine"><b>Engine (Node, SQLite)</b><span>Reads candles, detects trend flips and volume impulses, filters alerts, keeps the live paper book and runs the paper bots. It owns signals, the live paper book and the spend of its own model calls. It is end of life, and Go takes over its jobs one by one.</span></div>
 <div class="flow">sends a frozen snapshot at every decision point</div>
-<div class="layer"><b>Control plane (Go, Postgres)</b><span>Queues work, leases each run to one worker with a fencing token and records every step. Workers may call a short allowlist of read tools, scoped to one instrument.</span></div>
+<div class="layer"><b>Control plane (Go, Postgres)</b><span>Queues work, leases each run to one worker with a fencing token and records every step. Workers may call a short allowlist of read tools, scoped to one instrument. Every paid model call the control plane makes goes through one gateway with a deadline, a circuit breaker and a daily spend cap. The health route names degraded parts, and a watchdog sends a notice when one lasts ten minutes.</span></div>
 <div class="flow">agents return a proposal with reasons</div>
 <div class="layer guard"><b>Position monitor (rules only)</b><span>Manages each advisory position on completed bars with stops, targets, trailing stops, time limits and the kill switch. It wakes the agent when a tripwire fires, and the agent may then hold, close or tighten the stop.</span></div>
 <div class="flow">streams durable events to the browser</div>
-<div class="layer ui"><b>Console (Next.js)</b><span>Shows the desk, instrument charts, runs with their audit trail, positions, strategies, alerts and settings, and updates them live.</span></div>
+<div class="layer ui"><b>Console (Next.js)</b><span>Shows the desk, instrument charts, the paper portfolio, runs with their audit trail and queue health, positions, strategies, alerts and settings, and updates them live.</span></div>
 </div>
 
 ## The engine keeps the money
 
-The engine already works and has a broad test suite, so it stays the owner of the paper book. The platform reads from it and advises next to it, and it has no route that writes to the ledger.
+The engine owns the live paper book until the cutover. Go already has its own paper ledger on Postgres. Each write runs in one transaction with an idempotency key, and a replay judges every completed bar once. An import copies the Node book and reports each difference. No bot books on the Go ledger yet, and the platform has no route that writes to either ledger. The bots switch to the Go ledger in v0.11.0, after a reconciled import.
 
 ## Every run sees frozen data
 
@@ -37,7 +37,7 @@ A model call takes seconds, costs money and sometimes fails. The monitor checks 
 
 1. A trend flips on WTI M5. The engine records the signal and sends a snapshot with candles, indicators, news, the bot state and the active strategy.
 2. The control plane stores the snapshot and queues one run for each agent that watches the market.
-3. A worker leases a run. The agent reads the snapshot through the tool gateway and may request more context within its budget.
+3. A worker leases a run. A model agent reads the snapshot through the tool gateway and may request more context within one budget for the whole run. A Claude Code agent gets a summary of the snapshot and decides in one round, without tools.
 4. The agent proposes to hold, or to open with an exit plan. Deterministic checks validate the proposal, and an invalid one becomes a hold.
 5. An accepted open becomes an advisory position, and the monitor manages it from then on.
 
@@ -49,7 +49,7 @@ A model call takes seconds, costs money and sometimes fails. The monitor checks 
 |---|---|---|
 | Control plane | Go, standard library router, hand-written SQL on Postgres | Small and easy to read during an incident |
 | Live updates | Server-sent events from a durable event log | A reconnect resumes from the last event |
-| Agents | A native tool loop with any OpenAI-compatible model | We measure this baseline before we add other runtimes |
+| Agents | A bounded tool loop with any OpenAI-compatible model, or the local Claude Code CLI without tools | Each call has a deadline and a circuit breaker, and paid calls stop at a daily spend cap |
 | Console | Next.js with plain CSS | One set of design tokens for light and dark |
 | Storage | Postgres for the platform, SQLite in the engine until cutover | Each domain has one writer during every step of the move |
 
@@ -57,4 +57,4 @@ Postgres row locks and leases run the queue, so the system needs no Redis and no
 
 ## Moving the domain to Go
 
-The engine keeps the money until agents prove themselves on matched data. After that we port the domain to Go in bounded slices, and each slice runs in shadow next to the Node engine before it takes over. The [stack migration epic](https://github.com/mfittko/market-signals/issues/229) holds the plan.
+In November 2026 we decided to retire the Node engine. It gets no new features, and the Go control plane takes over every job it does today. We move one job at a time, and each Go part runs next to the engine as a mirror or in shadow before it takes over. The paper ledger, the settings store and the strategy store already exist in Go. Console strategy edits already write to the Go strategy store. The engine stays the writer of the paper book, the settings and its own strategy versions until the switch. After the cutover in v0.13.0, agents earn authority on the Go side. The [Node cutover epic](https://github.com/mfittko/market-signals/issues/345) holds the plan, under the [stack migration epic](https://github.com/mfittko/market-signals/issues/229).
