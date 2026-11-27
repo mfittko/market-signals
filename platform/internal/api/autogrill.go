@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/backtest"
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 )
 
 // Auto grill: instead of asking the trader, the console backtests Supertrend flips
@@ -83,10 +84,13 @@ func (s *Server) autoGrill(w http.ResponseWriter, r *http.Request) {
 			{"role": "system", "content": autoGrillSystem},
 			{"role": "user", "content": s.grillContext(r.Context(), b.Name, "auto", b.Draft, "") + "\n" + evidenceText(b.Instrument, b.Granularity, from, to, rep, cands)},
 		}
-		if reply, err := s.cfg.Complete(r.Context(), msgs); err != nil {
+		reply, err := s.cfg.Complete(r.Context(), msgs)
+		switch {
+		case runtime.IsNotConfigured(err): // no coach turn, as without a model
+		case err != nil:
 			s.log.Error("autogrill", "err", err)
 			out["coachError"] = "the coach call failed: " + err.Error()
-		} else {
+		default:
 			out["turn"] = parseTurn(reply)
 			out["reply"] = reply
 		}

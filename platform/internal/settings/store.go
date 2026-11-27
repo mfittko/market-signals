@@ -190,8 +190,9 @@ type ImportReport struct {
 }
 
 // Import mirrors a legacy settings.json into the store, one way. A schema key absent from
-// the file is deleted; a refused key keeps its stored value and is reported. Job owner
-// flags are never touched. Rerunning it on an unchanged file adds no revision.
+// the file is deleted; a refused key keeps its stored value and is reported, except that a
+// refused OPENAI_BASE_URL or OPENAI_API_KEY removes OPENAI_API_KEY (see importPatch). Job owner flags are never
+// touched. Rerunning it on an unchanged file adds no revision.
 func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport, error) {
 	rep := ImportReport{Changed: []string{}, Skipped: []string{}, Notes: []string{}}
 	b, err := os.ReadFile(path)
@@ -205,22 +206,51 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport,
 	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 {
 		rep.Notes = append(rep.Notes, fmt.Sprintf("%s holds secrets and is readable by other users (mode %o); chmod 600 it", path, fi.Mode().Perm()))
 	}
-	patch := map[string]any{}
+	patch, skipped := importPatch(file)
+	rep.Skipped = append(rep.Skipped, skipped...)
+	snap, changed, err := Write(ctx, pool, FromImport, patch, nil)
+	rep.Revision, rep.Changed = snap.Revision, changed
+	return rep, err
+}
+
+// importPatch builds the import's write patch and the sorted list of refused keys. It trims OPENAI_BASE_URL, so a
+// blank value clears the stored one. A refused OPENAI_BASE_URL keeps its stored value and removes OPENAI_API_KEY
+// from the store (fail closed), and so does a refused OPENAI_API_KEY, so the gateway reports not_configured.
+func importPatch(file map[string]any) (map[string]any, []string) {
+	patch, skipped := map[string]any{}, []string{}
 	for k, sp := range schema {
 		if !sp.goOnly {
 			patch[k] = nil
 		}
 	}
+	baseRefused, keyRefused := false, false
 	for k, v := range file {
+		if s, ok := v.(string); ok && k == "OPENAI_BASE_URL" {
+			v = strings.TrimSpace(s) // the resolution rule trims it: a padded URL imports and a blank one clears
+		}
 		if err := Check(FromImport, k, v); err != nil {
-			rep.Skipped = append(rep.Skipped, err.Error())
+			skipped = append(skipped, err.Error())
 			delete(patch, k)
+			baseRefused = baseRefused || k == "OPENAI_BASE_URL"
+			keyRefused = keyRefused || k == "OPENAI_API_KEY"
 			continue
 		}
 		patch[k] = v
 	}
-	sort.Strings(rep.Skipped)
-	snap, changed, err := Write(ctx, pool, FromImport, patch, nil)
-	rep.Revision, rep.Changed = snap.Revision, changed
-	return rep, err
+	// A refused base URL keeps its stored value, so any key, new or stored, would go to that stale endpoint or to
+	// official OpenAI. A refused key would keep the stored key while the base URL imports or clears, so it would go
+	// to an endpoint it was never paired with. Fail closed in both cases: remove the key, and the gateway reports
+	// not_configured.
+	switch {
+	case baseRefused:
+		if v, ok := patch["OPENAI_API_KEY"]; !ok || !Cleared("OPENAI_API_KEY", v) {
+			skipped = append(skipped, "OPENAI_API_KEY: removed because OPENAI_BASE_URL was refused")
+		}
+		patch["OPENAI_API_KEY"] = nil
+	case keyRefused:
+		skipped = append(skipped, "OPENAI_API_KEY: removed because its value was refused")
+		patch["OPENAI_API_KEY"] = nil
+	}
+	sort.Strings(skipped)
+	return patch, skipped
 }

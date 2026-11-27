@@ -1,0 +1,1 @@
+- Platform: every Go model call goes through one gateway that reads the provider from the settings store on each call, with a 120 second deadline and a circuit breaker per provider; the api imports `MS_SETTINGS` at start and the worker reads its model config from a loopback route, so the `MS_LLM_*` variables are gone (#434)

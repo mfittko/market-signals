@@ -39,8 +39,13 @@ type Config struct {
 	AllowedOrigins []string
 	// BackupDir is the root of the daily backups; health reports the newest one. Empty when unset.
 	BackupDir string
-	// Complete answers one plain chat turn for strategy coaching. Nil when no model is configured.
+	// Complete answers one plain chat turn for strategy coaching and news triage. The api always sets it; an
+	// unconfigured model returns a not_configured runtime.ModelError, which the callers treat like nil.
 	Complete func(ctx context.Context, messages []map[string]any) (string, error)
+	// ModelConfigured reads the gateway's per-call config and reports whether Complete has a model. News
+	// triage asks it before it marks a headline pending. A non-nil error means the config read failed, which
+	// says nothing about the model. Nil means Complete is assumed to have one.
+	ModelConfigured func(ctx context.Context) (bool, error)
 }
 
 type Server struct {
@@ -207,6 +212,7 @@ func (s *Server) routes() {
 	m.Handle("POST /api/v1/events/{key}/legacy", s.bearer(s.cfg.IngestToken, s.legacy))
 	// worker runtime protocol
 	m.Handle("GET /api/v1/runtime/tools", s.bearer(s.cfg.WorkerToken, s.toolDefs))
+	m.Handle("GET /api/v1/runtime/llm-config", s.bearer(s.cfg.WorkerToken, s.llmConfig))
 	m.Handle("POST /api/v1/runtime/claim", s.bearer(s.cfg.WorkerToken, s.claim))
 	m.Handle("POST /api/v1/runtime/heartbeat", s.bearer(s.cfg.WorkerToken, s.heartbeat))
 	m.Handle("POST /api/v1/runtime/events", s.bearer(s.cfg.WorkerToken, s.workerEvent))

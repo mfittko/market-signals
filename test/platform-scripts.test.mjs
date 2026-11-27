@@ -630,12 +630,10 @@ test('settings_file finds only its own checkout settings: a worktree never falls
 test('every line dev.sh prints for a launchd job carries a time and a level', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ms-devlog-'));
   try {
-    writeFileSync(join(dir, 'llm.json'), '{"OPENAI_API_KEY":"k","OPENAI_BASE_URL":"http://x"}');
-    writeFileSync(join(dir, 'none.json'), '{}');
-    const r = sh('source platform/scripts/dev.sh; load_env; MS_SETTINGS="$DIR/llm.json" llm_env; MS_SETTINGS="$DIR/none.json" llm_env; die boom', { DIR: dir, MS_RUN_DIR: dir });
+    const r = sh('source platform/scripts/dev.sh; load_env; log INFO started; log WARN careful; die boom', { DIR: dir, MS_RUN_DIR: dir });
     assert.equal(r.status, 1);
     const lines = (r.stdout + r.stderr).trim().split('\n');
-    assert.equal(lines.length, 4, lines.join('\n'));
+    assert.equal(lines.length, 3, lines.join('\n'));
     for (const l of lines) assert.match(l, /^time=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4} level=(INFO|WARN|ERROR) msg="/);
     assert.match(r.stderr, /level=ERROR msg="boom"/);
   } finally {

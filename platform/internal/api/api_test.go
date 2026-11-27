@@ -866,11 +866,14 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 	if !strings.Contains(seen[1]["content"].(string), "Do not cite results") {
 		t.Fatal("no-record note missing")
 	}
-	// without a configured model the endpoint says so
-	off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i"}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
-	defer off.Close()
-	if c, _ := call(t, "POST", off.URL+"/api/v1/strategies/grill", "", `{"messages":[{"role":"user","content":"x"}]}`, nil); c != 503 {
-		t.Fatalf("no model: %d", c)
+	// without a configured model the endpoint says so, for a nil Complete and an unconfigured gateway
+	for _, complete := range []func(context.Context, []map[string]any) (string, error){nil, unconfigured()} {
+		off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i", Complete: complete}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+		c, out := call(t, "POST", off.URL+"/api/v1/strategies/grill", "", `{"messages":[{"role":"user","content":"x"}]}`, nil)
+		off.Close()
+		if c != 503 || !strings.Contains(out["error"].(string), "no model is configured") {
+			t.Fatalf("no model: %d %v", c, out)
+		}
 	}
 	// a brand new strategy keeps the scope it was created with
 	if c, _ := call(t, "POST", hs.URL+"/api/v1/strategies/Scoped/versions", "", `{"prompt":"x","instrument":"XAG/USD","granularity":"H1"}`, nil); c != 200 {
@@ -1012,11 +1015,14 @@ func TestAutoGrillBacktestsFlipsAndNeedsEnoughHistory(t *testing.T) {
 	if c, out := call(t, "POST", hs.URL+"/api/v1/strategies/autogrill", "", `{"instrument":"NOPE","granularity":"M5"}`, nil); c != 422 || !strings.Contains(out["error"].(string), "not enough history") {
 		t.Fatalf("%d %v", c, out)
 	}
-	// without a model the backtest still runs
-	off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i"}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
-	defer off.Close()
-	if c, out := call(t, "POST", off.URL+"/api/v1/strategies/autogrill", "", `{"instrument":"T/USD","granularity":"M5"}`, nil); c != 200 || out["turn"] != nil || out["backtest"] == nil {
-		t.Fatalf("no model: %d %v", c, out)
+	// without a model the backtest still runs, for a nil Complete and an unconfigured gateway
+	for _, complete := range []func(context.Context, []map[string]any) (string, error){nil, unconfigured()} {
+		off := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i", Complete: complete}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+		c, out := call(t, "POST", off.URL+"/api/v1/strategies/autogrill", "", `{"instrument":"T/USD","granularity":"M5"}`, nil)
+		off.Close()
+		if c != 200 || out["turn"] != nil || out["coachError"] != nil || out["backtest"] == nil {
+			t.Fatalf("no model: %d %v", c, out)
+		}
 	}
 }
 

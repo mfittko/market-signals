@@ -109,12 +109,14 @@ In the console:
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 
-The LLM agent uses the endpoint, model and key from the file `MS_SETTINGS` names, else from the engine's
-`data/settings.json` in the launcher's own checkout. A git worktree never falls back to the main checkout's file.
-A worktree without its own `data/settings.json` starts with the LLM runtime off. The launcher
-passes them to the control plane, which uses them for strategy coaching, and to the worker. The console
-dev server starts without them. Without a key only the mock agent runs, and it runs through `scripts/smoke.sh`
-or the API.
+The LLM agent and strategy coaching read the endpoint, model and key from the settings store on every model
+call (see Settings store). The launcher passes the control plane the file `MS_SETTINGS` names, else the engine's
+`data/settings.json` in the launcher's own checkout, and the control plane imports it at start. A git worktree
+never falls back to the main checkout's file. All development checkouts share one settings store (the `ms_dev`
+database), and a control plane start without a settings file keeps the values the last import stored. A
+worktree without its own `data/settings.json` therefore uses the key that the last import of any checkout
+stored, often the main checkout's key. The console dev server never sees the key. Without a key the LLM agent's runs fail
+with `model gateway: not_configured`, and the mock agent runs through `scripts/smoke.sh` or the API.
 
 To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The
 default is `localhost:3000,127.0.0.1:3000`. Each entry is `host:port` (`console.lan:3000`) or an origin
@@ -213,8 +215,12 @@ stays the live source until the Go store owns settings writes
 
 - `go run ./cmd/settings-import --settings ../data/settings.json` copies the file into the store. It reads
   `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
-  the changed keys. Unknown or invalid keys keep their stored value. The report lists each refused key with the
-  reason it was refused, never a value.
+  the changed keys. Unknown or invalid keys keep their stored value. The import trims `OPENAI_BASE_URL`, and a
+  blank value clears the stored one. A refused `OPENAI_BASE_URL` keeps its stored value and removes
+  `OPENAI_API_KEY` from the store (fail closed). A refused `OPENAI_API_KEY`, such as a number or an object, also
+  removes the stored key. In both cases model calls report `not_configured` and no key goes to a stale endpoint
+  or to official OpenAI. The report lists each refused key with the reason it was refused, never a
+  value.
 - `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
   refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the
   watcher list. Secret values are opaque tokens and are not scanned for paths. A refused write stores nothing. The next import overwrites what this route wrote.
@@ -223,6 +229,29 @@ stays the live source until the Go store owns settings writes
 - Job owner flags (`candles`, `alerts`, `bot`, `news`, each `node` or `go`, default `node`) exist only in Postgres.
   `GET` and `PUT /api/v1/operator/job-owners` read and set them with `Authorization: Bearer $MS_OPERATOR_TOKEN`.
   Without `MS_OPERATOR_TOKEN` the operator routes answer 401.
+- Startup import: when `MS_SETTINGS` is set, the api imports that file into the store after the migration and
+  before it serves, and logs the import report (`settings imported` with the changed and skipped keys, never a
+  value). A failed import is logged and the stored values stay. It applies the `cmd/settings-import` rules above,
+  including the fail-closed removal of `OPENAI_API_KEY` when `OPENAI_BASE_URL` is refused. The import mirrors every schema key and deletes
+  keys the file lacks, so each api start resets the store to the file, non-LLM keys included, and a store-only
+  `PATCH` value is lost. Job owner flags are untouched. A console settings edit, which writes `settings.json`,
+  therefore reaches Go at the next api start.
+- Model calls: every Go model call goes through the gateway in `internal/runtime` (`gateway.go`). It reads the
+  provider from the store on each call (`settings.LLM`, the engine's `OPENAI_*`, `provider`, `models` and `model`
+  rule), so a store change applies on the next call. The control plane reads the store directly. The worker
+  reads `GET /api/v1/runtime/llm-config`, which needs the worker token, answers 404 to a non-loopback peer or a
+  proxied request, sends `Cache-Control: no-store` and returns only `configured`, `baseUrl`, `apiKey` and
+  `model`. The console proxy does not forward `/api/v1/runtime/`. `MS_LLM_MAX_TOKENS` stays an environment
+  variable of both processes.
+- Deadline and breaker: each call has a 120 s deadline; an earlier caller deadline wins. Each provider endpoint
+  has an in-memory circuit breaker. It opens after 5 consecutive counted failures (transport error, deadline
+  expiry, HTTP 429, HTTP 5xx; other 4xx answers, an unparsable reply and caller cancellation do not count). An
+  open breaker fails calls at once for 60 s, then admits one probe: a successful probe closes it, a failed one
+  reopens it for 60 s. A failed call returns `*runtime.ModelError` with the reason `not_configured`, `timeout`,
+  `breaker_open` or `provider`; its message names only the reason, the endpoint without credentials or query,
+  and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage asks the gateway
+  config before it marks a headline pending: with no model configured, it passes headlines through unmarked at
+  once, makes no model call, and keeps passing them through for 5 minutes.
 
 ## Strategy store
 

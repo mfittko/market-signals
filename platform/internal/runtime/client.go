@@ -103,6 +103,13 @@ func (c *Client) ToolDefs(ctx context.Context) ([]tools.Def, error) {
 	return out.Tools, err
 }
 
+// LLMConfig reads the model provider config from the control plane. It is the worker's gateway source.
+func (c *Client) LLMConfig(ctx context.Context) (ProviderConfig, error) {
+	var out ProviderConfig
+	_, err := c.do(ctx, http.MethodGet, "/api/v1/runtime/llm-config", nil, &out)
+	return out, err
+}
+
 type Attempt struct{ ID, Fence int64 }
 
 func (c *Client) Heartbeat(ctx context.Context, a Attempt) (cancel bool, err error) {

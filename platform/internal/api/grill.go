@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 )
 
 // Grill mode: a coach interviews the trader about one strategy, one question at a
@@ -44,9 +46,13 @@ const maxGrillMsg = maxPrompt + 16<<10
 
 const maxGrillBody = 2 << 20
 
+func noModel(w http.ResponseWriter) {
+	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no model is configured for the console; the control plane reads the OpenAI key from the settings on every call"})
+}
+
 func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.Complete == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no model is configured for the console; the LLM key is read from the engine settings when the stack starts"})
+		noModel(w)
 		return
 	}
 	var b struct {
@@ -77,6 +83,10 @@ func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
 	}
 	reply, err := s.cfg.Complete(r.Context(), msgs)
+	if runtime.IsNotConfigured(err) {
+		noModel(w)
+		return
+	}
 	if err != nil {
 		s.log.Error("grill", "err", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "the model call failed: " + err.Error()})

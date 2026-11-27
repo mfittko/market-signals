@@ -37,16 +37,13 @@ func main() {
 		log.Error("MS_WORKER_TOKEN must be set")
 		os.Exit(2)
 	}
-	rts := map[string]runtime.Runtime{"mock": runtime.Mock{}}
-	if os.Getenv("MS_LLM_API_KEY") != "" {
-		maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
-		rts["llm"] = runtime.NewLLM(runtime.LLMConfig{BaseURL: os.Getenv("MS_LLM_BASE_URL"), APIKey: os.Getenv("MS_LLM_API_KEY"), Model: os.Getenv("MS_LLM_MODEL"), MaxTokens: maxTok})
-	} else {
-		log.Warn("MS_LLM_API_KEY is not set: only the mock runtime is enabled")
-	}
+	client := runtime.NewClient(*api, token)
+	maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
+	// the gateway reads the provider config from the control plane on every model call
+	rts := map[string]runtime.Runtime{"mock": runtime.Mock{}, "llm": &runtime.LLM{GW: runtime.NewGateway(client.LLMConfig, log), MaxTokens: maxTok}}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	w := &runtime.Worker{ID: *id, Client: runtime.NewClient(*api, token), Runtimes: rts, Concurrency: *conc, Poll: 2 * time.Second, RunTimeout: 3 * time.Minute, Log: log}
+	w := &runtime.Worker{ID: *id, Client: client, Runtimes: rts, Concurrency: *conc, Poll: 2 * time.Second, RunTimeout: 3 * time.Minute, Log: log}
 	log.Info("worker started", "id", *id, "api", *api, "runtimes", len(rts))
 	w.Run(ctx)
 	log.Info("worker stopped")
