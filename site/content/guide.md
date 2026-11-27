@@ -63,7 +63,7 @@ A strategy is a versioned prompt. You can edit it, compare it with an earlier ve
 
 The alerts page puts signals, agent proposals and paper trades on one time line. A desktop notification opens the matching instrument page.
 
-![The alerts page.](screen:alerts "Signals, proposals and trades in time order.")
+![The alerts page.](screen:alerts "Signals and other alerts in time order.")
 
 ## Keep it local
 
