@@ -217,8 +217,9 @@ stays the live source until the Go store owns settings writes
   `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
   the changed keys. Unknown or invalid keys keep their stored value. The import trims `OPENAI_BASE_URL`, and a
   blank value clears the stored one. A refused `OPENAI_BASE_URL` keeps its stored value and removes
-  `OPENAI_API_KEY` from the store (fail closed), so model calls report `not_configured` and no key goes to a
-  stale endpoint or to official OpenAI. The report lists each refused key with the reason it was refused, never a
+  `OPENAI_API_KEY` from the store (fail closed). A refused `OPENAI_API_KEY`, such as a number or an object, also
+  removes the stored key. In both cases model calls report `not_configured` and no key goes to a stale endpoint
+  or to official OpenAI. The report lists each refused key with the reason it was refused, never a
   value.
 - `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
   refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the

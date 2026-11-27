@@ -434,8 +434,10 @@ func TestGatewayStaleCallDoesNotEndTheProbe(t *testing.T) {
 	defer release(releaseStale)
 	g, c := gateway(fixed(s.URL), nil)
 	wait := func(n int32) {
-		for hits.Load() != n {
-			time.Sleep(time.Millisecond)
+		for deadline := time.Now().Add(5 * time.Second); hits.Load() != n; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("want %d requests, got %d", n, hits.Load())
+			}
 		}
 	}
 	var stale, probe sync.WaitGroup

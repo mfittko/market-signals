@@ -47,6 +47,34 @@ func TestImportPatchRemovesTheKeyWhenTheBaseURLIsRefused(t *testing.T) {
 	}
 }
 
+// A refused OPENAI_API_KEY fails closed too: the stored key must never reach the file's base URL or api.openai.com.
+func TestImportPatchRemovesTheKeyWhenTheKeyIsRefused(t *testing.T) {
+	const removed = "OPENAI_API_KEY: removed because its value was refused"
+	for _, base := range []any{"https://new.example/v1", nil} { // a valid base URL, and none
+		for _, key := range []any{float64(123), map[string]any{}} { // the forms 123 and {} as JSON decodes them
+			file := map[string]any{"OPENAI_API_KEY": key}
+			if base != nil {
+				file["OPENAI_BASE_URL"] = base
+			}
+			patch, skipped := importPatch(file)
+			if !removesKey(patch) || !slices.Contains(skipped, removed) {
+				t.Fatalf("base %v, key %#v: a refused key must remove the stored key: %v", base, key, skipped)
+			}
+			if base != nil && patch["OPENAI_BASE_URL"] != base {
+				t.Fatalf("base %v: a valid base URL still imports, got %#v", base, patch["OPENAI_BASE_URL"])
+			}
+		}
+		// the accepted form sk-new imports with the same base URL
+		file := map[string]any{"OPENAI_API_KEY": "sk-new"}
+		if base != nil {
+			file["OPENAI_BASE_URL"] = base
+		}
+		if patch, skipped := importPatch(file); patch["OPENAI_API_KEY"] != "sk-new" || slices.Contains(skipped, removed) {
+			t.Fatalf("base %v: the key sk-new must be imported: %v", base, skipped)
+		}
+	}
+}
+
 // The import trims OPENAI_BASE_URL like the resolution rule; any present value it still refuses removes the key.
 func TestImportPatchTrimsTheBaseURLAndGuardsTheKeyForEveryRefusedForm(t *testing.T) {
 	for _, c := range []struct {
