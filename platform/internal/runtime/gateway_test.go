@@ -585,8 +585,8 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
-		"round 1: asked first at " + a.URL + "/v1/chat/completions",
-		"round 2: asked second at " + b.URL + "/v1/chat/completions",
+		"round 1: model first at " + a.URL + "/v1/chat/completions",
+		"round 2: model second at " + b.URL + "/v1/chat/completions",
 	}
 	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("steps %q, want %q", steps, want)
@@ -598,7 +598,7 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
 		t.Fatal("an unconfigured gateway must fail the run")
 	}
-	if len(steps) != 1 || steps[0] != "round 1: asked no model at no provider" {
+	if len(steps) != 1 || steps[0] != "round 1: model no model at no provider" {
 		t.Fatalf("steps %q", steps)
 	}
 
@@ -609,7 +609,7 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 		t.Fatal("an unconfigured gateway must fail the run")
 	}
 	in.Claim.Agent.Model = ""
-	if len(steps) != 1 || steps[0] != "round 1: asked agent-model at no provider" {
+	if len(steps) != 1 || steps[0] != "round 1: model agent-model at no provider" {
 		t.Fatalf("steps %q", steps)
 	}
 
@@ -621,7 +621,7 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
 		t.Fatal("a cap refusal must fail the run")
 	}
-	if len(steps) != 1 || steps[0] != "round 1: asked capped at "+a.URL+"/v1/chat/completions" {
+	if len(steps) != 1 || steps[0] != "round 1: model capped at "+a.URL+"/v1/chat/completions" {
 		t.Fatalf("steps %q", steps)
 	}
 }

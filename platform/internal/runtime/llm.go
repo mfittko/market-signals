@@ -96,7 +96,7 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 			req["tools"], req["tool_choice"] = toolSpecs, "auto"
 		}
 		msg, usage, err := l.GW.Chat(ctx, req)
-		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: asked %s at %s", round, orStr(usage.Model, orStr(model, "no model")), orStr(usage.Provider, "no provider"))})
+		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: model %s at %s", round, orStr(usage.Model, orStr(model, "no model")), orStr(usage.Provider, "no provider"))})
 		if err != nil {
 			return nil, err
 		}
