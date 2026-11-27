@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -324,15 +325,69 @@ func TestClaudeEnvSetsPWDToTheTempDir(t *testing.T) {
 
 func TestClaudeCodeIsErrorReplyCountsAsAFailure(t *testing.T) {
 	bin, _ := stubClaude(t, `echo '{"is_error":true,"result":"Invalid API key"}'`)
-	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
+	rec := &spendLog{}
+	c := NewClaudeCode(bin, rec.record, nil)
 	msg, _, err := c.Chat(context.Background(), map[string]any{"model": "m", "messages": []map[string]any{{"role": "user", "content": "u"}}})
 	if !hasReason(err, ReasonProvider) || msg != nil {
 		t.Fatalf("got %v %v, want a provider error and no reply", msg, err)
+	}
+	// a started call that fails still writes one row, estimated with 0 tokens because the CLI sent no usage
+	want := SpendCall{CallSite: "unknown", Provider: "claude-code", Model: "m", Estimated: true}
+	if len(rec.calls) != 1 || rec.calls[0] != want {
+		t.Fatalf("got %+v, want one %+v", rec.calls, want)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fails != 1 {
 		t.Fatalf("fails %d", c.fails)
+	}
+}
+
+func TestClaudeCodeBinaryThatNeverStartsWritesNoRow(t *testing.T) {
+	rec := &spendLog{}
+	c := NewClaudeCode(filepath.Join(t.TempDir(), "missing"), rec.record, nil)
+	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonProvider) {
+		t.Fatalf("got %v, want a provider error", err)
+	}
+	if len(rec.calls) != 0 {
+		t.Fatalf("got %+v, want no row", rec.calls)
+	}
+}
+
+func TestCappedKeepsTheFirstNBytesAndReportsEveryWrite(t *testing.T) {
+	c := &capped{n: 5}
+	for _, p := range []string{"abc", "def", "ghi"} {
+		if n, err := c.Write([]byte(p)); n != len(p) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v", p, n, err)
+		}
+	}
+	if string(c.b) != "abcde" {
+		t.Fatalf("kept %q", c.b)
+	}
+}
+
+func TestClaudeCodeDrainsBothPipesAgainstOneDeadline(t *testing.T) {
+	if _, err := exec.LookPath("perl"); err != nil {
+		t.Skip("perl moves the child out of the group")
+	}
+	// the child leaves the process group, so the group kill misses it and it keeps stdout and stderr open
+	bin, dir := stubClaude(t, `perl -e 'setpgrp(0,0); sleep 30' &
+echo $! > '%D/child'
+wait`)
+	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
+	c.Deadline = time.Second
+	t.Cleanup(func() {
+		if pid, err := strconv.Atoi(waitFile(t, filepath.Join(dir, "child"))); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	t0 := time.Now()
+	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonTimeout) {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+	// sequential drains would take the deadline plus two wait delays
+	if d := time.Since(t0); d > c.Deadline+claudeWaitDelay+time.Second {
+		t.Fatalf("took %v", d)
 	}
 }
 

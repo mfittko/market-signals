@@ -94,20 +94,20 @@ func (c *capped) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// capture returns a pipe end for the child and a func that closes it and returns the first n bytes read.
+// capture returns a pipe end for the child and a func that closes it and returns the first n bytes read by until.
 // The child gets an *os.File, so Wait returns when the leader exits even if a group child still holds the pipe.
-func capture(n int) (*os.File, func() []byte, error) {
+func capture(n int) (*os.File, func(until time.Time) []byte, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, nil, err
 	}
 	c, done := &capped{n: n}, make(chan struct{})
 	go func() { _, _ = io.Copy(c, r); close(done) }()
-	return w, func() []byte {
+	return w, func(until time.Time) []byte {
 		_ = w.Close()
 		select {
 		case <-done:
-		case <-time.After(claudeWaitDelay): // a process outside the group still holds the pipe
+		case <-time.After(time.Until(until)): // a process outside the group still holds the pipe
 		}
 		_ = r.Close()
 		<-done
@@ -162,7 +162,7 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 	}
 	stderrW, readErr, err := capture(4 << 10)
 	if err != nil {
-		readOut()
+		readOut(time.Now())
 		return nil, &ModelError{Provider: ClaudeCodeProvider, Reason: ReasonProvider, Err: err}
 	}
 	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
@@ -174,7 +174,8 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 			c.Log.Warn("claude-code group kill failed", "err", kerr)
 		}
 	}
-	out, stderr := readOut(), readErr()
+	until := time.Now().Add(claudeWaitDelay) // one shared drain deadline, so the two pipes add no wait
+	out, stderr := readOut(until), readErr(until)
 	var body struct {
 		IsError bool    `json:"is_error"`
 		Result  *string `json:"result"`
