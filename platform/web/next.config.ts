@@ -20,8 +20,9 @@ const config: NextConfig = {
   // Compression makes the proxy buffer the /api/v1/stream SSE response, so no
   // event reaches the browser. The console runs on loopback and gains nothing from gzip.
   compress: false,
+  // The worker runtime protocol (/api/v1/runtime/...) is never proxied: its llm-config route returns the model key.
   async rewrites() {
-    return [{ source: '/api/v1/:path*', destination: `${api}/api/v1/:path*` }];
+    return [{ source: '/api/v1/:path((?!runtime(?:/|$)).*)', destination: `${api}/api/v1/:path` }];
   },
 };
 
