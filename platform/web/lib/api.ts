@@ -63,12 +63,17 @@ export type RunRow = Run & {
   snapshotTakenAt: string;
 };
 
+export type Runtime = 'mock' | 'llm' | 'claude-code';
+
+// model-backed runtimes
+export const isModelAgent = (a: { runtime: string }) => a.runtime === 'llm' || a.runtime === 'claude-code';
+
 export type Agent = {
   id: string;
   name: string;
   instrument: string;
   granularity: string;
-  runtime: 'mock' | 'llm' | 'claude-code';
+  runtime: Runtime;
   model?: string;
   strategyName?: string;
   allowedTools: string[];
@@ -150,7 +155,7 @@ export function engineDecision(r: Pick<Run, 'legacyDecision'>): Decision | undef
 }
 
 export type DeskAgent = {
-  id: string; name: string; granularity: string; runtime: 'mock' | 'llm' | 'claude-code'; strategy?: string; enabled: boolean; legacy: boolean;
+  id: string; name: string; granularity: string; runtime: Runtime; strategy?: string; enabled: boolean; legacy: boolean;
   lastRunId?: number; lastStatus?: Status; lastAt?: string;
 };
 

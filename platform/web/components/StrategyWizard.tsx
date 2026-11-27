@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { api, type DeskRow } from '@/lib/api';
+import { api, isModelAgent, type DeskRow } from '@/lib/api';
 import { Sharpen, type Scope } from '@/components/AutoGrill';
 
 const STEPS = ['Basics', 'Style', 'Entry', 'Risk', 'Review'] as const;
@@ -69,7 +69,7 @@ export function StrategyWizard({ existing, onDone, onCancel }: { existing: strin
     : step === 2 ? (!f.entry.trim() ? 'Describe when to enter.' : null)
     : step === 3 ? (f.stop <= 0 ? 'The stop distance must be above zero.' : null) : null;
 
-  const candidates = (desk.find((d) => d.symbol === f.instrument)?.agents ?? []).filter((a) => a.runtime === 'llm' && a.granularity === f.granularity);
+  const candidates = (desk.find((d) => d.symbol === f.instrument)?.agents ?? []).filter((a) => isModelAgent(a) && a.granularity === f.granularity);
   const brief = `Instrument ${f.instrument}, ${f.granularity}, direction ${f.direction}, style ${f.style}.`;
 
   async function create() {
