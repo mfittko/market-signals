@@ -96,3 +96,58 @@ func TestCancelOfARunningAttemptIsAcknowledgedByTheWorker(t *testing.T) {
 		t.Fatal("a wrong fence must be refused")
 	}
 }
+
+func TestStatsReportQueueAgeLeasesAndCancelRequests(t *testing.T) {
+	s, ctx := fresh(t)
+	must(t, s.UpsertAgent(ctx, agent("a1")))
+	var claims []*Claim
+	for range 4 {
+		ingest(t, s, ctx)
+		c := claim(t, s, ctx, "w1")
+		if c == nil {
+			t.Fatal("expected a claim")
+		}
+		claims = append(claims, c)
+	}
+	for i, at := range []string{"60 seconds", "5 seconds", "-1 second"} {
+		if _, err := testPool.Exec(ctx, `UPDATE attempts SET lease_expires_at = now() + $2::interval WHERE id=$1`, claims[i].Attempt.ID, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// a pending cancel counts; an acknowledged one ends the run and no longer does
+	for _, c := range claims[1:] {
+		if status, err := s.Cancel(ctx, c.Attempt.RunID); err != nil || status != "cancel_requested" {
+			t.Fatalf("cancel: %v %s", err, status)
+		}
+	}
+	must(t, s.AckCancel(ctx, claims[3].Attempt.ID, claims[3].Attempt.Fence))
+
+	due, backoff := ingest(t, s, ctx).Runs[0].RunID, ingest(t, s, ctx).Runs[0].RunID
+	for id, at := range map[int64]string{due: "-30 seconds", backoff: "60 seconds"} {
+		if _, err := testPool.Exec(ctx, `UPDATE runs SET run_after = now() + $2::interval, created_at = now() - interval '1 hour' WHERE id=$1`, id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	st, err := s.Stats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.OldestQueued < 29 || st.OldestQueued > 31 {
+		t.Fatalf("oldestQueuedSeconds %v, want about 30: the run in backoff must not count", st.OldestQueued)
+	}
+	if want := (Leases{Running: 3, ExpiringSoon: 1, Expired: 1}); st.Leases != want {
+		t.Fatalf("leases %+v, want %+v", st.Leases, want)
+	}
+	if st.CancelRequested != 2 {
+		t.Fatalf("cancelRequested %d, want 2", st.CancelRequested)
+	}
+
+	// nothing claimable: the age is 0
+	if _, err := testPool.Exec(ctx, `UPDATE runs SET run_after = now() + interval '60 seconds' WHERE id=$1`, due); err != nil {
+		t.Fatal(err)
+	}
+	if st, err = s.Stats(ctx); err != nil || st.OldestQueued != 0 {
+		t.Fatalf("no claimable run: %v %v", err, st.OldestQueued)
+	}
+}

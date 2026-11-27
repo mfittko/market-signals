@@ -134,24 +134,46 @@ type Stats struct {
 	QueueDeep int            `json:"queueDepth"`
 	Workers   []WorkerInfo   `json:"workers"`
 	LatestEvt int64          `json:"latestEventId"`
+	// OldestQueued is the age of the oldest claimable run, from its run_after; 0 when none is claimable.
+	OldestQueued float64 `json:"oldestQueuedSeconds"`
+	Leases       Leases  `json:"leases"`
+	// CancelRequested counts unfinished runs whose cancel the worker has not acknowledged yet.
+	CancelRequested int `json:"cancelRequested"`
+}
+
+// Leases counts running attempts by lease state.
+type Leases struct {
+	Running      int `json:"running"`
+	ExpiringSoon int `json:"expiringSoon"` // expires within 15 s
+	Expired      int `json:"expired"`      // not reaped yet
 }
 
 func (s *Store) Stats(ctx context.Context) (*Stats, error) {
 	st := &Stats{ByStatus: map[string]int{}, Shadow: map[string]int{}, Workers: []WorkerInfo{}}
-	rows, err := s.Pool.Query(ctx, `SELECT status, count(*) FROM runs GROUP BY status`)
+	rows, err := s.Pool.Query(ctx, `SELECT status, count(*), count(*) FILTER (WHERE cancel_requested AND status NOT IN ('succeeded','failed','cancelled','expired'))
+		FROM runs GROUP BY status`)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var k string
-		var n int
-		if err := rows.Scan(&k, &n); err != nil {
+		var n, c int
+		if err := rows.Scan(&k, &n, &c); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		st.ByStatus[k] = n
+		st.CancelRequested += c
 	}
 	rows.Close()
+	// both read partial indexes only: runs_claim_idx (status, run_after) and attempts_lease_idx (lease_expires_at)
+	if err := s.Pool.QueryRow(ctx, `SELECT
+		(SELECT COALESCE(EXTRACT(EPOCH FROM GREATEST(interval '0', now() - min(run_after))), 0)::float8 FROM runs WHERE status='queued' AND run_after<=now()),
+		count(*), count(*) FILTER (WHERE lease_expires_at > now() AND lease_expires_at <= now() + interval '15 seconds'),
+		count(*) FILTER (WHERE lease_expires_at <= now())
+		FROM attempts WHERE status='running'`).Scan(&st.OldestQueued, &st.Leases.Running, &st.Leases.ExpiringSoon, &st.Leases.Expired); err != nil {
+		return nil, err
+	}
 	rows, err = s.Pool.Query(ctx, `SELECT comparison, count(*) FROM runs WHERE status IN ('succeeded','failed','expired') GROUP BY comparison`)
 	if err != nil {
 		return nil, err

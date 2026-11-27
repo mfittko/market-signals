@@ -1,0 +1,1 @@
+- Platform: the health route reports the oldest claimable run's age, lease and cancel-request counts, the monitor's last pass age and today's model spend against the cap, and the Runs page shows them with one chip per degraded condition (#291)

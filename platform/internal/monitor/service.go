@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/domain"
@@ -51,6 +52,8 @@ type Service struct {
 	Now   func() time.Time
 	// Enrich adds indicators to a wake snapshot. Optional.
 	Enrich func(ctx context.Context, a queue.Agent, payload json.RawMessage) (json.RawMessage, error)
+	// LastPass records each clean pass of Run. Optional.
+	LastPass *LastPass
 }
 
 func (s *Service) now() time.Time {
@@ -60,13 +63,39 @@ func (s *Service) now() time.Time {
 	return time.Now()
 }
 
+// Interval is how often the control plane runs the monitor.
+const Interval = 15 * time.Second
+
+// LastPass holds the time of the monitor's last pass whose Tick returned nil. The loop writes it and the
+// health route reads it; the zero value means no pass yet.
+type LastPass struct{ ns atomic.Int64 }
+
+func (l *LastPass) Mark(t time.Time) { l.ns.Store(t.UnixNano()) }
+
+// AgeSeconds is the time since the last pass, or nil before the first one or on a nil LastPass (no monitor).
+func (l *LastPass) AgeSeconds(now time.Time) *float64 {
+	if l == nil {
+		return nil
+	}
+	ns := l.ns.Load()
+	if ns == 0 {
+		return nil
+	}
+	age := now.Sub(time.Unix(0, ns)).Seconds()
+	return &age
+}
+
 // Run ticks until the context ends.
 func (s *Service) Run(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
-		if err := s.Tick(ctx); err != nil && ctx.Err() == nil {
+		err := s.Tick(ctx)
+		if err != nil && ctx.Err() == nil {
 			s.Log.Error("monitor tick", "err", err)
+		}
+		if err == nil && s.LastPass != nil {
+			s.LastPass.Mark(s.now())
 		}
 		select {
 		case <-ctx.Done():
