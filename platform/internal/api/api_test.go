@@ -1594,6 +1594,18 @@ func TestHealthReportsSpendAndMonitorLag(t *testing.T) {
 	if s := out["spend"].(map[string]any); s["todayUsd"].(float64) < 8.999 || s["todayUsd"].(float64) > 9.001 || s["capUsd"] != 5.0 {
 		t.Fatalf("spend: %v", s)
 	}
+	stats := out["stats"].(map[string]any)
+	leases, _ := stats["leases"].(map[string]any)
+	for _, k := range []string{"running", "expiringSoon", "expired"} {
+		if _, ok := leases[k]; !ok {
+			t.Fatalf("stats.leases.%s missing: %v", k, stats)
+		}
+	}
+	for _, k := range []string{"oldestQueuedSeconds", "cancelRequested"} {
+		if _, ok := stats[k]; !ok {
+			t.Fatalf("stats.%s missing: %v", k, stats)
+		}
+	}
 	if m := out["monitor"].(map[string]any); m["intervalSeconds"] != 15.0 || m["lastPassAgeSeconds"] != nil {
 		t.Fatalf("no monitor: %v", m)
 	}

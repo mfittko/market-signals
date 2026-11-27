@@ -41,7 +41,8 @@ func TestRunMarksOnlyACleanPass(t *testing.T) {
 
 	ctx, stop := context.WithCancel(context.Background())
 	go func() {
-		for svc.LastPass.AgeSeconds(fake) == nil {
+		deadline := time.Now().Add(5 * time.Second)
+		for svc.LastPass.AgeSeconds(fake) == nil && time.Now().Before(deadline) {
 			time.Sleep(time.Millisecond)
 		}
 		stop()

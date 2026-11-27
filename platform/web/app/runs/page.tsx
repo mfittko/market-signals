@@ -89,7 +89,7 @@ export default function Home() {
         </label>
       </div>
 
-      {health && <PipelineHealth h={health} />}
+      {health?.monitor && health.spend && health.stats.leases && <PipelineHealth h={health} />}
 
       <div className="grid two">
         <Card title="Runs" aside={<span className="muted small">{summary}</span>}>
@@ -147,8 +147,9 @@ function PipelineHealth({ h }: { h: Health }) {
         <Stat label="Oldest queued" value={h.stats.oldestQueuedSeconds ? secs(h.stats.oldestQueuedSeconds) : 'none'} hint="claimable runs only" />
         <Stat label="Leases" value={leases.running} hint={`${leases.expiringSoon} expiring soon · ${leases.expired} expired`} tone={leases.expired ? 'warn' : undefined} />
         <Stat label="Cancel requests" value={h.stats.cancelRequested} hint="waiting for the worker" />
-        <Stat label="Monitor pass" value={pass == null ? 'none yet' : `${secs(pass)} ago`} hint={`runs every ${h.monitor.intervalSeconds} s`}
-          tone={pass != null && pass > h.monitor.intervalSeconds ? 'bad' : undefined} />
+        {/* a slow tick stretches one gap past the interval; red only after a whole missed pass */}
+        <Stat label="Monitor pass" value={!h.engine.configured ? 'not running' : pass == null ? 'none yet' : `${secs(pass)} ago`} hint={h.engine.configured ? `runs every ${h.monitor.intervalSeconds} s` : 'no engine configured'}
+          tone={pass != null && pass > 2 * h.monitor.intervalSeconds ? 'bad' : undefined} />
         <Stat label="Model spend today" value={`$${h.spend.todayUsd.toFixed(2)}`} hint={`of the $${h.spend.capUsd.toFixed(2)} daily cap`}
           tone={h.spend.todayUsd >= h.spend.capUsd ? 'bad' : undefined} />
       </div>
