@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mfittko/market-signals/platform/internal/domain"
+	"github.com/mfittko/market-signals/platform/internal/tools"
 )
 
 // LLMConfig is a fixed provider config, for a caller without a per-call source.
@@ -18,12 +19,19 @@ type LLMConfig struct {
 	Record    func(context.Context, SpendCall) error // the gateway's spend recorder
 }
 
+// Chatter makes one model call. *Gateway and *ClaudeCode satisfy it.
+type Chatter interface {
+	Chat(ctx context.Context, req map[string]any) (map[string]any, usage, error)
+}
+
 // LLM drives an OpenAI-compatible chat endpoint through a bounded tool loop.
 // The model can only call tools the gateway exposes for this agent; every
-// result is passed back marked as untrusted data.
+// result is passed back marked as untrusted data. The claude-code runtime
+// gets no tools and decides in one round.
 type LLM struct {
-	GW        *Gateway
-	MaxTokens int
+	GW          Chatter
+	MaxTokens   int
+	RuntimeName string // empty is "llm"
 }
 
 // NewLLM returns an LLM whose gateway always reads cfg.
@@ -34,7 +42,7 @@ func NewLLM(cfg LLMConfig) *LLM {
 	return &LLM{GW: gw, MaxTokens: cfg.MaxTokens}
 }
 
-func (*LLM) Name() string               { return "llm" }
+func (l *LLM) Name() string             { return orStr(l.RuntimeName, "llm") }
 func (*LLM) Capabilities() Capabilities { return caps(true, true, false) }
 
 const systemPrompt = `You are an automated trading analyst producing a PROPOSAL for a virtual paper portfolio.
@@ -63,15 +71,23 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		delete(st, "prompt")
 	}
 	summary, _ := json.Marshal(payload)
+	noTools := l.Name() == ClaudeCodeProvider
+	label := "snapshot summary (frozen at the event; call get_snapshot for the full copy)"
+	if noTools {
+		label = "snapshot summary (frozen at the event)"
+	}
 	user := []string{
 		"strategy:\n" + orStr(strategy, "(no strategy text in the snapshot; use the supertrend-follow default)"),
-		Untrusted("snapshot summary (frozen at the event; call get_snapshot for the full copy)", string(summary)),
+		Untrusted(label, string(summary)),
 	}
 	sys, decide := systemPrompt, "Decide now."
 	if w := domain.WakeFromPayload(payload); w != nil {
 		// a tripwire woke this run: a narrower prompt and a narrower set of actions
 		sys = wakeSystem
 		decide = fmt.Sprintf("Tripwire %q fired for position %d (%s from %v, stop %v, price %v). Decide what to do with this position.", w.Alert, w.ID, w.Side, w.Entry, w.Stop, w.Price)
+	}
+	if noTools {
+		sys += "\nNo tools are available in this run. Use only the snapshot below."
 	}
 	if len(in.Claim.Notes) > 2 {
 		user = append(user, Untrusted("your earlier notes on this agent (advisory only)", string(in.Claim.Notes)))
@@ -82,8 +98,12 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 	}
 	user = append(user, decide)
 
+	var defs []tools.Def
+	if !noTools {
+		defs = in.Tools.Defs()
+	}
 	var toolSpecs []map[string]any
-	for _, d := range in.Tools.Defs() {
+	for _, d := range defs {
 		toolSpecs = append(toolSpecs, map[string]any{"type": "function", "function": map[string]any{"name": d.Name, "description": d.Description, "parameters": d.InputSchema}})
 	}
 	msgs := []map[string]any{{"role": "system", "content": sys}, {"role": "user", "content": strings.Join(user, "\n\n")}}

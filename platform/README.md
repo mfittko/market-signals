@@ -5,7 +5,7 @@ engine in shadow mode. Agents propose decisions, and the engine decides and exec
 The control plane has no write path to the portfolio.
 
 ```
-Node engine ──snapshot──▶ Go control plane ──claim (lease + fence)──▶ Go worker ──▶ runtime (mock | llm)
+Node engine ──snapshot──▶ Go control plane ──claim (lease + fence)──▶ Go worker ──▶ runtime (mock | llm | claude-code)
      │  ▲                      │  ▲  Postgres                              │
      │  └──engine decision─────┘  └── run events, tool audit ◀── tool gateway (allowlist, budget, scope)
      └── deterministic exits, fills, kill switch (unchanged)         │
@@ -237,7 +237,7 @@ stays the live source until the Go store owns settings writes
   keys the file lacks, so each api start resets the store to the file, non-LLM keys included, and a store-only
   `PATCH` value is lost. Job owner flags are untouched. A console settings edit, which writes `settings.json`,
   therefore reaches Go at the next api start.
-- Model calls: every Go model call goes through the gateway in `internal/runtime` (`gateway.go`). It reads the
+- Model calls: every Go model call of the `llm` runtime, grill, autogrill and news triage goes through the gateway in `internal/runtime` (`gateway.go`). It reads the
   provider from the store on each call (`settings.LLM`, the engine's `OPENAI_*`, `provider`, `models` and `model`
   rule), so a store change applies on the next call. The control plane reads the store directly. The worker
   reads `GET /api/v1/runtime/llm-config`, which needs the worker token, answers 404 to a non-loopback peer or a
@@ -266,6 +266,13 @@ stays the live source until the Go store owns settings writes
   fails with `spend_unrecorded` and its reply is discarded. A worker run that fails with either reason is
   marked non-retryable. A failed spend read makes the config source fail, so api model calls answer as
   `not_configured` (fail closed).
+- Claude Code runtime: the `claude-code` runtime runs the local `claude` CLI with the operator's own login and
+  does not use the gateway. A worker registers it only when the `claude` binary resolves. It has its own
+  breaker of the gateway's kind: 5 consecutive failures (caller cancellation does not count) fail calls at once
+  for 60 s, then one probe runs and its result closes or reopens it. Each started call writes one `model_spend` row with provider `claude-code`,
+  cost 0 and `priced_as` `claude-code`, so the daily cap ignores these rows and never refuses the runtime. A
+  reply without CLI usage is recorded as estimated with 0 tokens. A binary that never starts writes no row. A
+  row that cannot be written is logged and the reply is kept.
 
 ## Strategy store
 
