@@ -158,6 +158,29 @@ func TestGatewayRecordsNoRowForAnErrorStatusWhoseBodyStalls(t *testing.T) {
 	}
 }
 
+// a 200 answer whose body read fails is billed: it gets one estimated row, and the error carries status 0
+func TestGatewayEstimatesA200AnswerWhoseBodyReadFails(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, `{"choices":`)
+		w.(http.Flusher).Flush()
+		// the handler returns short of the declared length, so the server drops the connection
+	}))
+	t.Cleanup(s.Close)
+	g, _, rec := recorded(fixed(s.URL), nil)
+	_, err := chat(g, context.Background())
+	var me *runtime.ModelError
+	if reason(t, err) != runtime.ReasonProvider || !errors.As(err, &me) || me.Status != 0 {
+		t.Fatalf("want provider with status 0, got %v", err)
+	}
+	want := runtime.SpendCall{CallSite: "unknown", Provider: s.URL + "/v1/chat/completions", Model: "m", CompletionTokens: 700, Estimated: true}
+	if got := rec.all(); len(got) != 1 || got[0] != want {
+		t.Fatalf("got %+v, want one %+v", got, want)
+	}
+}
+
 func TestGatewayRecordsNoRowWithoutABilledAnswer(t *testing.T) {
 	failing := newStub(t, 500)
 	for name, c := range map[string]struct {
