@@ -1,19 +1,15 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
-	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/domain"
 )
 
+// LLMConfig is a fixed provider config, for a caller without a per-call source.
 type LLMConfig struct {
 	BaseURL   string
 	APIKey    string
@@ -25,12 +21,14 @@ type LLMConfig struct {
 // The model can only call tools the gateway exposes for this agent; every
 // result is passed back marked as untrusted data.
 type LLM struct {
-	Cfg  LLMConfig
-	HTTP *http.Client
+	GW        *Gateway
+	MaxTokens int
 }
 
+// NewLLM returns an LLM whose gateway always reads cfg.
 func NewLLM(cfg LLMConfig) *LLM {
-	return &LLM{Cfg: cfg, HTTP: &http.Client{Timeout: 120 * time.Second}}
+	pc := ProviderConfig{Configured: cfg.BaseURL != "" && cfg.APIKey != "", BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.Model}
+	return &LLM{GW: NewGateway(func(context.Context) (ProviderConfig, error) { return pc, nil }, nil), MaxTokens: cfg.MaxTokens}
 }
 
 func (*LLM) Name() string               { return "llm" }
@@ -48,20 +46,9 @@ If the price comes from a forming (provisional) candle, prefer schedule_followup
 Your reply MUST end with exactly one JSON object and no prose after it:
 {"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>","plan":<exit plan, open only, see below>}` + planDoc
 
-func endpoint(base string) string {
-	b := strings.TrimRight(strings.TrimSpace(base), "/")
-	b = strings.TrimSuffix(b, "/v1")
-	return b + "/v1/chat/completions"
-}
-
 func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
-	model := l.Cfg.Model
-	if in.Claim.Agent.Model != "" {
-		model = in.Claim.Agent.Model
-	}
-	if l.Cfg.BaseURL == "" || l.Cfg.APIKey == "" || model == "" {
-		return nil, errors.New("llm runtime is not configured (MS_LLM_BASE_URL, MS_LLM_API_KEY, MS_LLM_MODEL)")
-	}
+	// an empty model takes the configured one, which the gateway reads on each round
+	model := in.Claim.Agent.Model
 	var payload map[string]any
 	_ = json.Unmarshal(in.Claim.Snapshot.Payload, &payload)
 	delete(payload, "candles")
@@ -104,8 +91,8 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		if len(toolSpecs) > 0 {
 			req["tools"], req["tool_choice"] = toolSpecs, "auto"
 		}
-		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: asking %s", round, model)})
-		msg, usage, err := l.chat(ctx, req)
+		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: asking %s", round, orStr(model, "the configured model"))})
+		msg, usage, err := l.GW.Chat(ctx, req)
 		if err != nil {
 			return nil, err
 		}
@@ -160,40 +147,6 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 
 type usage struct{ PromptTokens, CompletionTokens float64 }
 
-func (l *LLM) chat(ctx context.Context, req map[string]any) (map[string]any, usage, error) {
-	var u usage
-	b, _ := json.Marshal(req)
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint(l.Cfg.BaseURL), bytes.NewReader(b))
-	if err != nil {
-		return nil, u, err
-	}
-	hr.Header.Set("Authorization", "Bearer "+l.Cfg.APIKey)
-	hr.Header.Set("Content-Type", "application/json")
-	resp, err := l.HTTP.Do(hr)
-	if err != nil {
-		return nil, u, fmt.Errorf("llm request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if resp.StatusCode != http.StatusOK {
-		return nil, u, fmt.Errorf("llm %d: %s", resp.StatusCode, clip(string(raw), 200))
-	}
-	var body struct {
-		Choices []struct {
-			Message map[string]any `json:"message"`
-		} `json:"choices"`
-		Usage struct {
-			Prompt     float64 `json:"prompt_tokens"`
-			Completion float64 `json:"completion_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(raw, &body); err != nil || len(body.Choices) == 0 {
-		return nil, u, fmt.Errorf("llm returned no choices: %s", clip(string(raw), 200))
-	}
-	u.PromptTokens, u.CompletionTokens = body.Usage.Prompt, body.Usage.Completion
-	return body.Choices[0].Message, u, nil
-}
-
 type toolCall struct{ id, name, args string }
 
 func toolCalls(msg map[string]any) []toolCall {
@@ -234,8 +187,8 @@ func clip(s string, n int) string {
 // maxTokens is generous by default: reasoning models spend the budget on
 // hidden reasoning before they emit the answer.
 func (l *LLM) maxTokens() int {
-	if l.Cfg.MaxTokens > 0 {
-		return l.Cfg.MaxTokens
+	if l.MaxTokens > 0 {
+		return l.MaxTokens
 	}
 	return 16384
 }
@@ -243,7 +196,7 @@ func (l *LLM) maxTokens() int {
 // Complete runs one plain chat turn with no tools and returns the reply text.
 // The console uses it for strategy coaching, where the answer is prose for a human.
 func (l *LLM) Complete(ctx context.Context, messages []map[string]any) (string, error) {
-	msg, _, err := l.chat(ctx, map[string]any{"model": l.Cfg.Model, "messages": messages, "max_tokens": l.maxTokens()})
+	msg, _, err := l.GW.Chat(ctx, map[string]any{"messages": messages, "max_tokens": l.maxTokens()})
 	if err != nil {
 		return "", err
 	}

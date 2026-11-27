@@ -1,0 +1,396 @@
+package runtime_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/mfittko/market-signals/platform/internal/runtime"
+)
+
+const fakeKey = "sk-test-SECRET"
+
+// stubProvider answers with status, or with a chat reply for 200. It counts requests.
+type stubProvider struct {
+	*httptest.Server
+	hits   atomic.Int32
+	status atomic.Int32
+}
+
+func newStub(t *testing.T, status int) *stubProvider {
+	t.Helper()
+	p := &stubProvider{}
+	p.status.Store(int32(status))
+	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.hits.Add(1)
+		if s := int(p.status.Load()); s != http.StatusOK {
+			http.Error(w, "upstream says "+r.Header.Get("Authorization")+" key=SECRET", s)
+			return
+		}
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "model " + req["model"].(string)}}}})
+	}))
+	t.Cleanup(p.Close)
+	return p
+}
+
+func fixed(base string) runtime.ConfigSource {
+	return func(context.Context) (runtime.ProviderConfig, error) {
+		return runtime.ProviderConfig{Configured: true, BaseURL: base, APIKey: fakeKey, Model: "m"}, nil
+	}
+}
+
+type clock struct{ t time.Time }
+
+func (c *clock) now() time.Time { return c.t }
+
+func gateway(src runtime.ConfigSource, log *bytes.Buffer) (*runtime.Gateway, *clock) {
+	var l *slog.Logger
+	if log != nil {
+		l = slog.New(slog.NewTextHandler(log, nil))
+	}
+	g := runtime.NewGateway(src, l)
+	c := &clock{t: time.Unix(1_700_000_000, 0)}
+	g.Now = c.now
+	return g, c
+}
+
+func complete(g *runtime.Gateway, ctx context.Context) (string, error) {
+	return (&runtime.LLM{GW: g}).Complete(ctx, []map[string]any{{"role": "user", "content": "hi"}})
+}
+
+func reason(t *testing.T, err error) string {
+	t.Helper()
+	var m *runtime.ModelError
+	if !errors.As(err, &m) {
+		t.Fatalf("want a *runtime.ModelError, got %v", err)
+	}
+	if !strings.HasPrefix(m.Error(), "model gateway: ") {
+		t.Fatalf("error must start with the gateway prefix: %q", m.Error())
+	}
+	return m.Reason
+}
+
+func TestGatewayReadsTheConfigOnEveryCall(t *testing.T) {
+	a, b := newStub(t, 200), newStub(t, 200)
+	var calls atomic.Int32
+	g, _ := gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		n := calls.Add(1)
+		if n == 1 {
+			return runtime.ProviderConfig{Configured: true, BaseURL: a.URL, APIKey: fakeKey, Model: "first"}, nil
+		}
+		return runtime.ProviderConfig{Configured: true, BaseURL: b.URL + "/v1/", APIKey: fakeKey, Model: "second"}, nil
+	}, nil)
+	for _, want := range []string{"model first", "model second"} {
+		got, err := complete(g, context.Background())
+		if err != nil || got != want {
+			t.Fatalf("got %q %v, want %q", got, err, want)
+		}
+	}
+	if calls.Load() != 2 || a.hits.Load() != 1 || b.hits.Load() != 1 {
+		t.Fatalf("the provider change must apply on the next call: source %d, a %d, b %d", calls.Load(), a.hits.Load(), b.hits.Load())
+	}
+}
+
+func TestGatewayNotConfigured(t *testing.T) {
+	for name, src := range map[string]runtime.ConfigSource{
+		"configured false": func(context.Context) (runtime.ProviderConfig, error) { return runtime.ProviderConfig{}, nil },
+		"read failed": func(context.Context) (runtime.ProviderConfig, error) {
+			return runtime.ProviderConfig{}, errors.New("control plane 401")
+		},
+		"no model": func(context.Context) (runtime.ProviderConfig, error) {
+			return runtime.ProviderConfig{Configured: true, BaseURL: "http://127.0.0.1:1", APIKey: fakeKey}, nil
+		},
+	} {
+		g, _ := gateway(src, nil)
+		_, err := complete(g, context.Background())
+		if reason(t, err) != runtime.ReasonNotConfigured || !runtime.IsNotConfigured(err) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+}
+
+func TestGatewayErrorsAndLogsCarryNoSecret(t *testing.T) {
+	var log bytes.Buffer
+	check := func(what string, err error) {
+		t.Helper()
+		for _, s := range []string{err.Error(), log.String()} {
+			if strings.Contains(s, "SECRET") {
+				t.Fatalf("%s leaks a secret: %q", what, s)
+			}
+		}
+	}
+	failing := newStub(t, 500)
+	g, _ := gateway(fixed(failing.URL+"/v1?key=SECRET"), &log)
+	for range 5 {
+		_, err := complete(g, context.Background())
+		if reason(t, err) != runtime.ReasonProvider {
+			t.Fatalf("want provider, got %v", err)
+		}
+		check("provider", err)
+	}
+	if !strings.Contains(log.String(), "upstream says") {
+		t.Fatalf("the provider body belongs in the log line: %q", log.String())
+	}
+	_, err := complete(g, context.Background())
+	if reason(t, err) != runtime.ReasonBreakerOpen {
+		t.Fatalf("want breaker_open, got %v", err)
+	}
+	check("breaker_open", err)
+
+	block := blockingStub(t)
+	g, _ = gateway(fixed(block.URL+"?key=SECRET"), &log)
+	g.Deadline = 50 * time.Millisecond
+	_, err = complete(g, context.Background())
+	if reason(t, err) != runtime.ReasonTimeout {
+		t.Fatalf("want timeout, got %v", err)
+	}
+	check("timeout", err)
+
+	g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		return runtime.ProviderConfig{APIKey: fakeKey, BaseURL: "http://x?key=SECRET"}, nil
+	}, &log)
+	_, err = complete(g, context.Background())
+	check("not_configured", err)
+	// the transport error of an unreachable provider quotes the URL in net/http; the gateway drops it
+	g, _ = gateway(fixed("http://127.0.0.1:1/v1?key=SECRET"), &log)
+	_, err = complete(g, context.Background())
+	check("transport", err)
+	if errors.Unwrap(err) != nil && strings.Contains(errors.Unwrap(err).Error(), "SECRET") {
+		t.Fatalf("the wrapped transport error leaks the URL: %v", errors.Unwrap(err))
+	}
+}
+
+func blockingStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body) // the server sees the client go away only after the body is read
+		<-r.Context().Done()
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func TestGatewayDeadline(t *testing.T) {
+	block := blockingStub(t)
+	g, _ := gateway(fixed(block.URL), nil)
+	g.Deadline = 100 * time.Millisecond
+	start := time.Now()
+	_, err := complete(g, context.Background())
+	if reason(t, err) != runtime.ReasonTimeout || time.Since(start) > 600*time.Millisecond {
+		t.Fatalf("got %v after %v", err, time.Since(start))
+	}
+
+	g.Deadline = 10 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start = time.Now()
+	_, err = complete(g, ctx)
+	if reason(t, err) != runtime.ReasonTimeout || time.Since(start) > 550*time.Millisecond {
+		t.Fatalf("the earlier caller deadline must win: %v after %v", err, time.Since(start))
+	}
+}
+
+func TestGatewayBreakerOpensAndFailsFast(t *testing.T) {
+	p := newStub(t, 503)
+	g, _ := gateway(fixed(p.URL), nil)
+	for range 5 {
+		if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+			t.Fatal(err)
+		}
+	}
+	if p.hits.Load() != 5 {
+		t.Fatalf("an open breaker must make no request: %d requests", p.hits.Load())
+	}
+}
+
+func openBreaker(t *testing.T, g *runtime.Gateway) {
+	t.Helper()
+	for range 5 {
+		complete(g, context.Background())
+	}
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+		t.Fatalf("breaker not open: %v", err)
+	}
+}
+
+func TestGatewayHalfOpenProbe(t *testing.T) {
+	p := newStub(t, 500)
+	g, c := gateway(fixed(p.URL), nil)
+	openBreaker(t, g)
+
+	c.t = c.t.Add(59 * time.Second)
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+		t.Fatalf("still open before 60 s: %v", err)
+	}
+	c.t = c.t.Add(time.Second)
+	hits := p.hits.Load()
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider || p.hits.Load() != hits+1 {
+		t.Fatalf("the probe must reach the provider: %v", err)
+	}
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+		t.Fatalf("a failed probe reopens the breaker: %v", err)
+	}
+
+	c.t = c.t.Add(60 * time.Second)
+	p.status.Store(200)
+	for range 3 {
+		if _, err := complete(g, context.Background()); err != nil {
+			t.Fatalf("a successful probe closes the breaker: %v", err)
+		}
+	}
+	// the count starts again from zero after the close
+	p.status.Store(500)
+	for range 4 {
+		complete(g, context.Background())
+	}
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider {
+		t.Fatalf("the fifth failure after a close still reaches the provider: %v", err)
+	}
+}
+
+func TestGatewayHalfOpenAdmitsExactlyOneProbe(t *testing.T) {
+	release := make(chan struct{})
+	var hits atomic.Int32
+	fail := atomic.Bool{}
+	fail.Store(true)
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if fail.Load() {
+			http.Error(w, "down", 500)
+			return
+		}
+		<-release
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "ok"}}}})
+	}))
+	defer s.Close()
+	g, c := gateway(fixed(s.URL), nil)
+	openBreaker(t, g)
+	c.t = c.t.Add(60 * time.Second)
+	fail.Store(false)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); complete(g, context.Background()) }()
+	for hits.Load() != 6 {
+		time.Sleep(time.Millisecond)
+	}
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
+		t.Fatalf("a second call during the probe must fail fast: %v", err)
+	}
+	close(release)
+	wg.Wait()
+	if hits.Load() != 6 {
+		t.Fatalf("only the probe may reach the provider: %d", hits.Load())
+	}
+}
+
+func TestGatewayFailureClassification(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		counts bool
+	}{{400, false}, {401, false}, {429, true}, {500, true}, {502, true}, {503, true}} {
+		p := newStub(t, c.status)
+		g, _ := gateway(fixed(p.URL), nil)
+		for range 6 {
+			complete(g, context.Background())
+		}
+		if opened := p.hits.Load() == 5; opened != c.counts {
+			t.Errorf("HTTP %d: counted %v, want %v (%d requests)", c.status, opened, c.counts, p.hits.Load())
+		}
+	}
+
+	p := newStub(t, 200)
+	g, _ := gateway(fixed(p.URL), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 6 {
+		complete(g, ctx)
+	}
+	if _, err := complete(g, context.Background()); err != nil {
+		t.Fatalf("caller cancellation must not count: %v", err)
+	}
+
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("not json")) }))
+	defer bad.Close()
+	g, _ = gateway(fixed(bad.URL), nil)
+	for range 6 {
+		if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider {
+			t.Fatalf("an unparsable body must not count: %v", err)
+		}
+	}
+}
+
+func TestGatewayBreakersArePerProvider(t *testing.T) {
+	a, b := newStub(t, 500), newStub(t, 200)
+	base := a.URL
+	g, _ := gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		return runtime.ProviderConfig{Configured: true, BaseURL: base, APIKey: fakeKey, Model: "m"}, nil
+	}, nil)
+	openBreaker(t, g)
+	base = b.URL
+	if _, err := complete(g, context.Background()); err != nil {
+		t.Fatalf("a second provider has its own breaker: %v", err)
+	}
+}
+
+func TestWorkerReadsTheConfigFromTheControlPlaneOnEveryModelCall(t *testing.T) {
+	provider, reqs := fakeLLM(t, toolReply("get_portfolio"), text(`{"action":"hold","reasoning":"r"}`))
+	var reads atomic.Int32
+	plane := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/runtime/llm-config" || r.Header.Get("Authorization") != "Bearer w" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"unauthorized","apiKey":"sk-test-SECRET"}`))
+			return
+		}
+		reads.Add(1)
+		json.NewEncoder(w).Encode(runtime.ProviderConfig{Configured: true, BaseURL: provider.URL, APIKey: fakeKey, Model: "from-plane"})
+	}))
+	defer plane.Close()
+
+	g, _ := gateway(runtime.NewClient(plane.URL, "w").LLMConfig, nil)
+	ft := &fakeTools{out: map[string]string{"get_portfolio": "{}"}}
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), input(ft, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if reads.Load() != 2 || len(*reqs) != 2 || (*reqs)[1]["model"] != "from-plane" {
+		t.Fatalf("want one config read per model call: %d reads, %d calls", reads.Load(), len(*reqs))
+	}
+
+	g, _ = gateway(runtime.NewClient(plane.URL, "wrong").LLMConfig, nil)
+	_, err := complete(g, context.Background())
+	if reason(t, err) != runtime.ReasonNotConfigured || strings.Contains(err.Error(), "SECRET") || strings.Contains(errors.Unwrap(err).Error(), "SECRET") {
+		t.Fatalf("a refused config read is not_configured and keeps only error and detail: %v / %v", err, errors.Unwrap(err))
+	}
+}
+
+func TestLLMSendsTemperatureZeroOnEveryRound(t *testing.T) {
+	srv, reqs := fakeLLM(t, toolReply("get_portfolio"), toolReply("get_portfolio"), text(`{"action":"hold","reasoning":"r"}`))
+	ft := &fakeTools{out: map[string]string{"get_portfolio": "{}"}}
+	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), input(ft, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if len(*reqs) != 3 {
+		t.Fatalf("want 3 rounds, got %d", len(*reqs))
+	}
+	for i, r := range *reqs {
+		if r["temperature"] != float64(0) {
+			t.Fatalf("round %d sent temperature %v", i+1, r["temperature"])
+		}
+	}
+}
