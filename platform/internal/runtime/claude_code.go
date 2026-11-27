@@ -152,11 +152,7 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 	home, _ := os.UserHomeDir()
 	cmd := exec.CommandContext(callCtx, c.Bin, claudeArgs(system, model, prompt)...)
 	cmd.Dir = dir // keeps project CLAUDE.md and memory out of the prompt
-	// without an API key or base URL the CLI uses the operator subscription, so the $0 rows stay true
-	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
-		return strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") || strings.HasPrefix(kv, "ANTHROPIC_BASE_URL=")
-	})
-	cmd.Env = append(env, "PATH="+claudePATH(home, os.Getenv("PATH")))
+	cmd.Env = claudeEnv(os.Environ(), home, dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = claudeWaitDelay
@@ -171,6 +167,8 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 	}
 	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
 	err = cmd.Run()
+	// shortcut: the group kill runs after the leader is reaped, so a pid reused as a group leader in that window
+	// would be killed; keep the group owned across the reap if the worker shares a host with many short-lived processes.
 	if cmd.Process != nil { // a leftover group child must not outlive the call
 		if kerr := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); kerr != nil && !errors.Is(kerr, syscall.ESRCH) {
 			c.Log.Warn("claude-code group kill failed", "err", kerr)
@@ -209,6 +207,20 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 		return nil, &ModelError{Provider: ClaudeCodeProvider, Reason: reason, Err: err}
 	}
 	return map[string]any{"role": "assistant", "content": strings.TrimSpace(*body.Result)}, nil
+}
+
+// dropClaudeEnv removes the child variables that would bill the call: every ANTHROPIC_ variable (API key, auth
+// token, base URL) and the Bedrock and Vertex switches. Without them the CLI uses the operator subscription, so
+// the $0 rows stay true. It also removes the worker's PWD and OLDPWD, which name the worker cwd, not the temp dir.
+func dropClaudeEnv(kv string) bool {
+	return strings.HasPrefix(kv, "ANTHROPIC_") || strings.HasPrefix(kv, "CLAUDE_CODE_USE_BEDROCK=") ||
+		strings.HasPrefix(kv, "CLAUDE_CODE_USE_VERTEX=") || strings.HasPrefix(kv, "PWD=") || strings.HasPrefix(kv, "OLDPWD=")
+}
+
+// claudeEnv is the child environment. os/exec sets PWD to cmd.Dir only when cmd.Env is nil, so PWD is set here.
+func claudeEnv(environ []string, home, dir string) []string {
+	env := slices.DeleteFunc(slices.Clone(environ), dropClaudeEnv)
+	return append(env, "PATH="+claudePATH(home, os.Getenv("PATH")), "PWD="+dir)
 }
 
 // spend records one $0 row per started call. A failed record is logged and the reply is kept: the call costs nothing.

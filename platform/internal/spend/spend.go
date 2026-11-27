@@ -1,5 +1,6 @@
 // Package spend is the model spend ledger. It prices each model call from the settings price table and is the
-// only writer of the model_spend table. The daily cap counts spend in the current UTC calendar day.
+// only writer of the model_spend table. A call with provider ClaudeCode is stored at cost 0 with priced_as
+// ClaudeCode, so the daily cap ignores it. The daily cap counts spend in the current UTC calendar day.
 package spend
 
 import (
@@ -75,7 +76,8 @@ type Call struct {
 	RunID                          int64
 }
 
-// Record prices the call from the stored price table and inserts one row.
+// Record prices the call from the stored price table and inserts one row. A call with provider ClaudeCode is
+// stored at cost 0 with priced_as ClaudeCode, so the daily cap ignores it.
 func Record(ctx context.Context, pool *pgxpool.Pool, c Call) error {
 	snap, err := settings.Load(ctx, pool)
 	if err != nil {

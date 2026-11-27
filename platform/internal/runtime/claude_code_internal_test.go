@@ -270,13 +270,95 @@ echo '{"is_error":false,"result":"ok"}'`)
 func TestClaudeCodeChildGetsNoAnthropicKeyOrBaseURL(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://fake.invalid")
-	bin, dir := stubClaude(t, `echo "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_BASE_URL-unset}" > '%D/env'
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "fake-token")
+	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+	bin, dir := stubClaude(t, `echo "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_BASE_URL-unset} ${ANTHROPIC_AUTH_TOKEN-unset} ${CLAUDE_CODE_USE_BEDROCK-unset}" > '%D/env'
+echo "$PWD" > '%D/pwd'
+pwd > '%D/cwd'
 echo '{"is_error":false,"result":"ok"}'`)
 	if err := chatOnce(NewClaudeCode(bin, nil, nil), context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := waitFile(t, filepath.Join(dir, "env")); got != "unset unset" {
+	if got := waitFile(t, filepath.Join(dir, "env")); got != "unset unset unset unset" {
 		t.Fatalf("the child saw %q", got)
+	}
+	if pwd, cwd := waitFile(t, filepath.Join(dir, "pwd")), waitFile(t, filepath.Join(dir, "cwd")); pwd != cwd {
+		t.Fatalf("the child PWD %q is not its temp dir %q", pwd, cwd)
+	}
+}
+
+func TestDropClaudeEnvKeepsOnlyUnbilledVariables(t *testing.T) {
+	for kv, drop := range map[string]bool{
+		"PATH=/usr/bin":                      false,
+		"HOME=/Users/x":                      false,
+		"CLAUDE_CONFIG_DIR=/Users/x/.claude": false,
+		"ANTHROPIC_API_KEY=k":                true,
+		"ANTHROPIC_BASE_URL=u":               true,
+		"ANTHROPIC_AUTH_TOKEN=t":             true,
+		"CLAUDE_CODE_USE_BEDROCK=1":          true,
+		"CLAUDE_CODE_USE_VERTEX=1":           true,
+		"PWD=/worker":                        true,
+		"OLDPWD=/worker":                     true,
+	} {
+		if got := dropClaudeEnv(kv); got != drop {
+			t.Errorf("dropClaudeEnv(%q) = %v, want %v", kv, got, drop)
+		}
+	}
+}
+
+func TestClaudeEnvSetsPWDToTheTempDir(t *testing.T) {
+	env := claudeEnv([]string{"HOME=/h", "PWD=/worker", "OLDPWD=/old"}, "/h", "/tmp/claude-code-1")
+	var pwds []string
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PWD="); ok {
+			pwds = append(pwds, v)
+		}
+		if strings.HasPrefix(kv, "OLDPWD=") {
+			t.Fatalf("OLDPWD kept: %q", kv)
+		}
+	}
+	if !reflect.DeepEqual(pwds, []string{"/tmp/claude-code-1"}) {
+		t.Fatalf("PWD entries %q", pwds)
+	}
+}
+
+func TestClaudeCodeIsErrorReplyCountsAsAFailure(t *testing.T) {
+	bin, _ := stubClaude(t, `echo '{"is_error":true,"result":"Invalid API key"}'`)
+	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
+	msg, _, err := c.Chat(context.Background(), map[string]any{"model": "m", "messages": []map[string]any{{"role": "user", "content": "u"}}})
+	if !hasReason(err, ReasonProvider) || msg != nil {
+		t.Fatalf("got %v %v, want a provider error and no reply", msg, err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.fails != 1 {
+		t.Fatalf("fails %d", c.fails)
+	}
+}
+
+func TestClaudeCodeSuccessResetsTheBreakerCount(t *testing.T) {
+	failBin, failDir := stubClaude(t, "exit 1")
+	okBin, _ := stubClaude(t, `echo '{"is_error":false,"result":"ok"}'`)
+	c := NewClaudeCode(failBin, (&spendLog{}).record, nil)
+	for i := 0; i < 4; i++ {
+		if err := chatOnce(c, context.Background()); !hasReason(err, ReasonProvider) {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	c.Bin = okBin
+	if err := chatOnce(c, context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	c.Bin = failBin
+	// 4 failures, 1 success, 1 failure: the count restarted, so the breaker stays closed and the binary starts.
+	// Without the reset the 6th call is the 5th failure and opens the breaker for the 7th.
+	for i := 0; i < 2; i++ {
+		if err := chatOnce(c, context.Background()); !hasReason(err, ReasonProvider) {
+			t.Fatalf("call %d after the success: got %v, want a provider error", i+1, err)
+		}
+	}
+	if n := starts(failDir); n != 6 {
+		t.Fatalf("the failing binary started %d times", n)
 	}
 }
 
