@@ -43,8 +43,9 @@ type Config struct {
 	// unconfigured model returns a not_configured runtime.ModelError, which the callers treat like nil.
 	Complete func(ctx context.Context, messages []map[string]any) (string, error)
 	// ModelConfigured reads the gateway's per-call config and reports whether Complete has a model. News
-	// triage asks it before it marks a headline pending. Nil means Complete is assumed to have one.
-	ModelConfigured func(ctx context.Context) bool
+	// triage asks it before it marks a headline pending. A non-nil error means the config read failed, which
+	// says nothing about the model. Nil means Complete is assumed to have one.
+	ModelConfigured func(ctx context.Context) (bool, error)
 }
 
 type Server struct {

@@ -46,6 +46,40 @@ func TestTriageNewsPassesItemsThroughWhenNoModelIsConfigured(t *testing.T) {
 	}
 }
 
+func TestTriageNewsDoesNotLatchOffOnAFailedConfigRead(t *testing.T) {
+	reads := 0
+	gw := runtime.NewGateway(func(context.Context) (runtime.ProviderConfig, error) {
+		reads++
+		if reads == 1 {
+			return runtime.ProviderConfig{}, context.Canceled
+		}
+		return runtime.ProviderConfig{Configured: true, BaseURL: "http://127.0.0.1:1", APIKey: "k", Model: "m"}, nil
+	}, nil)
+	calls := 0
+	s := &Server{log: slog.New(slog.DiscardHandler), tri: newNewsTriage()}
+	s.cfg.Complete = func(context.Context, []map[string]any) (string, error) {
+		calls++
+		return `[{"i":0,"en":"Oil rises","relevant":true}]`, nil
+	}
+	s.cfg.ModelConfigured = gw.Configured
+	raw := json.RawMessage(`{"ok":true,"items":[{"title":"Oil rises"}]}`)
+	if got := s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw); string(got) != string(raw) {
+		t.Fatalf("a failed config read must pass the items through unmarked: %s", got)
+	}
+	s.tri.wg.Wait()
+	if calls != 0 {
+		t.Fatalf("a failed config read must start no model call: %d calls", calls)
+	}
+	// the next request reads a configured model and is triaged, so the failed read set no backoff
+	if d := triageOnce(t, s, raw); len(d.Items) != 1 || !d.Items[0].Pending {
+		t.Fatalf("the request after a failed config read must be triaged: %+v", d)
+	}
+	s.tri.wg.Wait()
+	if calls != 1 {
+		t.Fatalf("the request after a failed config read must call the model once: %d calls", calls)
+	}
+}
+
 func llmConfigReq(token, remote string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/v1/runtime/llm-config", nil)
 	if token != "" {
