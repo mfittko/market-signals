@@ -601,4 +601,16 @@ func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
 	if len(steps) != 1 || steps[0] != "round 1: asked no model at no provider" {
 		t.Fatalf("steps %q", steps)
 	}
+
+	// a round that fails after config resolution still names the resolved model and provider
+	g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		return runtime.ProviderConfig{Configured: true, BaseURL: a.URL + "/v1", APIKey: fakeKey, Model: "capped", CapReached: true}, nil
+	}, nil)
+	steps = nil
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
+		t.Fatal("a cap refusal must fail the run")
+	}
+	if len(steps) != 1 || steps[0] != "round 1: asked capped at "+a.URL+"/v1/chat/completions" {
+		t.Fatalf("steps %q", steps)
+	}
 }
