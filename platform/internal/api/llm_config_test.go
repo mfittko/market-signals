@@ -13,9 +13,30 @@ import (
 	"testing"
 
 	"github.com/mfittko/market-signals/platform/internal/queue"
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/internal/settings"
 	"github.com/mfittko/market-signals/platform/internal/testutil"
 )
+
+// unconfigured is the api's gateway Complete with a source that has no model.
+func unconfigured() func(context.Context, []map[string]any) (string, error) {
+	src := func(context.Context) (runtime.ProviderConfig, error) { return runtime.ProviderConfig{}, nil }
+	return (&runtime.LLM{GW: runtime.NewGateway(src, nil)}).Complete
+}
+
+func TestTriageNewsPassesItemsThroughWhenNoModelIsConfigured(t *testing.T) {
+	s := &Server{log: slog.New(slog.DiscardHandler), tri: newNewsTriage()}
+	s.cfg.Complete = unconfigured()
+	raw := json.RawMessage(`{"ok":true,"items":[{"title":"Oil rises"}]}`)
+	triageOnce(t, s, raw)
+	s.tri.wg.Wait()
+	for range 2 {
+		if got := s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw); string(got) != string(raw) {
+			t.Fatalf("an unconfigured model must pass the items through unmarked: %s", got)
+		}
+	}
+	s.tri.wg.Wait()
+}
 
 func llmConfigReq(token, remote string) *http.Request {
 	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/v1/runtime/llm-config", nil)
@@ -44,6 +65,16 @@ func TestLLMConfigRefusesWithoutTokenOrFromANonLoopbackPeer(t *testing.T) {
 		srv.Handler().ServeHTTP(rec, llmConfigReq(c.token, c.remote))
 		if rec.Code != c.want || strings.Contains(rec.Body.String(), "apiKey") {
 			t.Errorf("token %q from %s: got %d %s, want %d", c.token, c.remote, rec.Code, rec.Body, c.want)
+		}
+	}
+	// a proxy on the host, such as the console's rewrite, connects from loopback but adds forwarding headers
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "Forwarded"} {
+		r := llmConfigReq("w", "127.0.0.1:5000")
+		r.Header.Set(h, "127.0.0.1:8080") // an allowed host, so only the route's own check refuses
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, r)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: got %d, want 404", h, rec.Code)
 		}
 	}
 }

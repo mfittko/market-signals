@@ -39,7 +39,8 @@ type Config struct {
 	AllowedOrigins []string
 	// BackupDir is the root of the daily backups; health reports the newest one. Empty when unset.
 	BackupDir string
-	// Complete answers one plain chat turn for strategy coaching. Nil when no model is configured.
+	// Complete answers one plain chat turn for strategy coaching and news triage. The api always sets it; an
+	// unconfigured model returns a not_configured runtime.ModelError, which the callers treat like nil.
 	Complete func(ctx context.Context, messages []map[string]any) (string, error)
 }
 

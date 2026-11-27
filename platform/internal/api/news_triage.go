@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 )
 
 // triage is the record for one headline and one instrument: English title, relevance, link and summary.
@@ -27,6 +29,7 @@ type newsTriage struct {
 	inflight  map[string]bool      // instruments with a background triage running
 	failed    map[string]time.Time // last failed classification per instrument; pauses retries
 	sumFailed map[string]time.Time // last failed summary per headline key; pauses retries
+	noModel   time.Time            // last model call that found no model configured; passes items through
 	wg        sync.WaitGroup       // lets tests wait for the background work
 }
 
@@ -60,9 +63,17 @@ func newsKey(symbol, title string) string { return symbol + "\x00" + title }
 
 // triageNews annotates the engine's headlines from the record. It answers at once: unknown
 // headlines are marked pending, a background job classifies and summarizes them, and a news
-// notice then makes the page refetch. Without a model the items pass through unmarked.
+// notice then makes the page refetch. Without a model the items pass through unmarked; a model call that
+// finds no model configured does the same for triageBackoff, after one pending answer.
 func (s *Server) triageNews(ctx context.Context, symbol, name string, raw json.RawMessage) json.RawMessage {
 	if s.cfg.Complete == nil {
+		return raw
+	}
+	t := s.tri
+	t.mu.Lock()
+	off := time.Since(t.noModel) < triageBackoff
+	t.mu.Unlock()
+	if off {
 		return raw
 	}
 	var doc map[string]any
@@ -75,7 +86,6 @@ func (s *Server) triageNews(ctx context.Context, symbol, name string, raw json.R
 	}
 	field := func(it any, k string) string { m, _ := it.(map[string]any); v, _ := m[k].(string); return v }
 
-	t := s.tri
 	t.mu.Lock()
 	var unknown []string
 	for _, it := range items {
@@ -220,6 +230,11 @@ func (s *Server) runTriage(symbol, name string, todo []string, urls map[string]s
 				res, err := s.classifyHeadlines(ctx, symbol, name, batch)
 				if err != nil {
 					s.log.Warn("news triage", "instrument", symbol, "err", err)
+					if runtime.IsNotConfigured(err) {
+						t.mu.Lock()
+						t.noModel = time.Now()
+						t.mu.Unlock()
+					}
 					fmu.Lock()
 					failed = true
 					fmu.Unlock()
@@ -269,6 +284,9 @@ func (s *Server) runTriage(symbol, name string, todo []string, urls map[string]s
 			t.mu.Lock()
 			if err != nil {
 				t.sumFailed[key] = time.Now()
+				if runtime.IsNotConfigured(err) {
+					t.noModel = time.Now()
+				}
 				t.mu.Unlock()
 				s.log.Warn("news summary", "instrument", symbol, "err", err)
 				return // a temporary failure: retried on a later visit after the backoff

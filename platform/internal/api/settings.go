@@ -26,9 +26,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 
 // llmConfig gives the worker its model provider, key included, for one model call. It answers only a
 // loopback peer, so the key never leaves the host, and returns the four provider fields and nothing else.
+// A request with proxy headers came through a proxy on the host, such as the console's, so it is refused too.
 func (s *Server) llmConfig(w http.ResponseWriter, r *http.Request) {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if ip, perr := netip.ParseAddr(host); err != nil || perr != nil || !ip.IsLoopback() {
+	proxied := r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Forwarded-Host") != "" || r.Header.Get("Forwarded") != ""
+	if ip, perr := netip.ParseAddr(host); err != nil || perr != nil || !ip.IsLoopback() || proxied {
 		http.NotFound(w, r)
 		return
 	}
