@@ -228,9 +228,9 @@ type ToolContext struct {
 	Snapshot Snapshot
 }
 
-// AuthorizeTool enforces the allowlist and budget at execution time, so a
-// model asking for an undeclared tool never reaches an executor. Denials are
-// logged as events.
+// AuthorizeTool enforces the allowlist and the tool budget of the current
+// follow-up window (shared by retries) at execution time, so a model asking
+// for an undeclared tool never reaches an executor. Denials are logged as events.
 func (s *Store) AuthorizeTool(ctx context.Context, attemptID, fence int64, name string, args json.RawMessage) (*ToolContext, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
