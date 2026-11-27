@@ -249,9 +249,9 @@ stays the live source until the Go store owns settings writes
   open breaker fails calls at once for 60 s, then admits one probe: a successful probe closes it, a failed one
   reopens it for 60 s. A failed call returns `*runtime.ModelError` with the reason `not_configured`, `timeout`,
   `breaker_open` or `provider`; its message names only the reason, the endpoint without credentials or query,
-  and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage can mark unknown
-  headlines pending once; after the model call reports `not_configured`, it passes headlines through unmarked
-  for 5 minutes.
+  and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage asks the gateway
+  config before it marks a headline pending: with no model configured, it passes headlines through unmarked at
+  once, makes no model call, and keeps passing them through for 5 minutes.
 
 ## Strategy store
 
