@@ -42,6 +42,18 @@ func TestFindClaudeOnlyReturnsAnExecutableOnTheExtendedPath(t *testing.T) {
 	if got := FindClaude(home, path); got != "" {
 		t.Fatalf("no binary anywhere: got %q", got)
 	}
+	// a relative PATH entry resolves against the cwd and must be skipped
+	rel := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rel, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(rel)
+	if got := FindClaude(home, "."+string(os.PathListSeparator)+path); got != "" {
+		t.Fatalf("a relative PATH entry must not count: got %q", got)
+	}
+	if got := FindClaude("", path); got != "" {
+		t.Fatalf("an empty home must not add a relative .local/bin: got %q", got)
+	}
 	if err := os.WriteFile(filepath.Join(path, "claude"), []byte("#!/bin/sh\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +87,7 @@ func stubClaude(t *testing.T, body string) (bin, dir string) {
 // hang never answers and keeps a background child that writes its pid.
 const hang = "sleep 30 &\necho $! > '%D/child'\nwait"
 
-func starts(t *testing.T, dir string) int {
+func starts(dir string) int {
 	raw, _ := os.ReadFile(filepath.Join(dir, "starts"))
 	return strings.Count(string(raw), "x")
 }
@@ -126,9 +138,10 @@ func chatOnce(c *ClaudeCode, ctx context.Context) error {
 }
 
 func TestClaudeCodeDeadlineKillsTheGroupWithReasonTimeout(t *testing.T) {
-	bin, dir := stubClaude(t, hang)
+	// the pid is written first, so a slow start under -race still leaves it before the deadline
+	bin, dir := stubClaude(t, "sleep 30 & echo $! > '%D/child'; wait")
 	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
-	c.Deadline = 500 * time.Millisecond
+	c.Deadline = time.Second
 	t0 := time.Now()
 	err := chatOnce(c, context.Background())
 	if !hasReason(err, ReasonTimeout) {
@@ -184,7 +197,7 @@ func TestClaudeCodeRunStartsNoRoundAfterACancel(t *testing.T) {
 	if err := <-done; err == nil {
 		t.Fatal("a cancelled run must return an error")
 	}
-	if n := starts(t, dir); n != 1 {
+	if n := starts(dir); n != 1 {
 		t.Fatalf("the stub started %d times", n)
 	}
 	assertGone(t, dir)
@@ -194,9 +207,22 @@ func TestClaudeCodeBreakerOpensAfter5FailuresWithoutStartingTheBinary(t *testing
 	failBin, failDir := stubClaude(t, "exit 1")
 	junkBin, junkDir := stubClaude(t, "echo not-json")
 	now := time.Now()
-	c := NewClaudeCode(failBin, (&spendLog{}).record, nil)
+	hangBin, _ := stubClaude(t, hang)
+	c := NewClaudeCode(hangBin, (&spendLog{}).record, nil)
 	c.Now = func() time.Time { return now }
-	for i := range 5 {
+	// a deadline counts as a failure
+	c.Deadline = 300 * time.Millisecond
+	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonTimeout) {
+		t.Fatalf("got %v, want a timeout", err)
+	}
+	c.mu.Lock()
+	fails := c.fails
+	c.mu.Unlock()
+	if fails != 1 {
+		t.Fatalf("a deadline must count: fails %d", fails)
+	}
+	c.Bin, c.Deadline = failBin, defaultDeadline
+	for i := 1; i < 5; i++ {
 		if i == 3 {
 			c.Bin = junkBin // unparseable output counts as a failure too
 		}
@@ -207,7 +233,8 @@ func TestClaudeCodeBreakerOpensAfter5FailuresWithoutStartingTheBinary(t *testing
 	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonBreakerOpen) {
 		t.Fatalf("got %v, want breaker_open", err)
 	}
-	if n := starts(t, failDir) + starts(t, junkDir); n != 5 {
+	// the hang stub may die at the deadline before it logs its start, so only the other 4 are counted
+	if n := starts(failDir) + starts(junkDir); n != 4 {
 		t.Fatalf("the binary started %d times", n)
 	}
 	// after 60 s one call goes through again; its failure reopens the breaker
@@ -223,6 +250,35 @@ func TestClaudeCodeBreakerOpensAfter5FailuresWithoutStartingTheBinary(t *testing
 const answer = `printf '%s\n' "$@" > '%D/args'
 pwd > '%D/cwd'
 echo '{"type":"result","is_error":false,"result":" {\"action\":\"hold\",\"reasoning\":\"stub\"} ","usage":{"input_tokens":3,"cache_creation_input_tokens":2,"cache_read_input_tokens":1,"output_tokens":4}}'`
+
+func TestClaudeCodeValidReplyKillsALeftoverChildWithoutWaitDelay(t *testing.T) {
+	bin, dir := stubClaude(t, `sleep 30 &
+echo $! > '%D/child'
+echo '{"is_error":false,"result":"ok"}'`)
+	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
+	t0 := time.Now()
+	msg, _, err := c.Chat(context.Background(), map[string]any{"model": "m", "messages": []map[string]any{{"role": "user", "content": "u"}}})
+	if err != nil || msg["content"] != "ok" {
+		t.Fatalf("got %v %v", msg, err)
+	}
+	if d := time.Since(t0); d >= claudeWaitDelay {
+		t.Fatalf("the leftover child held the call for %v", d)
+	}
+	assertGone(t, dir)
+}
+
+func TestClaudeCodeChildGetsNoAnthropicKeyOrBaseURL(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "fake-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "http://fake.invalid")
+	bin, dir := stubClaude(t, `echo "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_BASE_URL-unset}" > '%D/env'
+echo '{"is_error":false,"result":"ok"}'`)
+	if err := chatOnce(NewClaudeCode(bin, nil, nil), context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := waitFile(t, filepath.Join(dir, "env")); got != "unset unset" {
+		t.Fatalf("the child saw %q", got)
+	}
+}
 
 func TestClaudeCodeRunParsesTheProposalAndRecordsAFreeRow(t *testing.T) {
 	bin, dir := stubClaude(t, answer)

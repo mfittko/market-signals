@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,12 +40,19 @@ func claudeArgs(system, model, prompt string) []string {
 }
 
 func claudePATH(home, path string) string {
-	return strings.Join(append(append([]string{}, claudeDirs...), filepath.Join(home, ".local/bin"), path), string(os.PathListSeparator))
+	dirs := append([]string{}, claudeDirs...)
+	if home != "" { // an empty home would make ".local/bin" relative to the cwd
+		dirs = append(dirs, filepath.Join(home, ".local/bin"))
+	}
+	return strings.Join(append(dirs, path), string(os.PathListSeparator))
 }
 
 // FindClaude returns the claude binary on the extended PATH, or "" when there is none.
 func FindClaude(home, path string) string {
 	for _, d := range filepath.SplitList(claudePATH(home, path)) {
+		if !filepath.IsAbs(d) { // a relative entry resolves against the cwd
+			continue
+		}
 		p := filepath.Join(d, "claude")
 		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
 			return p
@@ -86,10 +94,32 @@ func (c *capped) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// capture returns a pipe end for the child and a func that closes it and returns the first n bytes read.
+// The child gets an *os.File, so Wait returns when the leader exits even if a group child still holds the pipe.
+func capture(n int) (*os.File, func() []byte, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	c, done := &capped{n: n}, make(chan struct{})
+	go func() { _, _ = io.Copy(c, r); close(done) }()
+	return w, func() []byte {
+		_ = w.Close()
+		select {
+		case <-done:
+		case <-time.After(claudeWaitDelay): // a process outside the group still holds the pipe
+		}
+		_ = r.Close()
+		<-done
+		return c.b
+	}, nil
+}
+
 // Chat sends the system message and the joined user messages as one CLI call. The reply has no tool calls.
 func (c *ClaudeCode) Chat(ctx context.Context, req map[string]any) (map[string]any, usage, error) {
 	model, _ := req["model"].(string)
 	u := usage{Model: model, Provider: ClaudeCodeProvider}
+	// shortcut: no single-probe half-open; up to worker concurrency calls retry after the window, add a probe if concurrency grows.
 	c.mu.Lock()
 	open := c.fails >= breakerFailures && c.Now().Before(c.openUntil)
 	c.mu.Unlock()
@@ -122,13 +152,31 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 	home, _ := os.UserHomeDir()
 	cmd := exec.CommandContext(callCtx, c.Bin, claudeArgs(system, model, prompt)...)
 	cmd.Dir = dir // keeps project CLAUDE.md and memory out of the prompt
-	cmd.Env = append(os.Environ(), "PATH="+claudePATH(home, os.Getenv("PATH")))
+	// without an API key or base URL the CLI uses the operator subscription, so the $0 rows stay true
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		return strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") || strings.HasPrefix(kv, "ANTHROPIC_BASE_URL=")
+	})
+	cmd.Env = append(env, "PATH="+claudePATH(home, os.Getenv("PATH")))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = claudeWaitDelay
-	out, stderr := &capped{n: claudeMaxOutput}, &capped{n: 4 << 10}
-	cmd.Stdout, cmd.Stderr = out, stderr
+	stdoutW, readOut, err := capture(claudeMaxOutput)
+	if err != nil {
+		return nil, &ModelError{Provider: ClaudeCodeProvider, Reason: ReasonProvider, Err: err}
+	}
+	stderrW, readErr, err := capture(4 << 10)
+	if err != nil {
+		readOut()
+		return nil, &ModelError{Provider: ClaudeCodeProvider, Reason: ReasonProvider, Err: err}
+	}
+	cmd.Stdout, cmd.Stderr = stdoutW, stderrW
 	err = cmd.Run()
+	if cmd.Process != nil { // a leftover group child must not outlive the call
+		if kerr := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); kerr != nil && !errors.Is(kerr, syscall.ESRCH) {
+			c.Log.Warn("claude-code group kill failed", "err", kerr)
+		}
+	}
+	out, stderr := readOut(), readErr()
 	var body struct {
 		IsError bool    `json:"is_error"`
 		Result  *string `json:"result"`
@@ -140,7 +188,7 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 		} `json:"usage"`
 	}
 	if err == nil {
-		if jerr := json.Unmarshal(out.b, &body); jerr != nil || body.IsError || body.Result == nil {
+		if jerr := json.Unmarshal(out, &body); jerr != nil || body.IsError || body.Result == nil {
 			err = errors.New("claude-code returned no result")
 		}
 	}
@@ -157,7 +205,7 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 			reason = ReasonTimeout
 		}
 		// stderr may echo the prompt, so it goes only to the log
-		c.Log.Warn("claude-code call failed", "reason", reason, "err", err, "stderr", clip(strings.TrimSpace(string(stderr.b)), 200))
+		c.Log.Warn("claude-code call failed", "reason", reason, "err", err, "stderr", clip(strings.TrimSpace(string(stderr)), 200))
 		return nil, &ModelError{Provider: ClaudeCodeProvider, Reason: reason, Err: err}
 	}
 	return map[string]any{"role": "assistant", "content": strings.TrimSpace(*body.Result)}, nil
