@@ -259,8 +259,8 @@ func (g *Gateway) Configured(ctx context.Context) (bool, error) {
 }
 
 // Chat sends one chat completion request. A request without a model gets the configured model.
-func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any, usage, error) {
-	var u usage
+// Every return after config resolution names the resolved model and the provider key in the usage.
+func (g *Gateway) Chat(ctx context.Context, req map[string]any) (msg map[string]any, u usage, err error) {
 	callCtx, cancel := context.WithTimeout(ctx, g.Deadline)
 	defer cancel()
 	// Error() drops the cause, so a failed config read or a bad base URL is logged here or it would look like an
@@ -277,6 +277,7 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 		g.Log.Warn("model config unavailable", "err", err)
 		return nil, u, &ModelError{Reason: ReasonNotConfigured, Err: err}
 	}
+	defer func() { u.Model, _ = req["model"].(string); u.Provider = key }()
 	if m, _ := req["model"].(string); m == "" {
 		if cfg.Model == "" {
 			return nil, u, &ModelError{Provider: key, Reason: ReasonNotConfigured, Err: errors.New("no model configured")}

@@ -561,3 +561,67 @@ func TestLLMSendsTemperatureZeroOnEveryRound(t *testing.T) {
 		}
 	}
 }
+
+func TestLLMRoundStepNamesTheResolvedModelAndProvider(t *testing.T) {
+	a, _ := fakeLLM(t, toolReply("get_portfolio"))
+	b, _ := fakeLLM(t, text(`{"action":"hold","reasoning":"r"}`))
+	var calls atomic.Int32
+	g, _ := gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		if calls.Add(1) == 1 {
+			// userinfo and a query must never reach the trail
+			base := strings.Replace(a.URL, "http://", "http://user:pw-SECRET@", 1) + "/v1?key=q-SECRET"
+			return runtime.ProviderConfig{Configured: true, BaseURL: base, APIKey: fakeKey, Model: "first"}, nil
+		}
+		return runtime.ProviderConfig{Configured: true, BaseURL: b.URL, APIKey: fakeKey, Model: "second"}, nil
+	}, nil)
+	var steps []string
+	in := input(&fakeTools{out: map[string]string{"get_portfolio": "{}"}}, 0)
+	in.Emit = func(kind string, p any) {
+		if kind == "step" {
+			steps = append(steps, p.(map[string]any)["text"].(string))
+		}
+	}
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"round 1: model first at " + a.URL + "/v1/chat/completions",
+		"round 2: model second at " + b.URL + "/v1/chat/completions",
+	}
+	if strings.Join(steps, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("steps %q, want %q", steps, want)
+	}
+
+	// a failed round still emits its step, with a fallback word for what never resolved
+	g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) { return runtime.ProviderConfig{}, nil }, nil)
+	steps = nil
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
+		t.Fatal("an unconfigured gateway must fail the run")
+	}
+	if len(steps) != 1 || steps[0] != "round 1: model no model at no provider" {
+		t.Fatalf("steps %q", steps)
+	}
+
+	// a round that fails before config resolution names the agent's own model
+	steps = nil
+	in.Claim.Agent.Model = "agent-model"
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
+		t.Fatal("an unconfigured gateway must fail the run")
+	}
+	in.Claim.Agent.Model = ""
+	if len(steps) != 1 || steps[0] != "round 1: model agent-model at no provider" {
+		t.Fatalf("steps %q", steps)
+	}
+
+	// a round that fails after config resolution still names the resolved model and provider
+	g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) {
+		return runtime.ProviderConfig{Configured: true, BaseURL: a.URL + "/v1", APIKey: fakeKey, Model: "capped", CapReached: true}, nil
+	}, nil)
+	steps = nil
+	if _, err := (&runtime.LLM{GW: g}).Run(context.Background(), in); err == nil {
+		t.Fatal("a cap refusal must fail the run")
+	}
+	if len(steps) != 1 || steps[0] != "round 1: model capped at "+a.URL+"/v1/chat/completions" {
+		t.Fatalf("steps %q", steps)
+	}
+}

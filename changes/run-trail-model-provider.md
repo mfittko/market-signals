@@ -1,0 +1,1 @@
+- Platform: each model round in an agent's run trail names the model and the provider endpoint (without credentials or query) that the gateway resolved for that call, so a settings change between two rounds shows in the trail (#436)
