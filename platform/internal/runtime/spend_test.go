@@ -74,6 +74,39 @@ func TestGatewayEstimatesAReplyWithoutUsageOnTheFinalModel(t *testing.T) {
 	}
 }
 
+func TestGatewayEstimatesAReplyWithEmptyOrZeroUsage(t *testing.T) {
+	for _, usage := range []string{`{}`, `{"prompt_tokens":0,"completion_tokens":0}`} {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}],"usage":`+usage+`}`)
+		}))
+		g, _, rec := recorded(fixed(s.URL), nil)
+		if _, err := chat(g, context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		want := runtime.SpendCall{CallSite: "unknown", Provider: s.URL + "/v1/chat/completions", Model: "m", CompletionTokens: 700, Estimated: true}
+		if got := rec.all(); len(got) != 1 || got[0] != want {
+			t.Fatalf("usage %s: got %+v, want one %+v", usage, got, want)
+		}
+	}
+}
+
+// a call that never wrote its request is not billed, even when it times out
+func TestGatewayRecordsNoRowForATimeoutBeforeTheRequestWasWritten(t *testing.T) {
+	g, _, rec := recorded(fixed("http://provider.example.test"), nil)
+	g.Deadline = 50 * time.Millisecond
+	g.HTTP = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}
+	if _, err := chat(g, context.Background()); reason(t, err) != runtime.ReasonTimeout {
+		t.Fatalf("want timeout, got %v", err)
+	}
+	if n := len(rec.all()); n != 0 {
+		t.Fatalf("%d rows, want none", n)
+	}
+}
+
 func TestGatewayRecordsATimedOutCallAsEstimated(t *testing.T) {
 	block := blockingStub(t)
 	g, _, rec := recorded(fixed(block.URL), nil)

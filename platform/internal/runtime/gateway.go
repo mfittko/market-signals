@@ -391,7 +391,8 @@ func (g *Gateway) send(ctx context.Context, full, key, apiKey string, req map[st
 	if err := json.Unmarshal(raw, &body); err != nil || len(body.Choices) == 0 {
 		return nil, u, resp.StatusCode, false, false, errors.New("the provider returned no choices")
 	}
-	if body.Usage == nil {
+	// empty or all-zero usage tells nothing about the bill, so it is estimated like missing usage
+	if body.Usage == nil || (body.Usage.Prompt == 0 && body.Usage.Completion == 0) {
 		return body.Choices[0].Message, u, resp.StatusCode, false, false, nil
 	}
 	u.PromptTokens, u.CompletionTokens = body.Usage.Prompt, body.Usage.Completion
