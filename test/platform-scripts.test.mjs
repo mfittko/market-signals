@@ -1198,12 +1198,13 @@ test('switch-launchd writes the live console port into the web plist: 3737 by de
 });
 
 // Sources watchdog.sh with a scratch settings file, backupDir and state folder, a fixed clock, and stand-in curl and
-// osascript first on PATH. curl exits STUB_HEALTH for the health URL; osascript logs each notification to notify.log.
+// osascript first on PATH. curl prints STUB_BODY and exits STUB_HEALTH for the health URL; osascript logs each
+// notification to notify.log.
 const watchdogFixture = (dir) => {
   const bin = join(dir, 'bin'), backups = join(dir, 'backups');
   mkdirSync(bin); mkdirSync(backups);
   writeFileSync(join(dir, 'settings.json'), JSON.stringify({ backupDir: backups }));
-  writeFileSync(join(bin, 'curl'), '#!/bin/sh\nfor a; do case "$a" in */api/v1/health) exit "${STUB_HEALTH:-0}" ;; https://api.pushover.net/*) echo "$*" >"$DIR/push.args"; cat >"$DIR/push.body"; exit 0 ;; esac; done\necho "unexpected curl $*" >&2; exit 99\n', { mode: 0o755 });
+  writeFileSync(join(bin, 'curl'), '#!/bin/sh\nfor a; do case "$a" in */api/v1/health) echo "$STUB_BODY"; exit "${STUB_HEALTH:-0}" ;; https://api.pushover.net/*) echo "$*" >"$DIR/push.args"; cat >"$DIR/push.body"; exit 0 ;; esac; done\necho "unexpected curl $*" >&2; exit 99\n', { mode: 0o755 });
   writeFileSync(join(bin, 'osascript'), '#!/bin/sh\nfor a; do last="$a"; done\necho "$last" >>"$DIR/notify.log"\n', { mode: 0o755 });
   const marker = (ageHours) => {
     const d = join(backups, `20261120-0330${String(ageHours).padStart(2, '0')}`);
@@ -1212,8 +1213,8 @@ const watchdogFixture = (dir) => {
     const t = (Date.now() - ageHours * 3600e3) / 1000;
     utimesSync(join(d, '.ms-backup'), t, t);
   };
-  const run = (t, health = 0) => sh('source platform/scripts/watchdog.sh; SETTINGS="$DIR/settings.json"; STATE="$DIR/state"; now() { echo "$T"; }; run', {
-    DIR: dir, T: String(t), STUB_HEALTH: String(health), PATH: `${bin}:${process.env.PATH}`,
+  const run = (t, health = 0, body = '{"ok":true,"degraded":[]}') => sh('source platform/scripts/watchdog.sh; SETTINGS="$DIR/settings.json"; STATE="$DIR/state"; now() { echo "$T"; }; run', {
+    DIR: dir, T: String(t), STUB_HEALTH: String(health), STUB_BODY: body, PATH: `${bin}:${process.env.PATH}`,
   });
   const notes = () => (existsSync(join(dir, 'notify.log')) ? readFileSync(join(dir, 'notify.log'), 'utf8').trim().split('\n') : []);
   return { marker, run, notes };
@@ -1405,6 +1406,70 @@ test('watchdog sends the Pushover push with the token on stdin when Pushover is 
     assert.equal(body.get('user'), 'usr');
     assert.match(body.get('message'), /backup/i);
     assert.doesNotMatch(readFileSync(join(dir, 'push.args'), 'utf8'), /tok|usr/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+const degraded = (...names) => JSON.stringify({ ok: true, degraded: names.map((name) => ({ name, detail: `${name} detail` })) });
+
+test('watchdog sends one degraded notification per condition after 10 minutes, no repeat, and one recovery', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    for (const t of [1000, 1300]) assert.equal(run(t, 0, degraded('engine_unreachable')).status, 0);
+    assert.deepEqual(notes(), []);
+    // a second condition starts while the first holds
+    assert.equal(run(1600, 0, degraded('engine_unreachable', 'worker_missing')).status, 0);
+    assert.deepEqual(notes(), ['Pipeline degraded: engine_unreachable (engine_unreachable detail)']);
+    assert.equal(run(1900, 0, degraded('engine_unreachable', 'worker_missing')).status, 0);
+    assert.equal(notes().length, 1);
+    assert.equal(run(2200, 0, degraded('engine_unreachable', 'worker_missing')).status, 0);
+    assert.deepEqual(notes().slice(1), ['Pipeline degraded: worker_missing (worker_missing detail)']);
+    assert.equal(run(2500, 0, degraded('worker_missing')).status, 0);
+    assert.deepEqual(notes().slice(2), ['Pipeline recovered: engine_unreachable']);
+    for (const t of [2800, 3100]) assert.equal(run(t).status, 0);
+    assert.deepEqual(notes().slice(3), ['Pipeline recovered: worker_missing']);
+    assert.deepEqual(readdirSync(join(dir, 'state')).filter((f) => f.startsWith('cond-')), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog keeps the condition state while the API is down or answers 2xx without a degraded array', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    for (const t of [1000, 1300, 1600]) assert.equal(run(t, 0, degraded('engine_unreachable')).status, 0);
+    assert.equal(notes().length, 1);
+    const cond = join(dir, 'state', 'cond-engine_unreachable');
+    const before = readFileSync(cond, 'utf8');
+    for (const [health, body] of [[7, ''], [0, '{"ok":true}'], [0, '{"ok":true,"degraded":null}'], [0, '<html>old binary</html>']]) {
+      const r = run(1700, health, body);
+      assert.equal(r.status, 0, `${body}: ${r.stderr}`);
+      assert.equal(notes().length, 1, body);
+      assert.equal(readFileSync(cond, 'utf8'), before, body);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('watchdog ignores an invalid condition name and a leftover .tmp state file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ms-watchdog-'));
+  try {
+    const { marker, run, notes } = watchdogFixture(dir);
+    marker(1);
+    mkdirSync(join(dir, 'state'));
+    writeFileSync(join(dir, 'state', 'cond-engine_unreachable.tmp'), '1000 1\n');
+    for (const t of [1000, 1300, 1600, 1900]) {
+      const r = run(t, 0, degraded('../x', 'Bad', 'a'.repeat(41), ''));
+      assert.equal(r.status, 0, r.stderr);
+    }
+    assert.deepEqual(notes(), []);
+    assert.deepEqual(readdirSync(join(dir, 'state')).filter((f) => f.startsWith('cond-')), ['cond-engine_unreachable.tmp']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

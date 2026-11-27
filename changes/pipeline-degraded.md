@@ -1,0 +1,1 @@
+- Platform: the control-plane health lists the active pipeline problems in `degraded` (the engine is unreachable, or an enabled agent's runtime has no online worker), and the watchdog sends one notification per problem after 10 minutes and one when it clears (#344)
