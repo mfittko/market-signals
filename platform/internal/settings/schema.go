@@ -85,6 +85,8 @@ var schema = func() map[string]spec {
 		"impulseVolMult":            {check: number(1)},
 		"impulseVolWindow":          {check: integer(1, math.MaxInt32)},
 		"impulseCooldownBars":       {check: integer(0, math.MaxInt32)},
+		"llmDailyCapUsd":            {check: dailyCap},
+		"llmModelPrices":            {check: modelPrices},
 	}
 	for _, k := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NEWSAPI_AI_KEY", "GNEWS_KEY", "PUSHOVER_TOKEN", "PUSHOVER_USER", "sttOpenaiKey", "TYPESAFE_API_KEY"} {
 		s[k] = spec{check: text, secret: true}
@@ -337,6 +339,39 @@ func object(v any, fields map[string]func(any) error, prefix string) error {
 		}
 		if err := check(x); err != nil {
 			return fmt.Errorf("%s%s %w", prefix, k, err)
+		}
+	}
+	return nil
+}
+
+func dailyCap(v any) error {
+	if f, ok := v.(float64); !ok || math.IsNaN(f) || math.IsInf(f, 0) || f <= 0 || f > 1000 {
+		return errors.New("must be a number above 0 and at most 1000")
+	}
+	return nil
+}
+
+var priceFields = map[string]func(any) error{"inputPerMTok": number(0), "outputPerMTok": number(0)}
+
+// modelPrices maps a model name to its USD rates per 1M tokens. Each entry holds exactly the two rates.
+func modelPrices(v any) error {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return errors.New("must be an object keyed by model name")
+	}
+	if len(m) == 0 {
+		return errors.New("must not be empty")
+	}
+	for _, name := range sortedKeys(m) {
+		if strings.TrimSpace(name) == "" || len(name) > 200 {
+			return fmt.Errorf("key %q must be a non-blank model name of at most 200 characters", name)
+		}
+		if err := object(m[name], priceFields, ""); err != nil {
+			return fmt.Errorf("[%s] %w", name, err)
+		}
+		e := m[name].(map[string]any)
+		if e["inputPerMTok"] == nil || e["outputPerMTok"] == nil {
+			return fmt.Errorf("[%s] needs inputPerMTok and outputPerMTok", name)
 		}
 	}
 	return nil
