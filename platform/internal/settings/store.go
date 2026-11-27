@@ -190,8 +190,9 @@ type ImportReport struct {
 }
 
 // Import mirrors a legacy settings.json into the store, one way. A schema key absent from
-// the file is deleted; a refused key keeps its stored value and is reported. Job owner
-// flags are never touched. Rerunning it on an unchanged file adds no revision.
+// the file is deleted; a refused key keeps its stored value and is reported, except that a
+// refused OPENAI_BASE_URL removes OPENAI_API_KEY (see importPatch). Job owner flags are never
+// touched. Rerunning it on an unchanged file adds no revision.
 func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport, error) {
 	rep := ImportReport{Changed: []string{}, Skipped: []string{}, Notes: []string{}}
 	b, err := os.ReadFile(path)
