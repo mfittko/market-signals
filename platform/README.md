@@ -112,8 +112,10 @@ In the console:
 The LLM agent and strategy coaching read the endpoint, model and key from the settings store on every model
 call (see Settings store). The launcher passes the control plane the file `MS_SETTINGS` names, else the engine's
 `data/settings.json` in the launcher's own checkout, and the control plane imports it at start. A git worktree
-never falls back to the main checkout's file, so a worktree without its own `data/settings.json` has no model
-until its store holds a key. The console dev server never sees the key. Without a key the LLM agent's runs fail
+never falls back to the main checkout's file. All development checkouts share one settings store (the `ms_dev`
+database), and a control plane start without a settings file keeps the values the last import stored. A
+worktree without its own `data/settings.json` therefore uses the key that the last import of any checkout
+stored, often the main checkout's key. The console dev server never sees the key. Without a key the LLM agent's runs fail
 with `model gateway: not_configured`, and the mock agent runs through `scripts/smoke.sh` or the API.
 
 To open the console from another host name, list it in `MS_ALLOWED_ORIGINS` as comma-separated entries. The

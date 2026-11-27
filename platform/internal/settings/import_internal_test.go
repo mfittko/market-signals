@@ -31,3 +31,34 @@ func TestImportPatchSkipsTheKeyWhenTheBaseURLIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// The import trims OPENAI_BASE_URL like the resolution rule; any present value it still refuses keeps the key out.
+func TestImportPatchTrimsTheBaseURLAndGuardsTheKeyForEveryRefusedForm(t *testing.T) {
+	for _, c := range []struct {
+		base     any
+		wantBase any // nil: refused, so absent from the patch
+	}{
+		{"https://llm.example/v1", "https://llm.example/v1"},
+		{" https://llm.example/v1 ", "https://llm.example/v1"},
+		{"  ", ""},
+		{"", ""},
+		{"://bad", nil},
+		{"42", nil},
+		{float64(42), nil},
+	} {
+		patch, skipped := importPatch(map[string]any{"OPENAI_API_KEY": "sk-test-SECRET", "OPENAI_BASE_URL": c.base})
+		got, present := patch["OPENAI_BASE_URL"]
+		if c.wantBase == nil {
+			if present {
+				t.Fatalf("base %#v must be refused, got %#v", c.base, got)
+			}
+			if _, ok := patch["OPENAI_API_KEY"]; ok || !slices.Contains(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused") {
+				t.Fatalf("base %#v: a refused base URL keeps the key out: %v", c.base, skipped)
+			}
+			continue
+		}
+		if got != c.wantBase || patch["OPENAI_API_KEY"] != "sk-test-SECRET" {
+			t.Fatalf("base %#v: want base %#v and the key imported, got %#v / %v", c.base, c.wantBase, got, skipped)
+		}
+	}
+}

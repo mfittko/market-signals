@@ -163,6 +163,27 @@ func TestGatewayErrorsAndLogsCarryNoSecret(t *testing.T) {
 	}, &log)
 	_, err = complete(g, context.Background())
 	check("not_configured", err)
+	// a configured source with an unparsable base URL and a failed config read: not_configured, and the
+	// cause is logged without any config value
+	for _, c := range []struct {
+		name, cause string
+		cfg         runtime.ProviderConfig
+		err         error
+	}{
+		{"unparsable base URL", "invalid base URL", runtime.ProviderConfig{Configured: true, APIKey: fakeKey, BaseURL: "://bad?key=SECRET", Model: "m"}, nil},
+		{"failed config read", "settings store down", runtime.ProviderConfig{APIKey: fakeKey, BaseURL: "http://x?key=SECRET"}, errors.New("settings store down")},
+	} {
+		log.Reset()
+		g, _ = gateway(func(context.Context) (runtime.ProviderConfig, error) { return c.cfg, c.err }, &log)
+		_, err = complete(g, context.Background())
+		if reason(t, err) != runtime.ReasonNotConfigured {
+			t.Fatalf("%s: want not_configured, got %v", c.name, err)
+		}
+		check(c.name, err)
+		if l := log.String(); !strings.Contains(l, "model config unavailable") || !strings.Contains(l, c.cause) {
+			t.Fatalf("%s: the cause belongs in the log: %q", c.name, l)
+		}
+	}
 	// the transport error of an unreachable provider quotes the URL in net/http; the gateway drops it
 	g, _ = gateway(fixed("http://127.0.0.1:1/v1?key=SECRET"), &log)
 	_, err = complete(g, context.Background())
@@ -248,6 +269,21 @@ func TestGatewayHalfOpenProbe(t *testing.T) {
 		t.Fatalf("a failed probe reopens the breaker: %v", err)
 	}
 
+	// a probe whose answer does not count leaves the breaker open and the next call probes again
+	c.t = c.t.Add(60 * time.Second)
+	p.status.Store(400)
+	hits = p.hits.Load()
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider || p.hits.Load() != hits+1 {
+		t.Fatalf("the probe must reach the provider: %v", err)
+	}
+	p.status.Store(500)
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonProvider || p.hits.Load() != hits+2 {
+		t.Fatalf("a probe answered 400 must admit the next probe: %v", err)
+	}
+	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen || p.hits.Load() != hits+2 {
+		t.Fatalf("a 5xx probe after it reopens the breaker: %v", err)
+	}
+
 	c.t = c.t.Add(60 * time.Second)
 	p.status.Store(200)
 	for range 3 {
@@ -280,6 +316,9 @@ func TestGatewayHalfOpenAdmitsExactlyOneProbe(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": "ok"}}}})
 	}))
 	defer s.Close()
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock() // before s.Close, which waits for the blocked probe handler
 	g, c := gateway(fixed(s.URL), nil)
 	openBreaker(t, g)
 	c.t = c.t.Add(60 * time.Second)
@@ -287,13 +326,15 @@ func TestGatewayHalfOpenAdmitsExactlyOneProbe(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() { defer wg.Done(); complete(g, context.Background()) }()
-	for hits.Load() != 6 {
-		time.Sleep(time.Millisecond)
+	for deadline := time.Now().Add(5 * time.Second); hits.Load() != 6; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the probe never reached the provider: %d requests", hits.Load())
+		}
 	}
 	if _, err := complete(g, context.Background()); reason(t, err) != runtime.ReasonBreakerOpen {
 		t.Fatalf("a second call during the probe must fail fast: %v", err)
 	}
-	close(release)
+	unblock()
 	wg.Wait()
 	if hits.Load() != 6 {
 		t.Fatalf("only the probe may reach the provider: %d", hits.Load())

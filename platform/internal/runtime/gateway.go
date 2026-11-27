@@ -186,12 +186,18 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 	var u usage
 	callCtx, cancel := context.WithTimeout(ctx, g.Deadline)
 	defer cancel()
+	// Error() drops the cause, so a failed config read or a bad base URL is logged here or it would look like an
+	// empty config; the sources' errors and chatURL's fixed text carry no config value
 	cfg, err := g.Source(callCtx)
 	if err != nil || !cfg.Configured {
+		if err != nil {
+			g.Log.Warn("model config unavailable", "err", err)
+		}
 		return nil, u, &ModelError{Reason: ReasonNotConfigured, Err: err}
 	}
 	full, key, err := chatURL(cfg.BaseURL)
 	if err != nil {
+		g.Log.Warn("model config unavailable", "err", err)
 		return nil, u, &ModelError{Reason: ReasonNotConfigured, Err: err}
 	}
 	if m, _ := req["model"].(string); m == "" {

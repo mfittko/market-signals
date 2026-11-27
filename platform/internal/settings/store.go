@@ -220,16 +220,22 @@ func importPatch(file map[string]any) (map[string]any, []string) {
 			patch[k] = nil
 		}
 	}
+	baseRefused := false
 	for k, v := range file {
+		if s, ok := v.(string); ok && k == "OPENAI_BASE_URL" {
+			v = strings.TrimSpace(s) // the resolution rule trims it: a padded URL imports and a blank one clears
+		}
 		if err := Check(FromImport, k, v); err != nil {
 			skipped = append(skipped, err.Error())
 			delete(patch, k)
+			baseRefused = baseRefused || k == "OPENAI_BASE_URL"
 			continue
 		}
 		patch[k] = v
 	}
-	// Without its refused base URL the key would resolve to official OpenAI, so it keeps its stored value too.
-	if s, _ := file["OPENAI_BASE_URL"].(string); strings.TrimSpace(s) != "" && Check(FromImport, "OPENAI_BASE_URL", s) != nil {
+	// A refused base URL keeps its stored value, and the new key would go to that stale endpoint or to official
+	// OpenAI, so the key keeps its stored value too.
+	if baseRefused {
 		if v, ok := patch["OPENAI_API_KEY"]; ok && !Cleared("OPENAI_API_KEY", v) {
 			delete(patch, "OPENAI_API_KEY")
 			skipped = append(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused")
