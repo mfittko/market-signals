@@ -205,7 +205,16 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport,
 	if fi, err := os.Stat(path); err == nil && fi.Mode().Perm()&0o077 != 0 {
 		rep.Notes = append(rep.Notes, fmt.Sprintf("%s holds secrets and is readable by other users (mode %o); chmod 600 it", path, fi.Mode().Perm()))
 	}
-	patch := map[string]any{}
+	patch, skipped := importPatch(file)
+	rep.Skipped = append(rep.Skipped, skipped...)
+	snap, changed, err := Write(ctx, pool, FromImport, patch, nil)
+	rep.Revision, rep.Changed = snap.Revision, changed
+	return rep, err
+}
+
+// importPatch builds the import's write patch and the sorted list of refused keys.
+func importPatch(file map[string]any) (map[string]any, []string) {
+	patch, skipped := map[string]any{}, []string{}
 	for k, sp := range schema {
 		if !sp.goOnly {
 			patch[k] = nil
@@ -213,14 +222,19 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport,
 	}
 	for k, v := range file {
 		if err := Check(FromImport, k, v); err != nil {
-			rep.Skipped = append(rep.Skipped, err.Error())
+			skipped = append(skipped, err.Error())
 			delete(patch, k)
 			continue
 		}
 		patch[k] = v
 	}
-	sort.Strings(rep.Skipped)
-	snap, changed, err := Write(ctx, pool, FromImport, patch, nil)
-	rep.Revision, rep.Changed = snap.Revision, changed
-	return rep, err
+	// Without its refused base URL the key would resolve to official OpenAI, so it keeps its stored value too.
+	if s, _ := file["OPENAI_BASE_URL"].(string); strings.TrimSpace(s) != "" && Check(FromImport, "OPENAI_BASE_URL", s) != nil {
+		if v, ok := patch["OPENAI_API_KEY"]; ok && !Cleared("OPENAI_API_KEY", v) {
+			delete(patch, "OPENAI_API_KEY")
+			skipped = append(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused")
+		}
+	}
+	sort.Strings(skipped)
+	return patch, skipped
 }
