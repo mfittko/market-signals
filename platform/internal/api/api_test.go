@@ -1500,11 +1500,15 @@ func TestHealthReportsTheNewestMarkedBackup(t *testing.T) {
 
 func TestHealthReportsTheBuild(t *testing.T) {
 	st := queue.New(testutil.Pool(t))
-	hs := httptest.NewServer(New(Config{}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	// port 1 refuses the engine probe, so the health answer is degraded and must still be 200 and ok
+	hs := httptest.NewServer(New(Config{EngineURL: "http://127.0.0.1:1"}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	defer hs.Close()
 	code, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil)
-	if code != 200 {
-		t.Fatalf("health: %d", code)
+	if code != 200 || out["ok"] != true {
+		t.Fatalf("health: %d %v", code, out["ok"])
+	}
+	if d, _ := out["degraded"].([]any); len(d) == 0 || d[0].(map[string]any)["name"] != "engine_unreachable" {
+		t.Fatalf("degraded: %v", out["degraded"])
 	}
 	// a test binary carries no VCS stamp
 	b := out["build"].(map[string]any)

@@ -7,6 +7,10 @@
 #   health: fails when http://127.0.0.1:8080/api/v1/health does not answer 2xx; it notifies once the failure
 #           has lasted 10 minutes in a row (a passing run resets the clock, and so does a gap of more than
 #           15 minutes since the last run, such as a Mac sleep or a stopped job, because no run saw that time)
+#   pipeline: when the health check answers 2xx, each condition in its "degraded" list is its own check, state file
+#           cond-<name>, with the same 10-minute rule; it notifies "Pipeline degraded: <name> (<detail>)", and
+#           "Pipeline recovered: <name>" once the condition is gone. A health answer without a usable "degraded"
+#           list, or no answer, leaves every cond-* state unchanged.
 #
 # Each failure notifies once, and the first passing run after that notification notifies the recovery once.
 # The notification is a desktop notification, plus a Pushover push when PUSHOVER_ENABLED, PUSHOVER_TOKEN and
@@ -48,8 +52,6 @@ backup_ok() {
   return 1
 }
 
-health_ok() { curl -fsS -m 5 "$HEALTH_URL" >/dev/null 2>&1; }
-
 # The state file holds "<failing since, epoch seconds> <alert sent, 0 or 1>"; a passing run removes it.
 # A missing, empty or malformed state file counts as a failure that starts now. Every failing run rewrites the
 # file, so a file older than 15 minutes means runs were missed: the failure restarts now and keeps its alert flag.
@@ -72,13 +74,34 @@ track() { # name failed(0|1) grace-seconds failure-message recovery-message
   command mv -f "$f.tmp" "$f"
 }
 
+# A condition name becomes a state file name, so only [a-z_]{1,40} is accepted. The launchd job runs /bin/bash 3.2:
+# no mapfile and no associative arrays, so the active set is a newline string.
+pipeline() { # health-body
+  local lines name detail f active=""
+  # an empty list is a valid answer that clears every condition; anything that is not an array changes nothing
+  lines="$(jq -r '.degraded | if type == "array" then .[] | "\(.name // "")\u001f\(.detail)" else error("no degraded array") end' <<<"$1" 2>/dev/null)" || return 0
+  # fd 3, so notify's osascript and curl cannot read the remaining lines from stdin; the unit separator is not IFS
+  # whitespace, so an empty name stays an empty field
+  while IFS=$'\037' read -r name detail <&3; do
+    [[ "$name" =~ ^[a-z_]{1,40}$ ]] || continue
+    active="$active$name"$'\n'
+    track "cond-$name" 1 "$HEALTH_GRACE_S" "Pipeline degraded: $name ($detail)" "Pipeline recovered: $name"
+  done 3<<<"$lines"
+  for f in "$STATE"/cond-*; do
+    name="${f##*/cond-}"
+    [[ "$name" =~ ^[a-z_]{1,40}$ ]] || continue # skips *.tmp files and the unmatched glob
+    if ! grep -qxF -- "$name" <<<"$active"; then track "cond-$name" 0 0 "" "Pipeline recovered: $name"; fi
+  done
+}
+
 run() {
-  local b=0 h=0
+  local b=0 h=0 body
   mkdir -p "$STATE"
   backup_ok || b=1
-  health_ok || h=1
+  body="$(curl -fsS -m 5 "$HEALTH_URL" 2>/dev/null)" || h=1
   track backup "$b" 0 "No backup newer than 26 hours in backupDir, or backupDir is unset or missing." "Backups are current again."
   track health "$h" "$HEALTH_GRACE_S" "The platform API health check has failed for 10 minutes." "The platform API health check passes again."
+  if [ "$h" = 0 ]; then pipeline "$body"; fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then run; fi

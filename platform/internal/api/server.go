@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -309,16 +310,58 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		s.fail500(w, err)
 		return
 	}
+	agents, err := s.st.ListAgents(ctx)
+	if err != nil {
+		s.fail500(w, err)
+		return
+	}
+	reachable := false
 	engine := map[string]any{"configured": s.cfg.EngineURL != "", "reachable": false}
 	if s.cfg.EngineURL != "" {
 		var h map[string]any
 		if err := s.eng.Get(ctx, "/api/health", nil, &h); err == nil {
+			reachable = true
 			engine["reachable"] = true
 		} else {
 			engine["error"] = err.Error()
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld})
+	degraded := degradedConditions(s.cfg.EngineURL != "", reachable, stats.Workers, agents)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld, "degraded": degraded})
+}
+
+// degradedCondition is one active pipeline problem. The watchdog pushes detail to the owner's phone, so it holds
+// fixed text and runtime names only, never a raw error.
+type degradedCondition struct {
+	Name   string `json:"name"`
+	Detail string `json:"detail"`
+}
+
+// degradedConditions lists the active pipeline problems, at most one entry per name. It reads no clock and no database.
+func degradedConditions(engineConfigured, engineReachable bool, workers []queue.WorkerInfo, agents []queue.Agent) []degradedCondition {
+	out := []degradedCondition{}
+	if engineConfigured && !engineReachable {
+		out = append(out, degradedCondition{"engine_unreachable", "the control plane cannot reach the engine"})
+	}
+	offered := map[string]bool{}
+	for _, w := range workers {
+		if w.Online {
+			for _, rt := range w.Runtimes {
+				offered[rt] = true
+			}
+		}
+	}
+	var missing []string
+	for _, a := range agents {
+		if a.Enabled && !offered[a.Runtime] && !slices.Contains(missing, a.Runtime) {
+			missing = append(missing, a.Runtime)
+		}
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		out = append(out, degradedCondition{"worker_missing", "no online worker offers runtime " + strings.Join(missing, ", ")})
+	}
+	return out
 }
 
 // backupStamp is the folder name backup.sh writes, in local time.
