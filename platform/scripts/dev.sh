@@ -14,10 +14,10 @@
 # Environment: MS_ENGINE_URL (default: the engine on 127.0.0.1:8787 when reachable). The control plane reads it with
 #              GETs, but a chart GET can make the engine fetch upstream candles and upsert them into its SQLite;
 #              the console proxy also forwards POST /settings, POST /chat and DELETE /threads.
-#              MS_SETTINGS (engine settings.json; supplies the LLM endpoint, model and key to the worker and to the
-#              control plane for strategy coaching; the console starts without them). Without MS_SETTINGS the
-#              launcher reads only this checkout's own data/settings.json. A worktree never reads the main
-#              checkout's file.
+#              MS_SETTINGS (engine settings.json; the control plane imports it into the settings store at start,
+#              and every model call reads its provider from the store; the worker reads it from the control plane).
+#              Without MS_SETTINGS the launcher passes only this checkout's own data/settings.json. A worktree never
+#              reads the main checkout's file.
 # Secrets: each stack's env file (.dev/env live, .dev/dev/env development; mode 600, gitignored) holds its own worker
 #          and ingest tokens, generated once, and its stack's database password. It also holds MS_DATABASE_URL for the
 #          binaries and MS_TEST_DATABASE_URL for go test. Every development checkout uses the one ms_dev password in
@@ -203,39 +203,6 @@ settings_file() {
   return 0
 }
 
-llm_env() {
-  # the model settings feed the worker (agent runs) and the control plane (strategy coaching)
-  local s flavor=""; s="$(settings_file)"
-  # The engine's rule (resolveProvider, openaiEndpoint and effectiveModel in scripts/supertrend.mjs):
-  # a non-blank OPENAI_BASE_URL means the openai-compatible flavor and its base URL; a blank one means
-  # official OpenAI at its fixed URL. An explicit openai-compatible provider without a base URL is a
-  # misconfiguration, so the key goes nowhere. The model comes from models[flavor], then the flat model
-  # when the flavor is the active provider, then the engine default for official OpenAI.
-  if [ -n "$s" ] && [ -n "$(jq -r '.OPENAI_API_KEY // empty' "$s")" ]; then
-    flavor="$(jq -r '(.OPENAI_BASE_URL // "" | gsub("^\\s+|\\s+$"; "")) as $b
-      | if $b != "" then "openai-compatible" elif .provider == "openai-compatible" then "" else "openai" end' "$s")"
-  fi
-  if [ -n "$flavor" ]; then
-    export MS_LLM_BASE_URL MS_LLM_API_KEY MS_LLM_MODEL
-    if [ "$flavor" = openai ]; then
-      MS_LLM_BASE_URL="https://api.openai.com/v1"
-    else
-      MS_LLM_BASE_URL="$(jq -r '.OPENAI_BASE_URL | gsub("^\\s+|\\s+$"; "")' "$s")"
-    fi
-    MS_LLM_API_KEY="$(jq -r '.OPENAI_API_KEY' "$s")"
-    MS_LLM_MODEL="$(jq -r --arg f "$flavor" '(.provider // "") as $p
-      | (if ($p | IN("pi","claude-code","none","anthropic","openai","openai-compatible"))
-           then (if $p == "openai" then $f else $p end)
-         elif .ANTHROPIC_API_KEY then "anthropic" else $f end) as $active
-      | (.models // {})[$f] // (if $active == $f then .model else null end)
-        // (if $f == "openai" then "gpt-5.4-mini" else null end) // empty' "$s")"
-    [ -n "$MS_LLM_MODEL" ] || log WARN "no model in $s; the llm agent fails until MS_LLM_MODEL is set"
-    log INFO "LLM runtime: enabled (endpoint and key read from $s)"
-  else
-    log INFO "LLM runtime: disabled (set MS_SETTINGS or MS_LLM_BASE_URL / MS_LLM_API_KEY / MS_LLM_MODEL). The mock agent still works; strategy coaching is off."
-  fi
-}
-
 db_up() {
   need docker; need jq; need openssl
   load_env
@@ -288,16 +255,16 @@ dev_db() {
 # run <api|worker|web>: one service in the foreground, for a supervisor such as launchd.
 # The engine URL is not probed here: the engine may start after this service, and the control plane retries.
 run() {
-  load_env; llm_env
+  load_env
   case "${1:-}" in
     api) cd "$ROOT"
-      MS_ALLOWED_ORIGINS="$(api_origins)" \
+      # the api imports the settings file into the store at start; the model calls read the store
+      MS_SETTINGS="$(settings_file)" MS_ALLOWED_ORIGINS="$(api_origins)" \
         MS_ENGINE_URL="${MS_ENGINE_URL:-http://127.0.0.1:8787}" exec "$RUN/bin/api" ;;
     worker) cd "$ROOT"; exec "$RUN/bin/worker" ;;
     web) cd "$ROOT/web"
-      # same rule as `up`: the console inherits no model key, database password or service token
-      exec env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
-        -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN \
+      # same rule as `up`: the console inherits no database password or service token
+      exec env -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN \
         pnpm exec next start -p "${MS_CONSOLE_PORT:-3737}" -H 127.0.0.1 ;;
     *) die "usage: $0 run api|worker|web" ;;
   esac
@@ -316,7 +283,7 @@ up() {
   mkdir "$RUN/up.lock" 2>/dev/null \
     || die "another scripts/dev.sh up runs in this checkout; if none runs, a killed run left $RUN/up.lock: remove it and run again"
   trap 'rmdir "$RUN/up.lock" 2>/dev/null || true' EXIT
-  need docker; need go; need pnpm; need jq; need openssl
+  need docker; need go; need pnpm; need openssl
   # the checkouts share the ports, so an answer there with this checkout's service down comes from another
   # checkout's stack; wait_http would take that answer as this stack being ready
   if ! alive api && curl -fsS -m 2 "$MS_API_URL/api/v1/health" >/dev/null 2>&1; then port_taken 8081; fi
@@ -327,13 +294,11 @@ up() {
   go build -o "$RUN/bin/" ./cmd/api ./cmd/worker
   local engine; engine="$(engine_url)"
 
-  llm_env
-
   # two concurrent ups both pass the preflight, so the other checkout's api can answer on 8081 while this api still
   # starts; the api logs "control plane listening" only after its listen succeeded. An api that was already up needs
   # no proof: alive() already showed it is this checkout's.
   if ! alive api; then
-    MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
+    MS_SETTINGS="$(settings_file)" MS_ENGINE_URL="$engine" start api "$ROOT" "$RUN/bin/api"
     wait_listening api "control plane" "control plane listening" 8081 "$MS_API_URL/api/v1/health" 20
   fi
   wait_http "$MS_API_URL/api/v1/health" "control plane" 20
@@ -344,9 +309,8 @@ up() {
 
   if ! alive web; then
     [ -d web/node_modules ] || (cd web && pnpm install --silent)
-    # the console never calls a model or the database and holds no service token, so it inherits no LLM key, database password, worker token or ingest token
-    start web "$ROOT/web" env -u MS_LLM_API_KEY -u MS_LLM_BASE_URL -u MS_LLM_MODEL \
-      -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
+    # the console never calls the database and holds no service token, so it inherits no database password, worker token or ingest token
+    start web "$ROOT/web" env -u MS_DB_PASSWORD -u MS_DEV_DB_PASSWORD -u MS_DATABASE_URL -u MS_TEST_DATABASE_URL -u MS_WORKER_TOKEN -u MS_INGEST_TOKEN pnpm dev
     # next dev logs "Ready in" only once its server listens, and exits on a bound port, so the same proof applies
     wait_listening web "console" "Ready in" 3000 http://127.0.0.1:3000/api/v1/health 90
   fi
