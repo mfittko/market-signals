@@ -122,8 +122,8 @@ func IsSpendUnrecorded(err error) bool { return hasReason(err, ReasonSpendUnreco
 
 // Gateway makes every model call: it reads the provider config per call, bounds the call with a deadline and
 // keeps one circuit breaker per provider endpoint in memory. Record writes the spend of each call that got an
-// HTTP 200 answer or timed out after its request was sent; a non-200 answer writes no row. A nil Record refuses
-// every call.
+// HTTP 200 answer, or that timed out or was cancelled by its caller after its request was sent; a non-200 answer
+// writes no row. A nil Record refuses every call.
 type Gateway struct {
 	Source   ConfigSource
 	Record   func(ctx context.Context, c SpendCall) error
