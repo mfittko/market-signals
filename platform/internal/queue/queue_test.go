@@ -384,6 +384,9 @@ func TestLostClaimResponseNeverLowersTheToolCount(t *testing.T) {
 	useTools(t, s, ctx, c, 2)
 	lost := retry(t, s, ctx, c) // the worker never receives this claim
 	c = retry(t, s, ctx, lost)
+	if _, err := s.AuthorizeTool(ctx, lost.Attempt.ID, lost.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrStale) {
+		t.Fatalf("a reaped lost claim must be refused as stale, got %v", err)
+	}
 	useTools(t, s, ctx, c, 1)
 	if _, err := s.AuthorizeTool(ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrBudget) {
 		t.Fatalf("a lost claim must not refill the budget, got %v", err)
