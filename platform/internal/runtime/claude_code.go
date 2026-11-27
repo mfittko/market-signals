@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -71,9 +70,7 @@ type ClaudeCode struct {
 	Now      func() time.Time
 	Log      *slog.Logger
 
-	mu        sync.Mutex
-	fails     int
-	openUntil time.Time
+	br breaker
 }
 
 func NewClaudeCode(bin string, record func(context.Context, SpendCall) error, log *slog.Logger) *ClaudeCode {
@@ -119,25 +116,14 @@ func capture(n int) (*os.File, func(until time.Time) []byte, error) {
 func (c *ClaudeCode) Chat(ctx context.Context, req map[string]any) (map[string]any, usage, error) {
 	model, _ := req["model"].(string)
 	u := usage{Model: model, Provider: ClaudeCodeProvider}
-	// shortcut: no single-probe half-open; up to worker concurrency calls retry after the window, add a probe if concurrency grows.
-	c.mu.Lock()
-	open := c.fails >= breakerFailures && c.Now().Before(c.openUntil)
-	c.mu.Unlock()
-	if open {
+	a, ok := c.br.admit(c.Now())
+	if !ok {
 		return nil, u, &ModelError{Provider: ClaudeCodeProvider, Reason: ReasonBreakerOpen}
 	}
 	system, prompt := splitMessages(req)
 	msg, err := c.run(ctx, system, model, prompt, &u)
 	// a caller cancel says nothing about the binary, so it does not move the breaker
-	if err == nil || !errors.Is(ctx.Err(), context.Canceled) {
-		c.mu.Lock()
-		if err == nil {
-			c.fails = 0
-		} else if c.fails++; c.fails >= breakerFailures {
-			c.openUntil = c.Now().Add(breakerOpen)
-		}
-		c.mu.Unlock()
-	}
+	c.br.record(a, err == nil, !errors.Is(ctx.Err(), context.Canceled), c.Now())
 	return msg, u, err
 }
 

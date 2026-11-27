@@ -145,8 +145,9 @@ func NewGateway(src ConfigSource, log *slog.Logger) *Gateway {
 
 // breaker opens after breakerFailures consecutive counted failures and fails calls at once for breakerOpen.
 // It then admits exactly one probe; the probe's result closes or reopens it. gen changes each time the breaker
-// opens, so a call admitted before that cannot move it.
+// opens, so a call admitted before that cannot move it. The zero value is a closed breaker.
 type breaker struct {
+	mu        sync.Mutex
 	fails     int
 	openUntil time.Time
 	probing   bool
@@ -159,7 +160,8 @@ type admission struct {
 	gen   int
 }
 
-func (g *Gateway) admit(key string, now time.Time) (admission, bool) {
+// breakerFor returns the breaker of one provider endpoint, creating it on first use.
+func (g *Gateway) breakerFor(key string) *breaker {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	b := g.breakers[key]
@@ -167,6 +169,12 @@ func (g *Gateway) admit(key string, now time.Time) (admission, bool) {
 		b = &breaker{}
 		g.breakers[key] = b
 	}
+	return b
+}
+
+func (b *breaker) admit(now time.Time) (admission, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.fails < breakerFailures {
 		return admission{gen: b.gen}, true
 	}
@@ -179,10 +187,9 @@ func (g *Gateway) admit(key string, now time.Time) (admission, bool) {
 
 // record notes one call result. Only counted failures and successes move the breaker; a probe whose result
 // does not count lets the next call probe again. A result from an earlier generation is ignored.
-func (g *Gateway) record(key string, a admission, ok, counted bool, now time.Time) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	b := g.breakers[key]
+func (b *breaker) record(a admission, ok, counted bool, now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if a.probe {
 		b.probing = false
 	} else if a.gen != b.gen {
@@ -190,7 +197,7 @@ func (g *Gateway) record(key string, a admission, ok, counted bool, now time.Tim
 	}
 	switch {
 	case ok && a.probe:
-		*b = breaker{gen: b.gen}
+		b.fails, b.openUntil = 0, time.Time{}
 	case ok:
 		b.fails = 0
 	case counted:
@@ -291,7 +298,8 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (msg map[string]
 	if g.Record == nil {
 		return nil, u, &ModelError{Provider: key, Reason: ReasonSpendUnrecorded, Err: errors.New("no spend recorder")}
 	}
-	a, ok := g.admit(key, g.Now())
+	b := g.breakerFor(key)
+	a, ok := b.admit(g.Now())
 	if !ok {
 		return nil, u, &ModelError{Provider: key, Reason: ReasonBreakerOpen}
 	}
@@ -303,7 +311,7 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (msg map[string]
 	}})
 	msg, u, status, counted, hasUsage, err := g.send(traced, full, key, cfg.APIKey, req)
 	// a caller deadline expiry counts like the gateway's own; only the caller's cancellation does not
-	g.record(key, a, err == nil, counted && !errors.Is(ctx.Err(), context.Canceled), g.Now())
+	b.record(a, err == nil, counted && !errors.Is(ctx.Err(), context.Canceled), g.Now())
 	timedOut := err != nil && errors.Is(callCtx.Err(), context.DeadlineExceeded)
 	// a sent call whose context ended by deadline or by the caller's cancellation is a generation the
 	// provider may still bill

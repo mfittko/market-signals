@@ -268,8 +268,8 @@ stays the live source until the Go store owns settings writes
   `not_configured` (fail closed).
 - Claude Code runtime: the `claude-code` runtime runs the local `claude` CLI with the operator's own login and
   does not use the gateway. A worker registers it only when the `claude` binary resolves. It has its own
-  breaker: 5 consecutive failures (caller cancellation does not count) fail calls at once for 60 s, with no
-  single probe after the window. Each started call writes one `model_spend` row with provider `claude-code`,
+  breaker of the gateway's kind: 5 consecutive failures (caller cancellation does not count) fail calls at once
+  for 60 s, then one probe runs and its result closes or reopens it. Each started call writes one `model_spend` row with provider `claude-code`,
   cost 0 and `priced_as` `claude-code`, so the daily cap ignores these rows and never refuses the runtime. A
   reply without CLI usage is recorded as estimated with 0 tokens. A binary that never starts writes no row. A
   row that cannot be written is logged and the reply is kept.

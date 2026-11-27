@@ -172,10 +172,10 @@ func TestClaudeCodeCallerCancelKillsTheGroupWithin2s(t *testing.T) {
 	}
 	assertGone(t, dir)
 	// a caller cancel does not count toward the breaker
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.fails != 0 {
-		t.Fatalf("fails %d", c.fails)
+	c.br.mu.Lock()
+	defer c.br.mu.Unlock()
+	if c.br.fails != 0 {
+		t.Fatalf("fails %d", c.br.fails)
 	}
 }
 
@@ -216,9 +216,9 @@ func TestClaudeCodeBreakerOpensAfter5FailuresWithoutStartingTheBinary(t *testing
 	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonTimeout) {
 		t.Fatalf("got %v, want a timeout", err)
 	}
-	c.mu.Lock()
-	fails := c.fails
-	c.mu.Unlock()
+	c.br.mu.Lock()
+	fails := c.br.fails
+	c.br.mu.Unlock()
 	if fails != 1 {
 		t.Fatalf("a deadline must count: fails %d", fails)
 	}
@@ -246,6 +246,39 @@ func TestClaudeCodeBreakerOpensAfter5FailuresWithoutStartingTheBinary(t *testing
 	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonBreakerOpen) {
 		t.Fatalf("got %v, want breaker_open", err)
 	}
+}
+
+func TestClaudeCodeBreakerAdmitsOneProbeAfterTheWindow(t *testing.T) {
+	// the stub fails at once, or hangs while the hang file exists
+	bin, dir := stubClaude(t, "if [ -f '%D/hang' ]; then "+hang+"; fi\nexit 1")
+	now := time.Now()
+	c := NewClaudeCode(bin, (&spendLog{}).record, nil)
+	c.Now = func() time.Time { return now }
+	for i := 0; i < breakerFailures; i++ {
+		if err := chatOnce(c, context.Background()); !hasReason(err, ReasonProvider) {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	now = now.Add(breakerOpen + time.Second)
+	if err := os.WriteFile(filepath.Join(dir, "hang"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- chatOnce(c, ctx) }()
+	waitFile(t, filepath.Join(dir, "child"))
+	// the probe runs, so a concurrent call is refused without starting the binary
+	if err := chatOnce(c, context.Background()); !hasReason(err, ReasonBreakerOpen) {
+		t.Fatalf("got %v, want breaker_open", err)
+	}
+	if n := starts(dir); n != breakerFailures+1 {
+		t.Fatalf("the binary started %d times", n)
+	}
+	cancel()
+	if err := <-done; err == nil {
+		t.Fatal("a cancelled probe must return an error")
+	}
+	assertGone(t, dir)
 }
 
 const answer = `printf '%s\n' "$@" > '%D/args'
@@ -336,10 +369,10 @@ func TestClaudeCodeIsErrorReplyCountsAsAFailure(t *testing.T) {
 	if len(rec.calls) != 1 || rec.calls[0] != want {
 		t.Fatalf("got %+v, want one %+v", rec.calls, want)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.fails != 1 {
-		t.Fatalf("fails %d", c.fails)
+	c.br.mu.Lock()
+	defer c.br.mu.Unlock()
+	if c.br.fails != 1 {
+		t.Fatalf("fails %d", c.br.fails)
 	}
 }
 
