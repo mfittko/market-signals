@@ -3,7 +3,9 @@ package api
 import (
 	"errors"
 	"math"
+	"net"
 	"net/http"
+	"net/netip"
 
 	"github.com/mfittko/market-signals/platform/internal/settings"
 )
@@ -20,6 +22,23 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"revision": snap.Revision, "settings": settings.Masked(snap.Values)})
+}
+
+// llmConfig gives the worker its model provider, key included, for one model call. It answers only a
+// loopback peer, so the key never leaves the host, and returns the four provider fields and nothing else.
+func (s *Server) llmConfig(w http.ResponseWriter, r *http.Request) {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if ip, perr := netip.ParseAddr(host); err != nil || perr != nil || !ip.IsLoopback() {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	base, key, model, ok, err := settings.LLM(r.Context(), s.st.Pool)
+	if err != nil {
+		s.fail500(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"configured": ok, "baseUrl": base, "apiKey": key, "model": model})
 }
 
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {

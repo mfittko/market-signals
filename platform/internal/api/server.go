@@ -207,6 +207,7 @@ func (s *Server) routes() {
 	m.Handle("POST /api/v1/events/{key}/legacy", s.bearer(s.cfg.IngestToken, s.legacy))
 	// worker runtime protocol
 	m.Handle("GET /api/v1/runtime/tools", s.bearer(s.cfg.WorkerToken, s.toolDefs))
+	m.Handle("GET /api/v1/runtime/llm-config", s.bearer(s.cfg.WorkerToken, s.llmConfig))
 	m.Handle("POST /api/v1/runtime/claim", s.bearer(s.cfg.WorkerToken, s.claim))
 	m.Handle("POST /api/v1/runtime/heartbeat", s.bearer(s.cfg.WorkerToken, s.heartbeat))
 	m.Handle("POST /api/v1/runtime/events", s.bearer(s.cfg.WorkerToken, s.workerEvent))
