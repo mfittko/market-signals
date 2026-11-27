@@ -96,8 +96,10 @@ func (s *Server) recordSpend(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &c, 4<<10) {
 		return
 	}
-	if strings.TrimSpace(c.CallSite) == "" || strings.TrimSpace(c.Model) == "" || c.PromptTokens < 0 || c.CompletionTokens < 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "callSite and model are required and token counts must be >= 0"})
+	// a padded value would be stored as a call site or model of its own
+	bad := func(v string) bool { return v == "" || strings.TrimSpace(v) != v }
+	if bad(c.CallSite) || bad(c.Model) || c.PromptTokens < 0 || c.CompletionTokens < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "callSite and model are required without surrounding spaces and token counts must be >= 0"})
 		return
 	}
 	if err := RecordSpend(s.st.Pool)(r.Context(), c); err != nil {

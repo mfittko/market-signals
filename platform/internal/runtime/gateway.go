@@ -32,8 +32,8 @@ type ProviderConfig struct {
 type ConfigSource func(ctx context.Context) (ProviderConfig, error)
 
 // SpendCall is one model call that reached the provider. It is also the body of POST /api/v1/runtime/spend,
-// which carries no cost: the control plane prices the call. A call without usage, or one that timed out, has
-// zero prompt tokens and the request's max_tokens as completion tokens, and is estimated.
+// which carries no cost: the control plane prices the call. A call without usage, with empty or all-zero usage,
+// or one that timed out, has zero prompt tokens and the request's max_tokens as completion tokens, and is estimated.
 type SpendCall struct {
 	CallSite         string `json:"callSite"`
 	Provider         string `json:"provider"`
@@ -325,7 +325,8 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 }
 
 // spend records one call that reached the provider on a context the caller cannot cancel, so a caller that
-// went away after the answer still gets its row. Without usage the call is estimated from max_tokens.
+// went away after the answer still gets its row. Without usage, or with empty or all-zero usage, the call is
+// estimated from max_tokens.
 func (g *Gateway) spend(ctx context.Context, key string, req map[string]any, u usage, hasUsage bool) error {
 	site, runID := CallFrom(ctx)
 	model, _ := req["model"].(string)

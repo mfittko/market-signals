@@ -144,8 +144,15 @@ func TestSpendRouteRefusesAnInvalidBody(t *testing.T) {
 	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, nil, slog.New(slog.DiscardHandler))
 	for _, body := range []string{
 		`not json`,
+		`{"callSite":"","model":"glm-5"}`,
 		`{"callSite":" ","model":"m"}`,
+		`{"callSite":"  ","model":"glm-5"}`,
+		`{"callSite":" agent","model":"glm-5"}`,
+		`{"callSite":"agent ","model":"glm-5"}`,
 		`{"callSite":"agent","model":""}`,
+		`{"callSite":"agent","model":"  "}`,
+		`{"callSite":"agent","model":" glm-5"}`,
+		`{"callSite":"agent","model":"glm-5 "}`,
 		`{"callSite":"agent","model":"m","promptTokens":-1}`,
 		`{"callSite":"agent","model":"m","completionTokens":-1}`,
 	} {
@@ -232,7 +239,7 @@ func TestNewsCallSites(t *testing.T) {
 	}
 }
 
-func TestLLMConfigReturnsOnlyTheProviderFields(t *testing.T) {
+func TestLLMConfigReturnsTheProviderFieldsAndCapState(t *testing.T) {
 	pool := testutil.Pool(t)
 	var log bytes.Buffer
 	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, queue.New(pool), slog.New(slog.NewTextHandler(&log, nil)))

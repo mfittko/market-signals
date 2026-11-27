@@ -1,6 +1,7 @@
 -- Model spend ledger: one row per Go model call that reached the provider. platform/internal/spend is its only
 -- writer. Money is double precision, as in 008_ledger.sql. priced_as is the price table entry used, or *max*
--- for a model without an entry. A call without usage, or one that timed out, is estimated from max_tokens.
+-- for a model without an entry. A call without usage, with empty or all-zero usage, or one that timed out, is
+-- estimated from max_tokens.
 CREATE TABLE model_spend (
   id                bigserial PRIMARY KEY,
   at                timestamptz NOT NULL DEFAULT now(),

@@ -21,6 +21,7 @@ import (
 
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/runtime"
+	"github.com/mfittko/market-signals/platform/internal/spend"
 	"github.com/mfittko/market-signals/platform/internal/testutil"
 )
 
@@ -1524,6 +1525,27 @@ func TestHealthReportsTheBuild(t *testing.T) {
 	}
 	if d, _ := out["degraded"].([]any); len(d) == 0 || d[0].(map[string]any)["name"] != "engine_unreachable" {
 		t.Fatalf("degraded: %v", out["degraded"])
+	}
+	capReached := func(out map[string]any) bool {
+		d, _ := out["degraded"].([]any)
+		for _, c := range d {
+			if c.(map[string]any)["name"] == "model_cap_reached" {
+				return true
+			}
+		}
+		return false
+	}
+	if capReached(out) {
+		t.Fatalf("no spend yet: %v", out["degraded"])
+	}
+	// 1M output tokens of gpt-5.4-mini cost $4.50; a second call passes the $5 default cap
+	for range 2 {
+		if err := spend.Record(context.Background(), st.Pool, spend.Call{CallSite: "agent", Model: "gpt-5.4-mini", CompletionTokens: 1_000_000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil); !capReached(out) {
+		t.Fatalf("at the cap: %v", out["degraded"])
 	}
 	// a test binary carries no VCS stamp
 	b := out["build"].(map[string]any)

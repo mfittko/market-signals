@@ -91,6 +91,24 @@ func TestGatewayEstimatesAReplyWithEmptyOrZeroUsage(t *testing.T) {
 	}
 }
 
+// the provider bills a 200 answer even when its body does not parse
+func TestGatewayEstimatesAnUnparseableAnswer(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "not json")
+	}))
+	defer s.Close()
+	g, _, rec := recorded(fixed(s.URL), nil)
+	_, err := chat(g, context.Background())
+	var me *runtime.ModelError
+	if reason(t, err) != runtime.ReasonProvider || !errors.As(err, &me) || me.Status != 0 {
+		t.Fatalf("want provider with status 0, got %v", err)
+	}
+	want := runtime.SpendCall{CallSite: "unknown", Provider: s.URL + "/v1/chat/completions", Model: "m", CompletionTokens: 700, Estimated: true}
+	if got := rec.all(); len(got) != 1 || got[0] != want {
+		t.Fatalf("got %+v, want one %+v", got, want)
+	}
+}
+
 // a call that never wrote its request is not billed, even when it times out
 func TestGatewayRecordsNoRowForATimeoutBeforeTheRequestWasWritten(t *testing.T) {
 	g, _, rec := recorded(fixed("http://provider.example.test"), nil)

@@ -254,7 +254,8 @@ stays the live source until the Go store owns settings writes
   once, makes no model call, and keeps passing them through for 5 minutes.
 - Spend ledger: the gateway records every call that reached the provider as one `model_spend` row, priced from
   the settings key `llmModelPrices` (default: an assumed price table for `gpt-5.4-mini` and `glm-5`). A reply
-  without usage, or a call that timed out after its request was sent, is recorded as estimated at `max_tokens`.
+  without usage, a reply with empty or all-zero usage, or a call that timed out after its request was sent, is
+  recorded as estimated at `max_tokens`.
   The worker records through `POST /api/v1/runtime/spend`, with the same worker token and loopback guard as
   `llm-config`. When the spend of the current UTC day reaches `llmDailyCapUsd` (default 5 USD), `capReached` is
   true and the gateway refuses calls with `cap_reached` before any request. A call whose row cannot be written
