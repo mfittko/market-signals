@@ -45,7 +45,7 @@ A working prototype runs every day in advisory mode. Version numbers stay below 
 
 | Version | Goal |
 |---|---|
-| v0.2.0 | Ship the advisory foundation (done) |
+| v0.2.0 | Ship the advisory foundation (closed) |
 | v0.3.0 | Backups and foundations |
 | v0.4.0 | Go ledger and settings store |
 | v0.5.0 | Research foundation |

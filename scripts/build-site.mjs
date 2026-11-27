@@ -58,7 +58,7 @@ for (const f of files) {
     .replaceAll('{{url}}', `${ORIGIN}/${slug === 'index' ? '' : slug + '.html'}`)
     .replace('{{nav}}', () => nav)
     // Markdown wraps a lone figure in <p>, which is invalid HTML; unwrap it.
-    .replace('{{body}}', () => marked.parse(md).replace(/<p>(<figure class="shot">[\s\S]*?<\/figure>)<\/p>/g, '$1'));
+    .replace('{{body}}', () => marked.parse(md).replace(/<p>(<figure class="shot">(?:(?!<\/?p>)[\s\S])*?<\/figure>)<\/p>/g, '$1'));
   await writeFile(`${OUT}/${slug}.html`, html);
 }
 

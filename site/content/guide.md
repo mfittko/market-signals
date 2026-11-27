@@ -27,7 +27,7 @@ scripts/dev.sh up
 open http://127.0.0.1:3000
 ```
 
-In the console's Settings, choose a model provider and enter its endpoint and key, or choose Claude Code to use your local Claude Code login. Then tick the markets and timeframes you want to watch.
+In the console's Settings, choose a model provider and enter its endpoint and key. This provider drives the engine's filter and chat. The console's `llm` agents need an OpenAI-compatible endpoint and key. Only agents with the `claude-code` runtime use your local Claude Code login. Then tick the markets and timeframes you want to watch.
 
 ## Check the desk
 
