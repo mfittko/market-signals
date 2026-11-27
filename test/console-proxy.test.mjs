@@ -17,4 +17,9 @@ test('the console proxy forwards the API but never the worker runtime protocol',
   for (const p of ['/api/v1/runtime', '/api/v1/runtime/', '/api/v1/runtime/llm-config', '/api/v1/runtime/claim', '/api/v1/RUNTIME/llm-config']) {
     assert.ok(!re.test(p), `${p} must not be proxied`);
   }
+  // The pattern sees the raw path, so percent-encoded forms pass it. The Go route's 404 for any request with
+  // a forwarding header is the binding guard for them.
+  for (const p of ['/api/v1/%72untime/llm-config', '/api/v1/%2Fruntime']) {
+    assert.ok(re.test(p), `${p} passes the rewrite pattern`);
+  }
 });

@@ -204,7 +204,7 @@ settings_file() {
 }
 
 db_up() {
-  need docker; need jq; need openssl
+  need docker; need openssl
   load_env
   docker compose up -d postgres >/dev/null
   for _ in $(seq 1 30); do
