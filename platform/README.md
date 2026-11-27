@@ -215,8 +215,11 @@ stays the live source until the Go store owns settings writes
 
 - `go run ./cmd/settings-import --settings ../data/settings.json` copies the file into the store. It reads
   `MS_DATABASE_URL` or `-db`. An unchanged file adds no revision. A changed file adds one revision that names only
-  the changed keys. Unknown or invalid keys keep their stored value. The report lists each refused key with the
-  reason it was refused, never a value.
+  the changed keys. Unknown or invalid keys keep their stored value. The import trims `OPENAI_BASE_URL`, and a
+  blank value clears the stored one. A refused `OPENAI_BASE_URL` keeps its stored value and removes
+  `OPENAI_API_KEY` from the store (fail closed), so model calls report `not_configured` and no key goes to a
+  stale endpoint or to official OpenAI. The report lists each refused key with the reason it was refused, never a
+  value.
 - `GET /api/v1/settings` returns the store and its `revision`, with every secret masked. `PATCH /api/v1/settings`
   refuses unknown keys, wrong types, any file or executable path, and an enabled bot whose pair is not in the
   watcher list. Secret values are opaque tokens and are not scanned for paths. A refused write stores nothing. The next import overwrites what this route wrote.
@@ -227,7 +230,8 @@ stays the live source until the Go store owns settings writes
   Without `MS_OPERATOR_TOKEN` the operator routes answer 401.
 - Startup import: when `MS_SETTINGS` is set, the api imports that file into the store after the migration and
   before it serves, and logs the import report (`settings imported` with the changed and skipped keys, never a
-  value). A failed import is logged and the stored values stay. The import mirrors every schema key and deletes
+  value). A failed import is logged and the stored values stay. It applies the `cmd/settings-import` rules above,
+  including the fail-closed removal of `OPENAI_API_KEY` when `OPENAI_BASE_URL` is refused. The import mirrors every schema key and deletes
   keys the file lacks, so each api start resets the store to the file, non-LLM keys included, and a store-only
   `PATCH` value is lost. Job owner flags are untouched. A console settings edit, which writes `settings.json`,
   therefore reaches Go at the next api start.
@@ -244,7 +248,9 @@ stays the live source until the Go store owns settings writes
   open breaker fails calls at once for 60 s, then admits one probe: a successful probe closes it, a failed one
   reopens it for 60 s. A failed call returns `*runtime.ModelError` with the reason `not_configured`, `timeout`,
   `breaker_open` or `provider`; its message names only the reason, the endpoint without credentials or query,
-  and the HTTP status. Grill, autogrill and news triage treat `not_configured` like no model.
+  and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage can mark unknown
+  headlines pending once; after the model call reports `not_configured`, it passes headlines through unmarked
+  for 5 minutes.
 
 ## Strategy store
 

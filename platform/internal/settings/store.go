@@ -212,7 +212,9 @@ func Import(ctx context.Context, pool *pgxpool.Pool, path string) (ImportReport,
 	return rep, err
 }
 
-// importPatch builds the import's write patch and the sorted list of refused keys.
+// importPatch builds the import's write patch and the sorted list of refused keys. It trims OPENAI_BASE_URL, so a
+// blank value clears the stored one. A refused OPENAI_BASE_URL keeps its stored value and removes OPENAI_API_KEY
+// from the store (fail closed), so the gateway reports not_configured.
 func importPatch(file map[string]any) (map[string]any, []string) {
 	patch, skipped := map[string]any{}, []string{}
 	for k, sp := range schema {
@@ -233,13 +235,13 @@ func importPatch(file map[string]any) (map[string]any, []string) {
 		}
 		patch[k] = v
 	}
-	// A refused base URL keeps its stored value, and the new key would go to that stale endpoint or to official
-	// OpenAI, so the key keeps its stored value too.
+	// A refused base URL keeps its stored value, so any key, new or stored, would go to that stale endpoint or to
+	// official OpenAI. Fail closed: remove the key, and the gateway reports not_configured.
 	if baseRefused {
-		if v, ok := patch["OPENAI_API_KEY"]; ok && !Cleared("OPENAI_API_KEY", v) {
-			delete(patch, "OPENAI_API_KEY")
-			skipped = append(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused")
+		if v, ok := patch["OPENAI_API_KEY"]; !ok || !Cleared("OPENAI_API_KEY", v) {
+			skipped = append(skipped, "OPENAI_API_KEY: removed because OPENAI_BASE_URL was refused")
 		}
+		patch["OPENAI_API_KEY"] = nil
 	}
 	sort.Strings(skipped)
 	return patch, skipped

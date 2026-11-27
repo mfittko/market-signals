@@ -5,19 +5,34 @@ import (
 	"testing"
 )
 
-func TestImportPatchSkipsTheKeyWhenTheBaseURLIsRefused(t *testing.T) {
+// removesKey reports whether the patch deletes the stored OPENAI_API_KEY (present with a nil value).
+func removesKey(patch map[string]any) bool {
+	v, ok := patch["OPENAI_API_KEY"]
+	return ok && v == nil
+}
+
+const keyRemoved = "OPENAI_API_KEY: removed because OPENAI_BASE_URL was refused"
+
+// A refused base URL fails closed: the import deletes the stored key, whatever the file holds for it.
+func TestImportPatchRemovesTheKeyWhenTheBaseURLIsRefused(t *testing.T) {
 	patch, skipped := importPatch(map[string]any{"OPENAI_API_KEY": "sk-test-SECRET", "OPENAI_BASE_URL": "https://h/v1?key=x"})
-	if _, ok := patch["OPENAI_API_KEY"]; ok {
-		t.Fatal("a refused base URL must keep the key out of the import, or it routes to api.openai.com")
+	if !removesKey(patch) {
+		t.Fatal("a refused base URL must remove the stored key, or it routes to a stale endpoint or api.openai.com")
 	}
-	if !slices.Contains(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused") {
-		t.Fatalf("the skipped key is reported: %v", skipped)
+	if _, ok := patch["OPENAI_BASE_URL"]; ok {
+		t.Fatal("a refused base URL keeps its stored value")
+	}
+	if !slices.Contains(skipped, keyRemoved) {
+		t.Fatalf("the removed key is reported: %v", skipped)
+	}
+
+	// an invalid key in the file is removed too, never kept at its stored value
+	if patch, skipped := importPatch(map[string]any{"OPENAI_API_KEY": float64(1), "OPENAI_BASE_URL": "not a url"}); !removesKey(patch) || !slices.Contains(skipped, keyRemoved) {
+		t.Fatalf("an invalid key with a refused base URL must remove the stored key: %v", skipped)
 	}
 
 	// a file without the key still clears the stored one
-	if patch, _ := importPatch(map[string]any{"OPENAI_BASE_URL": "not a url"}); patch["OPENAI_API_KEY"] != nil {
-		t.Fatal("a missing key must still delete the stored key")
-	} else if _, ok := patch["OPENAI_API_KEY"]; !ok {
+	if patch, _ := importPatch(map[string]any{"OPENAI_BASE_URL": "not a url"}); !removesKey(patch) {
 		t.Fatal("a missing key must still delete the stored key")
 	}
 
@@ -32,7 +47,7 @@ func TestImportPatchSkipsTheKeyWhenTheBaseURLIsRefused(t *testing.T) {
 	}
 }
 
-// The import trims OPENAI_BASE_URL like the resolution rule; any present value it still refuses keeps the key out.
+// The import trims OPENAI_BASE_URL like the resolution rule; any present value it still refuses removes the key.
 func TestImportPatchTrimsTheBaseURLAndGuardsTheKeyForEveryRefusedForm(t *testing.T) {
 	for _, c := range []struct {
 		base     any
@@ -52,8 +67,8 @@ func TestImportPatchTrimsTheBaseURLAndGuardsTheKeyForEveryRefusedForm(t *testing
 			if present {
 				t.Fatalf("base %#v must be refused, got %#v", c.base, got)
 			}
-			if _, ok := patch["OPENAI_API_KEY"]; ok || !slices.Contains(skipped, "OPENAI_API_KEY: skipped because OPENAI_BASE_URL was refused") {
-				t.Fatalf("base %#v: a refused base URL keeps the key out: %v", c.base, skipped)
+			if !removesKey(patch) || !slices.Contains(skipped, keyRemoved) {
+				t.Fatalf("base %#v: a refused base URL removes the key: %v", c.base, skipped)
 			}
 			continue
 		}

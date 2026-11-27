@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -161,7 +162,8 @@ func chatURL(base string) (string, string, error) {
 	return full, u.String(), nil
 }
 
-// redact removes the API key, the base URL's username, password and query values from a provider reply.
+// redact removes the API key, the base URL's username, password and query values (decoded and raw) from a
+// provider reply. Longer secrets go first, so a secret that contains a shorter one is never left partly in clear.
 func redact(s, full, apiKey string) string {
 	secrets := []string{apiKey}
 	if u, err := url.Parse(full); err == nil {
@@ -172,7 +174,13 @@ func redact(s, full, apiKey string) string {
 		for _, vs := range u.Query() {
 			secrets = append(secrets, vs...)
 		}
+		for _, kv := range strings.FieldsFunc(u.RawQuery, func(r rune) bool { return r == '&' || r == ';' }) {
+			if _, v, ok := strings.Cut(kv, "="); ok {
+				secrets = append(secrets, v)
+			}
+		}
 	}
+	slices.SortStableFunc(secrets, func(a, b string) int { return len(b) - len(a) })
 	for _, v := range secrets {
 		if v != "" {
 			s = strings.ReplaceAll(s, v, "[redacted]")
