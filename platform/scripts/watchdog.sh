@@ -79,9 +79,10 @@ track() { # name failed(0|1) grace-seconds failure-message recovery-message
 pipeline() { # health-body
   local lines name detail f active=""
   # an empty list is a valid answer that clears every condition; anything that is not an array changes nothing
-  lines="$(jq -r '.degraded | if type == "array" then .[] | "\(.name)\t\(.detail)" else error("no degraded array") end' <<<"$1" 2>/dev/null)" || return 0
-  # fd 3, so notify's osascript and curl cannot read the remaining lines from stdin
-  while IFS=$'\t' read -r name detail <&3; do
+  lines="$(jq -r '.degraded | if type == "array" then .[] | "\(.name // "")\u001f\(.detail)" else error("no degraded array") end' <<<"$1" 2>/dev/null)" || return 0
+  # fd 3, so notify's osascript and curl cannot read the remaining lines from stdin; the unit separator is not IFS
+  # whitespace, so an empty name stays an empty field
+  while IFS=$'\037' read -r name detail <&3; do
     [[ "$name" =~ ^[a-z_]{1,40}$ ]] || continue
     active="$active$name"$'\n'
     track "cond-$name" 1 "$HEALTH_GRACE_S" "Pipeline degraded: $name ($detail)" "Pipeline recovered: $name"

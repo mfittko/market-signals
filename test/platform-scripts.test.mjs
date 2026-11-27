@@ -1464,9 +1464,13 @@ test('watchdog ignores an invalid condition name and a leftover .tmp state file'
     marker(1);
     mkdirSync(join(dir, 'state'));
     writeFileSync(join(dir, 'state', 'cond-engine_unreachable.tmp'), '1000 1\n');
+    // an empty or null name whose detail looks like a valid name must not become that condition
+    const blank = JSON.stringify({ ok: true, degraded: [{ name: '', detail: 'worker_missing' }, { name: null, detail: 'engine_unreachable' }] });
     for (const t of [1000, 1300, 1600, 1900]) {
-      const r = run(t, 0, degraded('../x', 'Bad', 'a'.repeat(41), ''));
-      assert.equal(r.status, 0, r.stderr);
+      for (const body of [degraded('../x', 'Bad', 'a'.repeat(41), ''), blank]) {
+        const r = run(t, 0, body);
+        assert.equal(r.status, 0, r.stderr);
+      }
     }
     assert.deepEqual(notes(), []);
     assert.deepEqual(readdirSync(join(dir, 'state')).filter((f) => f.startsWith('cond-')), ['cond-engine_unreachable.tmp']);
