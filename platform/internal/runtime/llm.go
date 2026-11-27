@@ -15,6 +15,7 @@ type LLMConfig struct {
 	APIKey    string
 	Model     string
 	MaxTokens int
+	Record    func(context.Context, SpendCall) error // the gateway's spend recorder
 }
 
 // LLM drives an OpenAI-compatible chat endpoint through a bounded tool loop.
@@ -28,7 +29,9 @@ type LLM struct {
 // NewLLM returns an LLM whose gateway always reads cfg.
 func NewLLM(cfg LLMConfig) *LLM {
 	pc := ProviderConfig{Configured: cfg.BaseURL != "" && cfg.APIKey != "", BaseURL: cfg.BaseURL, APIKey: cfg.APIKey, Model: cfg.Model}
-	return &LLM{GW: NewGateway(func(context.Context) (ProviderConfig, error) { return pc, nil }, nil), MaxTokens: cfg.MaxTokens}
+	gw := NewGateway(func(context.Context) (ProviderConfig, error) { return pc, nil }, nil)
+	gw.Record = cfg.Record
+	return &LLM{GW: gw, MaxTokens: cfg.MaxTokens}
 }
 
 func (*LLM) Name() string               { return "llm" }
@@ -47,6 +50,7 @@ Your reply MUST end with exactly one JSON object and no prose after it:
 {"action":"open"|"close"|"hold","side":"long"|"short","notional":<number>,"stop":<number>,"target":<number|null>,"positionId":<number, close only>,"reasoning":"<max 200 chars>","plan":<exit plan, open only, see below>}` + planDoc
 
 func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
+	ctx = WithCall(ctx, "agent", in.Claim.Run.ID)
 	// an empty model takes the configured one, which the gateway reads on each round
 	model := in.Claim.Agent.Model
 	var payload map[string]any
