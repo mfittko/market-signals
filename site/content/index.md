@@ -21,7 +21,7 @@ We saw this on a real morning in October 2026. Oil rose three dollars in two hou
 
 ## A watch with an ending
 
-Market Signals will treat a signal as the start of a watch. The watch will report when the move continues and when it reverses or fades, and then it will close with one clear message. This is the goal of v0.4.0.
+Market Signals will treat a signal as the start of a watch. The watch will report when the move continues and when it reverses or fades, and then it will close with one clear message. This is the goal of v0.14.0, after the Go alert cycle takes over from the Node engine.
 
 <div class="cards">
 <div class="card"><strong>Agents advise</strong><p>An agent reads the chart, the indicators, the news and your written strategy, then proposes a trade with its reasons. You decide.</p></div>
@@ -41,14 +41,23 @@ Market Signals will treat a signal as the start of a watch. The watch will repor
 
 ## Road to 1.0
 
-A working prototype runs every day in advisory mode. Version numbers stay below 1.0 until the system is stable.
+A working prototype runs every day in advisory mode. Version numbers stay below 1.0 until the system is stable. In November 2026 we decided to retire the Node engine and move every job to the Go control plane, so the plan below puts that move first.
 
 | Version | Goal |
 |---|---|
-| v0.2.0 | Ship the advisory foundation |
-| v0.3.0 | Use it daily on one machine |
-| v0.4.0 | Alerts that follow a move through |
-| v0.5.0 | Evidence and a research baseline |
-| v0.6.0 | Opt-in paper execution |
+| v0.2.0 | Ship the advisory foundation (closed) |
+| v0.3.0 | Backups and foundations |
+| v0.4.0 | Go ledger and settings store |
+| v0.5.0 | Research foundation |
+| v0.6.0 | Go alert delivery, health and model gateway |
+| v0.7.0 | Console contracts |
+| v0.8.0, v0.9.0 | Market data and news move to Go |
+| v0.10.0 | Research: entry ladder, exits and multi-week |
+| v0.11.0, v0.12.0 | Alerts, bots and chat move to Go |
+| v0.13.0 | Node cutover |
+| v0.14.0 | Alerts that follow a move through |
+| v0.15.0 | Shadow accounting |
+| v0.16.0 | Opt-in paper execution |
+| v0.17.0 to v0.20.0 | EntryGuard, predictions in bot decisions, more news and data, operator console |
 
 The milestones and their issues are public on [GitHub](https://github.com/mfittko/market-signals/milestones).

@@ -25,7 +25,8 @@ marked.use({
       const n = href.slice(7);
       screens.add(n);
       const cap = title ? `<figcaption>${esc(title)}</figcaption>` : '';
-      return `<figure class="shot"><picture><source srcset="assets/screens/${n}-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screens/${n}-light.png" alt="${esc(text)}" loading="lazy"></picture>${cap}</figure>`;
+      // The link opens the full-size light image, so phone readers can zoom it.
+      return `<figure class="shot"><a href="assets/screens/${n}-light.png"><picture><source srcset="assets/screens/${n}-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screens/${n}-light.png" alt="${esc(text)}" loading="lazy"></picture></a>${cap}</figure>`;
     },
   },
 });
@@ -56,7 +57,8 @@ for (const f of files) {
     .replaceAll('{{description}}', esc(meta.description))
     .replaceAll('{{url}}', `${ORIGIN}/${slug === 'index' ? '' : slug + '.html'}`)
     .replace('{{nav}}', () => nav)
-    .replace('{{body}}', () => marked.parse(md));
+    // Markdown wraps a lone figure in <p>, which is invalid HTML; unwrap it.
+    .replace('{{body}}', () => marked.parse(md).replace(/<p>(<figure class="shot">(?:(?!<\/?p>)[\s\S])*?<\/figure>)<\/p>/g, '$1'));
   await writeFile(`${OUT}/${slug}.html`, html);
 }
 
