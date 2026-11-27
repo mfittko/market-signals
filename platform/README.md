@@ -107,6 +107,7 @@ In the console:
    which stay inactive until the operator activates them in the engine. Chat cannot place, close or change a
    trade, and it cannot change the paper bot settings.
 3. Open a run to see the audit trail: tool calls, model rounds, the proposal, the deterministic checks and the frozen snapshot.
+   Each model round names the model and the provider endpoint (without credentials or query) that the gateway resolved for it.
 4. Cancel a run from its page. A queued run stops at once. A running one stops at its next heartbeat.
 
 The LLM agent and strategy coaching read the endpoint, model and key from the settings store on every model
@@ -256,8 +257,9 @@ stays the live source until the Go store owns settings writes
   its caller after its request was sent and before any status arrived, as one `model_spend` row, priced from the
   settings key `llmModelPrices` (default: an assumed price table for `gpt-5.4-mini` and `glm-5`). A non-200
   answer writes no row, and neither does a call cancelled before its request was sent. A reply without usage, a
-  reply with empty or all-zero usage, a 200 reply that does not parse or has no choices, or a call that timed out
-  or was cancelled after its request was sent, is recorded as estimated at `max_tokens`.
+  reply with empty or all-zero usage, a 200 reply whose body cannot be read, a 200 reply that does not parse or
+  has no choices, or a call that timed out or was cancelled after its request was sent, is recorded as estimated
+  at `max_tokens`.
   The worker records through `POST /api/v1/runtime/spend`, with the same worker token and loopback guard as
   `llm-config`. When the spend of the current UTC day reaches `llmDailyCapUsd` (default 5 USD), `capReached` is
   true and the gateway refuses calls with `cap_reached` before any request. A call whose row cannot be written

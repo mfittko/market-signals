@@ -95,8 +95,8 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 		if len(toolSpecs) > 0 {
 			req["tools"], req["tool_choice"] = toolSpecs, "auto"
 		}
-		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: asking %s", round, orStr(model, "the configured model"))})
 		msg, usage, err := l.GW.Chat(ctx, req)
+		in.Emit("step", map[string]any{"text": fmt.Sprintf("round %d: asked %s at %s", round, orStr(usage.Model, "no model"), orStr(usage.Provider, "no provider"))})
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +149,11 @@ func (l *LLM) Run(ctx context.Context, in Input) (*Output, error) {
 	return out, nil
 }
 
-type usage struct{ PromptTokens, CompletionTokens float64 }
+// usage is one call's token counts with the model and the provider key the gateway resolved for it.
+type usage struct {
+	PromptTokens, CompletionTokens float64
+	Model, Provider                string
+}
 
 type toolCall struct{ id, name, args string }
 
