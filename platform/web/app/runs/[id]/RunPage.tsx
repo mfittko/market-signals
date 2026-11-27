@@ -117,7 +117,7 @@ export default function RunPage() {
               ))}</tbody>
             </table></div>
             <p className="muted small" style={{ margin: '8px 0 0' }}>Allowed tools: {agent.allowedTools.join(', ')}. Budget: {agent.budgets.maxToolCalls} tool calls shared by retries and reset by a follow-up wait, {run.maxAttempts} attempts.</p>
-            <p className="muted small" style={{ margin: '4px 0 0' }}>Tool calls since the last follow-up: {windowCalls} of {agent.budgets.maxToolCalls}{uncertain && <span title="An expired or failed attempt may have run tools it did not report."> (uncertain)</span>}</p>
+            <p className="muted small" style={{ margin: '4px 0 0' }}>Tool calls since the last follow-up: {windowCalls} of {agent.budgets.maxToolCalls}{uncertain && <span title="An expired or failed attempt may have counted calls that never finished."> (uncertain)</span>}</p>
           </Card>
 
           <Card title="Frozen snapshot">
