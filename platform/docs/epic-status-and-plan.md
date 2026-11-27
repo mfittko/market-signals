@@ -12,7 +12,7 @@ The figures below are measured on the branch.
 |---|---|
 | Control plane | Go, standard library router, pgx, three SQL migrations. About 8,200 lines of source, 143 tests, run with the race detector in CI. |
 | Queue | Leases, fencing tokens, heartbeats, bounded retry, expiry, cancel, timed follow-ups, event catch-up over server-sent events. |
-| Worker | Separate process. Two runtimes: an OpenAI-compatible model loop with a bounded tool loop, and a deterministic mock. Allowlisted read tools scoped to the agent's instrument. |
+| Worker | Separate process. Three runtimes: an OpenAI-compatible model loop with a bounded tool loop, a one-round `claude-code` runtime with no tools that a worker offers only when the `claude` binary resolves, and a deterministic mock. Allowlisted read tools scoped to the agent's instrument. |
 | Decisions | Typed proposals, deterministic checks, fail-safe hold on any malformed, late or failed result. |
 | Position monitor | Advisory positions only. Stops, targets, trailing, time stop and kill switch run with no model. Tripwires wake the agent, which may hold, close or tighten. |
 | Importer | Copies SQLite history into Postgres. Refuses to commit unless cash reconciles with realized profit. Re-runs insert nothing. |

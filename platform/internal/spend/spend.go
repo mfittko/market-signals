@@ -26,6 +26,9 @@ const DefaultCapUSD = 5.0
 // MaxPriced is the priced_as value of a model without a price entry.
 const MaxPriced = "*max*"
 
+// ClaudeCode is the provider, and the priced_as value, of calls through the local Claude Code CLI.
+const ClaudeCode = "claude-code"
+
 // Cost prices one call. The lookup is an exact, case-sensitive match on the model. An unknown model is priced at
 // the highest input rate and the highest output rate in the table, taken separately, so it never passes as free.
 func Cost(prices map[string]Price, model string, prompt, completion int64) (usd float64, pricedAs string) {
@@ -79,7 +82,11 @@ func Record(ctx context.Context, pool *pgxpool.Pool, c Call) error {
 		return err
 	}
 	prices, _ := Config(snap.Values)
-	cost, as := Cost(prices, c.Model, c.PromptTokens, c.CompletionTokens)
+	// claude-code runs on the operator's own subscription, so its rows cost 0 and the cap sum ignores them
+	cost, as := 0.0, ClaudeCode
+	if c.Provider != ClaudeCode {
+		cost, as = Cost(prices, c.Model, c.PromptTokens, c.CompletionTokens)
+	}
 	_, err = pool.Exec(ctx, `INSERT INTO model_spend (call_site, provider, model, priced_as, prompt_tokens, completion_tokens, estimated, cost_usd, run_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, (SELECT id FROM runs WHERE id = $9))`,
 		c.CallSite, c.Provider, c.Model, as, c.PromptTokens, c.CompletionTokens, c.Estimated, cost, c.RunID)

@@ -44,6 +44,12 @@ func main() {
 	gw := runtime.NewGateway(client.LLMConfig, log)
 	gw.Record = client.RecordSpend
 	rts := map[string]runtime.Runtime{"mock": runtime.Mock{}, "llm": &runtime.LLM{GW: gw, MaxTokens: maxTok}}
+	// a worker without the claude binary never offers the runtime, so it never claims such runs
+	home, _ := os.UserHomeDir()
+	if bin := runtime.FindClaude(home, os.Getenv("PATH")); bin != "" {
+		cc := runtime.NewClaudeCode(bin, client.RecordSpend, log)
+		rts[runtime.ClaudeCodeProvider] = &runtime.LLM{GW: cc, MaxTokens: maxTok, RuntimeName: runtime.ClaudeCodeProvider}
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	w := &runtime.Worker{ID: *id, Client: client, Runtimes: rts, Concurrency: *conc, Poll: 2 * time.Second, RunTimeout: 3 * time.Minute, Log: log}

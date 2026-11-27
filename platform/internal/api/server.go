@@ -452,8 +452,8 @@ func (s *Server) upsertAgent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &a, 64<<10) {
 		return
 	}
-	if a.ID == "" || a.Instrument == "" || a.Granularity == "" || (a.Runtime != "mock" && a.Runtime != "llm") {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id, instrument, granularity and runtime (mock|llm) are required"})
+	if a.ID == "" || a.Instrument == "" || a.Granularity == "" || (a.Runtime != "mock" && a.Runtime != "llm" && a.Runtime != spend.ClaudeCode) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "id, instrument, granularity and runtime (mock|llm|claude-code) are required"})
 		return
 	}
 	if err := checkScope(a.Instrument, a.Granularity); err != nil {

@@ -1,0 +1,4 @@
+{
+  "withModel": ["-p", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands", "--output-format", "json", "--system-prompt", "SYS", "--model", "M", "PROMPT"],
+  "withoutModel": ["-p", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--disable-slash-commands", "--output-format", "json", "--system-prompt", "SYS", "PROMPT"]
+}

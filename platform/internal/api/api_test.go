@@ -898,6 +898,23 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 	}
 }
 
+func TestAgentRuntimeMustBeKnown(t *testing.T) {
+	hs, st := setup(t)
+	for _, c := range []struct {
+		rt   string
+		want int
+	}{{"mock", 200}, {"llm", 200}, {"pi", 400}, {"", 400}, {"claude-code", 200}} {
+		body := `{"id":"r1","instrument":"WTICO/USD","granularity":"M5","runtime":"` + c.rt + `"}`
+		if code, out := call(t, "POST", hs.URL+"/api/v1/agents", "", body, nil); code != c.want {
+			t.Fatalf("runtime %q: %d %v, want %d", c.rt, code, out, c.want)
+		}
+	}
+	var stored string
+	if err := st.Pool.QueryRow(context.Background(), `SELECT runtime FROM agents WHERE id='r1'`).Scan(&stored); err != nil || stored != "claude-code" {
+		t.Fatalf("stored runtime %q %v", stored, err)
+	}
+}
+
 func TestAgentBudgetsOutsideTheirBoundsAreRefused(t *testing.T) {
 	hs, st := setup(t)
 	agent := func(budgets string) string {

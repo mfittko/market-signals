@@ -110,6 +110,32 @@ func TestRecordPricesAndStoresOneRow(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeRowsCostNothingAndStayOutsideTheCap(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	// the model has a price, so only the provider makes the row free
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{
+		"llmModelPrices": map[string]any{"m": map[string]any{"inputPerMTok": float64(1), "outputPerMTok": float64(10)}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := spend.Record(ctx, pool, spend.Call{CallSite: "agent", Provider: spend.ClaudeCode, Model: "m", PromptTokens: 1_000_000, CompletionTokens: 1_000_000}); err != nil {
+		t.Fatal(err)
+	}
+	var provider, as string
+	var cost float64
+	if err := pool.QueryRow(ctx, `SELECT provider, priced_as, cost_usd FROM model_spend`).Scan(&provider, &as, &cost); err != nil {
+		t.Fatal(err)
+	}
+	if provider != "claude-code" || as != "claude-code" || cost != 0 {
+		t.Fatalf("got %q %q %v", provider, as, cost)
+	}
+	spent, capUSD, err := spend.Today(ctx, pool, time.Now())
+	if err != nil || spent != 0 || spend.CapReached(spent, capUSD) {
+		t.Fatalf("claude-code rows must not count toward the cap: %v of %v, %v", spent, capUSD, err)
+	}
+}
+
 func TestTodaySumsOnlyTheCurrentUTCDay(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()

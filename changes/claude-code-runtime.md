@@ -1,0 +1,1 @@
+- Platform: a `claude-code` agent runtime in the Go worker that runs the local Claude Code CLI with no tools in one round, kills the whole process group on deadline or cancel, and records $0 spend rows outside the daily cap (#350)
