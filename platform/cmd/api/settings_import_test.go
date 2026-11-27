@@ -17,7 +17,7 @@ import (
 func TestStartupImportResetsTheStoreToTheFileAndKeepsJobOwners(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
-	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": 9999, "model": "store-only"}, nil); err != nil {
+	if _, _, err := settings.Write(ctx, pool, settings.FromAPI, map[string]any{"port": float64(9999), "model": "store-only"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := settings.Write(ctx, pool, settings.FromOperator, map[string]any{settings.JobOwnerKey("news"): "go"}, nil); err != nil {
