@@ -51,6 +51,8 @@ Press "Check this one now" on an agent, or "Check all now" to ask every model ag
 
 The Runs page lists every run. Above the list it shows how many workers are online and a pipeline health card with the queue, the leases, the last monitor pass and the model spend of the day. The Portfolio page shows the paper account, its open positions and its closed trades.
 
+![The Runs page with the pipeline health card.](screen:runs "Queue age, leases, cancel requests, the last monitor pass and the model spend of the day, above the list of runs.")
+
 ## Refine a strategy
 
 A strategy is a versioned prompt. You can edit it, compare it with an earlier version or refine it with the grill. The guided grill asks one question at a time and marks a recommended answer. The automatic grill replays past signals and reports which settings held up on data it did not tune on.
