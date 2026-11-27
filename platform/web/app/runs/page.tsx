@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, describe, engineDecision, type Agent, type Health, type RunRow } from '@/lib/api';
 import { useLive } from '@/lib/live';
-import { Ago, Card, ComparisonPill, StatusPill, Loading } from '@/components/ui';
+import { Ago, Card, ComparisonPill, Stat, StatusPill, Loading } from '@/components/ui';
 import { AgentList } from '@/components/AgentList';
 import { pickAgentId } from '@/lib/agent-selection';
 import { buildMatch } from '@/lib/same-build';
@@ -89,6 +89,8 @@ export default function Home() {
         </label>
       </div>
 
+      {health?.monitor && health.spend && health.stats.leases && <PipelineHealth h={health} />}
+
       <div className="grid two">
         <Card title="Runs" aside={<span className="muted small">{summary}</span>}>
           {!runs ? <Loading /> : shownRuns.length === 0 ? (
@@ -125,6 +127,33 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+const secs = (s: number) => (s < 120 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`);
+
+// Read-only numbers from the health route: queue, leases, monitor and model spend.
+function PipelineHealth({ h }: { h: Health }) {
+  const { leases } = h.stats;
+  const pass = h.monitor.lastPassAgeSeconds;
+  return (
+    <Card title="Pipeline health" aside={
+      <span className="chips">
+        {h.degraded.length === 0 ? <span className="chip ok">No degraded conditions</span>
+          : h.degraded.map((d) => <span key={d.name} className="chip bad" title={d.detail}>{d.name.replaceAll('_', ' ')}</span>)}
+      </span>
+    }>
+      <div className="grid stats">
+        <Stat label="Oldest queued" value={h.stats.oldestQueuedSeconds ? secs(h.stats.oldestQueuedSeconds) : 'none'} hint="claimable runs only" />
+        <Stat label="Leases" value={leases.running} hint={`${leases.expiringSoon} expiring soon · ${leases.expired} expired`} tone={leases.expired ? 'warn' : undefined} />
+        <Stat label="Cancel requests" value={h.stats.cancelRequested} hint="waiting for the worker" />
+        {/* a slow tick stretches one gap past the interval; red only after a whole missed pass */}
+        <Stat label="Monitor pass" value={!h.engine.configured ? 'not running' : pass == null ? 'none yet' : `${secs(pass)} ago`} hint={h.engine.configured ? `runs every ${h.monitor.intervalSeconds} s` : 'no engine configured'}
+          tone={pass != null && pass > 2 * h.monitor.intervalSeconds ? 'bad' : undefined} />
+        <Stat label="Model spend today" value={`$${h.spend.todayUsd.toFixed(2)}`} hint={`of the $${h.spend.capUsd.toFixed(2)} daily cap`}
+          tone={h.spend.todayUsd >= h.spend.capUsd ? 'bad' : undefined} />
+      </div>
+    </Card>
   );
 }
 

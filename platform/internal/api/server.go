@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/mfittko/market-signals/platform/fixtures"
 	"github.com/mfittko/market-signals/platform/internal/domain"
+	"github.com/mfittko/market-signals/platform/internal/monitor"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/spend"
 	"github.com/mfittko/market-signals/platform/internal/tools"
@@ -48,6 +49,8 @@ type Config struct {
 	// triage asks it before it marks a headline pending. A non-nil error means the config read failed, which
 	// says nothing about the model. Nil means Complete is assumed to have one.
 	ModelConfigured func(ctx context.Context) (bool, error)
+	// MonitorLastPass is the monitor loop's last clean pass, which health reports. Nil when no monitor runs.
+	MonitorLastPass *monitor.LastPass
 }
 
 type Server struct {
@@ -334,7 +337,9 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	degraded := degradedConditions(s.cfg.EngineURL != "", reachable, stats.Workers, agents, spent, capUSD)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld, "degraded": degraded})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld, "degraded": degraded,
+		"monitor": map[string]any{"intervalSeconds": monitor.Interval.Seconds(), "lastPassAgeSeconds": s.cfg.MonitorLastPass.AgeSeconds(time.Now())},
+		"spend":   map[string]any{"todayUsd": spent, "capUsd": capUSD}})
 }
 
 // degradedCondition is one active pipeline problem. The watchdog pushes detail to the owner's phone, so it holds

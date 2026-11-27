@@ -106,11 +106,14 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 	gw := runtime.NewGateway(storeSource(pool), log)
 	gw.Record = api.RecordSpend(pool)
 	cfg.Complete, cfg.ModelConfigured = (&runtime.LLM{GW: gw, MaxTokens: maxTok}).Complete, gw.Configured
+	if engine != "" {
+		cfg.MonitorLastPass = &monitor.LastPass{}
+	}
 	srv := api.New(cfg, st, log)
 	p := plane{addr: addr, log: log, handler: srv.Handler(), reaper: func(ctx context.Context) { srv.RunReaper(ctx, 3*time.Second) }, stopStreams: srv.StopStreams, close: pool.Close}
 	if engine != "" {
-		mon := &monitor.Service{Store: st, Feed: monitor.EngineFeed{Eng: tools.NewEngine(engine)}, Log: log, Enrich: srv.WakeEnricher()}
-		p.monitor = func(ctx context.Context) { mon.Run(ctx, 15*time.Second) }
+		mon := &monitor.Service{Store: st, Feed: monitor.EngineFeed{Eng: tools.NewEngine(engine)}, Log: log, Enrich: srv.WakeEnricher(), LastPass: cfg.MonitorLastPass}
+		p.monitor = func(ctx context.Context) { mon.Run(ctx, monitor.Interval) }
 	}
 	// after the stack lock, so one api writes the journal
 	p.pullback = pullbackLoop(os.Getenv, pullbackSpec, log)

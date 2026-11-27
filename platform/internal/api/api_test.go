@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mfittko/market-signals/platform/internal/monitor"
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/internal/spend"
@@ -1568,6 +1569,50 @@ func TestHealthReportsTheBuild(t *testing.T) {
 	b := out["build"].(map[string]any)
 	if at, err := time.Parse(time.RFC3339, b["builtAt"].(string)); b["commit"] != "unknown" || b["dirty"] != false || err != nil || time.Since(at) < 0 {
 		t.Fatalf("build: %v", b)
+	}
+}
+
+func TestHealthReportsSpendAndMonitorLag(t *testing.T) {
+	st := queue.New(testutil.Pool(t))
+	get := func(lp *monitor.LastPass) map[string]any {
+		t.Helper()
+		hs := httptest.NewServer(New(Config{MonitorLastPass: lp}, st, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+		defer hs.Close()
+		code, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil)
+		if code != 200 {
+			t.Fatalf("health: %d", code)
+		}
+		return out
+	}
+	// 1M output tokens of gpt-5.4-mini cost $4.50 each; the default cap is $5
+	for range 2 {
+		if err := spend.Record(context.Background(), st.Pool, spend.Call{CallSite: "agent", Model: "gpt-5.4-mini", CompletionTokens: 1_000_000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := get(nil)
+	if s := out["spend"].(map[string]any); s["todayUsd"].(float64) < 8.999 || s["todayUsd"].(float64) > 9.001 || s["capUsd"] != 5.0 {
+		t.Fatalf("spend: %v", s)
+	}
+	stats := out["stats"].(map[string]any)
+	leases, _ := stats["leases"].(map[string]any)
+	for _, k := range []string{"running", "expiringSoon", "expired"} {
+		if _, ok := leases[k]; !ok {
+			t.Fatalf("stats.leases.%s missing: %v", k, stats)
+		}
+	}
+	for _, k := range []string{"oldestQueuedSeconds", "cancelRequested"} {
+		if _, ok := stats[k]; !ok {
+			t.Fatalf("stats.%s missing: %v", k, stats)
+		}
+	}
+	if m := out["monitor"].(map[string]any); m["intervalSeconds"] != 15.0 || m["lastPassAgeSeconds"] != nil {
+		t.Fatalf("no monitor: %v", m)
+	}
+	lp := &monitor.LastPass{}
+	lp.Mark(time.Now().Add(-40 * time.Second))
+	if age := get(lp)["monitor"].(map[string]any)["lastPassAgeSeconds"].(float64); age < 40 || age > 45 {
+		t.Fatalf("a missed pass must show its age: %v", age)
 	}
 }
 

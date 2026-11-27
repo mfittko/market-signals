@@ -122,7 +122,13 @@ export type Health = {
     invalidProposals: number;
     queueDepth: number;
     workers: { id: string; runtimes: string[]; online: boolean; lastSeen: string; capabilities: Record<string, any> }[];
+    oldestQueuedSeconds: number;
+    leases: { running: number; expiringSoon: number; expired: number };
+    cancelRequested: number;
   };
+  monitor: { intervalSeconds: number; lastPassAgeSeconds: number | null };
+  spend: { todayUsd: number; capUsd: number };
+  degraded: { name: string; detail: string }[];
 };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
