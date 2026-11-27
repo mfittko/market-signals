@@ -197,11 +197,13 @@ func (c *ClaudeCode) run(ctx context.Context, system, model, prompt string, u *u
 }
 
 // dropClaudeEnv removes the child variables that would bill the call: every ANTHROPIC_ variable (API key, auth
-// token, base URL) and the Bedrock and Vertex switches. Without them the CLI uses the operator subscription, so
-// the $0 rows stay true. It also removes the worker's PWD and OLDPWD, which name the worker cwd, not the temp dir.
+// token, base URL) and the Bedrock, Vertex and Foundry switches. Without them the CLI uses the operator
+// subscription, so the $0 rows stay true. It also removes the worker's PWD and OLDPWD, which name the worker cwd,
+// not the temp dir.
 func dropClaudeEnv(kv string) bool {
 	return strings.HasPrefix(kv, "ANTHROPIC_") || strings.HasPrefix(kv, "CLAUDE_CODE_USE_BEDROCK=") ||
-		strings.HasPrefix(kv, "CLAUDE_CODE_USE_VERTEX=") || strings.HasPrefix(kv, "PWD=") || strings.HasPrefix(kv, "OLDPWD=")
+		strings.HasPrefix(kv, "CLAUDE_CODE_USE_VERTEX=") || strings.HasPrefix(kv, "CLAUDE_CODE_USE_FOUNDRY=") ||
+		strings.HasPrefix(kv, "PWD=") || strings.HasPrefix(kv, "OLDPWD=")
 }
 
 // claudeEnv is the child environment. os/exec sets PWD to cmd.Dir only when cmd.Env is nil, so PWD is set here.

@@ -306,14 +306,15 @@ func TestClaudeCodeChildGetsNoAnthropicKeyOrBaseURL(t *testing.T) {
 	t.Setenv("ANTHROPIC_BASE_URL", "http://fake.invalid")
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "fake-token")
 	t.Setenv("CLAUDE_CODE_USE_BEDROCK", "1")
-	bin, dir := stubClaude(t, `echo "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_BASE_URL-unset} ${ANTHROPIC_AUTH_TOKEN-unset} ${CLAUDE_CODE_USE_BEDROCK-unset}" > '%D/env'
+	t.Setenv("CLAUDE_CODE_USE_FOUNDRY", "1")
+	bin, dir := stubClaude(t, `echo "${ANTHROPIC_API_KEY-unset} ${ANTHROPIC_BASE_URL-unset} ${ANTHROPIC_AUTH_TOKEN-unset} ${CLAUDE_CODE_USE_BEDROCK-unset} ${CLAUDE_CODE_USE_FOUNDRY-unset}" > '%D/env'
 echo "$PWD" > '%D/pwd'
 pwd > '%D/cwd'
 echo '{"is_error":false,"result":"ok"}'`)
 	if err := chatOnce(NewClaudeCode(bin, nil, nil), context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := waitFile(t, filepath.Join(dir, "env")); got != "unset unset unset unset" {
+	if got := waitFile(t, filepath.Join(dir, "env")); got != "unset unset unset unset unset" {
 		t.Fatalf("the child saw %q", got)
 	}
 	if pwd, cwd := waitFile(t, filepath.Join(dir, "pwd")), waitFile(t, filepath.Join(dir, "cwd")); pwd != cwd {
@@ -331,6 +332,7 @@ func TestDropClaudeEnvKeepsOnlyUnbilledVariables(t *testing.T) {
 		"ANTHROPIC_AUTH_TOKEN=t":             true,
 		"CLAUDE_CODE_USE_BEDROCK=1":          true,
 		"CLAUDE_CODE_USE_VERTEX=1":           true,
+		"CLAUDE_CODE_USE_FOUNDRY=1":          true,
 		"PWD=/worker":                        true,
 		"OLDPWD=/worker":                     true,
 	} {

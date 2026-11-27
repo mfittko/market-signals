@@ -85,6 +85,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Type check
         run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
 
   console-e2e:
     # Builds the console and drives every route family in WebKit against an isolated Go stack.

@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { applyPoll } from '@/lib/check-poll';
-import { api, describe, type DeskAgent, type Run } from '@/lib/api';
+import { api, describe, isModelAgent, type DeskAgent, type Run } from '@/lib/api';
 import { Ago, Card, StatusPill } from '@/components/ui';
 
 type Check = { runId?: number; run?: Run; error?: string };
@@ -30,7 +30,7 @@ export function AgentsPanel({ agents, onChange }: { agents: DeskAgent[]; onChang
   live.current = checks;
   const [strategies, setStrategies] = useState<string[]>([]);
   useEffect(() => { api<{ strategies: { name: string; archived: boolean }[] }>("/strategies").then((r) => setStrategies(r.strategies.filter((s) => !s.archived).map((s) => s.name))).catch(() => {}); }, []);
-  const llm = agents.filter((a) => a.runtime === 'llm');
+  const llm = agents.filter(isModelAgent);
 
   async function start(list: DeskAgent[]) {
     setBusy(true);

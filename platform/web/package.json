@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start -p 3000 -H 127.0.0.1",
     "typecheck": "tsc --noEmit",
+    "test": "node --test 'lib/*.test.mjs'",
     "e2e": "node e2e/smoke.e2e.mjs"
   },
   "dependencies": {
