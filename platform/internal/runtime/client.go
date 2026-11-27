@@ -110,6 +110,13 @@ func (c *Client) LLMConfig(ctx context.Context) (ProviderConfig, error) {
 	return out, err
 }
 
+// RecordSpend sends one model call to the control plane, which prices and stores it. It is the worker's
+// gateway recorder.
+func (c *Client) RecordSpend(ctx context.Context, s SpendCall) error {
+	_, err := c.do(ctx, http.MethodPost, "/api/v1/runtime/spend", s, nil)
+	return err
+}
+
 type Attempt struct{ ID, Fence int64 }
 
 func (c *Client) Heartbeat(ctx context.Context, a Attempt) (cancel bool, err error) {

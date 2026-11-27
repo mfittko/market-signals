@@ -240,18 +240,30 @@ stays the live source until the Go store owns settings writes
   provider from the store on each call (`settings.LLM`, the engine's `OPENAI_*`, `provider`, `models` and `model`
   rule), so a store change applies on the next call. The control plane reads the store directly. The worker
   reads `GET /api/v1/runtime/llm-config`, which needs the worker token, answers 404 to a non-loopback peer or a
-  proxied request, sends `Cache-Control: no-store` and returns only `configured`, `baseUrl`, `apiKey` and
-  `model`. The console proxy does not forward `/api/v1/runtime/`. `MS_LLM_MAX_TOKENS` stays an environment
+  proxied request, sends `Cache-Control: no-store` and returns only `configured`, `baseUrl`, `apiKey`, `model`
+  and `capReached`. The console proxy does not forward `/api/v1/runtime/`. `MS_LLM_MAX_TOKENS` stays an environment
   variable of both processes.
 - Deadline and breaker: each call has a 120 s deadline; an earlier caller deadline wins. Each provider endpoint
   has an in-memory circuit breaker. It opens after 5 consecutive counted failures (transport error, deadline
   expiry, HTTP 429, HTTP 5xx; other 4xx answers, an unparsable reply and caller cancellation do not count). An
   open breaker fails calls at once for 60 s, then admits one probe: a successful probe closes it, a failed one
   reopens it for 60 s. A failed call returns `*runtime.ModelError` with the reason `not_configured`, `timeout`,
-  `breaker_open` or `provider`; its message names only the reason, the endpoint without credentials or query,
+  `breaker_open`, `provider`, `cap_reached` or `spend_unrecorded`; its message names only the reason, the endpoint without credentials or query,
   and the HTTP status. Grill and autogrill treat `not_configured` like no model. News triage asks the gateway
   config before it marks a headline pending: with no model configured, it passes headlines through unmarked at
   once, makes no model call, and keeps passing them through for 5 minutes.
+- Spend ledger: the gateway records every call that got an HTTP 200 answer, or that timed out or was cancelled by
+  its caller after its request was sent and before any status arrived, as one `model_spend` row, priced from the
+  settings key `llmModelPrices` (default: an assumed price table for `gpt-5.4-mini` and `glm-5`). A non-200
+  answer writes no row, and neither does a call cancelled before its request was sent. A reply without usage, a
+  reply with empty or all-zero usage, a 200 reply that does not parse or has no choices, or a call that timed out
+  or was cancelled after its request was sent, is recorded as estimated at `max_tokens`.
+  The worker records through `POST /api/v1/runtime/spend`, with the same worker token and loopback guard as
+  `llm-config`. When the spend of the current UTC day reaches `llmDailyCapUsd` (default 5 USD), `capReached` is
+  true and the gateway refuses calls with `cap_reached` before any request. A call whose row cannot be written
+  fails with `spend_unrecorded` and its reply is discarded. A worker run that fails with either reason is
+  marked non-retryable. A failed spend read makes the config source fail, so api model calls answer as
+  `not_configured` (fail closed).
 
 ## Strategy store
 

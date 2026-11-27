@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -82,14 +83,18 @@ func (s *Server) grill(w http.ResponseWriter, r *http.Request) {
 		}
 		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
 	}
-	reply, err := s.cfg.Complete(r.Context(), msgs)
+	reply, err := s.cfg.Complete(runtime.WithCall(r.Context(), "coach", 0), msgs)
 	if runtime.IsNotConfigured(err) {
 		noModel(w)
 		return
 	}
 	if err != nil {
 		s.log.Error("grill", "err", err)
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "the model call failed: " + err.Error()})
+		msg := err.Error()
+		if m := (*runtime.ModelError)(nil); errors.As(err, &m) {
+			msg = m.Reason // the reason only, such as cap_reached
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "the model call failed: " + msg})
 		return
 	}
 	if reply == "" {

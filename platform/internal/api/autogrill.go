@@ -84,7 +84,7 @@ func (s *Server) autoGrill(w http.ResponseWriter, r *http.Request) {
 			{"role": "system", "content": autoGrillSystem},
 			{"role": "user", "content": s.grillContext(r.Context(), b.Name, "auto", b.Draft, "") + "\n" + evidenceText(b.Instrument, b.Granularity, from, to, rep, cands)},
 		}
-		reply, err := s.cfg.Complete(r.Context(), msgs)
+		reply, err := s.cfg.Complete(runtime.WithCall(r.Context(), "autogrill", 0), msgs)
 		switch {
 		case runtime.IsNotConfigured(err): // no coach turn, as without a model
 		case err != nil:

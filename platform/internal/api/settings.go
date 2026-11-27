@@ -1,13 +1,20 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"math"
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/internal/settings"
+	"github.com/mfittko/market-signals/platform/internal/spend"
 )
 
 // The Go settings store is a mirror of the engine's settings.json until the console writes
@@ -24,23 +31,83 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"revision": snap.Revision, "settings": settings.Masked(snap.Values)})
 }
 
-// llmConfig gives the worker its model provider, key included, for one model call. It answers only a
-// loopback peer, so the key never leaves the host, and returns the four provider fields and nothing else.
-// A request with proxy headers came through a proxy on the host, such as the console's, so it is refused too.
-func (s *Server) llmConfig(w http.ResponseWriter, r *http.Request) {
+// localWorker answers 404 itself and returns false unless the request comes from a loopback peer without proxy
+// headers. A request with proxy headers came through a proxy on the host, such as the console's.
+func localWorker(w http.ResponseWriter, r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	proxied := r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Forwarded-Host") != "" || r.Header.Get("Forwarded") != ""
 	if ip, perr := netip.ParseAddr(host); err != nil || perr != nil || !ip.IsLoopback() || proxied {
 		http.NotFound(w, r)
+		return false
+	}
+	return true
+}
+
+// Test hooks for CapAwareLLM.
+var (
+	llmSettings = settings.LLM
+	spendToday  = spend.Today
+)
+
+// CapAwareLLM is the per-call model config of the worker and the api's own gateway: the provider from the
+// settings and whether today's model spend reached the daily cap.
+func CapAwareLLM(ctx context.Context, pool *pgxpool.Pool) (runtime.ProviderConfig, error) {
+	base, key, model, ok, err := llmSettings(ctx, pool)
+	if err != nil {
+		return runtime.ProviderConfig{}, err
+	}
+	spent, capUSD, err := spendToday(ctx, pool, time.Now())
+	if err != nil {
+		return runtime.ProviderConfig{}, err
+	}
+	return runtime.ProviderConfig{Configured: ok, BaseURL: base, APIKey: key, Model: model, CapReached: spend.CapReached(spent, capUSD)}, nil
+}
+
+// RecordSpend is the spend recorder of the worker route and the api's own gateway. The api prices the call.
+func RecordSpend(pool *pgxpool.Pool) func(context.Context, runtime.SpendCall) error {
+	return func(ctx context.Context, c runtime.SpendCall) error {
+		return spend.Record(ctx, pool, spend.Call{CallSite: c.CallSite, Provider: c.Provider, Model: c.Model,
+			PromptTokens: c.PromptTokens, CompletionTokens: c.CompletionTokens, Estimated: c.Estimated, RunID: c.RunID})
+	}
+}
+
+// llmConfig gives the worker its model provider, key included, and the cap state for one model call. It
+// answers only a local worker, so the key never leaves the host, and returns the provider fields and
+// capReached and nothing else.
+func (s *Server) llmConfig(w http.ResponseWriter, r *http.Request) {
+	if !localWorker(w, r) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	base, key, model, ok, err := settings.LLM(r.Context(), s.st.Pool)
+	cfg, err := CapAwareLLM(r.Context(), s.st.Pool)
 	if err != nil {
 		s.fail500(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"configured": ok, "baseUrl": base, "apiKey": key, "model": model})
+	writeJSON(w, http.StatusOK, cfg)
+}
+
+// recordSpend stores one worker model call. The body carries no cost: the api prices the call from its own table.
+func (s *Server) recordSpend(w http.ResponseWriter, r *http.Request) {
+	if !localWorker(w, r) {
+		return
+	}
+	var c runtime.SpendCall
+	if !decode(w, r, &c, 4<<10) {
+		return
+	}
+	// a padded call site would be stored as a site of its own. The model is stored as sent, like the api's own
+	// gateway does: the provider already billed it, so refusing a padded model would lose a paid row.
+	badSite := c.CallSite == "" || strings.TrimSpace(c.CallSite) != c.CallSite
+	if badSite || strings.TrimSpace(c.Model) == "" || c.PromptTokens < 0 || c.CompletionTokens < 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "callSite is required without surrounding spaces, model is required and token counts must be >= 0"})
+		return
+	}
+	if err := RecordSpend(s.st.Pool)(r.Context(), c); err != nil {
+		s.fail500(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request) {

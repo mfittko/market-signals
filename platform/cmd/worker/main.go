@@ -39,8 +39,11 @@ func main() {
 	}
 	client := runtime.NewClient(*api, token)
 	maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
-	// the gateway reads the provider config from the control plane on every model call
-	rts := map[string]runtime.Runtime{"mock": runtime.Mock{}, "llm": &runtime.LLM{GW: runtime.NewGateway(client.LLMConfig, log), MaxTokens: maxTok}}
+	// the gateway reads the provider config, cap state included, from the control plane on every model call and
+	// records each call's spend there
+	gw := runtime.NewGateway(client.LLMConfig, log)
+	gw.Record = client.RecordSpend
+	rts := map[string]runtime.Runtime{"mock": runtime.Mock{}, "llm": &runtime.LLM{GW: gw, MaxTokens: maxTok}}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	w := &runtime.Worker{ID: *id, Client: client, Runtimes: rts, Concurrency: *conc, Poll: 2 * time.Second, RunTimeout: 3 * time.Minute, Log: log}

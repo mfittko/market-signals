@@ -25,6 +25,7 @@ import (
 	"github.com/mfittko/market-signals/platform/fixtures"
 	"github.com/mfittko/market-signals/platform/internal/domain"
 	"github.com/mfittko/market-signals/platform/internal/queue"
+	"github.com/mfittko/market-signals/platform/internal/spend"
 	"github.com/mfittko/market-signals/platform/internal/tools"
 )
 
@@ -214,6 +215,7 @@ func (s *Server) routes() {
 	// worker runtime protocol
 	m.Handle("GET /api/v1/runtime/tools", s.bearer(s.cfg.WorkerToken, s.toolDefs))
 	m.Handle("GET /api/v1/runtime/llm-config", s.bearer(s.cfg.WorkerToken, s.llmConfig))
+	m.Handle("POST /api/v1/runtime/spend", s.bearer(s.cfg.WorkerToken, s.recordSpend))
 	m.Handle("POST /api/v1/runtime/claim", s.bearer(s.cfg.WorkerToken, s.claim))
 	m.Handle("POST /api/v1/runtime/heartbeat", s.bearer(s.cfg.WorkerToken, s.heartbeat))
 	m.Handle("POST /api/v1/runtime/events", s.bearer(s.cfg.WorkerToken, s.workerEvent))
@@ -326,7 +328,12 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 			engine["error"] = err.Error()
 		}
 	}
-	degraded := degradedConditions(s.cfg.EngineURL != "", reachable, stats.Workers, agents)
+	spent, capUSD, err := spend.Today(ctx, s.st.Pool, time.Now())
+	if err != nil {
+		s.fail500(w, err)
+		return
+	}
+	degraded := degradedConditions(s.cfg.EngineURL != "", reachable, stats.Workers, agents, spent, capUSD)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "uptimeSeconds": int(time.Since(s.boot).Seconds()), "engine": engine, "stats": stats, "mode": "shadow", "backup": backupStatus(s.cfg.BackupDir, time.Now()), "build": s.bld, "degraded": degraded})
 }
 
@@ -338,7 +345,8 @@ type degradedCondition struct {
 }
 
 // degradedConditions lists the active pipeline problems, at most one entry per name. It reads no clock and no database.
-func degradedConditions(engineConfigured, engineReachable bool, workers []queue.WorkerInfo, agents []queue.Agent) []degradedCondition {
+// spentUSD and capUSD are the current UTC day's model spend and the daily cap.
+func degradedConditions(engineConfigured, engineReachable bool, workers []queue.WorkerInfo, agents []queue.Agent, spentUSD, capUSD float64) []degradedCondition {
 	out := []degradedCondition{}
 	if engineConfigured && !engineReachable {
 		out = append(out, degradedCondition{"engine_unreachable", "the control plane cannot reach the engine"})
@@ -360,6 +368,10 @@ func degradedConditions(engineConfigured, engineReachable bool, workers []queue.
 	if len(missing) > 0 {
 		slices.Sort(missing)
 		out = append(out, degradedCondition{"worker_missing", "no online worker offers runtime " + strings.Join(missing, ", ")})
+	}
+	if spend.CapReached(spentUSD, capUSD) {
+		out = append(out, degradedCondition{"model_cap_reached",
+			fmt.Sprintf("model spend $%.2f of the $%.2f daily cap; model calls are refused until 00:00 UTC", spentUSD, capUSD)})
 	}
 	return out
 }

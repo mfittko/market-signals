@@ -58,7 +58,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	}
 	ctx := context.Background()
 	for _, q := range []string{
-		`TRUNCATE run_events, attempts, runs, sessions, agents, workers, settings, settings_revisions, ledger_requests, ledger_journal, ledger_trades, ledger_positions, ledger_account RESTART IDENTITY CASCADE`,
+		`TRUNCATE model_spend, run_events, attempts, runs, sessions, agents, workers, settings, settings_revisions, ledger_requests, ledger_journal, ledger_trades, ledger_positions, ledger_account RESTART IDENTITY CASCADE`,
 		`ALTER TABLE snapshots DISABLE TRIGGER snapshots_no_update; TRUNCATE snapshots RESTART IDENTITY CASCADE; ALTER TABLE snapshots ENABLE TRIGGER snapshots_no_update`,
 	} {
 		if _, err := pool.Exec(ctx, q); err != nil {

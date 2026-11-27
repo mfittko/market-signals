@@ -187,8 +187,10 @@ func (w *Worker) execute(parent context.Context, cl *queue.Claim) {
 	case runErr != nil:
 		// A shutdown cancel reaches here as context.Canceled; the run must be
 		// requeued for another worker, never failed for good. The queue's
-		// attempt budget still bounds genuine repeat failures.
-		if err := w.Client.Fail(bg, att, runErr.Error(), true); err != nil && !IsStale(err) {
+		// attempt budget still bounds genuine repeat failures. A run at the spend cap, or one whose spend went
+		// unrecorded, fails for good: a retry would repeat paid calls the ledger cannot see.
+		retryable := !IsCapReached(runErr) && !IsSpendUnrecorded(runErr)
+		if err := w.Client.Fail(bg, att, runErr.Error(), retryable); err != nil && !IsStale(err) {
 			log.Warn("fail report failed", "err", err)
 		}
 		log.Warn("attempt failed", "err", runErr)

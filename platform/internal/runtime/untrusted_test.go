@@ -80,7 +80,7 @@ func runLLM(t *testing.T, ft *fakeTools, payload, notes string, replies ...map[s
 	if notes != "" {
 		in.Claim.Notes = json.RawMessage(notes)
 	}
-	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), in); err != nil {
+	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m", Record: shared.record}).Run(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
 	return *reqs
@@ -143,7 +143,7 @@ func TestUntrustedWaitReasonStaysWrapped(t *testing.T) {
 	in := input(&fakeTools{out: map[string]string{}}, 1)
 	in.Claim.Snapshot.Payload = json.RawMessage(snap(cleanNews))
 	in.Claim.Run.WaitReason = inject
-	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), in); err != nil {
+	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m", Record: shared.record}).Run(context.Background(), in); err != nil {
 		t.Fatal(err)
 	}
 	assertWrapped(t, *reqs)

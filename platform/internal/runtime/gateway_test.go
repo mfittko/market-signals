@@ -56,6 +56,12 @@ type clock struct{ t time.Time }
 func (c *clock) now() time.Time { return c.t }
 
 func gateway(src runtime.ConfigSource, log *bytes.Buffer) (*runtime.Gateway, *clock) {
+	g, c, _ := recorded(src, log)
+	return g, c
+}
+
+// recorded is gateway with its own capturing spend recorder.
+func recorded(src runtime.ConfigSource, log *bytes.Buffer) (*runtime.Gateway, *clock, *recorder) {
 	var l *slog.Logger
 	if log != nil {
 		l = slog.New(slog.NewTextHandler(log, nil))
@@ -63,7 +69,9 @@ func gateway(src runtime.ConfigSource, log *bytes.Buffer) (*runtime.Gateway, *cl
 	g := runtime.NewGateway(src, l)
 	c := &clock{t: time.Unix(1_700_000_000, 0)}
 	g.Now = c.now
-	return g, c
+	rec := &recorder{}
+	g.Record = rec.record
+	return g, c, rec
 }
 
 func complete(g *runtime.Gateway, ctx context.Context) (string, error) {
@@ -541,7 +549,7 @@ func TestWorkerReadsTheConfigFromTheControlPlaneOnEveryModelCall(t *testing.T) {
 func TestLLMSendsTemperatureZeroOnEveryRound(t *testing.T) {
 	srv, reqs := fakeLLM(t, toolReply("get_portfolio"), toolReply("get_portfolio"), text(`{"action":"hold","reasoning":"r"}`))
 	ft := &fakeTools{out: map[string]string{"get_portfolio": "{}"}}
-	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}).Run(context.Background(), input(ft, 0)); err != nil {
+	if _, err := runtime.NewLLM(runtime.LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m", Record: shared.record}).Run(context.Background(), input(ft, 0)); err != nil {
 		t.Fatal(err)
 	}
 	if len(*reqs) != 3 {

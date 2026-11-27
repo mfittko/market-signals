@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/mfittko/market-signals/platform/internal/queue"
+	"github.com/mfittko/market-signals/platform/internal/runtime"
+	"github.com/mfittko/market-signals/platform/internal/spend"
 	"github.com/mfittko/market-signals/platform/internal/testutil"
 )
 
@@ -837,16 +839,27 @@ func TestGrillGroundsTheModelInTheTradeRecordAndRefusesBadInput(t *testing.T) {
 		}
 	}
 	var seen []map[string]any
-	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(_ context.Context, m []map[string]any) (string, error) {
+	var site string
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(ctx context.Context, m []map[string]any) (string, error) {
 		seen = m
+		site, _ = runtime.CallFrom(ctx)
 		return "Which timeframe confirms the flip?", nil
 	}}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	hs := httptest.NewServer(srv.Handler())
 	defer hs.Close()
 
 	c, out := call(t, "POST", hs.URL+"/api/v1/strategies/grill", "", `{"name":"Trend","mode":"refine","draft":"Enter on flips.","messages":[{"role":"user","content":"Start"}]}`, nil)
-	if c != 200 || out["reply"] != "Which timeframe confirms the flip?" {
-		t.Fatalf("%d %v", c, out)
+	if c != 200 || out["reply"] != "Which timeframe confirms the flip?" || site != "coach" {
+		t.Fatalf("%d %v, call site %q", c, out, site)
+	}
+	// a model error answers 502 naming only the reason
+	capped := httptest.NewServer(New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(context.Context, []map[string]any) (string, error) {
+		return "", &runtime.ModelError{Provider: "http://provider.test/v1/chat/completions", Reason: runtime.ReasonCapReached}
+	}}, st, slog.New(slog.DiscardHandler)).Handler())
+	c, out = call(t, "POST", capped.URL+"/api/v1/strategies/grill", "", `{"name":"Trend","messages":[{"role":"user","content":"x"}]}`, nil)
+	capped.Close()
+	if c != 502 || out["error"] != "the model call failed: cap_reached" {
+		t.Fatalf("cap reached: %d %v", c, out)
 	}
 	ctxMsg := seen[1]["content"].(string)
 	if !strings.Contains(ctxMsg, "2 closed trades, 1 wins") || !strings.Contains(ctxMsg, "Enter on flips.") {
@@ -991,9 +1004,12 @@ func TestAutoGrillBacktestsFlipsAndNeedsEnoughHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(_ context.Context, m []map[string]any) (string, error) {
+	srv := New(Config{WorkerToken: "w", IngestToken: "i", Complete: func(ctx context.Context, m []map[string]any) (string, error) {
 		if !strings.Contains(m[1]["content"].(string), "Backtest evidence for T/USD M5") {
 			t.Errorf("the coach must receive the evidence: %v", m[1]["content"])
+		}
+		if site, _ := runtime.CallFrom(ctx); site != "autogrill" {
+			t.Errorf("call site %q, want autogrill", site)
 		}
 		return `{"recommendation":"Keep the baseline.","prompt":"Enter on flips.","summary":"none"}`, nil
 	}}, st, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -1509,6 +1525,27 @@ func TestHealthReportsTheBuild(t *testing.T) {
 	}
 	if d, _ := out["degraded"].([]any); len(d) == 0 || d[0].(map[string]any)["name"] != "engine_unreachable" {
 		t.Fatalf("degraded: %v", out["degraded"])
+	}
+	capReached := func(out map[string]any) bool {
+		d, _ := out["degraded"].([]any)
+		for _, c := range d {
+			if c.(map[string]any)["name"] == "model_cap_reached" {
+				return true
+			}
+		}
+		return false
+	}
+	if capReached(out) {
+		t.Fatalf("no spend yet: %v", out["degraded"])
+	}
+	// 1M output tokens of gpt-5.4-mini cost $4.50; a second call passes the $5 default cap
+	for range 2 {
+		if err := spend.Record(context.Background(), st.Pool, spend.Call{CallSite: "agent", Model: "gpt-5.4-mini", CompletionTokens: 1_000_000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, out := call(t, "GET", hs.URL+"/api/v1/health", "", "", nil); !capReached(out) {
+		t.Fatalf("at the cap: %v", out["degraded"])
 	}
 	// a test binary carries no VCS stamp
 	b := out["build"].(map[string]any)
