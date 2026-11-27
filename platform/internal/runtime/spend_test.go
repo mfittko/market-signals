@@ -139,6 +139,25 @@ func TestGatewayRecordsATimedOutCallAsEstimated(t *testing.T) {
 	}
 }
 
+// an error status whose body stalls past the deadline is an unbilled answer, not a timed-out generation
+func TestGatewayRecordsNoRowForAnErrorStatusWhoseBodyStalls(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(s.Close)
+	g, _, rec := recorded(fixed(s.URL), nil)
+	g.Deadline = 50 * time.Millisecond
+	if _, err := chat(g, context.Background()); reason(t, err) != runtime.ReasonTimeout {
+		t.Fatalf("want timeout, got %v", err)
+	}
+	if n := len(rec.all()); n != 0 {
+		t.Fatalf("%d rows, want none", n)
+	}
+}
+
 func TestGatewayRecordsNoRowWithoutABilledAnswer(t *testing.T) {
 	failing := newStub(t, 500)
 	for name, c := range map[string]struct {

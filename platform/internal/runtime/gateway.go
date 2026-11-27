@@ -31,9 +31,11 @@ type ProviderConfig struct {
 // ConfigSource returns the provider config. The gateway calls it once per model call.
 type ConfigSource func(ctx context.Context) (ProviderConfig, error)
 
-// SpendCall is one model call that reached the provider. It is also the body of POST /api/v1/runtime/spend,
-// which carries no cost: the control plane prices the call. A call without usage, with empty or all-zero usage,
-// or one that timed out, has zero prompt tokens and the request's max_tokens as completion tokens, and is estimated.
+// SpendCall is one model call that got an HTTP 200 answer or timed out after its request was sent, before any
+// status arrived. It is also the body of POST /api/v1/runtime/spend, which carries no cost: the control plane
+// prices the call. A call without usage, with empty or all-zero usage, with a 200 reply that does not parse or has
+// no choices, or one that timed out, has zero prompt tokens and the request's max_tokens as completion tokens, and
+// is estimated.
 type SpendCall struct {
 	CallSite         string `json:"callSite"`
 	Provider         string `json:"provider"`
@@ -119,8 +121,9 @@ func IsCapReached(err error) bool { return hasReason(err, ReasonCapReached) }
 func IsSpendUnrecorded(err error) bool { return hasReason(err, ReasonSpendUnrecorded) }
 
 // Gateway makes every model call: it reads the provider config per call, bounds the call with a deadline and
-// keeps one circuit breaker per provider endpoint in memory. Record writes the spend of each call that reached
-// the provider; a nil Record refuses every call.
+// keeps one circuit breaker per provider endpoint in memory. Record writes the spend of each call that got an
+// HTTP 200 answer or timed out after its request was sent; a non-200 answer writes no row. A nil Record refuses
+// every call.
 type Gateway struct {
 	Source   ConfigSource
 	Record   func(ctx context.Context, c SpendCall) error
@@ -301,8 +304,9 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 	// a caller deadline expiry counts like the gateway's own; only the caller's cancellation does not
 	g.record(key, a, err == nil, counted && !errors.Is(ctx.Err(), context.Canceled), g.Now())
 	timedOut := err != nil && errors.Is(callCtx.Err(), context.DeadlineExceeded)
-	// the provider bills an answered call, and may bill a generation that ran past the deadline
-	if status == http.StatusOK || (timedOut && sent.Load()) {
+	// the provider bills an answered call, and may bill a generation that ran past the deadline; a non-200
+	// status whose body stalled past the deadline is an unbilled error answer
+	if status == http.StatusOK || (timedOut && sent.Load() && status == 0) {
 		if rerr := g.spend(ctx, key, req, u, hasUsage && !timedOut); rerr != nil {
 			return nil, usage{}, &ModelError{Provider: key, Reason: ReasonSpendUnrecorded, Err: rerr}
 		}
@@ -324,7 +328,7 @@ func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any,
 	return nil, u, &ModelError{Provider: key, Reason: reason, Status: status, Err: err}
 }
 
-// spend records one call that reached the provider on a context the caller cannot cancel, so a caller that
+// spend records one billed call on a context the caller cannot cancel, so a caller that
 // went away after the answer still gets its row. Without usage, or with empty or all-zero usage, the call is
 // estimated from max_tokens.
 func (g *Gateway) spend(ctx context.Context, key string, req map[string]any, u usage, hasUsage bool) error {

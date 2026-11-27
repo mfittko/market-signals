@@ -151,8 +151,6 @@ func TestSpendRouteRefusesAnInvalidBody(t *testing.T) {
 		`{"callSite":"agent ","model":"glm-5"}`,
 		`{"callSite":"agent","model":""}`,
 		`{"callSite":"agent","model":"  "}`,
-		`{"callSite":"agent","model":" glm-5"}`,
-		`{"callSite":"agent","model":"glm-5 "}`,
 		`{"callSite":"agent","model":"m","promptTokens":-1}`,
 		`{"callSite":"agent","model":"m","completionTokens":-1}`,
 	} {
@@ -182,6 +180,22 @@ func TestSpendRouteStoresAPricedRow(t *testing.T) {
 	}
 	if site != "agent" || as != "glm-5" || math.Abs(cost-4.2) > 1e-9 || !noRun {
 		t.Fatalf("got %s %s %v %v", site, as, cost, noRun)
+	}
+	// a padded model was billed as sent, so it is stored as sent and priced at the highest rates
+	for _, model := range []string{"glm-5 ", " glm-5"} {
+		body := `{"callSite":"agent","model":"` + model + `","promptTokens":10}`
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, workerReq(http.MethodPost, "/api/v1/runtime/spend", body, "w", "127.0.0.1:5000"))
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%q: got %d %s", model, rec.Code, rec.Body)
+		}
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM model_spend WHERE model = $1 AND priced_as = '*max*'`, model).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("%q: %d rows priced as *max*, want 1", model, n)
+		}
 	}
 }
 
