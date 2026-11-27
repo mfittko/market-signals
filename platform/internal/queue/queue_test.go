@@ -309,6 +309,90 @@ func TestToolAllowlistAndBudgetAreEnforcedAtExecution(t *testing.T) {
 	}
 }
 
+// retry expires the attempt's lease, reaps it and claims the requeued run.
+func retry(t *testing.T, s *Store, ctx context.Context, c *Claim) *Claim {
+	t.Helper()
+	expireLease(t, c.Attempt.ID)
+	_, err := s.Reap(ctx)
+	must(t, err)
+	if _, err := testPool.Exec(ctx, `UPDATE runs SET run_after=now()`); err != nil {
+		t.Fatal(err)
+	}
+	next := claim(t, s, ctx, "w")
+	if next == nil || next.Run.ID != c.Run.ID {
+		t.Fatalf("expected a retry of run %d: %+v", c.Run.ID, next)
+	}
+	return next
+}
+
+func useTools(t *testing.T, s *Store, ctx context.Context, c *Claim, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if _, err := s.AuthorizeTool(ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+}
+
+func TestRetryGetsOnlyTheRemainingToolBudget(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1", "get_snapshot")
+	a.Budgets.MaxToolCalls = 3
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	useTools(t, s, ctx, c, 2)
+	c = retry(t, s, ctx, c)
+	useTools(t, s, ctx, c, 1)
+	if _, err := s.AuthorizeTool(ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrBudget) {
+		t.Fatalf("the retry must get only the remainder, got %v", err)
+	}
+}
+
+func TestFollowupWakeGetsTheFullToolBudget(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1", "get_snapshot")
+	a.Budgets.MaxToolCalls = 2
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	useTools(t, s, ctx, c, 2)
+	must(t, s.SetPendingWait(ctx, c.Attempt.ID, c.Attempt.Fence, 30, "check the next bar"))
+	if _, err := s.Complete(ctx, c.Attempt.ID, c.Attempt.Fence, CompleteInput{Proposal: hold()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testPool.Exec(ctx, `UPDATE runs SET wait_until = now() - interval '1 second'`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Reap(ctx)
+	must(t, err)
+	c = claim(t, s, ctx, "w")
+	useTools(t, s, ctx, c, 2)
+	if _, err := s.AuthorizeTool(ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrBudget) {
+		t.Fatalf("the woken attempt keeps the bound, got %v", err)
+	}
+}
+
+func TestLostClaimResponseNeverLowersTheToolCount(t *testing.T) {
+	s, ctx := fresh(t)
+	a := agent("a1", "get_snapshot")
+	a.Budgets.MaxToolCalls = 3
+	a.Budgets.MaxAttempts = 3
+	must(t, s.UpsertAgent(ctx, a))
+	ingest(t, s, ctx)
+	c := claim(t, s, ctx, "w")
+	useTools(t, s, ctx, c, 2)
+	lost := retry(t, s, ctx, c) // the worker never receives this claim
+	c = retry(t, s, ctx, lost)
+	if _, err := s.AuthorizeTool(ctx, lost.Attempt.ID, lost.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrStale) {
+		t.Fatalf("a reaped lost claim must be refused as stale, got %v", err)
+	}
+	useTools(t, s, ctx, c, 1)
+	if _, err := s.AuthorizeTool(ctx, c.Attempt.ID, c.Attempt.Fence, "get_snapshot", nil); !errors.Is(err, ErrBudget) {
+		t.Fatalf("a lost claim must not refill the budget, got %v", err)
+	}
+}
+
 func TestExhaustedAttemptsEndInARecordedHold(t *testing.T) {
 	s, ctx := fresh(t)
 	a := agent("a1")

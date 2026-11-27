@@ -25,7 +25,7 @@ var (
 	ErrCancelled = errors.New("run cancelled")
 	// ErrForbidden is a tool call outside the agent's allowlist.
 	ErrForbidden = errors.New("tool not in the agent's allowlist")
-	// ErrBudget is an exhausted per-attempt tool budget.
+	// ErrBudget is an exhausted tool budget of the current follow-up window (shared by retries).
 	ErrBudget = errors.New("tool-call budget exhausted")
 	// ErrNotFound is an unknown run or agent.
 	ErrNotFound = errors.New("not found")
