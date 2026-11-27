@@ -104,6 +104,7 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: engine, AllowedOrigins: parseOrigins(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000")), BackupDir: os.Getenv("MS_BACKUP_DIR"), OperatorToken: os.Getenv("MS_OPERATOR_TOKEN")}
 	maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
 	gw := runtime.NewGateway(storeSource(pool), log)
+	gw.Record = api.RecordSpend(pool)
 	cfg.Complete, cfg.ModelConfigured = (&runtime.LLM{GW: gw, MaxTokens: maxTok}).Complete, gw.Configured
 	srv := api.New(cfg, st, log)
 	p := plane{addr: addr, log: log, handler: srv.Handler(), reaper: func(ctx context.Context) { srv.RunReaper(ctx, 3*time.Second) }, stopStreams: srv.StopStreams, close: pool.Close}
@@ -248,12 +249,10 @@ func importSettings(ctx context.Context, pool *pgxpool.Pool, path string, log *s
 	log.Info("settings imported", "file", path, "revision", rep.Revision, "changed", rep.Changed, "skipped", rep.Skipped, "notes", rep.Notes)
 }
 
-// storeSource is the control plane's model config source: it reads the settings store on every call.
+// storeSource is the control plane's model config source: it reads the settings store and today's model spend
+// on every call, so grill, autogrill and news triage are refused at the daily cap too.
 func storeSource(pool *pgxpool.Pool) runtime.ConfigSource {
-	return func(ctx context.Context) (runtime.ProviderConfig, error) {
-		base, key, model, ok, err := settings.LLM(ctx, pool)
-		return runtime.ProviderConfig{Configured: ok, BaseURL: base, APIKey: key, Model: model}, err
-	}
+	return func(ctx context.Context) (runtime.ProviderConfig, error) { return api.CapAwareLLM(ctx, pool) }
 }
 
 func seedAgents(ctx context.Context, st *queue.Store) error {

@@ -4,17 +4,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mfittko/market-signals/platform/internal/queue"
 	"github.com/mfittko/market-signals/platform/internal/runtime"
 	"github.com/mfittko/market-signals/platform/internal/settings"
+	"github.com/mfittko/market-signals/platform/internal/spend"
 	"github.com/mfittko/market-signals/platform/internal/testutil"
 )
 
@@ -81,7 +88,11 @@ func TestTriageNewsDoesNotLatchOffOnAFailedConfigRead(t *testing.T) {
 }
 
 func llmConfigReq(token, remote string) *http.Request {
-	r := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/api/v1/runtime/llm-config", nil)
+	return workerReq(http.MethodGet, "/api/v1/runtime/llm-config", "", token, remote)
+}
+
+func workerReq(method, path, body, token, remote string) *http.Request {
+	r := httptest.NewRequest(method, "http://127.0.0.1:8080"+path, strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -89,35 +100,135 @@ func llmConfigReq(token, remote string) *http.Request {
 	return r
 }
 
+const spendBody = `{"callSite":"agent","provider":"http://p/v1/chat/completions","model":"m","promptTokens":10,"completionTokens":5}`
+
 // The token and loopback refusals answer before the store is read, so they need no database.
-func TestLLMConfigRefusesWithoutTokenOrFromANonLoopbackPeer(t *testing.T) {
+func TestWorkerConfigAndSpendRoutesRefuseWithoutTokenOrFromANonLoopbackPeer(t *testing.T) {
 	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, nil, slog.New(slog.DiscardHandler))
-	for _, c := range []struct {
-		token, remote string
-		want          int
-	}{
-		{"", "127.0.0.1:5000", http.StatusUnauthorized},
-		{"i", "127.0.0.1:5000", http.StatusUnauthorized},
-		{"wrong", "[::1]:5000", http.StatusUnauthorized},
-		{"w", "192.0.2.1:5000", http.StatusNotFound},
-		{"w", "10.0.0.2:5000", http.StatusNotFound},
-		{"w", "not-an-address", http.StatusNotFound},
+	for _, route := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/v1/runtime/llm-config", ""},
+		{http.MethodPost, "/api/v1/runtime/spend", spendBody},
 	} {
-		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, llmConfigReq(c.token, c.remote))
-		if rec.Code != c.want || strings.Contains(rec.Body.String(), "apiKey") {
-			t.Errorf("token %q from %s: got %d %s, want %d", c.token, c.remote, rec.Code, rec.Body, c.want)
+		for _, c := range []struct {
+			token, remote string
+			want          int
+		}{
+			{"", "127.0.0.1:5000", http.StatusUnauthorized},
+			{"i", "127.0.0.1:5000", http.StatusUnauthorized},
+			{"wrong", "[::1]:5000", http.StatusUnauthorized},
+			{"w", "192.0.2.1:5000", http.StatusNotFound},
+			{"w", "10.0.0.2:5000", http.StatusNotFound},
+			{"w", "not-an-address", http.StatusNotFound},
+		} {
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, workerReq(route.method, route.path, route.body, c.token, c.remote))
+			if rec.Code != c.want || strings.Contains(rec.Body.String(), "apiKey") {
+				t.Errorf("%s token %q from %s: got %d %s, want %d", route.path, c.token, c.remote, rec.Code, rec.Body, c.want)
+			}
+		}
+		// a proxy on the host, such as the console's rewrite, connects from loopback but adds forwarding headers
+		for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "Forwarded"} {
+			r := workerReq(route.method, route.path, route.body, "w", "127.0.0.1:5000")
+			r.Header.Set(h, "127.0.0.1:8080") // an allowed host, so only the route's own check refuses
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, r)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("%s %s: got %d, want 404", route.path, h, rec.Code)
+			}
 		}
 	}
-	// a proxy on the host, such as the console's rewrite, connects from loopback but adds forwarding headers
-	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "Forwarded"} {
-		r := llmConfigReq("w", "127.0.0.1:5000")
-		r.Header.Set(h, "127.0.0.1:8080") // an allowed host, so only the route's own check refuses
+}
+
+// Validation answers before the store is used, so it needs no database.
+func TestSpendRouteRefusesAnInvalidBody(t *testing.T) {
+	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, nil, slog.New(slog.DiscardHandler))
+	for _, body := range []string{
+		`not json`,
+		`{"callSite":" ","model":"m"}`,
+		`{"callSite":"agent","model":""}`,
+		`{"callSite":"agent","model":"m","promptTokens":-1}`,
+		`{"callSite":"agent","model":"m","completionTokens":-1}`,
+	} {
 		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, r)
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("%s: got %d, want 404", h, rec.Code)
+		srv.Handler().ServeHTTP(rec, workerReq(http.MethodPost, "/api/v1/runtime/spend", body, "w", "127.0.0.1:5000"))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: got %d, want 400", body, rec.Code)
 		}
+	}
+}
+
+func TestSpendRouteStoresAPricedRow(t *testing.T) {
+	pool := testutil.Pool(t)
+	srv := New(Config{WorkerToken: "w", IngestToken: "i"}, queue.New(pool), slog.New(slog.DiscardHandler))
+	// the body's cost field is ignored and run 99 names no run, so the row has a NULL run id
+	body := `{"callSite":"agent","provider":"http://p/v1/chat/completions","model":"glm-5","promptTokens":1000000,"completionTokens":1000000,"runId":99,"costUsd":0}`
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, workerReq(http.MethodPost, "/api/v1/runtime/spend", body, "w", "127.0.0.1:5000"))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+	var site, as string
+	var cost float64
+	var noRun bool
+	if err := pool.QueryRow(context.Background(), `SELECT call_site, priced_as, cost_usd, run_id IS NULL FROM model_spend`).Scan(&site, &as, &cost, &noRun); err != nil {
+		t.Fatal(err)
+	}
+	if site != "agent" || as != "glm-5" || math.Abs(cost-4.2) > 1e-9 || !noRun {
+		t.Fatalf("got %s %s %v %v", site, as, cost, noRun)
+	}
+}
+
+// The api's own gateway (grill, autogrill, news triage) reads the cap through CapAwareLLM.
+func TestAPISourceRefusesAtTheCap(t *testing.T) {
+	var hits atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer provider.Close()
+	prevLLM, prevToday := llmSettings, spendToday
+	t.Cleanup(func() { llmSettings, spendToday = prevLLM, prevToday })
+	llmSettings = func(context.Context, *pgxpool.Pool) (string, string, string, bool, error) {
+		return provider.URL, "sk-test-fake", "m", true, nil
+	}
+	spent := 4.99
+	spendToday = func(context.Context, *pgxpool.Pool, time.Time) (float64, float64, error) { return spent, 5, nil }
+	cfg, err := CapAwareLLM(context.Background(), nil)
+	if err != nil || cfg.CapReached || !cfg.Configured {
+		t.Fatalf("below the cap: %+v %v", cfg, err)
+	}
+	spent = 5
+	gw := runtime.NewGateway(func(ctx context.Context) (runtime.ProviderConfig, error) { return CapAwareLLM(ctx, nil) }, nil)
+	gw.Record = func(context.Context, runtime.SpendCall) error {
+		t.Error("a refused call must not be recorded")
+		return nil
+	}
+	if _, err := (&runtime.LLM{GW: gw}).Complete(runtime.WithCall(context.Background(), "coach", 0), nil); !runtime.IsCapReached(err) || hits.Load() != 0 {
+		t.Fatalf("at the cap: %v, %d requests", err, hits.Load())
+	}
+	// a failed spend read fails the config read
+	spendToday = func(context.Context, *pgxpool.Pool, time.Time) (float64, float64, error) {
+		return 0, 0, errors.New("db down")
+	}
+	if _, err := CapAwareLLM(context.Background(), nil); err == nil {
+		t.Fatal("a failed spend read must fail the config read")
+	}
+}
+
+func TestNewsCallSites(t *testing.T) {
+	s, link, _ := summaryFixture(t, http.StatusOK, articlePage, func() (string, error) { return "**Oil up.**", nil })
+	var sites []string
+	inner := s.cfg.Complete
+	s.cfg.Complete = func(ctx context.Context, msgs []map[string]any) (string, error) {
+		site, _ := runtime.CallFrom(ctx)
+		sites = append(sites, site)
+		return inner(ctx, msgs)
+	}
+	if _, err := s.classifyHeadlines(context.Background(), "WTICO/USD", "WTI Crude", []string{"Oil rises"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.summarize(context.Background(), "WTICO/USD", "WTI Crude", "Oil rises", link); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(sites, []string{"news_triage", "news_summary"}) {
+		t.Fatalf("call sites %v", sites)
 	}
 }
 
@@ -133,8 +244,8 @@ func TestLLMConfigReturnsOnlyTheProviderFields(t *testing.T) {
 		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
 			t.Fatalf("got %d %s", rec.Code, rec.Body)
 		}
-		if keys := slices.Sorted(maps.Keys(out)); !slices.Equal(keys, []string{"apiKey", "baseUrl", "configured", "model"}) {
-			t.Fatalf("the route must return exactly the four provider fields: %v", keys)
+		if keys := slices.Sorted(maps.Keys(out)); !slices.Equal(keys, []string{"apiKey", "baseUrl", "capReached", "configured", "model"}) {
+			t.Fatalf("the route must return exactly the provider fields and capReached: %v", keys)
 		}
 		return rec.Header(), out
 	}
@@ -154,5 +265,17 @@ func TestLLMConfigReturnsOnlyTheProviderFields(t *testing.T) {
 	}
 	if strings.Contains(log.String(), "SECRET") || strings.Contains(log.String(), "ANTHROPIC") {
 		t.Fatalf("the route must not log the response: %q", log.String())
+	}
+	if out["capReached"] != false {
+		t.Fatalf("no spend yet: %v", out)
+	}
+	// 1M output tokens of gpt-5.4-mini cost $4.50; a second call passes the $5 default cap
+	for range 2 {
+		if err := spend.Record(context.Background(), pool, spend.Call{CallSite: "agent", Model: "gpt-5.4-mini", CompletionTokens: 1_000_000}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, out = get(); out["capReached"] != true {
+		t.Fatalf("at the cap: %v", out)
 	}
 }

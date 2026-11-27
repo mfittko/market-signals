@@ -343,7 +343,7 @@ func (s *Server) summarize(ctx context.Context, symbol, name, title, link string
 		return "", err
 	}
 	user := fmt.Sprintf("Instrument: %s (%s).\nHeadline: %s\nArticle text:\n%s", symbol, name, title, text)
-	reply, err := s.cfg.Complete(ctx, []map[string]any{{"role": "system", "content": summarySystem}, {"role": "user", "content": user}})
+	reply, err := s.cfg.Complete(runtime.WithCall(ctx, "news_summary", 0), []map[string]any{{"role": "system", "content": summarySystem}, {"role": "user", "content": user}})
 	if err != nil {
 		return "", err
 	}
@@ -363,7 +363,7 @@ func (s *Server) classifyHeadlines(ctx context.Context, symbol, name string, tit
 		}
 		fmt.Fprintf(&sb, "%d. %s\n", i, t)
 	}
-	reply, err := s.cfg.Complete(ctx, []map[string]any{{"role": "system", "content": triageSystem}, {"role": "user", "content": sb.String()}})
+	reply, err := s.cfg.Complete(runtime.WithCall(ctx, "news_triage", 0), []map[string]any{{"role": "system", "content": triageSystem}, {"role": "user", "content": sb.String()}})
 	if err != nil {
 		return nil, err
 	}
