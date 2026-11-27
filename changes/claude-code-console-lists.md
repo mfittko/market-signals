@@ -1,0 +1,1 @@
+- Platform: the console agents panel and strategy wizard list `claude-code` agents next to `llm` agents, and the claude-code child no longer inherits `CLAUDE_CODE_USE_FOUNDRY` (#443)
