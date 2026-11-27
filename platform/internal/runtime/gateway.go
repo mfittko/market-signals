@@ -189,6 +189,17 @@ func redact(s, full, apiKey string) string {
 	return s
 }
 
+// Configured reports whether a Chat request without a model would reach a provider: it reads the same
+// per-call config and applies the same not_configured checks as Chat.
+func (g *Gateway) Configured(ctx context.Context) bool {
+	cfg, err := g.Source(ctx)
+	if err != nil || !cfg.Configured || cfg.Model == "" {
+		return false
+	}
+	_, _, err = chatURL(cfg.BaseURL)
+	return err == nil
+}
+
 // Chat sends one chat completion request. A request without a model gets the configured model.
 func (g *Gateway) Chat(ctx context.Context, req map[string]any) (map[string]any, usage, error) {
 	var u usage

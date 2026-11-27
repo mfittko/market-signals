@@ -25,17 +25,25 @@ func unconfigured() func(context.Context, []map[string]any) (string, error) {
 }
 
 func TestTriageNewsPassesItemsThroughWhenNoModelIsConfigured(t *testing.T) {
+	gw := runtime.NewGateway(func(context.Context) (runtime.ProviderConfig, error) { return runtime.ProviderConfig{}, nil }, nil)
+	calls := 0
 	s := &Server{log: slog.New(slog.DiscardHandler), tri: newNewsTriage()}
-	s.cfg.Complete = unconfigured()
+	s.cfg.Complete = func(ctx context.Context, msgs []map[string]any) (string, error) {
+		calls++
+		return (&runtime.LLM{GW: gw}).Complete(ctx, msgs)
+	}
+	s.cfg.ModelConfigured = gw.Configured
 	raw := json.RawMessage(`{"ok":true,"items":[{"title":"Oil rises"}]}`)
-	triageOnce(t, s, raw)
-	s.tri.wg.Wait()
+	// the first answer already passes through: no pending marker and no model call
 	for range 2 {
 		if got := s.triageNews(context.Background(), "WTICO/USD", "WTI Crude", raw); string(got) != string(raw) {
 			t.Fatalf("an unconfigured model must pass the items through unmarked: %s", got)
 		}
+		s.tri.wg.Wait()
+		if calls != 0 {
+			t.Fatalf("an unconfigured model must start no model call: %d calls", calls)
+		}
 	}
-	s.tri.wg.Wait()
 }
 
 func llmConfigReq(token, remote string) *http.Request {

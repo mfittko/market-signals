@@ -103,7 +103,8 @@ func start(ctx context.Context, log *slog.Logger, addr, dburl, engine string, se
 	}
 	cfg := api.Config{WorkerToken: worker, IngestToken: ingest, EngineURL: engine, AllowedOrigins: parseOrigins(env("MS_ALLOWED_ORIGINS", "localhost:3000,127.0.0.1:3000")), BackupDir: os.Getenv("MS_BACKUP_DIR"), OperatorToken: os.Getenv("MS_OPERATOR_TOKEN")}
 	maxTok, _ := strconv.Atoi(os.Getenv("MS_LLM_MAX_TOKENS"))
-	cfg.Complete = (&runtime.LLM{GW: runtime.NewGateway(storeSource(pool), log), MaxTokens: maxTok}).Complete
+	gw := runtime.NewGateway(storeSource(pool), log)
+	cfg.Complete, cfg.ModelConfigured = (&runtime.LLM{GW: gw, MaxTokens: maxTok}).Complete, gw.Configured
 	srv := api.New(cfg, st, log)
 	p := plane{addr: addr, log: log, handler: srv.Handler(), reaper: func(ctx context.Context) { srv.RunReaper(ctx, 3*time.Second) }, stopStreams: srv.StopStreams, close: pool.Close}
 	if engine != "" {

@@ -63,8 +63,8 @@ func newsKey(symbol, title string) string { return symbol + "\x00" + title }
 
 // triageNews annotates the engine's headlines from the record. It answers at once: unknown
 // headlines are marked pending, a background job classifies and summarizes them, and a news
-// notice then makes the page refetch. Without a model the items pass through unmarked; a model call that
-// finds no model configured does the same for triageBackoff, after one pending answer.
+// notice then makes the page refetch. Without a model the items pass through unmarked. When the
+// gateway's config has no model, they pass through unmarked at once and for triageBackoff after it.
 func (s *Server) triageNews(ctx context.Context, symbol, name string, raw json.RawMessage) json.RawMessage {
 	if s.cfg.Complete == nil {
 		return raw
@@ -74,6 +74,12 @@ func (s *Server) triageNews(ctx context.Context, symbol, name string, raw json.R
 	off := time.Since(t.noModel) < triageBackoff
 	t.mu.Unlock()
 	if off {
+		return raw
+	}
+	if s.cfg.ModelConfigured != nil && !s.cfg.ModelConfigured(ctx) {
+		t.mu.Lock()
+		t.noModel = time.Now()
+		t.mu.Unlock()
 		return raw
 	}
 	var doc map[string]any

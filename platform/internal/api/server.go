@@ -42,6 +42,9 @@ type Config struct {
 	// Complete answers one plain chat turn for strategy coaching and news triage. The api always sets it; an
 	// unconfigured model returns a not_configured runtime.ModelError, which the callers treat like nil.
 	Complete func(ctx context.Context, messages []map[string]any) (string, error)
+	// ModelConfigured reads the gateway's per-call config and reports whether Complete has a model. News
+	// triage asks it before it marks a headline pending. Nil means Complete is assumed to have one.
+	ModelConfigured func(ctx context.Context) bool
 }
 
 type Server struct {
