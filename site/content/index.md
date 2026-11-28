@@ -30,6 +30,14 @@ Market Signals will treat a signal as the start of a watch. The watch will repor
 <div class="card"><strong>Your machine, your data</strong><p>Everything runs locally, with your own keys and your own market data.</p></div>
 </div>
 
+## News, filtered for your market
+
+Market Signals collects breaking headlines for the watched markets and keeps only those that can move it. A free stack reads Google News, GDELT, Al Jazeera, OilPrice.com and Yahoo Finance and needs no key. With a [NewsAPI.ai](https://newsapi.ai) key, fresher articles with their publisher and sentiment join the same feed. The engine fetches them when it filters a signal or a bot decides, within a request budget you set.
+
+The model translates each headline, judges whether it matters for this market, summarizes the article and flags escalations. The alert filter and the agents read these headlines as context. A headline can raise attention, but it never sets a trade direction.
+
+![The news card of the WTI instrument page.](screen:news "Headlines for WTI with their source, escalation flags and summaries, last 72 hours.")
+
 ## Six rules we keep
 
 1. Agents propose and the trader decides. Authority grows in steps: advise, compare, execute on paper, and finally opt in per bot with an immediate off switch.

@@ -39,9 +39,15 @@ The desk lists every watched market. Each card shows the live price, a strip of 
 
 The instrument page shows the live chart with the supertrend line, each flip, volume and news markers. The table below it lists every signal with the filter's verdict and reason. The right column holds the advisory prediction, the agents, the copilot chat and the latest headlines. You can zoom the chart along its time axis.
 
-The news card shows headlines in English and only those that can move this market. The model translates each headline, judges its relevance and summarizes the article, and the console keeps those results. The card opens on escalations, and you can switch to all relevant headlines. Hover a headline to read its summary.
-
 ![The WTI M5 instrument page.](screen:instrument "Live candles, signals with their verdicts, agents and news on one page.")
+
+## Read the news
+
+The news card on the instrument page shows headlines in English and only those that can move this market. The model translates each headline, judges its relevance and summarizes the article, and the console keeps those results. The card opens on escalations, and you can switch to all relevant headlines. Hover a headline to read its summary.
+
+![The news card for WTI.](screen:news "Each headline names its source and shows whether it was translated, summarized or flagged as an escalation.")
+
+The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com and Yahoo Finance. For fresher articles, add a [NewsAPI.ai](https://newsapi.ai) key in the News provider tab of the engine dashboard's settings (⚙) and set its request budget. The engine fetches NewsAPI.ai when it filters a fresh signal or a bot deliberates, not on every candle, and falls back to the free stack when the budget is used up. The console Settings page sets the NewsAPI.ai mode to `auto`, `shadow` or `off`. GNews is a second provider and stays off until you enable it.
 
 ## Ask an agent
 

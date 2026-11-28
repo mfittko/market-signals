@@ -66,6 +66,7 @@ a:hover { text-decoration: underline; }
 
 figure.shot { margin: 24px 0; }
 figure.shot img { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 10px; }
+figure.shot img[src*="/news-"] { max-width: 464px; margin: 0 auto; }
 figure.shot figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; padding: 0 8px; }
 
 .foot { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
