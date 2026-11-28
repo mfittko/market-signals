@@ -1,6 +1,6 @@
 # Market Signals
 
-Market Signals is a signal desk for one trader. It alerts you when a market move starts. Agents read the context and advise you. Breaking news per market comes from a free stack and, with a key, from NewsAPI.ai (the preferred provider). Plain rules guard the exits of every open position. Every trade uses paper money.
+Market Signals is a signal desk for one trader. It alerts you when a market move starts. Agents read the context and advise you. Breaking news for the markets that have a news query comes from a free stack and, with a key, from NewsAPI.ai (the preferred provider). Plain rules guard the exits of every open position. Every trade uses paper money.
 
 Project site: https://market-signals.io (vision, architecture and a usage guide).
 

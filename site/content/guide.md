@@ -47,7 +47,7 @@ The news card on the instrument page shows headlines in English and only those t
 
 ![The news card for WTI.](screen:news "Each headline names its source and shows whether it was translated, summarized or flagged as an escalation.")
 
-The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com and Yahoo Finance. For fresher articles, add a [NewsAPI.ai](https://newsapi.ai) key in the News provider tab of the engine dashboard's settings (⚙) and set its request budget. The engine fetches NewsAPI.ai when it filters a fresh signal or a bot deliberates, not on every candle, and falls back to the free stack when the budget is used up. The console Settings page sets the NewsAPI.ai mode to `auto`, `shadow` or `off`. GNews is a second provider and stays off until you enable it.
+The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com and Yahoo Finance. For fresher articles, add a [NewsAPI.ai](https://newsapi.ai) key in the News provider tab of the engine dashboard's settings (⚙) and adjust its request budget. The engine fetches NewsAPI.ai when it filters a fresh signal or a bot deliberates, not on every candle, and falls back to the free stack when the budget is used up. Set the NewsAPI.ai mode to `auto`, `shadow` or `off` in the same tab or on the console Settings page. In `shadow` the engine records the articles but keeps them out of prompts. GNews is a second provider and stays off until you enable it.
 
 ## Ask an agent
 
