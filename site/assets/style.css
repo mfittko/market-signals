@@ -76,6 +76,6 @@ figure.shot figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; 
 figure.shot a { cursor: zoom-in; }
 dialog.lightbox { padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); max-width: 96vw; max-height: 94vh; overflow: auto; cursor: zoom-out; }
 dialog.lightbox::backdrop { background: rgb(0 0 0 / 0.75); }
-dialog.lightbox img { display: block; max-width: 96vw; max-height: calc(94vh - 48px); width: auto; height: auto; }
+dialog.lightbox img { display: block; max-width: 96vw; max-height: calc(94vh - 4.5em); width: auto; height: auto; }
 dialog.lightbox p { margin: 0; padding: 8px 12px; font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
 dialog.lightbox button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; }

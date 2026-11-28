@@ -35,10 +35,11 @@
   const img = box.querySelector('img'), cap = box.querySelector('span');
   document.addEventListener('click', (e) => {
     const a = e.target.closest('figure.shot a');
-    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    if (!a) return;
     const shot = a.querySelector('img');
-    // Small screens open the image itself, so readers can pinch-zoom it.
-    if (innerWidth < 700) { a.href = shot.currentSrc || shot.src; return; }
+    // Modified clicks and small screens follow the link to the image the browser picked; phones can pinch-zoom it.
+    a.href = shot.currentSrc || shot.src;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button || innerWidth < 700) return;
     e.preventDefault();
     img.src = shot.currentSrc || shot.src;
     img.alt = shot.alt;

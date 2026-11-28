@@ -51,11 +51,11 @@ The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com a
 
 ## Ask for a prediction
 
-The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or let it update on each new candle. Predictions run on M1, M5, M15, M30, H1 and H4.
+The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or tick "Auto-update" to run it on each new candle while the page is open. Predictions run on M1, M5, M15, M30, H1 and H4.
 
 ![The prediction card for WTI M5.](screen:prediction "One prediction with its probabilities, setup quality and the warning that it has no demonstrated edge.")
 
-Prediction is off by default. Enter the provider key and switch it on in the "Prediction model" card on the console Settings page. Every run is a paid provider call. The prediction is advisory: the bots, the alert filter and the notifier never read it. In a historic backtest these predictions were not more accurate than chance, so treat a prediction as one input, not a signal.
+Prediction is off by default. Enter the provider key and switch it on in the "Prediction model" card on the console Settings page. Every run is a paid provider call. The prediction is advisory: the bots, the alert filter and the notifier never read it. Only the open console tab can notify you, when an auto-updated prediction flips between long and short. In a historic backtest these predictions were not more accurate than chance, so treat a prediction as one input among others.
 
 ## Ask an agent
 
