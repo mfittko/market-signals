@@ -41,6 +41,10 @@ The instrument page shows the live chart with the supertrend line, each flip, vo
 
 ![The WTI M5 instrument page.](screen:instrument "Live candles, signals with their verdicts, agents and news on one page.")
 
+Each ◆ below a candle marks news that arrived during that candle. A red ◆ includes an escalation. Hover a candle to see its open, high, low and close, the supertrend, any flip or paper trade on it, and up to three of its headlines with their source.
+
+![The WTI M5 chart with a candle tooltip that lists three headlines.](screen:chart-news "Hovering a candle with a news marker shows its prices, the supertrend and the headlines from that candle.")
+
 ## Read the news
 
 The news card on the instrument page shows headlines in English and only those that can move this market. The model translates each headline, judges its relevance and summarizes the article, and the console keeps those results. The card opens on escalations, and you can switch to all relevant headlines. Hover a headline to read its summary.
@@ -51,11 +55,19 @@ The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com a
 
 ## Ask for a prediction
 
-The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or tick "Auto-update" to run it on each new candle while the page is open. Predictions run on M1, M5, M15, M30, H1 and H4.
+The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or tick "Auto-update" to run it on each new candle while the console tab is visible. A tab that comes back from the background runs once to catch up. Predictions run on M1, M5, M15, M30, H1 and H4.
 
 ![The prediction card for WTI M5.](screen:prediction "One prediction with its probabilities, setup quality and the warning that it has no demonstrated edge.")
 
-Prediction is off by default. Enter the provider key and switch it on in the "Prediction model" card on the console Settings page. Every run is a paid provider call. The prediction is advisory: the bots, the alert filter and the notifier never read it. Only the open console tab can notify you, when an auto-updated prediction flips between long and short. In a historic backtest these predictions were not more accurate than chance, so treat a prediction as one input among others.
+Prediction is off by default. Enter the provider key and switch it on in the "Prediction model" card on the console Settings page. Every run is a paid provider call. The prediction is advisory: the bots, the alert filter and the notifier never read it. When an auto-updated prediction flips between long and short, the visible console tab can send a desktop notification. This needs the browser's notification permission and the "Prediction flips between long and short" option under "Desktop notifications from this console" on the Settings page. In a historic backtest these predictions were not more accurate than chance, so treat a prediction as one input among others.
+
+## Ask the copilot
+
+The copilot chat sits on every instrument page. It is the engine's trading copilot on your configured model provider. Each question carries the current view: the quote, the candles, the signal history, your notes, your trader memory and the bot's results. The copilot can widen that context with tools: FXEmpire articles, the breaking-news feed (with NewsAPI.ai when it is configured), Truth Social posts and live rates. Its answers link the articles it used.
+
+![The copilot chat on the WTI page, answering with linked headlines.](screen:chat "The copilot ties fresh headlines to the chart and the last signal, with links to each article.")
+
+Conversations are saved per market, so you can reopen one later. The copilot can save a strategy, memory or gate-prompt draft for you, but a draft never takes effect on its own. You activate it yourself.
 
 ## Ask an agent
 
