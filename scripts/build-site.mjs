@@ -25,7 +25,7 @@ marked.use({
       const n = href.slice(7);
       screens.add(n);
       const cap = title ? `<figcaption>${esc(title)}</figcaption>` : '';
-      // The link opens the full-size light image, so phone readers can zoom it.
+      // The link opens the full-size image; the lightbox script shows the one matching the color scheme.
       return `<figure class="shot"><a href="assets/screens/${n}-light.png"><picture><source srcset="assets/screens/${n}-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/screens/${n}-light.png" alt="${esc(text)}" loading="lazy"></picture></a>${cap}</figure>`;
     },
   },

@@ -26,5 +26,27 @@
   <p>Paper money only. This is software built in the open. It gives no financial advice and makes no claim about returns.</p>
   <p>Developed with <a href="https://mfittko.github.io/dev-loops/">dev-loops</a>.</p>
 </footer>
+<dialog class="lightbox" aria-label="Screenshot"><img alt=""><p><span></span><button type="button">Close</button></p></dialog>
+<script>
+// Open screenshots in a lightbox. currentSrc is the light or dark image the browser already picked.
+(() => {
+  const box = document.querySelector('dialog.lightbox');
+  if (!box || !box.showModal) return;
+  const img = box.querySelector('img'), cap = box.querySelector('span');
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('figure.shot a');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    const shot = a.querySelector('img');
+    // Small screens open the image itself, so readers can pinch-zoom it.
+    if (innerWidth < 700) { a.href = shot.currentSrc || shot.src; return; }
+    e.preventDefault();
+    img.src = shot.currentSrc || shot.src;
+    img.alt = shot.alt;
+    cap.textContent = a.closest('figure').querySelector('figcaption')?.textContent || shot.alt;
+    box.showModal();
+  });
+  box.addEventListener('click', () => box.close());
+})();
+</script>
 </body>
 </html>
