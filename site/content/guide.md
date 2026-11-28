@@ -33,7 +33,7 @@ In the console's Settings, choose a model provider and enter its endpoint and ke
 
 The desk lists every watched market. Each card shows the live price, a strip of recent candles, the bot state, the agents, the last signal and the age of its data. Star a market to keep it at the top, and pick a small, medium or large tile.
 
-![The desk with three watched markets.](screen:desk "You can filter the desk by market type, or show only markets with a bot or agent on.")
+![The desk with its watched markets.](screen:desk "You can filter the desk by market type, or show only markets with a bot or agent on.")
 
 ## Open a market
 
