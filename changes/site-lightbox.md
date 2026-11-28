@@ -1,0 +1,1 @@
+- Site: screenshots open in a lightbox in the current light or dark scheme; small screens open the matching image directly (#451)
