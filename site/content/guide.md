@@ -55,7 +55,7 @@ The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com a
 
 ## Ask for a prediction
 
-The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or tick "Auto-update" to run it on each new candle while the console tab is visible. A tab that comes back from the background runs once to catch up. Predictions run on M1, M5, M15, M30, H1 and H4.
+The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or tick "Auto-update" to run it on each new candle while the console tab is visible. When the tab comes back from the background, it runs once to catch up on a candle it missed. Predictions run on M1, M5, M15, M30, H1 and H4.
 
 ![The prediction card for WTI M5.](screen:prediction "One prediction with its probabilities, setup quality and the warning that it has no demonstrated edge.")
 
@@ -63,11 +63,11 @@ Prediction is off by default. Enter the provider key and switch it on in the "Pr
 
 ## Ask the copilot
 
-The copilot chat sits on every instrument page. It is the engine's trading copilot on your configured model provider. Each question carries the current view: the quote, the candles, the signal history, your notes, your trader memory and the bot's results. The copilot can widen that context with tools: FXEmpire articles, the breaking-news feed (with NewsAPI.ai when it is configured), Truth Social posts and live rates. Its answers link the articles it used.
+The copilot chat sits on every instrument page. It is the engine's trading copilot on your configured model provider. Each question carries the current view: the quote, the candles, the signal history, your notes, your trader memory and the bot's results. On the OpenAI and Anthropic providers, the copilot can widen that context with tools: FXEmpire articles, the breaking-news feed (with NewsAPI.ai when it is configured), Truth Social posts and live rates. Its answers link the articles it used.
 
 ![The copilot chat on the WTI page, answering with linked headlines.](screen:chat "The copilot ties fresh headlines to the chart and the last signal, with links to each article.")
 
-Conversations are saved per market, so you can reopen one later. The copilot can save a strategy, memory or gate-prompt draft for you, but a draft never takes effect on its own. You activate it yourself.
+Conversations are saved per market and timeframe, so you can reopen one later. The copilot can save a strategy, memory or gate-prompt draft for you, but a draft never takes effect on its own. You activate it yourself.
 
 ## Ask an agent
 
