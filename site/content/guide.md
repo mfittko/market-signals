@@ -33,7 +33,7 @@ In the console's Settings, choose a model provider and enter its endpoint and ke
 
 The desk lists every watched market. Each card shows the live price, a strip of recent candles, the bot state, the agents, the last signal and the age of its data. Star a market to keep it at the top, and pick a small, medium or large tile.
 
-![The desk with three watched markets.](screen:desk "You can filter the desk by market type, or show only markets with a bot or agent on.")
+![The desk with its watched markets.](screen:desk "You can filter the desk by market type, or show only markets with a bot or agent on.")
 
 ## Open a market
 
@@ -51,6 +51,8 @@ Press "Check this one now" on an agent, or "Check all now" to ask every model ag
 
 The Runs page lists every run. Above the list it shows how many workers are online and a pipeline health card with the queue, the leases, the last monitor pass and the model spend of the day. The Portfolio page shows the paper account, its open positions and its closed trades.
 
+![The Runs page with the pipeline health card.](screen:runs "Queue age, leases, cancel requests, the last monitor pass and the model spend of the day, above the list of runs.")
+
 ## Refine a strategy
 
 A strategy is a versioned prompt. You can edit it, compare it with an earlier version or refine it with the grill. The guided grill asks one question at a time and marks a recommended answer. The automatic grill replays past signals and reports which settings held up on data it did not tune on.
@@ -61,7 +63,7 @@ A strategy is a versioned prompt. You can edit it, compare it with an earlier ve
 
 The alerts page puts signals, agent proposals and paper trades on one time line. A desktop notification opens the matching instrument page.
 
-![The alerts page.](screen:alerts "Signals, proposals and trades in time order.")
+![The alerts page.](screen:alerts "Signals and other alerts in time order.")
 
 ## Keep it local
 

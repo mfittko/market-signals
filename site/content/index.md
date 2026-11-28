@@ -11,7 +11,7 @@ description: A signal desk for one trader. Agents advise on each alert and rules
 
 <div class="btns"><a class="btn primary" href="guide.html">See it in use</a><a class="btn" href="architecture.html">How it is built</a></div>
 
-![The desk shows every watched market, its bot state and its last signal.](screen:desk "The desk lists each watched market with its bot state, last signal and data freshness.")
+![The desk shows every watched market with its price and bot state.](screen:desk "The desk lists each watched market with its price, candle strip and bot state.")
 
 ## Alerts end too early
 

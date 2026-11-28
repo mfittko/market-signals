@@ -41,7 +41,7 @@ A model call takes seconds, costs money and sometimes fails. The monitor checks 
 4. The agent proposes to hold, or to open with an exit plan. Deterministic checks validate the proposal, and an invalid one becomes a hold.
 5. An accepted open becomes an advisory position, and the monitor manages it from then on.
 
-![A run page with the snapshot chart, the audit trail and the proposal.](screen:run "A finished run with its frozen chart, every tool call and model round, and the checked proposal.")
+![A run page with the audit trail, the attempts and the proposal.](screen:run "A finished run with every tool call and model round, its attempts and the checked proposal.")
 
 ## Technology
 
