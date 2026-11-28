@@ -66,8 +66,16 @@ a:hover { text-decoration: underline; }
 
 figure.shot { margin: 24px 0; }
 figure.shot img { width: 100%; height: auto; display: block; border: 1px solid var(--border); border-radius: 10px; }
-figure.shot img[src$="/news-light.png"] { max-width: 464px; margin: 0 auto; }
+figure.shot img[src$="/news-light.png"], figure.shot img[src$="/prediction-light.png"] { max-width: 464px; margin: 0 auto; }
 figure.shot figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; padding: 0 8px; }
 
 .foot { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; border-top: 1px solid var(--border); color: var(--muted); font-size: 14px; }
 @media (min-width: 900px) { figure.shot { margin: 28px 40px; } }
+
+/* Lightbox: a native dialog shows the full-size screenshot; Escape, a click or the close button closes it. */
+figure.shot a { cursor: zoom-in; }
+dialog.lightbox { padding: 0; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); max-width: 96vw; max-height: 94vh; overflow: auto; cursor: zoom-out; }
+dialog.lightbox::backdrop { background: rgb(0 0 0 / 0.75); }
+dialog.lightbox img { display: block; max-width: 96vw; max-height: calc(94vh - 4.5em); width: auto; height: auto; }
+dialog.lightbox p { margin: 0; padding: 8px 12px; font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
+dialog.lightbox button { font: inherit; color: var(--accent); background: none; border: 0; cursor: pointer; padding: 0; }

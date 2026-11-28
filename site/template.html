@@ -26,5 +26,35 @@
   <p>Paper money only. This is software built in the open. It gives no financial advice and makes no claim about returns.</p>
   <p>Developed with <a href="https://mfittko.github.io/dev-loops/">dev-loops</a>.</p>
 </footer>
+<dialog class="lightbox" aria-label="Screenshot"><img alt=""><p><span></span><button type="button">Close</button></p></dialog>
+<script>
+// Open screenshots in a lightbox. currentSrc is the light or dark image the browser already picked.
+(() => {
+  const box = document.querySelector('dialog.lightbox');
+  if (!box || !box.showModal) return;
+  const img = box.querySelector('img'), cap = box.querySelector('span');
+  // Point the link at the image the browser picked, so a new tab from any click or the context menu matches the color scheme.
+  const point = (e) => {
+    const a = e.target.closest('figure.shot a');
+    if (a) a.href = a.querySelector('img').currentSrc || a.querySelector('img').src;
+    return a;
+  };
+  document.addEventListener('auxclick', point);
+  document.addEventListener('contextmenu', point);
+  document.addEventListener('click', (e) => {
+    const a = point(e);
+    if (!a) return;
+    const shot = a.querySelector('img');
+    // Modified clicks and small screens follow the link; phones can pinch-zoom it.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || innerWidth < 700) return;
+    e.preventDefault();
+    img.src = shot.currentSrc || shot.src;
+    img.alt = shot.alt;
+    cap.textContent = a.closest('figure').querySelector('figcaption')?.textContent || shot.alt;
+    box.showModal();
+  });
+  box.addEventListener('click', () => box.close());
+})();
+</script>
 </body>
 </html>
