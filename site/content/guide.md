@@ -49,6 +49,14 @@ The news card on the instrument page shows headlines in English and only those t
 
 The free news stack needs no key: Google News, GDELT, Al Jazeera, OilPrice.com and Yahoo Finance. For fresher articles, add a [NewsAPI.ai](https://newsapi.ai) key in the News provider tab of the engine dashboard's settings (⚙) and adjust its request budget. The engine fetches NewsAPI.ai when it filters a fresh signal, when a bot deliberates and when you ask the copilot chat for news, and falls back to the free stack when the budget is used up. Set the NewsAPI.ai mode to `auto`, `shadow` or `off` in the same tab or on the console Settings page. In `shadow` the engine records the articles but keeps them out of prompts. GNews is a second provider and stays off until you enable it.
 
+## Ask for a prediction
+
+The prediction card on the instrument page asks a paid prediction provider whether to enter long, short or not at all on the current candle, judged over the next 3 candles. It shows the three probabilities, the confidence, a setup quality score and earlier runs. Press "Predict now", or let it update on each new candle. Predictions run on M1, M5, M15, M30, H1 and H4.
+
+![The prediction card for WTI M5.](screen:prediction "One prediction with its probabilities, setup quality and the warning that it has no demonstrated edge.")
+
+Prediction is off by default. Enter the provider key and switch it on in the "Prediction model" card on the console Settings page. Every run is a paid provider call. The prediction is advisory: the bots, the alert filter and the notifier never read it. In a historic backtest these predictions were not more accurate than chance, so treat a prediction as one input, not a signal.
+
 ## Ask an agent
 
 Press "Check this one now" on an agent, or "Check all now" to ask every model agent of the market. The console freezes the current state and asks the agent whether its strategy's entry conditions hold, and the answer arrives within seconds. The run page shows every tool call, every model round and the result of the deterministic checks.

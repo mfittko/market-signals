@@ -1,1 +1,1 @@
-- Site: screenshots open in a lightbox in the current light or dark scheme; small screens open the matching image directly (#451)
+- Site: screenshots open in a lightbox in the current light or dark scheme, small screens open the matching image directly, and the guide shows the prediction card (#451)
